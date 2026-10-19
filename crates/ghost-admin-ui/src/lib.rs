@@ -465,6 +465,36 @@ code { font-family: var(--mono); }
 #koenig-mount .kg-prose :where(h3):not(:where(.not-kg-prose, [class~=not-kg-prose] *)) { font-size: 1.95rem; }
 #koenig-mount .kg-prose :where(h4, h5, h6):not(:where(.not-kg-prose, [class~=not-kg-prose] *)) { font-size: 1.7rem; }
 #koenig-mount .koenig-lexical > * { color: var(--on-surface); }
+
+/* Keep breakout cards inside the editor.
+   Koenig sizes "wide" and "full" cards against the viewport — `75vw` and
+   `100vw`, pulled back by a `--kg-breakout-adjustment` — because Ghost's
+   editor is a narrow column of text in an otherwise empty page, so a card
+   can spill into the margins. Here the settings rail is in those margins and
+   the column is the full width already, which sent full-width cards out past
+   the rail and under the window edge.
+   The viewport maths is replaced outright rather than re-tuned: the
+   adjustment would have to track the rail, the gutter and the toggle, and
+   `75vw` is narrower than this column anyway, so a "wide" card would have
+   come out smaller than a regular one. Cards render at the column's width
+   while editing; `cardWidth` is untouched, so the post still breaks out on
+   the site. */
+#koenig-mount [data-kg-card] {
+  width: 100% !important;
+  min-width: 0 !important;
+  max-width: 100% !important;
+  margin-left: 0 !important;
+  margin-right: 0 !important;
+  transform: none !important;
+  left: auto !important;
+  right: auto !important;
+}
+/* Nothing inside a card may push past it either — an image carrying its own
+   intrinsic width, say. */
+#koenig-mount [data-kg-card] img,
+#koenig-mount [data-kg-card] video,
+#koenig-mount [data-kg-card] iframe { max-width: 100%; }
+#koenig-mount .koenig-lexical { overflow-x: clip; }
 /* The "Begin writing…" placeholder is a separate element with its own font. */
 #koenig-mount .koenig-lexical .font-serif { font-family: var(--font); }
 /* The card menu's rows are left exactly as Koenig draws them — the icon,
@@ -534,7 +564,10 @@ body:has(#side-toggle:checked) .editor-main { max-width: none; }
 .panel .chips { max-height: 220px; overflow-y: auto; }
 .editor-side .btn.text.danger { width: 100%; justify-content: center; }
 
-@media (max-width: 1099px) {
+/* Below this the two columns leave the editor too narrow to write in — the
+   rail, the gutter and the settings take ~680px before any text — so the
+   settings drop underneath and the editor takes the width back. */
+@media (max-width: 1199px) {
   .editor-shell, body:has(#side-toggle:checked) .editor-shell { grid-template-columns: minmax(0, 1fr); }
   .editor-side { position: static; max-height: none; overflow: visible; padding-right: 0; }
   .editor-main { padding-left: 0; }
