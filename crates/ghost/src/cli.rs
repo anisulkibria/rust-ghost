@@ -98,7 +98,8 @@ SETUP OPTIONS (all optional; omitted values are asked for interactively)
     --ssl            Get HTTPS certificates automatically (Let's Encrypt)
     --no-ssl         Serve plain HTTP (correct behind a TLS-terminating proxy)
     --email <addr>   Contact address for certificate expiry notices
-    --port <n>       Port to listen on (default 443 with HTTPS, else 2368)
+    --port <n>       Port to listen on. Without this: 443 with HTTPS, else the
+                     first free port from 2368 upwards
     --host <addr>    Address to bind (default 0.0.0.0 with HTTPS, else 127.0.0.1)
     --env <name>     Config environment: production (default) or development
     --staging        Use Let's Encrypt's staging CA while testing
@@ -106,7 +107,10 @@ SETUP OPTIONS (all optional; omitted values are asked for interactively)
 
 SYSTEMD OPTIONS
     --user <name>    Account to run as (default: the current user)
-    --write          Write to /etc/systemd/system/ghost.service instead of stdout
+    --name <slug>    Service name (default: ghost). Give each instance its own
+                     name to run several sites on one server
+    --write          Write the unit to /etc/systemd/system instead of stdout
+    --force          Replace an existing unit of the same name
 
 EXAMPLES
     ghost setup --url https://example.com --ssl --email me@example.com
@@ -211,14 +215,16 @@ pub fn setup(args: &Args) -> Result<(), String> {
     };
 
     // --- host and port -----------------------------------------------------
-    let port: Option<u16> = match args.get("port") {
-        Some(p) => Some(p.parse().map_err(|_| format!("--port '{p}' is not a number"))?),
-        None => None,
-    };
     // bind everywhere when serving the public directly; stay on loopback when
     // something else is fronting us
     let default_host = if ssl { "0.0.0.0" } else { "127.0.0.1" };
     let host = args.get("host").unwrap_or(default_host).to_string();
+
+    let asked_for: Option<u16> = match args.get("port") {
+        Some(p) => Some(p.parse().map_err(|_| format!("--port '{p}' is not a number"))?),
+        None => None,
+    };
+    let (port, url) = choose_port(&host, &url, asked_for, ssl)?;
 
     // --- write -------------------------------------------------------------
     let db = if env == "production" { "content/data/ghost.db" } else { "content/data/ghost-dev.db" };
@@ -304,6 +310,163 @@ pub fn setup(args: &Args) -> Result<(), String> {
 /// Minimal JSON string escaping, for the hand-built config above.
 fn json_str(s: &str) -> String {
     serde_json::Value::String(s.to_string()).to_string()
+}
+
+// ---------------------------------------------------------------------------
+// port selection
+// ---------------------------------------------------------------------------
+
+/// How far above the starting port to keep looking before giving up.
+const PORT_SEARCH_WINDOW: u16 = 64;
+
+/// Decide which port to install on, and keep the url's port in step with it.
+///
+/// Returns `(port_to_write, url)`. The port is `None` when the default for
+/// this configuration is correct and does not need stating in the file.
+///
+/// - An explicit `--port` is always honoured, free or not. If it is already
+///   taken that is worth knowing now, but it is not this function's call to
+///   override what was asked for.
+/// - With HTTPS there is nothing to search: 443 is the port browsers use for
+///   `https://example.com`, and quietly listening on 444 instead would make
+///   every link the site writes point at a closed port. A busy 443 means
+///   something else owns HTTPS on this machine, which is a decision to make,
+///   not a number to step past.
+/// - Otherwise — a local install, or one behind a reverse proxy — walk upwards
+///   from the intended port until something is free. 2368 is Ghost's
+///   traditional port and is often already serving another site.
+fn choose_port(
+    host: &str,
+    url: &str,
+    asked_for: Option<u16>,
+    ssl: bool,
+) -> Result<(Option<u16>, String), String> {
+    // the url's own port is the stated intent, so it is where a search starts
+    let from_url = url_port(url);
+
+    if let Some(port) = asked_for {
+        if port_status(host, port) == PortStatus::InUse {
+            println!("  note: port {port} is already in use. Installing there anyway, as asked —");
+            println!("        whatever is holding it will have to stop first.\n");
+        }
+        // `--port` wins over a port written into the url, and the url has to
+        // agree or every link the site writes would name the wrong one
+        return Ok((Some(port), set_url_port(url, port)));
+    }
+
+    if ssl {
+        // Nothing to search for, but a busy 443 is worth hearing about now
+        // rather than at first start — on a server that already runs nginx,
+        // Apache or another Ghost, this is the normal case.
+        for (port, what) in [(443u16, "HTTPS"), (80, "the HTTP redirect")] {
+            if port_status(host, port) == PortStatus::InUse {
+                println!("  note: port {port} ({what}) is already in use — something else on this");
+                println!("        server owns it. Two programs cannot share it, so either stop that");
+                println!("        one, or put it in front of this site as a reverse proxy and");
+                println!("        re-run with --no-ssl --port <n>.\n");
+            }
+        }
+        return Ok((None, url.to_string()));
+    }
+
+    let start = from_url.unwrap_or(2368);
+    let port = find_free_port(host, start)?;
+    if port != start {
+        println!("  note: port {start} is in use, so this install will use {port} instead.");
+        println!("        Pass --port to choose one yourself.\n");
+    }
+
+    // Writing the port only when it differs from the default keeps the common
+    // config file short, which is the one people read.
+    let needs_stating = port != 2368 || from_url.is_some();
+    Ok((needs_stating.then_some(port), set_url_port(url, port)))
+}
+
+/// Walk upwards from `start` until a port nothing is listening on turns up.
+fn find_free_port(host: &str, start: u16) -> Result<u16, String> {
+    let last = start.saturating_add(PORT_SEARCH_WINDOW);
+    (start..=last)
+        .find(|port| port_status(host, *port) == PortStatus::Free)
+        .ok_or_else(|| format!("no free port between {start} and {last}; pass --port to pick one"))
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum PortStatus {
+    Free,
+    /// Something is listening on it.
+    InUse,
+    /// Below 1024 and this process is not privileged. Says nothing about
+    /// whether anyone holds it, so it must not be reported as "in use".
+    Denied,
+}
+
+/// Whether `port` can be bound right now.
+///
+/// Binding and immediately dropping is the only honest test — a port can be
+/// held by a process this one cannot see. It does leave a gap between the
+/// check and the server's own bind, which is why a port that goes on to be
+/// taken is reported at startup rather than treated as impossible here.
+fn port_status(host: &str, port: u16) -> PortStatus {
+    if port == 0 {
+        return PortStatus::InUse;
+    }
+    let mut denied = false;
+    for addr in probe_addresses(host) {
+        match std::net::TcpListener::bind((addr.as_str(), port)) {
+            Ok(_) => {}
+            Err(e) if e.kind() == std::io::ErrorKind::PermissionDenied => denied = true,
+            Err(_) => return PortStatus::InUse,
+        }
+    }
+    match denied {
+        true => PortStatus::Denied,
+        false => PortStatus::Free,
+    }
+}
+
+/// Every address a bind on `host` could collide with.
+///
+/// One probe is not enough. Rust's `TcpListener` sets `SO_REUSEADDR`, which
+/// lets a wildcard bind succeed alongside a loopback-only one — so probing
+/// `0.0.0.0` alone reports a port as free while a neighbour is serving on
+/// `127.0.0.1`, which is exactly how a stock Ghost install binds. Checking the
+/// configured address *and* the wildcard *and* loopback is conservative: it can
+/// pass over a port that would technically have worked, which for choosing an
+/// install port is the right way to be wrong.
+fn probe_addresses(host: &str) -> Vec<String> {
+    let mut addrs = vec![host.to_string()];
+    for also in ["0.0.0.0", "127.0.0.1"] {
+        if !addrs.iter().any(|a| a == also) {
+            addrs.push(also.to_string());
+        }
+    }
+    addrs
+}
+
+/// The port written into a url, if it carries one.
+fn url_port(url: &str) -> Option<u16> {
+    authority(url)?.rsplit_once(':')?.1.parse().ok()
+}
+
+/// Replace the port in a url, leaving a url that carries none untouched — on a
+/// public site the port is implied by the scheme and does not belong there.
+fn set_url_port(url: &str, port: u16) -> String {
+    let Some(auth) = authority(url) else { return url.to_string() };
+    // `[::1]` has colons of its own; only a numeric tail is a port
+    let Some((hostname, existing)) = auth.rsplit_once(':') else { return url.to_string() };
+    if existing.parse::<u16>().is_err() {
+        return url.to_string();
+    }
+    url.replacen(&format!("{hostname}:{existing}"), &format!("{hostname}:{port}"), 1)
+}
+
+/// The `host[:port]` part of a url.
+fn authority(url: &str) -> Option<&str> {
+    let rest = url.split_once("://")?.1;
+    Some(match rest.find('/') {
+        Some(i) => &rest[..i],
+        None => rest,
+    })
 }
 
 /// Accept what people actually type — `example.com`, `example.com/blog`,
@@ -652,10 +815,52 @@ impl Report {
 // systemd
 // ---------------------------------------------------------------------------
 
-const UNIT_PATH: &str = "/etc/systemd/system/ghost.service";
+const UNIT_DIR: &str = "/etc/systemd/system";
+
+/// Validate a `--name` into something that can only ever be a filename in
+/// `/etc/systemd/system`, never a path out of it.
+fn unit_name(args: &Args) -> Result<String, String> {
+    let name = args.get("name").unwrap_or("ghost").trim().to_string();
+    let ok = !name.is_empty()
+        && name.len() <= 64
+        && name.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_');
+    if !ok {
+        return Err(format!(
+            "--name '{name}' is not usable as a service name (letters, digits, '-' and '_' only)"
+        ));
+    }
+    Ok(name)
+}
+
+/// Stop a second site from quietly taking over the first one's unit.
+///
+/// Installing another instance and forgetting `--name` would otherwise
+/// overwrite `ghost.service`, leaving one of the two services pointed at the
+/// wrong directory — and the symptom (a site serving someone else's content)
+/// is a long way from the cause. The existing unit's `WorkingDirectory` goes
+/// into the message, because that is what identifies which site is already
+/// installed.
+fn refuse_to_clobber(unit_path: &std::path::Path) -> Result<(), String> {
+    let Ok(existing) = std::fs::read_to_string(unit_path) else {
+        return Ok(()); // absent, or unreadable — the write will report that
+    };
+    let serving = existing
+        .lines()
+        .find_map(|l| l.strip_prefix("WorkingDirectory="))
+        .unwrap_or("(unknown directory)");
+    Err(format!(
+        "{} already exists, serving {serving}.\n\n\
+         To run this site alongside that one, give it its own name:\n\
+         \n    sudo ghost systemd --write --name my-other-site\n\n\
+         Or pass --force to replace the existing unit.",
+        unit_path.display()
+    ))
+}
 
 /// Emit a systemd unit for the current directory and binary.
 pub fn systemd(args: &Args) -> Result<(), String> {
+    let name = unit_name(args)?;
+    let unit_path = format!("{UNIT_DIR}/{name}.service");
     let binary = std::env::current_exe()
         .map_err(|e| format!("cannot find this binary's path: {e}"))?;
     let workdir = std::env::current_dir().map_err(|e| e.to_string())?;
@@ -682,7 +887,7 @@ pub fn systemd(args: &Args) -> Result<(), String> {
 
     let unit = format!(
         r#"[Unit]
-Description=Ghost-rust publishing platform
+Description=Ghost-rust publishing platform ({name})
 Documentation=https://github.com/TryGhost/Ghost
 # network-online rather than network: binding a specific address, and
 # requesting certificates, both need routing to actually be up.
@@ -722,23 +927,180 @@ WantedBy=multi-user.target
 
     if !args.flag("write") {
         print!("{unit}");
-        println!("# Save this as {UNIT_PATH}, then:");
+        println!("# Save this as {unit_path}, then:");
         println!("#   sudo systemctl daemon-reload");
-        println!("#   sudo systemctl enable --now ghost");
-        println!("#   sudo systemctl status ghost");
+        println!("#   sudo systemctl enable --now {name}");
+        println!("#   sudo systemctl status {name}");
         println!("#\n# Or let ghost write it: sudo ghost systemd --write");
         return Ok(());
     }
 
-    std::fs::write(UNIT_PATH, &unit).map_err(|e| match e.kind() {
+    if !args.flag("force") {
+        refuse_to_clobber(std::path::Path::new(&unit_path))?;
+    }
+
+    std::fs::write(&unit_path, &unit).map_err(|e| match e.kind() {
         std::io::ErrorKind::PermissionDenied => {
-            format!("cannot write {UNIT_PATH} — re-run with sudo")
+            format!("cannot write {unit_path} — re-run with sudo")
         }
-        _ => format!("cannot write {UNIT_PATH}: {e}"),
+        _ => format!("cannot write {unit_path}: {e}"),
     })?;
-    println!("wrote {UNIT_PATH}\n");
+    println!("wrote {unit_path}\n");
     println!("  sudo systemctl daemon-reload");
-    println!("  sudo systemctl enable --now ghost");
-    println!("  sudo systemctl status ghost");
+    println!("  sudo systemctl enable --now {name}");
+    println!("  sudo systemctl status {name}");
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn reads_the_port_out_of_a_url() {
+        assert_eq!(url_port("http://localhost:2368"), Some(2368));
+        assert_eq!(url_port("http://localhost:2368/blog"), Some(2368));
+        assert_eq!(url_port("https://example.com"), None);
+        assert_eq!(url_port("https://example.com/blog"), None);
+        // an IPv6 literal's colons are not a port
+        assert_eq!(url_port("http://[::1]/"), None);
+        assert_eq!(url_port("http://[::1]:2368/"), Some(2368));
+    }
+
+    /// The url and the listening port have to agree: a mismatch means every
+    /// link the site writes names a port nothing is listening on.
+    #[test]
+    fn rewrites_the_url_port_in_step() {
+        assert_eq!(set_url_port("http://localhost:2368", 2371), "http://localhost:2371");
+        assert_eq!(
+            set_url_port("http://localhost:2368/blog", 2371),
+            "http://localhost:2371/blog"
+        );
+        assert_eq!(set_url_port("http://[::1]:2368/", 2371), "http://[::1]:2371/");
+    }
+
+    /// A public url carries no port — the scheme implies it — so there is
+    /// nothing to rewrite, and adding one would be wrong.
+    #[test]
+    fn leaves_a_portless_url_alone() {
+        assert_eq!(set_url_port("https://example.com", 2371), "https://example.com");
+        assert_eq!(set_url_port("https://example.com/blog", 2371), "https://example.com/blog");
+        assert_eq!(set_url_port("http://[::1]/", 2371), "http://[::1]/");
+    }
+
+    /// A hostname that merely contains digits after a colon elsewhere in the
+    /// path must not be mistaken for the authority.
+    #[test]
+    fn only_the_authority_is_considered() {
+        assert_eq!(authority("http://localhost:2368/a:1"), Some("localhost:2368"));
+        assert_eq!(url_port("http://localhost/a:1"), None);
+        assert_eq!(set_url_port("http://localhost/a:1", 2371), "http://localhost/a:1");
+    }
+
+    #[test]
+    fn https_never_hunts_for_a_port() {
+        // 443 is implied by the scheme; stepping to 444 would break every link
+        let (port, url) = choose_port("127.0.0.1", "https://example.com", None, true).unwrap();
+        assert_eq!(port, None);
+        assert_eq!(url, "https://example.com");
+    }
+
+    #[test]
+    fn an_explicit_port_is_honoured_and_synced_into_the_url() {
+        let (port, url) =
+            choose_port("127.0.0.1", "http://localhost:2368", Some(9000), false).unwrap();
+        assert_eq!(port, Some(9000));
+        assert_eq!(url, "http://localhost:9000");
+    }
+
+    /// With the default port free, nothing needs saying in the config file.
+    #[test]
+    fn leaves_the_default_port_unstated() {
+        let free = find_free_port("127.0.0.1", 2368).unwrap();
+        if free != 2368 {
+            return; // something on this machine holds 2368; covered below
+        }
+        let (port, url) = choose_port("127.0.0.1", "http://localhost:2368", None, false).unwrap();
+        assert_eq!(url, "http://localhost:2368");
+        // 2368 is the default, but the url states it, so the file does too
+        assert_eq!(port, Some(2368));
+    }
+
+    /// The behaviour this feature exists for: step past an occupied port and
+    /// carry the url along with it.
+    #[test]
+    fn steps_past_an_occupied_port() {
+        // hold a port for the duration of the test
+        let held = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let taken = held.local_addr().unwrap().port();
+
+        let start_url = format!("http://localhost:{taken}");
+        let (port, url) = choose_port("127.0.0.1", &start_url, None, false).unwrap();
+        let port = port.expect("a stepped-to port is always stated");
+
+        assert!(port > taken, "expected a port above {taken}, got {port}");
+        assert_eq!(url, format!("http://localhost:{port}"));
+        drop(held);
+    }
+
+    /// When nothing in the window can be bound, say so and name the way out
+    /// rather than falling back to a port that will not work.
+    #[test]
+    fn reports_when_the_whole_window_is_unusable() {
+        // an address this machine does not hold cannot be bound at any port
+        let err = find_free_port("203.0.113.1", 2368).unwrap_err();
+        assert!(err.contains("--port"), "{err}");
+    }
+}
+
+#[cfg(test)]
+mod service_tests {
+    use super::*;
+    use std::collections::HashMap;
+
+    fn args(pairs: &[(&str, &str)]) -> Args {
+        Args(pairs.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect::<HashMap<_, _>>())
+    }
+
+    #[test]
+    fn defaults_to_one_service_called_ghost() {
+        assert_eq!(unit_name(&args(&[])).unwrap(), "ghost");
+    }
+
+    #[test]
+    fn names_each_instance_separately() {
+        assert_eq!(unit_name(&args(&[("name", "site-a")])).unwrap(), "site-a");
+        assert_eq!(unit_name(&args(&[("name", "blog_2")])).unwrap(), "blog_2");
+    }
+
+    /// The name becomes a filename under /etc/systemd/system, so it must not
+    /// be able to point anywhere else.
+    #[test]
+    fn refuses_a_name_that_could_escape_the_unit_directory() {
+        for bad in ["../../etc/passwd", "a/b", "", "  ", "with space", "sem;colon", "dot.service"] {
+            assert!(
+                unit_name(&args(&[("name", bad)])).is_err(),
+                "should have rejected {bad:?}"
+            );
+        }
+    }
+
+    /// The bug this guards: a second install overwriting the first one's unit.
+    #[test]
+    fn refuses_to_overwrite_another_sites_unit() {
+        let dir = std::env::temp_dir().join(format!("ghost-unit-test-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("ghost.service");
+
+        // nothing there yet: nothing to protect
+        assert!(refuse_to_clobber(&path).is_ok());
+
+        std::fs::write(&path, "[Service]\nWorkingDirectory=/var/www/first-site\n").unwrap();
+        let err = refuse_to_clobber(&path).unwrap_err();
+        // names the site already installed, and the way to run both
+        assert!(err.contains("/var/www/first-site"), "{err}");
+        assert!(err.contains("--name"), "{err}");
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
 }

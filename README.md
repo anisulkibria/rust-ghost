@@ -15,6 +15,9 @@ Three guides. Pick the one that matches what you are doing:
 | **2** | [Production server](#guide-2--production-server-with-a-domain-and-https) | A real site on your domain, with HTTPS |
 | **3** | [Subdomain or subdirectory](#guide-3--subdomain-or-subdirectory) | `blog.example.com` or `example.com/blog` |
 
+Running more than one site on the same server? See
+[Several sites on one server](#several-sites-on-one-server).
+
 ---
 
 ## Guide 1 — Local install
@@ -56,6 +59,20 @@ Open **http://localhost:2368/ghost/** and fill in the setup form. That creates
 the owner account and names the site.
 
 The site itself is at **http://localhost:2368**.
+
+> **Port 2368 already taken?** `cargo run` with no config file insists on it
+> and stops with `Address in use`, because the port is part of the url every
+> link is built from. To put this install somewhere else, write a config that
+> says so — `ghost setup` finds a free port on its own:
+>
+> ```bash
+> cargo run -- setup --env development --no-ssl --url http://localhost:2368
+> cargo run
+> ```
+>
+> It starts at the port in the url and walks upwards until one is free, then
+> writes that port **and** the matching url, so links stay correct. Add
+> `--port 4000` to choose a port instead of searching for one.
 
 ### Step 4 — Optional: fill it with demo content
 
@@ -245,9 +262,14 @@ That writes `config.production.json`:
 ```
 
 - `--ssl` turns on automatic certificates. The domain comes from `--url`, the
-  port defaults to 443, and port 80 redirects to HTTPS.
+  port is 443, and port 80 redirects to HTTPS.
 - `--email` is where Let's Encrypt sends expiry warnings if renewal ever
   breaks. Optional, but worth setting.
+- `--port <n>` if you need a different one. With HTTPS you rarely do: 443 is
+  the port `https://example.com` means, so it is not searched for or stepped
+  past — if something else already holds it, that is a decision to make (stop
+  it, or [put it in front](#behind-a-reverse-proxy)) rather than a number to
+  avoid.
 - Leave off the flags and `ghost setup` asks you for each value instead.
 
 > **Also want `www.example.com` to work?** Add a `CNAME` record for `www`
@@ -408,6 +430,81 @@ share one domain under different paths without logging each other out.
 
 ---
 
+## Several sites on one server
+
+Each instance is a directory: its own config, database, uploads and themes.
+Nothing is shared and nothing is global, so running more than one is a matter
+of giving each one its own directory, port and service name.
+
+```bash
+# first site
+sudo mkdir -p /var/www/first.com && sudo chown -R ghost:ghost /var/www/first.com
+cd /var/www/first.com
+sudo -u ghost ghost setup --url https://first.com --no-ssl
+sudo ghost systemd --write --name first
+sudo systemctl enable --now first
+
+# second site — same commands, different directory and name
+sudo mkdir -p /var/www/second.com && sudo chown -R ghost:ghost /var/www/second.com
+cd /var/www/second.com
+sudo -u ghost ghost setup --url https://second.com --no-ssl
+sudo ghost systemd --write --name second
+sudo systemctl enable --now second
+```
+
+Three things make this work:
+
+- **Ports sort themselves out.** `ghost setup` without `--port` starts at 2368
+  and walks upwards until it finds a port nothing is listening on, then writes
+  that port *and* the matching url. The second install lands on 2369, the third
+  on 2370, and so on. Pass `--port` to choose instead.
+
+- **`--name` gives each instance its own service.** Without it every install
+  writes `ghost.service`, and the second would take over the first. `ghost
+  systemd --write` now refuses to overwrite a unit that belongs to another
+  directory, and tells you the name flag — but it is simpler to pass it from
+  the start. The name is also what `systemctl` uses: `systemctl status first`.
+
+- **Sessions do not leak.** Admin cookies are scoped per host and per base
+  path, so signing in to one site does not sign you in to another — including
+  two installs on one domain under different paths (`/blog` and `/shop` get
+  `Path=/blog/ghost` and `Path=/shop/ghost`).
+
+### HTTPS for several sites
+
+Only one process can hold port 443, so built-in certificates work for **one**
+site per IP address. For several HTTPS sites on one server, terminate TLS once
+in a proxy and give each instance `--no-ssl` on its own port. Caddy does the
+certificates for every domain with no extra configuration:
+
+```caddy
+first.com  { reverse_proxy 127.0.0.1:2368 }
+second.com { reverse_proxy 127.0.0.1:2369 }
+```
+
+The same pattern routes several sites on one domain by path — see
+[Proxying a subdirectory](#proxying-a-subdirectory).
+
+### Alongside an existing Ghost (or anything else)
+
+A stock Ghost install usually holds 2368 — often several, on 2368, 2369, 2370
+— with nginx owning 80 and 443. Nothing has to move:
+
+```bash
+cd /var/www/new-site
+sudo -u ghost ghost setup --url https://new-site.com --no-ssl
+```
+
+The port search steps over whatever is already listening, including the
+loopback-only sockets Node's Ghost binds, and reports the port it settled on.
+Then add a server block to the nginx you already have, pointing at that port,
+exactly as in [Behind a reverse proxy](#behind-a-reverse-proxy).
+
+`ghost doctor` is worth running in each site's directory afterwards: it checks
+that instance's own ports, database and certificate state.
+
+---
+
 ## Commands
 
 | Command | What it does |
@@ -415,7 +512,7 @@ share one domain under different paths without logging each other out.
 | `ghost` | Run the server |
 | `ghost setup` | Write a config file: domain, HTTPS, port |
 | `ghost doctor` | Check this machine can serve the configured site |
-| `ghost systemd` | Print a systemd unit, or install it with `--write` |
+| `ghost systemd` | Print a systemd unit, or install it with `--write`. `--name` per instance |
 | `ghost seed-demo` | Fill the site with demo content |
 | `ghost version` | Print the version |
 | `ghost --help` | All of the above, with every flag |
@@ -592,7 +689,7 @@ Database migrations run automatically at startup. Back the database up first.
 | Symptom | Cause and fix |
 |---|---|
 | `cannot listen on 0.0.0.0:443: Permission denied` | Ports under 1024 need a capability. Use the systemd unit from `ghost systemd`, or `sudo setcap 'cap_net_bind_service=+ep' $(which ghost)`. |
-| `cannot listen on …: Address in use` | Something else holds the port — often an existing nginx or Apache. `sudo lsof -i :443`. |
+| `cannot listen on …: Address in use` | Something else holds the port — often an existing nginx or Apache. Find it with `sudo lsof -i :443`. To move this install instead, re-run `ghost setup --force --port <n>`, or drop `--port` and let it find a free one. The server itself never changes port on its own: the port is part of the url every link is built from, so moving silently would break them all. |
 | Browser shows a certificate warning | Either `"staging": true` is still set, or the certificate has not been issued yet. Check `journalctl -u ghost` for the ACME exchange. |
 | Certificate never issues | Almost always DNS or a blocked port 443. Run `ghost doctor`; it checks both. Cloudflare's orange-cloud proxy also intercepts the challenge — set that record to "DNS only". |
 | `ssl is on but url is 'http://…'` | Change `url` to `https://`. The message names the exact value. |
@@ -622,7 +719,7 @@ be set as an environment variable with `GHOST_` and `__` for nesting —
 | `url` | `http://localhost:2368` | Public url, including any subdirectory. Decides the base path and every URL the site writes. |
 | `ssl` | `false` | `true` for automatic certificates, `false` for plain HTTP, or an object (see above). |
 | `server.host` | `127.0.0.1` | Address to bind. `ghost setup` writes `0.0.0.0` when serving the public directly. |
-| `server.port` | 443 with TLS, else 2368 | Port to bind. |
+| `server.port` | 443 with TLS, else 2368 | Port to bind. If a url carries a port, the two must agree — `ghost setup` keeps them in step. |
 | `database.connection.filename` | `content/data/ghost.db` | SQLite file, relative to the config's directory. |
 | `paths.contentPath` | `content` | Themes, images, data, the ACME cache. |
 | `mail.transport` | `Direct` | Starting value only; email is configured in the admin. |
@@ -700,8 +797,9 @@ content/          themes/, data/, images/, routes.yaml, redirects.yaml
 cargo test --workspace
 ```
 
-250 unit tests: NQL parser/SQL compilation (incl. injection attempts), slug
+263 unit tests: NQL parser/SQL compilation (incl. injection attempts), slug
 rules, routes.yaml parsing + router matching, redirects, template resolution,
 preprocessor rewrites, markdown pipeline, handlebars helper mechanics,
-base-path joining/stripping with the HTML rewrite in both directions, and
-`url` + `ssl` resolving into a listening plan.
+base-path joining/stripping with the HTML rewrite in both directions,
+`url` + `ssl` resolving into a listening plan, install-time port selection,
+and per-instance service naming.
