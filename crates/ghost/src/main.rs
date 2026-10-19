@@ -2,6 +2,9 @@
 //!
 //! config → db + migrate + seed → settings cache → routes.yaml → redirects
 //! → theme activation → build app → listen.
+mod cli;
+mod serve;
+
 use ghost_api::AppState;
 use ghost_db::repos;
 use std::sync::atomic::AtomicBool;
@@ -11,9 +14,41 @@ use tracing_subscriber::EnvFilter;
 
 #[tokio::main]
 async fn main() {
+    // The commands that only read or write files print plainly and exit;
+    // installing a log subscriber first would dress their output up as server
+    // logs.
+    let command = cli::parse();
+    match &command {
+        cli::Command::Help => return cli::print_help(),
+        cli::Command::Version => return cli::print_version(),
+        cli::Command::Setup(args) => {
+            if let Err(e) = cli::setup(args) {
+                eprintln!("\nsetup failed: {e}\n");
+                std::process::exit(1);
+            }
+            return;
+        }
+        cli::Command::Systemd(args) => {
+            if let Err(e) = cli::systemd(args) {
+                eprintln!("{e}");
+                std::process::exit(1);
+            }
+            return;
+        }
+        cli::Command::Doctor | cli::Command::SeedDemo | cli::Command::Start => {}
+    }
+
     tracing_subscriber::fmt()
         .with_env_filter(EnvFilter::try_from_default_env().unwrap_or_else(|_| "info".into()))
         .init();
+
+    if matches!(command, cli::Command::Doctor) {
+        println!("\nChecking this install\n");
+        std::process::exit(match cli::doctor().await {
+            true => 0,
+            false => 1,
+        });
+    }
 
     let started = std::time::Instant::now();
 
@@ -28,6 +63,17 @@ async fn main() {
     if !subdir.is_empty() {
         tracing::info!("installed under base path {subdir} ({})", config.canonical_url());
     }
+
+    // Resolve how to listen before doing any work: a contradiction between
+    // `url` and `ssl` should fail in the first second with the fix in the
+    // message, not after migrating a database.
+    let plan = match config.serve_plan() {
+        Ok(plan) => plan,
+        Err(e) => {
+            tracing::error!("{}", e.message());
+            std::process::exit(1);
+        }
+    };
 
     // ensure content dirs
     for dir in [
@@ -55,7 +101,7 @@ async fn main() {
 
     // `ghost seed-demo` fills the site with demo content and exits, rather
     // than starting the server
-    if std::env::args().nth(1).as_deref() == Some("seed-demo") {
+    if matches!(command, cli::Command::SeedDemo) {
         match ghost_db::demo::seed_demo(&db).await {
             Ok(s) => {
                 tracing::info!(
@@ -159,24 +205,16 @@ async fn main() {
     let app = mount(build_app(state), subdir);
 
     // 9. listen
-    let addr = format!("{}:{}", config.server.host, config.server.port);
-    let listener = tokio::net::TcpListener::bind(&addr).await.expect("bind");
     tracing::info!(
-        "Ghost-rust ready in {:.2}s — listening on http://{}{}",
+        "Ghost-rust ready in {:.2}s — {} (admin at {}/ghost/)",
         started.elapsed().as_secs_f64(),
-        addr,
-        subdir
+        config.canonical_url(),
+        config.canonical_url()
     );
-
-    // `into_make_service` rather than handing the router straight to `serve`:
-    // the base-path layer is a plain tower service wrapped *around* the
-    // router, so it has to be made into a MakeService here.
-    axum::serve(
-        listener,
-        <_ as axum::ServiceExt<axum::extract::Request>>::into_make_service(app),
-    )
-    .await
-    .expect("server");
+    if let Err(e) = serve::run(&plan, app, &config.canonical_url()).await {
+        tracing::error!("server stopped: {e}");
+        std::process::exit(1);
+    }
 }
 
 /// Mount the whole app under `subdir` by stripping the base path off incoming

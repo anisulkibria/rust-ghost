@@ -19,6 +19,10 @@ pub struct Config {
     pub mail: serde_json::Value,
     #[serde(default)]
     pub admin: serde_json::Value,
+    /// HTTPS. `true` means "get certificates from Let's Encrypt and serve
+    /// them"; see [`Ssl`].
+    #[serde(default)]
+    pub ssl: Ssl,
     /// Environment name this config was loaded for.
     #[serde(skip)]
     pub env: String,
@@ -31,15 +35,108 @@ pub struct Config {
 pub struct ServerConfig {
     #[serde(default = "default_host")]
     pub host: String,
-    #[serde(default = "default_port")]
-    pub port: u16,
+    /// Left unset so the default can depend on HTTPS: 443 with TLS, 2368
+    /// without. Read it through [`Config::port`] rather than directly.
+    #[serde(default)]
+    pub port: Option<u16>,
+}
+
+impl Default for ServerConfig {
+    fn default() -> Self {
+        Self { host: default_host(), port: None }
+    }
 }
 
 fn default_host() -> String {
     "127.0.0.1".into()
 }
-fn default_port() -> u16 {
-    2368
+
+/// The `ssl` config value, which takes either a bool or an options object:
+///
+/// ```json
+/// "ssl": true
+/// "ssl": { "email": "admin@example.com", "staging": true }
+/// "ssl": { "mode": "manual", "cert": "/etc/ssl/site.pem", "key": "/etc/ssl/site.key" }
+/// ```
+///
+/// `true` is the whole configuration for a normal HTTPS site: certificates are
+/// issued and renewed automatically for the host in `url`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum Ssl {
+    /// `"ssl": true` / `"ssl": false`
+    Toggle(bool),
+    /// `"ssl": { … }`
+    Options(Box<SslOptions>),
+}
+
+impl Default for Ssl {
+    fn default() -> Self {
+        Ssl::Toggle(false)
+    }
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct SslOptions {
+    /// `"auto"` (Let's Encrypt, the default), `"manual"`, or `"off"`.
+    #[serde(default)]
+    pub mode: Option<String>,
+    /// Hostnames to get certificates for. Defaults to the host in `url`.
+    #[serde(default)]
+    pub domains: Vec<String>,
+    /// Contact address registered with the certificate authority, which is
+    /// where expiry warnings go if renewal ever stops working.
+    #[serde(default)]
+    pub email: Option<String>,
+    /// Use Let's Encrypt's staging CA. Its certificates are not trusted by
+    /// browsers, but its rate limits are far looser — the right place to
+    /// confirm a setup works before spending real quota on it.
+    #[serde(default)]
+    pub staging: bool,
+    /// `mode: "manual"`: PEM certificate chain and private key.
+    #[serde(default)]
+    pub cert: Option<String>,
+    #[serde(default)]
+    pub key: Option<String>,
+    /// Where issued certificates are cached between restarts.
+    #[serde(default, alias = "cacheDir")]
+    pub cache_dir: Option<String>,
+    /// Port for the HTTP listener that redirects to HTTPS. `0` disables it.
+    /// Defaults to 80, which is also where Let's Encrypt's HTTP challenge
+    /// would arrive.
+    #[serde(default, alias = "redirectHttp")]
+    pub redirect_http: Option<u16>,
+}
+
+/// How the server should listen: the resolved form of `server` + `ssl`.
+#[derive(Debug, Clone)]
+pub struct ServePlan {
+    pub host: String,
+    pub port: u16,
+    pub tls: TlsPlan,
+    /// Port serving permanent redirects to the canonical HTTPS url.
+    pub redirect_http: Option<u16>,
+}
+
+#[derive(Debug, Clone)]
+pub enum TlsPlan {
+    /// Plain HTTP. Correct on its own for local use, and behind a proxy that
+    /// terminates TLS itself.
+    Off,
+    /// Certificates issued and renewed automatically over ACME.
+    Acme { domains: Vec<String>, email: Option<String>, staging: bool, cache_dir: PathBuf },
+    /// Certificates supplied as files.
+    Manual { cert: PathBuf, key: PathBuf },
+}
+
+impl ServePlan {
+    pub fn bind_addr(&self) -> String {
+        format!("{}:{}", self.host, self.port)
+    }
+
+    pub fn is_tls(&self) -> bool {
+        !matches!(self.tls, TlsPlan::Off)
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -184,13 +281,141 @@ impl Config {
     pub fn canonical_url(&self) -> String {
         format!("{}{}", self.site_origin(), self.subdir())
     }
+
+    /// Hostname from `url`, with any port removed.
+    pub fn host(&self) -> String {
+        self.url
+            .splitn(4, '/')
+            .nth(2)
+            .unwrap_or_default()
+            .rsplit_once(':')
+            // only a trailing *port* is stripped, not part of an IPv6 literal
+            .filter(|(_, port)| port.chars().all(|c| c.is_ascii_digit()) && !port.is_empty())
+            .map(|(host, _)| host)
+            .unwrap_or_else(|| self.url.splitn(4, '/').nth(2).unwrap_or_default())
+            .to_string()
+    }
+
+    /// Whether `url` names a host a public certificate authority could
+    /// validate. `localhost`, `*.local` and bare IPs cannot be.
+    pub fn host_is_public(&self) -> bool {
+        let host = self.host();
+        if host.is_empty() || host == "localhost" || host.ends_with(".local") || host.ends_with(".localhost") {
+            return false;
+        }
+        // an IP address has no DNS record to validate
+        if host.parse::<std::net::IpAddr>().is_ok() {
+            return false;
+        }
+        host.contains('.')
+    }
+
+    pub fn port(&self) -> u16 {
+        self.serve_plan().map(|p| p.port).unwrap_or(2368)
+    }
+
+    /// Resolve `server` + `ssl` into one listening plan.
+    ///
+    /// Defaults are chosen so that the common cases need almost no config:
+    /// `"ssl": true` alone is a complete HTTPS setup, because the domain comes
+    /// from `url`, the port defaults to 443 and the HTTP redirect to 80.
+    pub fn serve_plan(&self) -> Result<ServePlan> {
+        let opts = match &self.ssl {
+            Ssl::Toggle(false) => None,
+            Ssl::Toggle(true) => Some(SslOptions::default()),
+            Ssl::Options(o) => Some((**o).clone()),
+        };
+        let mode = opts
+            .as_ref()
+            .and_then(|o| o.mode.clone())
+            .unwrap_or_else(|| match opts.is_some() {
+                true => "auto".into(),
+                false => "off".into(),
+            });
+
+        let tls = match mode.as_str() {
+            "off" | "false" | "none" => TlsPlan::Off,
+            "manual" | "file" | "files" => {
+                let o = opts.clone().unwrap_or_default();
+                let (Some(cert), Some(key)) = (o.cert.clone(), o.key.clone()) else {
+                    return Err(GhostError::ConfigError(
+                        "ssl mode \"manual\" needs both \"cert\" and \"key\" (paths to PEM files)".into(),
+                    ));
+                };
+                TlsPlan::Manual { cert: self.resolve_path(&cert), key: self.resolve_path(&key) }
+            }
+            "auto" | "acme" | "letsencrypt" | "true" => {
+                let o = opts.clone().unwrap_or_default();
+                let domains = match o.domains.is_empty() {
+                    true => vec![self.host()],
+                    false => o.domains.clone(),
+                };
+                if !self.host_is_public() && o.domains.is_empty() {
+                    return Err(GhostError::ConfigError(format!(
+                        "automatic certificates need a public domain, but url is '{}'. \
+                         Use a real hostname, or for local HTTPS set \
+                         ssl.mode to \"manual\" with your own cert and key.",
+                        self.url
+                    )));
+                }
+                TlsPlan::Acme {
+                    domains,
+                    email: o.email.clone(),
+                    staging: o.staging,
+                    cache_dir: o
+                        .cache_dir
+                        .as_deref()
+                        .map(|d| self.resolve_path(d))
+                        .unwrap_or_else(|| self.content_path().join("acme")),
+                }
+            }
+            other => {
+                return Err(GhostError::ConfigError(format!(
+                    "unknown ssl mode '{other}' (expected \"auto\", \"manual\" or \"off\")"
+                )))
+            }
+        };
+
+        let is_tls = !matches!(tls, TlsPlan::Off);
+        // Serving HTTPS on a url that says http:// would make every link the
+        // site writes point at a port that is not listening.
+        if is_tls && self.url.starts_with("http://") {
+            return Err(GhostError::ConfigError(format!(
+                "ssl is on but url is '{}' — change it to 'https://{}'",
+                self.url,
+                self.url.trim_start_matches("http://")
+            )));
+        }
+
+        let port = self.server.port.unwrap_or(if is_tls { 443 } else { 2368 });
+        let redirect_http = match (is_tls, opts.as_ref().and_then(|o| o.redirect_http)) {
+            (false, _) => None,
+            (true, Some(0)) => None,
+            (true, Some(p)) => Some(p),
+            (true, None) => Some(80),
+        };
+
+        Ok(ServePlan { host: self.server.host.clone(), port, tls, redirect_http })
+    }
+
+    /// Resolve a configured path against the config's directory, so relative
+    /// paths in a config file mean what the person writing it expected.
+    fn resolve_path(&self, p: &str) -> PathBuf {
+        let path = Path::new(p);
+        match path.is_absolute() {
+            true => path.to_path_buf(),
+            false => self.base_dir.join(path),
+        }
+    }
 }
 
 fn default_config(env: &str) -> serde_json::Value {
     let db_file = if env == "production" { "content/data/ghost.db" } else { "content/data/ghost-dev.db" };
     serde_json::json!({
         "url": "http://localhost:2368",
-        "server": { "host": default_host(), "port": default_port() },
+        // port is left out on purpose: its default depends on whether TLS is
+        // on, which `serve_plan` decides
+        "server": { "host": default_host() },
         "database": {
             "client": "sqlite3",
             "connection": { "filename": db_file }
@@ -280,10 +505,10 @@ mod tests {
 
     /// `Config::load` reads the filesystem and the environment; the base-path
     /// derivation under test here is pure, so build the value directly.
-    fn with_url(url: &str) -> Config {
+    pub(super) fn with_url(url: &str) -> Config {
         Config {
             url: url.into(),
-            server: ServerConfig { host: default_host(), port: default_port() },
+            server: ServerConfig::default(),
             database: DatabaseConfig {
                 client: default_client(),
                 connection: ConnectionConfig { filename: "x.db".into() },
@@ -291,9 +516,14 @@ mod tests {
             paths: PathsConfig::default(),
             mail: serde_json::Value::Null,
             admin: serde_json::Value::Null,
+            ssl: Ssl::default(),
             env: "test".into(),
             base_dir: PathBuf::from("/tmp"),
         }
+    }
+
+    pub(super) fn with_ssl(url: &str, ssl: Ssl) -> Config {
+        Config { ssl, ..with_url(url) }
     }
 
     #[test]
@@ -322,5 +552,136 @@ mod tests {
     fn site_origin_drops_the_base_path() {
         assert_eq!(with_url("https://site.com/blog").site_origin(), "https://site.com");
         assert_eq!(with_url("http://localhost:2368/a/b").site_origin(), "http://localhost:2368");
+    }
+}
+
+#[cfg(test)]
+mod serve_plan_tests {
+    use super::tests::{with_ssl, with_url};
+    use super::*;
+
+    #[test]
+    fn plain_http_is_the_default() {
+        let plan = with_url("http://localhost:2368").serve_plan().unwrap();
+        assert!(matches!(plan.tls, TlsPlan::Off));
+        assert_eq!(plan.port, 2368);
+        assert_eq!(plan.redirect_http, None);
+    }
+
+    /// `"ssl": true` has to be a complete HTTPS configuration on its own — the
+    /// domain, the port and the redirect all follow from `url`.
+    #[test]
+    fn ssl_true_is_a_whole_https_setup() {
+        let plan = with_ssl("https://example.com", Ssl::Toggle(true)).serve_plan().unwrap();
+        assert_eq!(plan.port, 443);
+        assert_eq!(plan.redirect_http, Some(80));
+        match plan.tls {
+            TlsPlan::Acme { domains, staging, .. } => {
+                assert_eq!(domains, vec!["example.com".to_string()]);
+                assert!(!staging);
+            }
+            other => panic!("expected acme, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn explicit_port_still_wins() {
+        let mut cfg = with_ssl("https://example.com", Ssl::Toggle(true));
+        cfg.server.port = Some(8443);
+        assert_eq!(cfg.serve_plan().unwrap().port, 8443);
+    }
+
+    #[test]
+    fn redirect_can_be_turned_off() {
+        let cfg = with_ssl(
+            "https://example.com",
+            Ssl::Options(Box::new(SslOptions { redirect_http: Some(0), ..Default::default() })),
+        );
+        assert_eq!(cfg.serve_plan().unwrap().redirect_http, None);
+    }
+
+    #[test]
+    fn manual_mode_takes_cert_and_key() {
+        let cfg = with_ssl(
+            "https://example.com",
+            Ssl::Options(Box::new(SslOptions {
+                mode: Some("manual".into()),
+                cert: Some("/etc/ssl/a.pem".into()),
+                key: Some("relative.key".into()),
+                ..Default::default()
+            })),
+        );
+        match cfg.serve_plan().unwrap().tls {
+            TlsPlan::Manual { cert, key } => {
+                assert_eq!(cert, PathBuf::from("/etc/ssl/a.pem"));
+                // relative paths resolve against the config's directory
+                assert_eq!(key, PathBuf::from("/tmp/relative.key"));
+            }
+            other => panic!("expected manual, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn manual_mode_without_files_is_refused() {
+        let cfg = with_ssl(
+            "https://example.com",
+            Ssl::Options(Box::new(SslOptions { mode: Some("manual".into()), ..Default::default() })),
+        );
+        assert!(cfg.serve_plan().is_err());
+    }
+
+    /// The two ways a config can contradict itself. Both messages have to name
+    /// the fix, since this is the first thing a new install hits.
+    #[test]
+    fn contradictions_are_refused_with_a_usable_message() {
+        let http_with_ssl = with_ssl("http://example.com", Ssl::Toggle(true));
+        let err = http_with_ssl.serve_plan().unwrap_err().message();
+        assert!(err.contains("https://example.com"), "{err}");
+
+        let local_with_acme = with_ssl("https://localhost", Ssl::Toggle(true));
+        let err = local_with_acme.serve_plan().unwrap_err().message();
+        assert!(err.contains("manual"), "{err}");
+    }
+
+    #[test]
+    fn unknown_mode_is_refused() {
+        let cfg = with_ssl(
+            "https://example.com",
+            Ssl::Options(Box::new(SslOptions { mode: Some("magic".into()), ..Default::default() })),
+        );
+        assert!(cfg.serve_plan().is_err());
+    }
+
+    #[test]
+    fn host_parsing_handles_ports_and_paths() {
+        assert_eq!(with_url("https://example.com").host(), "example.com");
+        assert_eq!(with_url("https://example.com/blog").host(), "example.com");
+        assert_eq!(with_url("http://localhost:2368").host(), "localhost");
+        assert_eq!(with_url("http://127.0.0.1:2368/blog").host(), "127.0.0.1");
+    }
+
+    #[test]
+    fn only_real_domains_can_get_automatic_certificates() {
+        assert!(with_url("https://example.com").host_is_public());
+        assert!(with_url("https://blog.example.co.uk/x").host_is_public());
+        assert!(!with_url("http://localhost:2368").host_is_public());
+        assert!(!with_url("http://127.0.0.1:2368").host_is_public());
+        assert!(!with_url("https://mymac.local").host_is_public());
+        assert!(!with_url("https://intranet").host_is_public());
+    }
+
+    /// `ssl` accepts a bool or an object; both shapes come from real configs.
+    #[test]
+    fn ssl_deserializes_from_bool_or_object() {
+        let t: Ssl = serde_json::from_str("true").unwrap();
+        assert!(matches!(t, Ssl::Toggle(true)));
+        let o: Ssl = serde_json::from_str(r#"{"email":"a@b.c","staging":true}"#).unwrap();
+        match o {
+            Ssl::Options(o) => {
+                assert_eq!(o.email.as_deref(), Some("a@b.c"));
+                assert!(o.staging);
+            }
+            other => panic!("expected options, got {other:?}"),
+        }
     }
 }
