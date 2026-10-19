@@ -186,13 +186,29 @@ pub struct ApiKey {
 ///
 /// `url` must be precomputed by the caller (routing-owned permalink).
 /// Relations are already resolved: `authors`, `tags` ordered with primary first.
+/// Put a stored image field into browser-ready form.
+///
+/// Image fields are persisted without the install's base path, and every
+/// serializer in this module is an output boundary — so this is where it goes
+/// on. A theme reading a field raw (`{{post.feature_image}}`) then gets a
+/// working URL, and because `url::base_asset` cannot double-apply, routing the
+/// same value through `{{img_url}}` stays correct as well.
+fn public_image(v: &Option<String>) -> Value {
+    match v.as_deref() {
+        Some(p) => json!(crate::url::base_asset(p)),
+        None => Value::Null,
+    }
+}
+
 pub fn post_to_json(p: &Post, authors: &[User], tags: &[Tag], url: &str) -> Value {
     let mut m = Map::new();
     m.insert("id".into(), json!(p.id));
     m.insert("uuid".into(), json!(p.uuid));
     m.insert("title".into(), json!(p.title));
     m.insert("slug".into(), json!(p.slug));
-    m.insert("html".into(), json!(p.html));
+    // stored post HTML carries root-relative image sources and internal
+    // links; both need the base path to resolve in a browser
+    m.insert("html".into(), json!(p.html.as_deref().map(crate::url::rewrite_html)));
     m.insert("comment_id".into(), json!(p.comment_id.clone().or_else(|| p.uuid.clone())));
     m.insert("featured".into(), json!(p.featured));
     m.insert("status".into(), json!(p.status));
@@ -201,7 +217,7 @@ pub fn post_to_json(p: &Post, authors: &[User], tags: &[Tag], url: &str) -> Valu
     m.insert("reading_time".into(), json!(p.reading_time));
     m.insert("access".into(), json!(p.visibility == "public"));
     m.insert("url".into(), json!(url));
-    m.insert("feature_image".into(), json!(p.feature_image));
+    m.insert("feature_image".into(), public_image(&p.feature_image));
     m.insert(
         "excerpt".into(),
         json!(p
@@ -227,10 +243,8 @@ pub fn post_to_json(p: &Post, authors: &[User], tags: &[Tag], url: &str) -> Valu
         for (k, v) in [
             ("meta_title", &meta.meta_title),
             ("meta_description", &meta.meta_description),
-            ("og_image", &meta.og_image),
             ("og_title", &meta.og_title),
             ("og_description", &meta.og_description),
-            ("twitter_image", &meta.twitter_image),
             ("twitter_title", &meta.twitter_title),
             ("twitter_description", &meta.twitter_description),
             ("email_subject", &meta.email_subject),
@@ -239,6 +253,8 @@ pub fn post_to_json(p: &Post, authors: &[User], tags: &[Tag], url: &str) -> Valu
         ] {
             m.insert(k.into(), json!(v));
         }
+        m.insert("og_image".into(), public_image(&meta.og_image));
+        m.insert("twitter_image".into(), public_image(&meta.twitter_image));
     }
 
     m.insert("authors".into(), Value::Array(authors.iter().map(|a| user_public_json(a, None)).collect()));
@@ -278,8 +294,8 @@ pub fn user_public_json(u: &User, url: Option<&str>) -> Value {
     m.insert("name".into(), json!(u.name));
     m.insert("slug".into(), json!(u.slug));
     m.insert("url".into(), json!(url));
-    m.insert("profile_image".into(), json!(u.profile_image));
-    m.insert("cover_image".into(), json!(u.cover_image));
+    m.insert("profile_image".into(), public_image(&u.profile_image));
+    m.insert("cover_image".into(), public_image(&u.cover_image));
     m.insert("bio".into(), json!(u.bio));
     m.insert("website".into(), json!(u.website));
     m.insert("location".into(), json!(u.location));
@@ -303,15 +319,15 @@ pub fn tag_to_json(t: &Tag, url: Option<&str>) -> Value {
     m.insert("name".into(), json!(t.name));
     m.insert("slug".into(), json!(t.slug));
     m.insert("description".into(), json!(t.description));
-    m.insert("feature_image".into(), json!(t.feature_image));
+    m.insert("feature_image".into(), public_image(&t.feature_image));
     m.insert("url".into(), json!(url));
     m.insert("visibility".into(), json!(t.visibility));
     m.insert("meta_title".into(), json!(t.meta_title));
     m.insert("meta_description".into(), json!(t.meta_description));
-    m.insert("og_image".into(), json!(t.og_image));
+    m.insert("og_image".into(), public_image(&t.og_image));
     m.insert("og_title".into(), json!(t.og_title));
     m.insert("og_description".into(), json!(t.og_description));
-    m.insert("twitter_image".into(), json!(t.twitter_image));
+    m.insert("twitter_image".into(), public_image(&t.twitter_image));
     m.insert("twitter_title".into(), json!(t.twitter_title));
     m.insert("twitter_description".into(), json!(t.twitter_description));
     m.insert("codeinjection_head".into(), json!(t.codeinjection_head));

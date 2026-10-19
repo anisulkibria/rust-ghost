@@ -21,6 +21,14 @@ async fn main() {
     let config = Arc::new(ghost_core::Config::load(None).expect("config"));
     tracing::info!("Ghost-rust booting (env: {})", config.env);
 
+    // The base path from `config.url` decides both where the app mounts and
+    // how every URL it writes is prefixed. Publish it before anything that
+    // renders or serializes can run.
+    let subdir = ghost_core::url::init(&config.subdir()).expect("base path");
+    if !subdir.is_empty() {
+        tracing::info!("installed under base path {subdir} ({})", config.canonical_url());
+    }
+
     // ensure content dirs
     for dir in [
         config.content_path(),
@@ -147,19 +155,103 @@ async fn main() {
         tracing::info!("Content API key (ghost-core-content): {key}");
     }
 
-    // 8. build the app
-    let app = build_app(state);
+    // 8. build the app, mounted under the base path
+    let app = mount(build_app(state), subdir);
 
     // 9. listen
     let addr = format!("{}:{}", config.server.host, config.server.port);
     let listener = tokio::net::TcpListener::bind(&addr).await.expect("bind");
     tracing::info!(
-        "Ghost-rust ready in {:.2}s — listening on http://{}",
+        "Ghost-rust ready in {:.2}s — listening on http://{}{}",
         started.elapsed().as_secs_f64(),
-        addr
+        addr,
+        subdir
     );
 
-    axum::serve(listener, app).await.expect("server");
+    // `into_make_service` rather than handing the router straight to `serve`:
+    // the base-path layer is a plain tower service wrapped *around* the
+    // router, so it has to be made into a MakeService here.
+    axum::serve(
+        listener,
+        <_ as axum::ServiceExt<axum::extract::Request>>::into_make_service(app),
+    )
+    .await
+    .expect("server");
+}
+
+/// Mount the whole app under `subdir` by stripping the base path off incoming
+/// requests, so every route inside the app stays declared at the root.
+///
+/// The app ends up reachable at the base path *and* at the server root. That
+/// is deliberate: a reverse proxy fronting a subdirectory install may either
+/// forward the prefix through —
+///
+/// ```nginx
+/// location /blog/ { proxy_pass http://127.0.0.1:2368; }       # keeps /blog/
+/// ```
+///
+/// — or strip it before forwarding:
+///
+/// ```nginx
+/// location /blog/ { proxy_pass http://127.0.0.1:2368/; }      # strips /blog/
+/// ```
+///
+/// Both are things people write, and which one you get turns on a single
+/// trailing slash. Accepting either means the install works without the
+/// operator having to know which convention their proxy follows — and the URLs
+/// the app *writes* always carry the base path, so links stay correct either
+/// way.
+///
+/// Rewriting the request *before* routing is what makes this work: the strip
+/// has to happen ahead of route matching, so it is a layer wrapped around the
+/// router rather than `Router::layer` (which only wraps the matched handler,
+/// by which point the path has already been matched against the unstripped
+/// URI). Nesting would not do either — the site router owns a `/{*path}`
+/// catch-all, and a nested router alongside that catch-all leaves the base
+/// path's own routes shadowed.
+///
+/// With no base path configured the layer passes every request through
+/// untouched.
+fn mount(
+    app: axum::Router,
+    subdir: &'static str,
+) -> impl tower::Service<
+    axum::extract::Request,
+    Response = axum::response::Response,
+    Error = std::convert::Infallible,
+    Future = impl Send,
+> + Clone
++ Send
++ 'static {
+    use axum::extract::Request;
+    use axum::http::uri::{PathAndQuery, Uri};
+    use axum::response::IntoResponse;
+    use tower::Layer;
+
+    axum::middleware::from_fn(move |mut req: Request, next: axum::middleware::Next| async move {
+        if !subdir.is_empty() {
+            let path = req.uri().path();
+
+            // `/blog` → `/blog/`: without the trailing slash a browser
+            // resolves the page's relative links against the parent directory
+            if path == subdir {
+                return axum::response::Redirect::permanent(&format!("{subdir}/")).into_response();
+            }
+
+            if let Some(rest) = path.strip_prefix(subdir).filter(|r| r.starts_with('/')) {
+                let mut parts = req.uri().clone().into_parts();
+                let query = req.uri().query().map(|q| format!("?{q}")).unwrap_or_default();
+                if let Ok(pq) = format!("{rest}{query}").parse::<PathAndQuery>() {
+                    parts.path_and_query = Some(pq);
+                    if let Ok(uri) = Uri::from_parts(parts) {
+                        *req.uri_mut() = uri;
+                    }
+                }
+            }
+        }
+        next.run(req).await
+    })
+    .layer(app)
 }
 
 fn build_app(state: AppState) -> axum::Router {
@@ -189,6 +281,13 @@ fn build_app(state: AppState) -> axum::Router {
     // /members prefix itself.
     let members = ghost_api::members::members_router().with_state(state.clone());
 
-    site.nest("/ghost", backend.merge(admin_ui)).merge(members)
+    // `nest` binds the admin UI's own `/` route at `/ghost` but not at
+    // `/ghost/`, so the canonical admin URL would otherwise fall through to
+    // the site's `/{*path}` catch-all and bounce back to itself.
+    let admin_root = ghost_admin_ui::admin_root_router().with_state(state.clone());
+
+    site.nest("/ghost", backend.merge(admin_ui))
+        .merge(admin_root)
+        .merge(members)
 }
 

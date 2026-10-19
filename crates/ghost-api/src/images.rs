@@ -175,7 +175,11 @@ async fn upload(State(state): State<AppState>, headers: HeaderMap, mut multipart
             return error(StatusCode::INTERNAL_SERVER_ERROR, &e.to_string(), "InternalServerError");
         }
 
-        let url = format!("{}/{month}/{filename}", kind.url_prefix());
+        // Browser-ready, with the install's base path: the editor drops this
+        // straight into an `<img src>` and has to be able to load it. The
+        // write path puts it back into stored form, so what the editor saves
+        // does not carry the base path into the database.
+        let url = ghost_core::url::base(&format!("{}/{month}/{filename}", kind.url_prefix()));
         // The bare array is what this server has always answered with; the
         // named envelope is Ghost's. Both are sent so either client works.
         return (

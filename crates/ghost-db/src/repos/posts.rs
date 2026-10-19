@@ -354,6 +354,33 @@ pub async fn generate_unique_slug(pool: &SqlitePool, title: &str, post_type: &st
     Ok(candidate)
 }
 
+/// Return a content field to stored form before it is persisted.
+///
+/// Everything this port serves carries the install's base path, so content
+/// round-tripped through the editor or the Admin API comes back with
+/// `/blog/content/images/…` in it. Normalizing on the way in keeps the base
+/// path out of the database, so moving the site to a different path stays a
+/// config change rather than a data migration.
+///
+/// A no-op for an install at a domain root.
+fn stored(v: &Option<String>) -> Option<String> {
+    v.as_deref().map(ghost_core::url::unbase_assets)
+}
+
+/// [`stored`] for rendered HTML, which also carries internal links.
+///
+/// `unbase_assets` only normalizes Ghost's own asset trees, where a textual
+/// match is unambiguous. HTML can be read more precisely than that, so every
+/// URL attribute is normalized here — including `href="/blog/about/"`, which
+/// is what someone gets by pasting a link out of their address bar. Without
+/// this it would be stored with the base path already on it and come back out
+/// of the renderer as `/blog/blog/about/`.
+fn stored_html(v: &Option<String>) -> Option<String> {
+    v.as_deref()
+        .map(ghost_core::url::unrewrite_html)
+        .map(|h| ghost_core::url::unbase_assets(&h))
+}
+
 pub async fn insert(pool: &SqlitePool, new: &NewPost, author_id: &str) -> Result<Post> {
     let id = ids::new_id();
     let now = dates::now_db();
@@ -385,15 +412,15 @@ pub async fn insert(pool: &SqlitePool, new: &NewPost, author_id: &str) -> Result
         .bind(&ids::random_hex(16))
         .bind(&new.title)
         .bind(&slug_)
-        .bind(&new.lexical)
-        .bind(&new.markdown)
-        .bind(&new.html)
+        .bind(stored(&new.lexical))
+        .bind(stored(&new.markdown))
+        .bind(stored_html(&new.html))
         .bind(&new.plaintext)
         .bind(&post_type)
         .bind(&status)
         .bind(if new.visibility.is_empty() { "public" } else { new.visibility.as_str() })
         .bind(new.featured)
-        .bind(&new.feature_image)
+        .bind(stored(&new.feature_image))
         .bind(&new.custom_excerpt)
         .bind(reading_time)
         .bind(&new.codeinjection_head)
@@ -550,12 +577,12 @@ pub async fn update(pool: &SqlitePool, id: &str, changes: &PostChanges) -> Resul
     sqlx::query("UPDATE posts SET title = ?, slug = ?, lexical = ?, markdown = ?, html = ?, plaintext = ?, custom_excerpt = ?, feature_image = ?, featured = ?, status = ?, visibility = ?, published_at = ?, codeinjection_head = ?, codeinjection_foot = ?, custom_template = ?, canonical_url = ?, show_title_and_feature_image = ?, reading_time = ?, updated_at = ? WHERE id = ?")
         .bind(&title)
         .bind(&slug_)
-        .bind(pick(&changes.lexical, &existing.lexical, "lexical"))
-        .bind(pick(&changes.markdown, &existing.markdown, "markdown"))
-        .bind(pick(&changes.html, &existing.html, "html"))
+        .bind(stored(&pick(&changes.lexical, &existing.lexical, "lexical")))
+        .bind(stored(&pick(&changes.markdown, &existing.markdown, "markdown")))
+        .bind(stored_html(&pick(&changes.html, &existing.html, "html")))
         .bind(pick(&changes.plaintext, &existing.plaintext, "plaintext"))
         .bind(pick(&changes.custom_excerpt, &existing.custom_excerpt, "custom_excerpt"))
-        .bind(pick(&changes.feature_image, &existing.feature_image, "feature_image"))
+        .bind(stored(&pick(&changes.feature_image, &existing.feature_image, "feature_image")))
         .bind(changes.featured.unwrap_or(existing.featured))
         .bind(&status)
         .bind(changes.visibility.clone().unwrap_or_else(|| existing.visibility.clone()))

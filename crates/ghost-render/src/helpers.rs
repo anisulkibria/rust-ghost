@@ -441,7 +441,20 @@ impl HelperDef for UrlHelper {
     ) -> HelperResult {
         // {{url}} — current scope; {{url post}} / {{url "/about/"}} — explicit
         let target = match h.param(0).map(|p| p.value()) {
-            Some(Value::String(s)) => return write_out(rc, out, &encode_uri(s), false),
+            // a literal path written by the theme is in site terms, so it is
+            // the one form here that still needs the base path applied; a
+            // resource's `url` field already carries it
+            Some(Value::String(s)) => {
+                let url = ghost_core::url::base(s);
+                let url = match hash_flag(h, "absolute") {
+                    true => ghost_core::url::absolute(
+                        root_get(rc, ctx, "site.url").as_str().unwrap_or_default(),
+                        &url,
+                    ),
+                    false => url,
+                };
+                return write_out(rc, out, &encode_uri(&url), false);
+            }
             Some(v @ Value::Object(_)) => v.clone(),
             _ => current_value(rc, ctx),
         };
@@ -449,10 +462,10 @@ impl HelperDef for UrlHelper {
             .get("url")
             .and_then(|v| v.as_str())
             .map(str::to_string)
-            .unwrap_or_else(|| "/".into());
+            .unwrap_or_else(|| ghost_core::url::base("/"));
         if hash_flag(h, "absolute") && !url.starts_with("http") {
             let origin = root_get(rc, ctx, "site.url").as_str().unwrap_or_default().to_string();
-            url = format!("{}{}", origin.trim_end_matches('/'), ensure_leading_slash(&url));
+            url = ghost_core::url::absolute(&origin, &ensure_leading_slash(&url));
         }
         write_out(rc, out, &encode_uri(&url), false)
     }
@@ -541,15 +554,20 @@ impl HelperDef for ImgUrl {
         }
 
         let mut url = image_with_size(path, &sizes, size.as_deref(), format.as_deref());
+        // Three shapes reach this helper: image fields from serializers, which
+        // already carry the base path; literal paths written by a theme, which
+        // do not; and fields holding a full URL under our own origin.
+        // `base_asset` resolves all three onto one browser-ready path without
+        // ever applying the prefix twice.
+        match url.strip_prefix(origin.as_str()).filter(|_| !origin.is_empty()) {
+            Some(rest) => url = ensure_leading_slash(rest),
+            None if !url.starts_with("http") => {
+                url = ghost_core::url::base_asset(&ensure_leading_slash(&url))
+            }
+            None => {}
+        }
         if absolute {
-            if !url.starts_with("http") {
-                url = format!("{origin}{}", ensure_leading_slash(&url));
-            }
-        } else if !origin.is_empty() {
-            // relative output: strip our own origin back off
-            if let Some(rest) = url.strip_prefix(&origin) {
-                url = ensure_leading_slash(rest);
-            }
+            url = ghost_core::url::absolute(&origin, &url);
         }
         write_out(rc, out, &url, false)
     }
@@ -682,7 +700,7 @@ impl HelperDef for AssetHelper {
 
         // the favicon is served from its own route, not from the theme
         if path.trim_start_matches('/').starts_with("favicon.") {
-            return write_out(rc, out, "/favicon.ico", false);
+            return write_out(rc, out, &ghost_core::url::base("/favicon.ico"), false);
         }
 
         // Themes write the path both ways — `{{asset "built/x.js"}}` and
@@ -714,13 +732,13 @@ impl HelperDef for AssetHelper {
             .map(|h| h[..10.min(h.len())].to_string())
             .unwrap_or_else(|| self.global_hash.clone());
 
-        let mut url = if is_theme_asset {
+        let mut url = ghost_core::url::base(&if is_theme_asset {
             format!("/assets/{path}?v={hash}{anchor}")
         } else {
             format!("/{path}?v={hash}{anchor}")
-        };
+        });
         if hash_flag(h, "absolute") {
-            url = format!("{}{}", self.site_origin.trim_end_matches('/'), url);
+            url = ghost_core::url::absolute(&self.site_origin, &url);
         }
         write_out(rc, out, &url, false)
     }
@@ -1377,11 +1395,14 @@ impl HelperDef for Navigation {
                 let url = item.get("url").and_then(|u| u.as_str()).unwrap_or_default();
                 let label = item.get("label").and_then(|l| l.as_str()).unwrap_or_default();
                 json!({
+                    // `build_site` has already put the base path on these
                     "url": url,
                     "label": label,
                     // Ghost slugifies the label, not the URL
                     "slug": ghost_core::slug::safe_string(label),
-                    "current": is_current_nav(&relative, url),
+                    // ...so the current-page test has to take it back off:
+                    // `relative` is the request path, which arrives stripped
+                    "current": is_current_nav(&relative, ghost_core::url::strip(url)),
                 })
             })
             .collect();
@@ -1481,13 +1502,13 @@ fn paginated_base(relative_url: &str) -> String {
     }
 }
 
+/// `base` comes from the request path, which arrives with the install's base
+/// path stripped, so the result is put back into browser terms here — both
+/// callers (`{{pagination}}` and `{{page_url}}`) write it straight out.
 fn paginated_url(base: &str, page: i64) -> String {
     let tail = if page > 1 { format!("/page/{page}/") } else { "/".to_string() };
-    if base.is_empty() {
-        tail
-    } else {
-        format!("{base}{tail}")
-    }
+    let path = if base.is_empty() { tail } else { format!("{base}{tail}") };
+    ghost_core::url::base(&path)
 }
 
 // ---------------------------------------------------------------------------
@@ -1993,12 +2014,14 @@ impl HelperDef for GhostHead {
             .or_else(|| site_str("og_image"))
             .or_else(|| site_str("cover_image"));
         let twitter_image = this_str("twitter_image").or_else(|| site_str("twitter_image")).or(og_image);
+        // these come out of `site`/the resource already carrying the base
+        // path, so the absolute form is built against the origin
         if let Some(img) = og_image {
-            let img = if img.starts_with("http") { img.to_string() } else { format!("{}{}", origin.trim_end_matches('/'), img) };
+            let img = ghost_core::url::absolute(&origin, img);
             tags.push(format!(r#"<meta property="og:image" content="{}" />"#, html_escape(&img)));
         }
         if let Some(img) = twitter_image {
-            let img = if img.starts_with("http") { img.to_string() } else { format!("{}{}", origin.trim_end_matches('/'), img) };
+            let img = ghost_core::url::absolute(&origin, img);
             tags.push(format!(r#"<meta name="twitter:card" content="summary_large_image" />"#));
             tags.push(format!(r#"<meta name="twitter:image" content="{}" />"#, html_escape(&img)));
         } else {
@@ -2017,8 +2040,10 @@ impl HelperDef for GhostHead {
         let config = root_get(rc, ctx, "config");
         if config.get("card_assets").and_then(Value::as_bool).unwrap_or(true) {
             let version = config.get("card_assets_version").and_then(Value::as_str).unwrap_or("1");
-            tags.push(format!(r#"<script defer src="/public/cards.min.js?v={version}"></script>"#));
-            tags.push(format!(r#"<link rel="stylesheet" type="text/css" href="/public/cards.min.css?v={version}">"#));
+            let js = ghost_core::url::base(&format!("/public/cards.min.js?v={version}"));
+            let css = ghost_core::url::base(&format!("/public/cards.min.css?v={version}"));
+            tags.push(format!(r#"<script defer src="{js}"></script>"#));
+            tags.push(format!(r#"<link rel="stylesheet" type="text/css" href="{css}">"#));
         }
 
         // accent color css var
@@ -2522,7 +2547,9 @@ impl HelperDef for LinkHelper {
         if !classes.is_empty() {
             open.push_str(&format!(r#" class="{}""#, classes.join(" ")));
         }
-        open.push_str(&format!(r#" href="{}""#, html_escape(&href)));
+        // the href is written by the theme in site terms; the active-class
+        // comparison above wants that form, the anchor wants the base path on
+        open.push_str(&format!(r#" href="{}""#, html_escape(&ghost_core::url::base(&href))));
         if !attrs.is_empty() {
             open.push(' ');
             open.push_str(&attrs);

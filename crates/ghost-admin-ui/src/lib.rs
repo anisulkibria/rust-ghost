@@ -97,6 +97,73 @@ pub fn admin_ui_router() -> Router<AppState> {
         // the editor's vendored runtime (React + Koenig), served from the
         // binary and cached hard behind the version in the path
         .route("/assets/{version}/{file}", get(admin_asset))
+        .layer(axum::middleware::from_fn(apply_base_path))
+}
+
+/// The admin landing route, bound outside the `/ghost` nest.
+///
+/// See [`index`] for why it is needed. It carries the same base-path layer as
+/// the rest of the admin UI, so its redirect to signin or setup is rewritten
+/// like any other.
+pub fn admin_root_router() -> Router<AppState> {
+    Router::new()
+        .route("/ghost/", get(index))
+        .layer(axum::middleware::from_fn(apply_base_path))
+}
+
+/// Put the install's base path onto the admin UI's own links and redirects.
+///
+/// Every path in this module is written in site terms (`/ghost/posts/`,
+/// `href="/"`), and this is the single place they are turned into URLs a
+/// browser can follow. Doing it here rather than at ~200 call sites keeps the
+/// markup readable and makes it impossible to add a screen that forgets.
+///
+/// Only two things are touched: a root-relative `Location` header, and the
+/// URL-bearing attributes of an HTML body. Scoping the body rewrite to
+/// attribute values is what makes it safe to run over pages that embed user
+/// content — a post title or a code-injection field holding `href="/x"` is
+/// HTML-escaped by the time it lands in the page, so it does not match and is
+/// left exactly as it was. Non-HTML responses (CSV exports, the editor's JS
+/// bundles, JSON) are passed straight through.
+///
+/// A no-op for an install at a domain root.
+async fn apply_base_path(req: axum::extract::Request, next: axum::middleware::Next) -> Response {
+    use axum::body::Body;
+
+    let mut resp = next.run(req).await;
+    if !ghost_core::url::has_subdir() {
+        return resp;
+    }
+
+    if let Some(location) = resp.headers().get(header::LOCATION).and_then(|v| v.to_str().ok()) {
+        if let Ok(value) = ghost_core::url::base(location).parse() {
+            resp.headers_mut().insert(header::LOCATION, value);
+        }
+    }
+
+    let is_html = resp
+        .headers()
+        .get(header::CONTENT_TYPE)
+        .and_then(|v| v.to_str().ok())
+        .is_some_and(|ct| ct.starts_with("text/html"));
+    if !is_html {
+        return resp;
+    }
+
+    let (mut parts, body) = resp.into_parts();
+    // admin pages are rendered into a String before they are sent, so they are
+    // already whole in memory — collecting here buffers nothing that was not
+    // buffered anyway
+    let Ok(bytes) = axum::body::to_bytes(body, usize::MAX).await else {
+        return (StatusCode::INTERNAL_SERVER_ERROR, "admin render failed").into_response();
+    };
+    let Ok(html) = std::str::from_utf8(&bytes) else {
+        return Response::from_parts(parts, Body::from(bytes));
+    };
+    let rewritten = ghost_core::url::rewrite_html(html);
+    // the length changed, so a stale Content-Length would truncate the page
+    parts.headers.remove(header::CONTENT_LENGTH);
+    Response::from_parts(parts, Body::from(rewritten))
 }
 
 // ---------------------------------------------------------------------------
@@ -1033,7 +1100,14 @@ async fn current_user(state: &AppState, headers: &HeaderMap) -> Option<ghost_cor
 // index / setup / login
 // ---------------------------------------------------------------------------
 
-async fn index(State(state): State<AppState>, headers: HeaderMap) -> Response {
+/// The admin landing handler, routed inside this crate at the nest root and
+/// re-exported so the app can also bind it at `/ghost/`.
+///
+/// `Router::nest("/ghost", …)` maps an inner `/` route to `/ghost` only, not to
+/// `/ghost/`, so without that second binding the canonical admin URL falls
+/// through to the site's catch-all — which bounces every `/ghost`-prefixed
+/// path straight back to `/ghost/` and loops.
+pub async fn index(State(state): State<AppState>, headers: HeaderMap) -> Response {
     if !repos::users::is_setup(&state.db).await.unwrap_or(false) {
         return Redirect::to("/ghost/setup/").into_response();
     }
@@ -1163,7 +1237,7 @@ async fn login_submit(State(state): State<AppState>, Form(form): Form<LoginForm>
                 let mut resp = Redirect::to("/ghost/posts/").into_response();
                 resp.headers_mut().insert(
                     header::SET_COOKIE,
-                    format!("ghost-admin-api-session={sid}; Path=/ghost; HttpOnly; SameSite=Lax; Max-Age={}", 60 * 60 * 24 * 7)
+                    format!("ghost-admin-api-session={sid}; Path={}/ghost; HttpOnly; SameSite=Lax; Max-Age={}", ghost_core::url::subdir(), 60 * 60 * 24 * 7)
                         .parse()
                         .unwrap(),
                 );
@@ -1184,7 +1258,7 @@ async fn logout(State(state): State<AppState>, headers: HeaderMap) -> Response {
     let mut resp = Redirect::to("/ghost/signin/").into_response();
     resp.headers_mut().insert(
         header::SET_COOKIE,
-        "ghost-admin-api-session=; Path=/ghost; HttpOnly; SameSite=Lax; Max-Age=0".parse().unwrap(),
+        format!("ghost-admin-api-session=; Path={}/ghost; HttpOnly; SameSite=Lax; Max-Age=0", ghost_core::url::subdir()).parse().unwrap(),
     );
     resp
 }
@@ -2509,6 +2583,14 @@ fn editor_html(ed: &Editor<'_>) -> String {
     } else {
         Some(saved.to_string())
     };
+    // Content is stored without the install's base path, but Koenig renders
+    // it live — an image card has to be able to load its `src`. The write path
+    // normalizes it back, so reopening and saving a post does not persist the
+    // base path. A no-op at a domain root.
+    let initial = initial
+        .as_deref()
+        .map(ghost_core::url::unbase_assets)
+        .map(|lexical| ghost_core::url::base_assets(&lexical));
     let config = serde_json::json!({
         "lexical": initial,
         "placeholder": format!("Begin writing your {singular}..."),
@@ -2516,6 +2598,10 @@ fn editor_html(ed: &Editor<'_>) -> String {
         "siteTitle": ed.site_title,
         "siteDescription": ed.site_description,
         "membersEnabled": ed.members_enabled,
+        // the bridge prefixes its upload and oembed endpoints with this; it
+        // cannot read the base path off the page, since its own script URL has
+        // already been rewritten
+        "basePath": ghost_core::url::subdir(),
     });
 
     let content = format!(
@@ -3374,7 +3460,12 @@ async fn send_post_as_newsletter(state: &AppState, post_id: &str) -> Result<usiz
     };
     let post_url = format!("{site_url}{path}");
     let post_title = post.title.clone().unwrap_or_else(|| "Untitled".into());
-    let content_html = post.html.clone().unwrap_or_default();
+    // an email has no base to resolve `/content/images/…` against, so the
+    // body goes out with full URLs
+    let content_html = ghost_core::url::absolutize_html(
+        &site_url,
+        &post.html.clone().unwrap_or_default(),
+    );
     let plaintext = post.plaintext.clone().unwrap_or_default();
     let excerpt = post
         .custom_excerpt
@@ -7727,7 +7818,8 @@ async fn invite_accept_submit(
                 Ok(sid) => {
                     let mut resp = Redirect::to("/ghost/posts/").into_response();
                     if let Ok(v) = format!(
-                        "ghost-admin-api-session={sid}; Path=/ghost; HttpOnly; SameSite=Lax; Max-Age={}",
+                        "ghost-admin-api-session={sid}; Path={}/ghost; HttpOnly; SameSite=Lax; Max-Age={}",
+                        ghost_core::url::subdir(),
                         60 * 60 * 24 * 7
                     )
                     .parse()

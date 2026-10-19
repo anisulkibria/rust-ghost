@@ -107,6 +107,12 @@ impl Config {
         if !cfg.url.contains("://") {
             return Err(GhostError::ConfigError(format!("url needs a protocol: {}", cfg.url)));
         }
+        // The path component of `url` becomes the base path the whole app
+        // mounts under, so an unusable one has to be a boot failure with a
+        // readable reason rather than a site that 404s everywhere.
+        crate::url::normalize(&cfg.url_path()).map_err(|e| {
+            GhostError::ConfigError(format!("config url '{}': {e}", cfg.url))
+        })?;
         Ok(cfg)
     }
 
@@ -148,11 +154,13 @@ impl Config {
         }
     }
 
-    /// Path component of the configured url ("" or "/blog").
+    /// Base path of the configured url: `""` at a domain root, `"/blog"` when
+    /// the site is installed under a subdirectory.
+    ///
+    /// This is the authoritative base path — `Config::load` has already
+    /// rejected any value that could not be mounted, so this cannot fail.
     pub fn subdir(&self) -> String {
-        let path = self.url_path();
-        let trimmed = path.trim_end_matches('/');
-        trimmed.to_string()
+        crate::url::normalize(&self.url_path()).unwrap_or_default()
     }
 
     fn url_path(&self) -> String {
@@ -167,6 +175,14 @@ impl Config {
     pub fn site_origin(&self) -> String {
         let parts: Vec<&str> = self.url.splitn(4, '/').collect();
         format!("{}//{}", parts[0], parts[2])
+    }
+
+    /// The configured url in canonical form: origin + base path, no trailing
+    /// slash. `http://localhost:2368/blog/` normalizes to
+    /// `http://localhost:2368/blog`, which is what every absolute URL the site
+    /// emits is built from.
+    pub fn canonical_url(&self) -> String {
+        format!("{}{}", self.site_origin(), self.subdir())
     }
 }
 
@@ -256,4 +272,55 @@ fn snake_to_camel(s: &str) -> String {
         }
     }
     out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// `Config::load` reads the filesystem and the environment; the base-path
+    /// derivation under test here is pure, so build the value directly.
+    fn with_url(url: &str) -> Config {
+        Config {
+            url: url.into(),
+            server: ServerConfig { host: default_host(), port: default_port() },
+            database: DatabaseConfig {
+                client: default_client(),
+                connection: ConnectionConfig { filename: "x.db".into() },
+            },
+            paths: PathsConfig::default(),
+            mail: serde_json::Value::Null,
+            admin: serde_json::Value::Null,
+            env: "test".into(),
+            base_dir: PathBuf::from("/tmp"),
+        }
+    }
+
+    #[test]
+    fn derives_the_base_path_from_the_url() {
+        assert_eq!(with_url("https://site.com").subdir(), "");
+        assert_eq!(with_url("https://site.com/").subdir(), "");
+        assert_eq!(with_url("https://site.com/blog").subdir(), "/blog");
+        assert_eq!(with_url("https://site.com/blog/").subdir(), "/blog");
+        assert_eq!(with_url("https://site.com/a/b/").subdir(), "/a/b");
+        // a port must not be mistaken for part of the path
+        assert_eq!(with_url("http://localhost:2368").subdir(), "");
+        assert_eq!(with_url("http://localhost:2368/blog").subdir(), "/blog");
+    }
+
+    #[test]
+    fn canonical_url_is_origin_plus_base_path() {
+        assert_eq!(with_url("https://site.com/blog/").canonical_url(), "https://site.com/blog");
+        assert_eq!(with_url("https://site.com/").canonical_url(), "https://site.com");
+        assert_eq!(
+            with_url("http://localhost:2368/blog").canonical_url(),
+            "http://localhost:2368/blog"
+        );
+    }
+
+    #[test]
+    fn site_origin_drops_the_base_path() {
+        assert_eq!(with_url("https://site.com/blog").site_origin(), "https://site.com");
+        assert_eq!(with_url("http://localhost:2368/a/b").site_origin(), "http://localhost:2368");
+    }
 }

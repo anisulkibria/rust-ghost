@@ -55,13 +55,16 @@ pub async fn entrypoint(State(state): State<AppState>, uri: Uri, headers: Header
 
     // /feed/ → /rss/ (Ghost's permanent redirect)
     if path == "/feed" || path == "/feed/" {
-        return Redirect::permanent("/rss/").into_response();
+        return Redirect::permanent(&ghost_core::url::base("/rss/")).into_response();
     }
 
     // 1. redirects.yaml
     {
         let redirects = state.redirects.read().await.clone();
         if let Some((target, permanent)) = redirects.match_path(&path, query.as_deref()) {
+            // targets are written in site terms, so an internal one needs the
+            // base path; an absolute URL to another host is left alone
+            let target = ghost_core::url::base(&target);
             return if permanent {
                 Redirect::permanent(&target).into_response()
             } else {
@@ -70,9 +73,11 @@ pub async fn entrypoint(State(state): State<AppState>, uri: Uri, headers: Header
         }
     }
 
-    // 2. /ghost → admin (mounted separately in the main app)
+    // 2. /ghost → admin (mounted separately in the main app). Only paths the
+    // admin router did not claim reach this, so it is a 404 rather than a
+    // redirect: bouncing to `/ghost/` from here would loop on itself.
     if path == "/ghost" || path == "/ghost/" || path.starts_with("/ghost/") {
-        return Redirect::temporary("/ghost/").into_response();
+        return crate::render::error_page(&state, StatusCode::NOT_FOUND, &path, headers).await;
     }
 
     // 3. per-resource sitemaps (/sitemap-posts.xml …)
@@ -443,7 +448,10 @@ async fn render_preview(state: AppState, uuid: String, path: &str, headers: Head
     let Some(post) = repos::posts::find_by_uuid(&state.db, &uuid).await.unwrap_or(None) else {
         return crate::render::error_page(&state, StatusCode::NOT_FOUND, path, headers).await;
     };
-    let post_json = post_json(&state, &post, Some(&format!("/p/{uuid}/"))).await;
+    // passed in rather than resolved, so it needs the base path putting on
+    // here the way the resolver would have
+    let preview_url = ghost_core::url::base(&format!("/p/{uuid}/"));
+    let post_json = post_json(&state, &post, Some(&preview_url)).await;
 
     let mut context = vec!["preview".to_string()];
     let label = if post.post_type == "page" { "page" } else { "post" };
@@ -546,9 +554,15 @@ pub async fn favicon(State(state): State<AppState>) -> Response {
         if icon.starts_with("http") {
             return Redirect::temporary(&icon).into_response();
         }
-        let cleaned = icon.trim_start_matches('/');
+        // `icon` is stored as a site path (`/content/images/x.png`), and
+        // `content_path()` is already the `content/` directory — so the
+        // leading `content/` segment has to come off or the lookup lands on
+        // `content/content/images/…`. A value that arrived with the base path
+        // on it is reduced to the stored form first.
+        let cleaned = ghost_core::url::strip(&icon).trim_start_matches('/').to_string();
+        let cleaned = cleaned.strip_prefix("content/").unwrap_or(&cleaned);
         let base = state.config.content_path();
-        let file_path = base.join(&cleaned);
+        let file_path = base.join(cleaned);
         if file_path.is_file() {
             if let Ok(bytes) = std::fs::read(&file_path) {
                 let mime = mime_guess::from_path(&file_path).first_or_octet_stream();

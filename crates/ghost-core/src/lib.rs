@@ -5,6 +5,7 @@ pub mod error;
 pub mod ids;
 pub mod models;
 pub mod slug;
+pub mod url;
 
 pub use config::Config;
 pub use error::{GhostError, Result};

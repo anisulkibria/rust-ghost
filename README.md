@@ -22,6 +22,54 @@ theme in `content/themes/`), and creates fixture content ("Coming soon" post +
 "About" page + News tag). Complete setup at `/ghost` to activate the Owner
 account.
 
+## Installing under a subdirectory
+
+Set a path on `url` and the whole install moves there — site, admin, APIs,
+assets, feeds and Portal. Nothing else to configure:
+
+```json
+{ "url": "https://example.com/blog" }
+```
+
+```
+https://example.com/blog/          site
+https://example.com/blog/ghost/    admin
+https://example.com/blog/rss/      feed
+```
+
+`url` is the single source of truth: it decides where the app mounts *and* how
+every URL it writes is prefixed, so the two cannot drift apart. A path that
+could not work is refused at boot with the reason — `/ghost`, `/content`,
+`/assets`, `/members` and the other segments Ghost serves itself are reserved,
+and so is anything containing `..`.
+
+### Behind a reverse proxy
+
+Both proxy conventions work, so you do not have to know which one you wrote —
+the app accepts requests whether or not the prefix was stripped:
+
+```nginx
+# forwards /blog/ through (note: no trailing slash on proxy_pass)
+location /blog/ { proxy_pass http://127.0.0.1:2368; }
+
+# strips /blog/ before forwarding (trailing slash)
+location /blog/ { proxy_pass http://127.0.0.1:2368/; }
+```
+
+Apache, Caddy and Traefik all have the same split; either behaviour is fine.
+
+### Moving an existing site
+
+Changing the path is a config change, not a data migration. Internal URLs are
+stored without the base path — `/content/images/x.png`, `/about/` — and it is
+applied on the way out, so the same database serves correctly from
+`example.com`, `example.com/blog`, or back again. URLs that arrive carrying a
+base path (an upload response pasted into a post, an Admin API round-trip) are
+normalized back to stored form on save.
+
+Cookies are scoped to the base path rather than to `/`, so two installs can
+share one domain under different paths without logging each other out.
+
 ## What's implemented
 
 | Area | Status |
@@ -46,7 +94,8 @@ image resizing (`/content/images/size/WxH/…` URLs serve the original).
 crates/
   ghost-core      config (Ghost-style layered JSON + GHOST_* env), errors,
                   24-hex ObjectIds, Ghost slug rules, dates, domain models
-                  + Content-API JSON serializers
+                  + Content-API JSON serializers, base-path URL handling
+                  (`url`: the subdirectory install's single choke point)
   ghost-nql       Ghost's NQL filter language: parser → parameterized SQL
                   (virtual keys: primary_tag/author(s)/tag(s)), in-memory
                   evaluation for routing ownership
@@ -78,6 +127,9 @@ content/          themes/, data/, images/, routes.yaml, redirects.yaml
 - **Config**: `config.development.json` / `config.production.json` in the
   working directory, `GHOST_…__…` env overrides, defaults like Ghost
   (port 2368, `content/` path).
+- **Subdirectory installs**: a path on `url` works out of the box, which in
+  Ghost itself takes a good deal of proxy and asset configuration to approach.
+  See [Installing under a subdirectory](#installing-under-a-subdirectory).
 
 ## Tests
 
@@ -85,6 +137,7 @@ content/          themes/, data/, images/, routes.yaml, redirects.yaml
 cargo test --workspace
 ```
 
-42 unit tests: NQL parser/SQL compilation (incl. injection attempts), slug
+234 unit tests: NQL parser/SQL compilation (incl. injection attempts), slug
 rules, routes.yaml parsing + router matching, redirects, template resolution,
-preprocessor rewrites, markdown pipeline, handlebars helper mechanics.
+preprocessor rewrites, markdown pipeline, handlebars helper mechanics,
+base-path joining/stripping and the HTML rewrite in both directions.

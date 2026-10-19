@@ -31,6 +31,13 @@
   var config = JSON.parse(mount.dataset.config || '{}');
   var api = null;
 
+  // The install's base path ('' at a domain root, '/blog' under a
+  // subdirectory). Every endpoint below is written in site terms and prefixed
+  // with this, because a reverse proxy fronting a subdirectory install only
+  // forwards paths under it — an unprefixed '/ghost/api/...' would be
+  // somebody else's URL.
+  var base = config.basePath || '';
+
   /* ---------------------------------------------------------------- upload */
 
   // Matches admin-x-framework's koenigFileUploadTypes. Only the endpoints
@@ -80,7 +87,7 @@
       var data = new FormData();
       data.append('file', file, file.name);
       var xhr = new XMLHttpRequest();
-      xhr.open('POST', FILE_TYPES[type].endpoint, true);
+      xhr.open('POST', base + FILE_TYPES[type].endpoint, true);
       xhr.upload.onprogress = function (e) {
         if (e.lengthComputable) { onProgress(Math.round((e.loaded / e.total) * 100)); }
       };
@@ -434,7 +441,7 @@
   // oEmbed/metadata; without that endpoint they fall back to a plain link.
   function fetchEmbed(url, options) {
     var query = '?url=' + encodeURIComponent(url) + (options && options.type ? '&type=' + options.type : '');
-    return fetch('/ghost/api/admin/oembed/' + query, {headers: {'Content-Type': 'application/json'}})
+    return fetch(base + '/ghost/api/admin/oembed/' + query, {headers: {'Content-Type': 'application/json'}})
       .then(function (response) {
         if (!response.ok) { throw new Error('Could not fetch ' + url); }
         return response.json();

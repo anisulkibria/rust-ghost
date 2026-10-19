@@ -508,17 +508,26 @@ fn cookie_value(state: &AppState, transient_id: &str) -> String {
     format!("{transient_id}.{sig}")
 }
 
+/// `Path` is scoped to the install's base path, not left at `/`. At a domain
+/// root the two are the same thing; under a subdirectory, scoping is what lets
+/// two installs on one domain hold separate member sessions instead of
+/// overwriting each other's cookie.
+fn cookie_path() -> String {
+    format!("{}/", ghost_core::url::subdir())
+}
+
 fn set_cookie_header(state: &AppState, transient_id: &str) -> String {
     let secure = if state.site_url().starts_with("https://") { "; Secure" } else { "" };
     format!(
-        "{SESSION_COOKIE}={}; Path=/; HttpOnly; SameSite=Lax; Max-Age={SESSION_MAX_AGE}{secure}",
-        cookie_value(state, transient_id)
+        "{SESSION_COOKIE}={}; Path={}; HttpOnly; SameSite=Lax; Max-Age={SESSION_MAX_AGE}{secure}",
+        cookie_value(state, transient_id),
+        cookie_path()
     )
 }
 
 fn clear_cookie_header(state: &AppState) -> String {
     let secure = if state.site_url().starts_with("https://") { "; Secure" } else { "" };
-    format!("{SESSION_COOKIE}=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0{secure}")
+    format!("{SESSION_COOKIE}=; Path={}; HttpOnly; SameSite=Lax; Max-Age=0{secure}", cookie_path())
 }
 
 /// Pull the signed transient id out of the request's cookies, verifying the
@@ -690,6 +699,10 @@ async fn member_json(state: &AppState, m: &Member) -> Value {
 /// a Content API key or CORS setup. Portal reads it on boot.
 async fn read_site(State(state): State<AppState>) -> Response {
     let s = |k: &str| state.settings.get(k).unwrap_or(Value::Null);
+    let image = |v: Value| match v.as_str() {
+        Some(p) => json!(ghost_core::url::base_asset(p)),
+        None => v,
+    };
     let signup_access = state
         .settings
         .get_str("members_signup_access")
@@ -699,9 +712,11 @@ async fn read_site(State(state): State<AppState>) -> Response {
         json!({ "site": {
             "title": s("title"),
             "description": s("description"),
-            "logo": s("logo"),
-            "icon": s("icon"),
-            "cover_image": s("cover_image"),
+            // Portal renders these straight into <img>, so they go out
+            // browser-ready like every other image field
+            "logo": image(s("logo")),
+            "icon": image(s("icon")),
+            "cover_image": image(s("cover_image")),
             "accent_color": s("accent_color"),
             "locale": state.settings.get_str("locale").unwrap_or_else(|| "en".into()),
             "url": format!("{}/", state.site_url()),

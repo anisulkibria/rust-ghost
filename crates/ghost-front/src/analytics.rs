@@ -52,7 +52,7 @@ pub async fn track_views(State(state): State<AppState>, req: Request, next: Next
         });
         res.headers_mut().append(
             header::SET_COOKIE,
-            format!("{VIEWER_COOKIE}={viewer_for_cookie}; Path=/; HttpOnly; SameSite=Lax; Max-Age={}", 60 * 60 * 24 * 365)
+            format!("{VIEWER_COOKIE}={viewer_for_cookie}; Path={}/; HttpOnly; SameSite=Lax; Max-Age={}", ghost_core::url::subdir(), 60 * 60 * 24 * 365)
                 .parse()
                 .unwrap(),
         );

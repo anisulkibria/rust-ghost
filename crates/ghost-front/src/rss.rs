@@ -60,7 +60,10 @@ pub async fn render_rss(state: AppState, kind: RssKind, name: String, path: &str
             .and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok())
             .map(|d| d.format("%a, %d %b %Y %H:%M:%S %z").to_string())
             .unwrap_or_default();
-        let abs = format!("{}{}", site_url.trim_end_matches('/'), url);
+        // `url` already carries the base path (the resolver adds it), so the
+        // absolute form has to be built against the origin, not against a
+        // site url that carries it as well
+        let abs = ghost_core::url::absolute(&site_url, url);
         items.push_str(&format!(
             "<item>\n<title>{}</title>\n<description>{}</description>\n<link>{}</link>\n<guid isPermaLink=\"true\">{}</guid>\n<pubDate>{}</pubDate>\n</item>\n",
             xml_escape(title),

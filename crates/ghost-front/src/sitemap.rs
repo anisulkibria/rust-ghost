@@ -51,9 +51,8 @@ pub async fn sitemap_resource(state: AppState, resource: String) -> Response {
                     .map(|d| d.format(w3c).to_string())
                     .unwrap_or_default();
                 urls.push_str(&format!(
-                    "<url><loc>{}{}</loc><lastmod>{}</lastmod></url>\n",
-                    site_url.trim_end_matches('/'),
-                    url,
+                    "<url><loc>{}</loc><lastmod>{}</lastmod></url>\n",
+                    ghost_core::url::absolute(&site_url, &url),
                     updated
                 ));
             }
@@ -64,9 +63,8 @@ pub async fn sitemap_resource(state: AppState, resource: String) -> Response {
                 let j = ghost_core::models::tag_to_json(t, None);
                 let url = resolver(&j);
                 urls.push_str(&format!(
-                    "<url><loc>{}{}</loc></url>\n",
-                    site_url.trim_end_matches('/'),
-                    url
+                    "<url><loc>{}</loc></url>\n",
+                    ghost_core::url::absolute(&site_url, &url)
                 ));
             }
         }
@@ -76,9 +74,8 @@ pub async fn sitemap_resource(state: AppState, resource: String) -> Response {
                 let j = ghost_core::models::user_public_json(u, None);
                 let url = resolver(&j);
                 urls.push_str(&format!(
-                    "<url><loc>{}{}</loc></url>\n",
-                    site_url.trim_end_matches('/'),
-                    url
+                    "<url><loc>{}</loc></url>\n",
+                    ghost_core::url::absolute(&site_url, &url)
                 ));
             }
         }

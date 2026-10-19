@@ -26,9 +26,20 @@ fn value_to_string(v: &serde_json::Value) -> String {
     }
 }
 
-/// Run seeding when the settings table is empty (idempotent by design).
+/// Run seeding on a database that has not been seeded yet.
+///
+/// The probe is the `roles` table, not `settings`: migrations insert settings
+/// rows of their own (`0004_mail_settings.sql` adds the mail defaults), so on
+/// a fresh database the settings table is already non-empty by the time this
+/// runs. Probing it meant a new install was declared "already seeded" and
+/// silently came up with no roles, no permissions, no placeholder owner and no
+/// fixture content — which left the setup wizard unable to complete at all.
+///
+/// `roles` is written only here, so it answers the question actually being
+/// asked. The steps below are individually idempotent anyway, but the guard
+/// keeps fixture content from reappearing after someone deletes it.
 pub async fn seed_if_empty(pool: &SqlitePool) -> Result<bool> {
-    let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM settings")
+    let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM roles")
         .fetch_one(pool)
         .await
         .unwrap_or(0);

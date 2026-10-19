@@ -58,7 +58,15 @@ impl SettingsCache {
     }
 
     /// Update one key in cache and DB.
+    ///
+    /// Values pass through `url::unbase_assets` first, so a URL copied out of
+    /// an upload response — which is browser-ready and therefore carries the
+    /// install's base path — is stored in site terms like every other internal
+    /// URL. Covers every writer at once: the settings screens, the navigation
+    /// editor and the Admin API. A no-op at a domain root.
     pub async fn set(&self, pool: &SqlitePool, key: &str, value: &Value) -> Result<()> {
+        let normalized = normalize_stored(value);
+        let value = &normalized;
         let (stored, typ) = match value {
             Value::String(s) => (s.clone(), "string"),
             Value::Bool(b) => (if *b { "true".to_string() } else { "false".to_string() }, "boolean"),
@@ -80,5 +88,22 @@ impl SettingsCache {
         }
         self.map.write().unwrap().insert(key.to_string(), value.clone());
         Ok(())
+    }
+}
+
+/// Walk a setting value and strip the base path out of any asset URL it holds.
+///
+/// Settings are a mix of plain strings (`logo`), arrays of objects
+/// (`navigation`) and nested objects (`custom_theme_settings`), so this
+/// recurses rather than special-casing a list of keys — a theme setting of
+/// type `image` is as much an asset URL as `logo` is.
+fn normalize_stored(value: &Value) -> Value {
+    match value {
+        Value::String(s) => Value::String(ghost_core::url::unbase_assets(s)),
+        Value::Array(items) => Value::Array(items.iter().map(normalize_stored).collect()),
+        Value::Object(m) => {
+            Value::Object(m.iter().map(|(k, v)| (k.clone(), normalize_stored(v))).collect())
+        }
+        other => other.clone(),
     }
 }

@@ -113,12 +113,17 @@ fn public_post(j: &mut Value) {
     }
 }
 
+/// Snapshot the router and wrap it as a URL resolver for the serializers here.
+///
+/// Delegates to `themes::url_resolver` rather than rebuilding the lookup:
+/// that one resolves tags and authors through their taxonomy routes and adds
+/// the install's base path, so the `url` an API client reads is the same URL a
+/// theme would link to. A second local copy of this logic drifted from it
+/// before — the API answered unprefixed paths while the site rendered
+/// prefixed ones.
 pub(crate) async fn resolve(state: &AppState) -> Arc<dyn Fn(&Value) -> String + Send + Sync> {
     let router: Arc<RouterTree> = state.router.read().await.clone();
-    Arc::new(move |r: &Value| match router.permalink_for(r) {
-        Some((_, p)) => ghost_routing::tree::build_permalink(&p, r),
-        None => "/404/".to_string(),
-    })
+    crate::themes::url_resolver(router)
 }
 
 // ---------------------------------------------------------------------------

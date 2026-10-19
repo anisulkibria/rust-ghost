@@ -65,6 +65,40 @@ pub fn build_site(settings: &SettingsCache, site_url: &str, admin_url: &str) -> 
     m.entry("comments_enabled".to_string()).or_insert(json!("off"));
     m.entry("recommendations_enabled".to_string()).or_insert(json!(false));
 
+    // Image settings are stored without the base path; `site` is an output
+    // boundary, so put them into browser-ready form here.
+    for key in ["logo", "icon", "cover_image", "og_image", "twitter_image"] {
+        if let Some(Value::String(path)) = m.get(key) {
+            let public = ghost_core::url::base_asset(path);
+            m.insert(key.to_string(), json!(public));
+        }
+    }
+
+    // Menu URLs too. Themes reach these both ways — `{{navigation}}`, which
+    // renders the `navigation` partial, and a bare `{{#foreach
+    // @site.navigation}}` (Flux's footer does exactly that) — so the prefix
+    // has to be on the data rather than applied by the helper, or the second
+    // form links outside the install.
+    for key in ["navigation", "secondary_navigation"] {
+        if let Some(Value::Array(items)) = m.get(key) {
+            let prefixed: Vec<Value> = items
+                .iter()
+                .map(|item| match item {
+                    Value::Object(o) => {
+                        let mut o = o.clone();
+                        if let Some(Value::String(url)) = o.get("url") {
+                            let public = ghost_core::url::base(url);
+                            o.insert("url".into(), json!(public));
+                        }
+                        Value::Object(o)
+                    }
+                    other => other.clone(),
+                })
+                .collect();
+            m.insert(key.to_string(), Value::Array(prefixed));
+        }
+    }
+
     // computed
     m.insert("url".into(), json!(site_url));
     m.insert("admin_url".into(), json!(admin_url));

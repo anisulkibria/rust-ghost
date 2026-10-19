@@ -81,11 +81,11 @@ async fn require_user(state: &AppState, headers: &HeaderMap) -> Result<ghost_cor
 }
 
 fn session_cookie_header(sid: &str, max_age_secs: i64) -> String {
-    format!("{SESSION_COOKIE}={sid}; Path=/ghost; HttpOnly; SameSite=Lax; Max-Age={max_age_secs}")
+    format!("{SESSION_COOKIE}={sid}; Path={}/ghost; HttpOnly; SameSite=Lax; Max-Age={max_age_secs}", ghost_core::url::subdir())
 }
 
 fn clear_session_cookie_header() -> String {
-    format!("{SESSION_COOKIE}=; Path=/ghost; HttpOnly; SameSite=Lax; Max-Age=0")
+    format!("{SESSION_COOKIE}=; Path={}/ghost; HttpOnly; SameSite=Lax; Max-Age=0", ghost_core::url::subdir())
 }
 
 // ---------------------------------------------------------------------------

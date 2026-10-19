@@ -35,6 +35,14 @@ pub struct InstalledTheme {
 ///
 /// Tags and authors resolve to their taxonomy archive; everything else is
 /// treated as a post or page and goes through the collection permalinks.
+///
+/// The returned paths carry the install's base path, because this is what
+/// fills the `url` field that `{{url}}`, the Content API, the sitemap and the
+/// feeds all read — they are browser-ready. The router tree itself works in
+/// unprefixed paths (requests arrive with the base path already stripped), so
+/// the prefix is added here, once, on the way out. Code turning one of these
+/// into an absolute URL must use [`ghost_core::url::absolute`] rather than
+/// concatenating onto a site url that carries the prefix too.
 pub fn url_resolver(router: Arc<RouterTree>) -> ghost_render::helpers::UrlResolver {
     use ghost_routing::tree::TaxonomyKind;
 
@@ -44,17 +52,18 @@ pub fn url_resolver(router: Arc<RouterTree>) -> ghost_render::helpers::UrlResolv
             None => None,
         };
         if let Some(permalink) = taxonomy {
-            return ghost_routing::tree::build_permalink(permalink, resource);
+            return ghost_core::url::base(&ghost_routing::tree::build_permalink(permalink, resource));
         }
         // a tag or author with no taxonomy route configured has no page
         if resource_kind(resource).is_some() {
-            return "/404/".to_string();
+            return ghost_core::url::base("/404/");
         }
         let _ = TaxonomyKind::Tag;
-        match router.permalink_for(resource) {
+        let path = match router.permalink_for(resource) {
             Some((_, permalink)) => ghost_routing::tree::build_permalink(&permalink, resource),
             None => "/404/".to_string(),
-        }
+        };
+        ghost_core::url::base(&path)
     })
 }
 
