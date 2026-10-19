@@ -1,0 +1,22 @@
+# Rust
+/target/
+debug/
+release/
+**/*.rs.bk
+
+# runtime content (regenerated on first boot — never commit)
+content/data/
+content/logs/
+content/images/
+content/media/
+content/files/
+.DS_Store
+
+# local config (contains your local db path / secrets)
+config.local*.json
+
+# editor
+.claude/
+.idea/
+.vscode/
+*.swp

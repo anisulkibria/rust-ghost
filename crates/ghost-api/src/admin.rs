@@ -1,0 +1,972 @@
+//! Admin API (`/ghost/api/admin/*`) — setup flow, session auth, CRUD.
+use axum::extract::{Path, Query, State};
+use axum::http::{header, HeaderMap, StatusCode};
+use axum::response::{IntoResponse, Response};
+use axum::routing::{get, post};
+use axum::{Json, Router};
+use ghost_db::repos;
+use serde_json::{json, Map, Value};
+use std::collections::HashMap;
+
+use crate::state::AppState;
+
+pub fn admin_router() -> Router<AppState> {
+    Router::new()
+        // setup + auth
+        .route("/authentication/setup", get(setup_status).post(complete_setup))
+        .route("/session", post(login).delete(logout))
+        // posts / pages
+        .route("/posts/", get(admin_browse_posts).post(admin_add_post))
+        .route("/posts/{id}", get(admin_read_post).put(admin_edit_post).delete(admin_delete_post))
+        .route("/pages/", get(admin_browse_pages).post(admin_add_page))
+        .route("/pages/{id}", get(admin_read_post).put(admin_edit_post).delete(admin_delete_post))
+        // tags
+        .route("/tags/", get(admin_browse_tags).post(admin_add_tag))
+        .route("/tags/{id}", get(admin_read_tag).put(admin_edit_tag).delete(admin_delete_tag))
+        // users
+        .route("/users/", get(admin_browse_users))
+        .route("/users/{id}", get(admin_read_user).put(admin_edit_user))
+        .route("/users/password", post(change_password))
+        // settings
+        .route("/settings/", get(admin_browse_settings).put(admin_edit_settings))
+        // integrations
+        .route("/integrations/", get(admin_browse_integrations).post(admin_add_integration))
+        .route("/integrations/{id}", get(admin_read_integration))
+        // site info (used by tooling)
+        .route("/site", get(site_info))
+}
+
+// ---------------------------------------------------------------------------
+// error helpers
+// ---------------------------------------------------------------------------
+
+fn err(status: StatusCode, message: &str, error_type: &str) -> Response {
+    (status, Json(json!({ "errors": [{ "message": message, "errorType": error_type }] }))).into_response()
+}
+
+fn from_ghost(e: ghost_core::GhostError) -> Response {
+    err(
+        StatusCode::from_u16(e.status_code()).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR),
+        &e.message(),
+        e.error_type(),
+    )
+}
+
+fn ok_json(body: Value) -> Response {
+    (StatusCode::OK, [(header::CACHE_CONTROL, "private")], Json(body)).into_response()
+}
+
+// ---------------------------------------------------------------------------
+// auth
+// ---------------------------------------------------------------------------
+
+const SESSION_COOKIE: &str = "ghost-admin-api-session";
+
+/// Resolve the acting user from the session cookie. None = unauthenticated.
+pub(crate) async fn current_user(state: &AppState, headers: &HeaderMap) -> Option<ghost_core::models::User> {
+    let cookie = headers.get(header::COOKIE)?.to_str().ok()?;
+    let sid = cookie
+        .split(';')
+        .filter_map(|c| c.trim().strip_prefix(&format!("{SESSION_COOKIE}=")))
+        .next()?
+        .to_string();
+    let user_id = repos::sessions::get_user(&state.db, &sid).await.ok()??;
+    repos::users::find_by_id(&state.db, &user_id).await.ok()?
+}
+
+async fn require_user(state: &AppState, headers: &HeaderMap) -> Result<ghost_core::models::User, Response> {
+    current_user(state, headers).await.ok_or_else(|| {
+        err(StatusCode::UNAUTHORIZED, "Authentication required", "NoPermissionError")
+    })
+}
+
+fn session_cookie_header(sid: &str, max_age_secs: i64) -> String {
+    format!("{SESSION_COOKIE}={sid}; Path=/ghost; HttpOnly; SameSite=Lax; Max-Age={max_age_secs}")
+}
+
+fn clear_session_cookie_header() -> String {
+    format!("{SESSION_COOKIE}=; Path=/ghost; HttpOnly; SameSite=Lax; Max-Age=0")
+}
+
+// ---------------------------------------------------------------------------
+// setup flow (unauthenticated while setup is incomplete — like Ghost)
+// ---------------------------------------------------------------------------
+
+async fn setup_status(State(state): State<AppState>) -> Response {
+    let done = repos::users::is_setup(&state.db).await.unwrap_or(false);
+    ok_json(json!({ "setup": [{ "status": done, "markseen": null }] }))
+}
+
+async fn complete_setup(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(body): Json<Value>,
+) -> Response {
+    // lock: only while setup is incomplete
+    if repos::users::is_setup(&state.db).await.unwrap_or(false) {
+        return err(StatusCode::FORBIDDEN, "Setup has already been completed", "NoPermissionError");
+    }
+    let _ = headers;
+
+    let Some(setup) = body.get("setup").and_then(|s| s.as_array()).and_then(|a| a.first()) else {
+        return err(StatusCode::UNPROCESSABLE_ENTITY, "setup[0] payload required", "ValidationError");
+    };
+    let name = setup.get("name").and_then(|v| v.as_str()).unwrap_or("Ghost");
+    let email = setup.get("email").and_then(|v| v.as_str()).unwrap_or("ghost@example.com");
+    let password = setup.get("password").and_then(|v| v.as_str()).unwrap_or("");
+    let blog_title = setup.get("blogTitle").and_then(|v| v.as_str()).unwrap_or("Ghost");
+    let description = setup.get("description").and_then(|v| v.as_str()).unwrap_or("");
+
+    if password.len() < 10 {
+        return err(StatusCode::UNPROCESSABLE_ENTITY, "Password must be at least 10 characters", "ValidationError");
+    }
+    let password = password.to_string();
+
+    let hash = match tokio::task::spawn_blocking(move || bcrypt::hash(&password, 12)).await {
+        Ok(Ok(h)) => h,
+        _ => return err(StatusCode::INTERNAL_SERVER_ERROR, "hash failed", "InternalServerError"),
+    };
+
+    let owner = match repos::users::setup_owner(&state.db, name, email, &hash).await {
+        Ok(o) => o,
+        Err(e) => return from_ghost(e),
+    };
+
+    // title / description settings
+    let _ = state.settings.set(&state.db, "title", &json!(blog_title)).await;
+    if !description.is_empty() {
+        let _ = state.settings.set(&state.db, "description", &json!(description)).await;
+    }
+    // fix fixture post placeholders
+    let _ = sqlx::query("UPDATE posts SET title = ? WHERE slug = 'coming-soon'")
+        .bind(blog_title)
+        .execute(&state.db)
+        .await;
+    state.refresh_setup_flag().await;
+    let _ = repos::actions::record(&state.db, "user", &owner.id, &owner.id, "setup").await;
+
+    (
+        StatusCode::CREATED,
+        Json(json!({ "users": [ghost_core::models::user_public_json(&owner, None)] })),
+    )
+        .into_response()
+}
+
+// ---------------------------------------------------------------------------
+// session login / logout
+// ---------------------------------------------------------------------------
+
+async fn login(State(state): State<AppState>, headers: HeaderMap, Json(body): Json<Value>) -> Response {
+    // origin check (CSRF defense like Ghost's session-service)
+    if let Some(origin) = headers.get(header::ORIGIN).and_then(|o| o.to_str().ok()) {
+        let host = headers.get(header::HOST).and_then(|h| h.to_str().ok()).unwrap_or("");
+        if !origin.contains(host) {
+            return err(StatusCode::FORBIDDEN, "Invalid origin", "NoPermissionError");
+        }
+    }
+
+    let email = body.get("email").and_then(|v| v.as_str()).unwrap_or("");
+    let password = body.get("password").and_then(|v| v.as_str()).unwrap_or("");
+
+    let user = match repos::users::verify_password(&state.db, email, password).await {
+        Ok(Some(u)) => u,
+        _ => return err(StatusCode::UNAUTHORIZED, "Invalid email or password", "UnauthorizedError"),
+    };
+
+    let sid = match repos::sessions::create(&state.db, &user.id).await {
+        Ok(s) => s,
+        Err(e) => return from_ghost(e),
+    };
+    let _ = repos::users::update_last_seen(&state.db, &user.id).await;
+
+    let mut resp = (
+        StatusCode::CREATED,
+        Json(json!({ "users": [admin_user_json(&user)] })),
+    )
+        .into_response();
+    resp.headers_mut().insert(
+        header::SET_COOKIE,
+        session_cookie_header(&sid, 60 * 60 * 24 * 7).parse().unwrap(),
+    );
+    resp
+}
+
+fn admin_user_json(u: &ghost_core::models::User) -> Value {
+    let mut j = ghost_core::models::user_public_json(u, None);
+    if let Value::Object(m) = &mut j {
+        m.insert("email".into(), json!(u.email));
+        m.insert("status".into(), json!(u.status));
+        m.insert("last_seen".into(), json!(ghost_core::dates::db_to_api(u.last_seen.as_deref())));
+        m.insert("created_at".into(), json!(ghost_core::dates::db_to_api(u.created_at.as_deref())));
+    }
+    j
+}
+
+async fn logout(State(state): State<AppState>, headers: HeaderMap) -> Response {
+    if let Some(cookie) = headers.get(header::COOKIE).and_then(|c| c.to_str().ok()) {
+        if let Some(sid) = cookie.split(';').find_map(|c| c.trim().strip_prefix(&format!("{SESSION_COOKIE}="))) {
+            let _ = repos::sessions::destroy(&state.db, sid).await;
+        }
+    }
+    (
+        StatusCode::NO_CONTENT,
+        [(header::SET_COOKIE, clear_session_cookie_header())],
+    )
+        .into_response()
+}
+
+// ---------------------------------------------------------------------------
+// posts / pages CRUD (markdown pipeline in)
+// ---------------------------------------------------------------------------
+
+fn markdown_pipeline(markdown: &str) -> (String, String, i64) {
+    ghost_render::markdown::render_markdown(markdown)
+}
+
+async fn admin_browse_posts_impl(state: AppState, params: HashMap<String, String>, post_type: &str, headers: HeaderMap) -> Response {
+    if let Err(r) = require_user(&state, &headers).await {
+        return r;
+    }
+    let q = crate::content::parse_browse(&params);
+    let filter = match q.filter.as_deref().map(ghost_nql::parse).transpose() {
+        Ok(f) => f,
+        Err(e) => return from_ghost(e),
+    };
+    // admin can also filter by ?status=
+    let filter = match params.get("status") {
+        Some(s) if !s.is_empty() => Some(ghost_nql::Expr::And(
+            vec![
+                filter.unwrap_or(ghost_nql::Expr::Cond(ghost_nql::Cond { key: "status".into(), cmp: ghost_nql::Cmp::Eq, value: ghost_nql::NqlValue::Str(s.clone()) })),
+            ],
+        )),
+        _ => filter,
+    };
+    let result = repos::posts::browse(
+        &state.db,
+        &repos::posts::BrowsePosts {
+            filter,
+            order: q.order.clone(),
+            limit: q.limit,
+            page: q.page,
+            post_type: Some(post_type.to_string()),
+            public: false,
+            include_authors: true,
+            include_tags: true,
+        },
+    )
+    .await;
+    match result {
+        Ok(page) => {
+            let resolver = crate::content::resolve(&state).await;
+            let rel = repos::posts::load_relations(&state.db, &page.posts).await.unwrap_or_default();
+            let items: Vec<Value> = page
+                .posts
+                .iter()
+                .map(|p| {
+                    let authors = rel.authors_for(&p.id);
+                    let tags = rel.tags_for(&p.id);
+                    let mut j = ghost_core::models::post_to_json(p, &authors, &tags, "");
+                    j["url"] = json!(resolver(&j));
+                    j["type"] = json!(post_type);
+                    j["status"] = json!(p.status);
+                    j
+                })
+                .collect();
+            let doc = if post_type == "page" { "pages" } else { "posts" };
+            let pagination = ghost_core::models::pagination_json(page.page, page.limit.max(1), page.total);
+            ok_json(json!({ doc: items, "meta": { "pagination": pagination } }))
+        }
+        Err(e) => from_ghost(e),
+    }
+}
+
+async fn admin_browse_posts(State(state): State<AppState>, Query(params): Query<HashMap<String, String>>, headers: HeaderMap) -> Response {
+    admin_browse_posts_impl(state, params, "post", headers).await
+}
+
+async fn admin_browse_pages(State(state): State<AppState>, Query(params): Query<HashMap<String, String>>, headers: HeaderMap) -> Response {
+    admin_browse_posts_impl(state, params, "page", headers).await
+}
+
+fn post_input_to_new(body: &Value, post_type: &str) -> repos::posts::NewPost {
+    let posts = body.get(if post_type == "page" { "pages" } else { "posts" })
+        .and_then(|p| p.as_array())
+        .and_then(|a| a.first())
+        .cloned()
+        .unwrap_or_else(|| body.clone());
+
+    let str_field = |key: &str| posts.get(key).and_then(|v| v.as_str()).map(str::to_string);
+    let markdown = str_field("markdown");
+    let lexical = str_field("lexical").filter(|l| !l.trim().is_empty());
+    let html_in = str_field("html");
+    // Markdown is this server's own editor format and html is what a client
+    // sends ready-made; lexical is Ghost's, and is rendered the same way the
+    // admin editor's documents are.
+    let (html, plaintext, reading_time) = if let Some(md) = &markdown {
+        markdown_pipeline(md)
+    } else {
+        // Ready-made HTML wins over lexical, because a client that sends
+        // both has already rendered the cards with Ghost's own renderer.
+        let html = match (&html_in, &lexical) {
+            (Some(html), _) => html.clone(),
+            (None, Some(lexical)) => ghost_render::lexical::to_html(lexical),
+            (None, None) => String::new(),
+        };
+        let plain = ghost_render::markdown::html_to_plaintext(&html);
+        let rt = ghost_render::markdown::reading_time(&plain);
+        (html, plain, rt)
+    };
+
+    repos::posts::NewPost {
+        title: posts.get("title").and_then(|v| v.as_str()).unwrap_or("Untitled").to_string(),
+        slug: str_field("slug"),
+        lexical,
+        markdown,
+        html: Some(html),
+        plaintext: Some(plaintext),
+        custom_excerpt: str_field("custom_excerpt"),
+        feature_image: str_field("feature_image"),
+        featured: posts.get("featured").and_then(|v| v.as_bool()).unwrap_or(false),
+        post_type: post_type.to_string(),
+        status: posts.get("status").and_then(|v| v.as_str()).unwrap_or("draft").to_string(),
+        visibility: posts.get("visibility").and_then(|v| v.as_str()).unwrap_or("public").to_string(),
+        published_at: None,
+        codeinjection_head: str_field("codeinjection_head"),
+        codeinjection_foot: str_field("codeinjection_foot"),
+        custom_template: str_field("custom_template"),
+        canonical_url: str_field("canonical_url"),
+        show_title_and_feature_image: posts.get("show_title_and_feature_image").and_then(|v| v.as_bool()),
+        meta_title: str_field("meta_title"),
+        meta_description: str_field("meta_description"),
+        og_title: str_field("og_title"),
+        og_description: str_field("og_description"),
+        og_image: str_field("og_image"),
+        twitter_title: str_field("twitter_title"),
+        twitter_description: str_field("twitter_description"),
+        twitter_image: str_field("twitter_image"),
+        email_subject: str_field("email_subject"),
+        feature_image_alt: str_field("feature_image_alt"),
+        feature_image_caption: str_field("feature_image_caption"),
+        author_ids: posts.get("authors").and_then(|a| a.as_array()).map(|a| {
+            a.iter().filter_map(|x| x.get("id").and_then(|i| i.as_str()).map(str::to_string)).collect()
+        }).unwrap_or_default(),
+        tag_ids: posts.get("tags").and_then(|a| a.as_array()).map(|a| {
+            a.iter().filter_map(|x| x.get("id").and_then(|i| i.as_str()).map(str::to_string)).collect()
+        }).unwrap_or_default(),
+        reading_time,
+    }
+}
+
+async fn admin_add_post_impl(state: AppState, user: ghost_core::models::User, body: Value, post_type: &str) -> Response {
+    let mut new = post_input_to_new(&body, post_type);
+    // tags may arrive as {name} (create-or-find, like Ghost) or {id}
+    if let Some(tags) = body.get(if post_type == "page" { "pages" } else { "posts" })
+        .and_then(|p| p.as_array()).and_then(|a| a.first())
+        .and_then(|p| p.get("tags")).and_then(|t| t.as_array()).cloned()
+    {
+        let mut ids = Vec::new();
+        for t in tags {
+            if let Some(id) = t.get("id").and_then(|i| i.as_str()) {
+                ids.push(id.to_string());
+            } else if let Some(name) = t.get("name").and_then(|n| n.as_str()) {
+                let slug = ghost_core::slug::safe_string(name);
+                let existing = repos::tags::find_by_slug(&state.db, &slug).await.ok().flatten();
+                let tag = match existing {
+                    Some(t) => t,
+                    None => match repos::tags::insert(&state.db, &repos::tags::NewTag {
+                        name: name.to_string(),
+                        ..Default::default()
+                    }).await {
+                        Ok(t) => t,
+                        Err(e) => return from_ghost(e),
+                    },
+                };
+                ids.push(tag.id);
+            }
+        }
+        new.tag_ids = ids;
+    }
+    match repos::posts::insert(&state.db, &new, &user.id).await {
+        Ok(post) => {
+            let resolver = crate::content::resolve(&state).await;
+            let rel = repos::posts::load_relations(&state.db, std::slice::from_ref(&post))
+                .await
+                .unwrap_or_default();
+            let j = ghost_core::models::post_to_json(
+                &post,
+                &rel.authors_for(&post.id),
+                &rel.tags_for(&post.id),
+                "",
+            );
+            let mut j = j;
+            j["url"] = json!(resolver(&j));
+            j["type"] = json!(post_type);
+            let _ = repos::actions::record(&state.db, post_type, &post.id, &user.id, "added").await;
+            let doc = if post_type == "page" { "pages" } else { "posts" };
+            (StatusCode::CREATED, Json(json!({ doc: [j] }))).into_response()
+        }
+        Err(e) => from_ghost(e),
+    }
+}
+
+async fn admin_add_post(State(state): State<AppState>, headers: HeaderMap, Json(body): Json<Value>) -> Response {
+    let user = match require_user(&state, &headers).await {
+        Ok(u) => u,
+        Err(r) => return r,
+    };
+    admin_add_post_impl(state, user, body, "post").await
+}
+
+async fn admin_add_page(State(state): State<AppState>, headers: HeaderMap, Json(body): Json<Value>) -> Response {
+    let user = match require_user(&state, &headers).await {
+        Ok(u) => u,
+        Err(r) => return r,
+    };
+    admin_add_post_impl(state, user, body, "page").await
+}
+
+async fn admin_read_post(State(state): State<AppState>, Path(id): Path<String>, headers: HeaderMap) -> Response {
+    let _user = match require_user(&state, &headers).await {
+        Ok(u) => u,
+        Err(r) => return r,
+    };
+    match repos::posts::find_by_id(&state.db, &id).await {
+        Ok(Some(post)) => {
+            let resolver = crate::content::resolve(&state).await;
+            let rel = repos::posts::load_relations(&state.db, std::slice::from_ref(&post))
+                .await
+                .unwrap_or_default();
+            let mut j = ghost_core::models::post_to_json(&post, &rel.authors_for(&post.id), &rel.tags_for(&post.id), "");
+            j["url"] = json!(resolver(&j));
+            j["type"] = json!(post.post_type);
+            let mut m = Map::new();
+            m.insert(if post.post_type == "page" { "pages" } else { "posts" }.to_string(), Value::Array(vec![j]));
+            ok_json(Value::Object(m))
+        }
+        _ => err(StatusCode::NOT_FOUND, "Post not found", "NotFoundError"),
+    }
+}
+
+async fn admin_edit_post(State(state): State<AppState>, Path(id): Path<String>, headers: HeaderMap, Json(body): Json<Value>) -> Response {
+    let user = match require_user(&state, &headers).await {
+        Ok(u) => u,
+        Err(r) => return r,
+    };
+    let post_type = repos::posts::find_by_id(&state.db, &id)
+        .await
+        .ok()
+        .flatten()
+        .map(|p| p.post_type)
+        .unwrap_or_else(|| "post".into());
+
+    let posts = body.get(if post_type == "page" { "pages" } else { "posts" })
+        .and_then(|p| p.as_array())
+        .and_then(|a| a.first())
+        .cloned()
+        .unwrap_or_else(|| body.clone());
+
+    let str_field = |key: &str| posts.get(key).and_then(|v| v.as_str()).map(str::to_string);
+    let markdown = str_field("markdown");
+    let lexical = str_field("lexical").filter(|l| !l.trim().is_empty());
+    // Only recompute the rendered columns when the request actually carries
+    // content; a PUT that just flips `featured` leaves the body alone.
+    let (html, plaintext, reading_time) = if let Some(md) = &markdown {
+        let (h, p, rt) = markdown_pipeline(md);
+        (Some(h), Some(p), Some(rt))
+    } else {
+        let rendered = match (str_field("html"), &lexical) {
+            (Some(html), _) => Some(html),
+            (None, Some(lexical)) => Some(ghost_render::lexical::to_html(lexical)),
+            (None, None) => None,
+        };
+        match rendered {
+            Some(html) => {
+                let plain = ghost_render::markdown::html_to_plaintext(&html);
+                let rt = ghost_render::markdown::reading_time(&plain);
+                (Some(html), Some(plain), Some(rt))
+            }
+            None => (None, None, None),
+        }
+    };
+
+    let changes = repos::posts::PostChanges {
+        title: str_field("title"),
+        slug: str_field("slug"),
+        lexical,
+        markdown,
+        html,
+        plaintext,
+        custom_excerpt: str_field("custom_excerpt"),
+        feature_image: str_field("feature_image"),
+        featured: posts.get("featured").and_then(|v| v.as_bool()),
+        status: str_field("status"),
+        visibility: str_field("visibility"),
+        published_at: None,
+        codeinjection_head: str_field("codeinjection_head"),
+        codeinjection_foot: str_field("codeinjection_foot"),
+        custom_template: str_field("custom_template"),
+        canonical_url: str_field("canonical_url"),
+        show_title_and_feature_image: posts.get("show_title_and_feature_image").and_then(|v| v.as_bool()),
+        meta_title: str_field("meta_title"),
+        meta_description: str_field("meta_description"),
+        og_title: str_field("og_title"),
+        og_description: str_field("og_description"),
+        og_image: str_field("og_image"),
+        twitter_title: str_field("twitter_title"),
+        twitter_description: str_field("twitter_description"),
+        twitter_image: str_field("twitter_image"),
+        email_subject: str_field("email_subject"),
+        feature_image_alt: str_field("feature_image_alt"),
+        feature_image_caption: str_field("feature_image_caption"),
+        reading_time,
+        tag_ids: posts.get("tags").and_then(|a| a.as_array()).map(|a| {
+            a.iter().filter_map(|x| x.get("id").and_then(|i| i.as_str()).map(str::to_string)).collect()
+        }),
+        author_ids: posts.get("authors").and_then(|a| a.as_array()).map(|a| {
+            a.iter().filter_map(|x| x.get("id").and_then(|i| i.as_str()).map(str::to_string)).collect()
+        }),
+        // A PATCH-shaped API: absent means unchanged, so nothing is cleared.
+        clearing: vec![],
+    };
+
+    match repos::posts::update(&state.db, &id, &changes).await {
+        Ok(post) => {
+            let resolver = crate::content::resolve(&state).await;
+            let rel = repos::posts::load_relations(&state.db, std::slice::from_ref(&post))
+                .await
+                .unwrap_or_default();
+            let mut j = ghost_core::models::post_to_json(&post, &rel.authors_for(&post.id), &rel.tags_for(&post.id), "");
+            j["url"] = json!(resolver(&j));
+            let _ = repos::actions::record(&state.db, &post_type, &post.id, &user.id, "edited").await;
+            let doc = if post.post_type == "page" { "pages" } else { "posts" };
+            ok_json(json!({ doc: [j] }))
+        }
+        Err(e) => from_ghost(e),
+    }
+}
+
+async fn admin_delete_post(State(state): State<AppState>, Path(id): Path<String>, headers: HeaderMap) -> Response {
+    let user = match require_user(&state, &headers).await {
+        Ok(u) => u,
+        Err(r) => return r,
+    };
+    match repos::posts::destroy(&state.db, &id).await {
+        Ok(()) => {
+            let _ = repos::actions::record(&state.db, "post", &id, &user.id, "deleted").await;
+            (StatusCode::NO_CONTENT, Json(json!({ "posts": [] }))).into_response()
+        }
+        Err(e) => from_ghost(e),
+    }
+}
+
+// ---------------------------------------------------------------------------
+// tags CRUD
+// ---------------------------------------------------------------------------
+
+async fn admin_browse_tags(State(state): State<AppState>, Query(params): Query<HashMap<String, String>>, headers: HeaderMap) -> Response {
+    if let Err(r) = require_user(&state, &headers).await {
+        return r;
+    }
+    let q = crate::content::parse_browse(&params);
+    let include_count = q.include.iter().any(|i| i == "count.posts");
+    match repos::tags::browse(&state.db, None, q.order.as_deref(), q.limit, q.page, false, include_count).await {
+        Ok((tags, total)) => {
+            let resolver = crate::content::resolve(&state).await;
+            let items: Vec<Value> = tags
+                .iter()
+                .map(|t| {
+                    let mut j = ghost_core::models::tag_to_json(t, None);
+                    let url = resolver(&j);
+                    if let Value::Object(m) = &mut j {
+                        m.insert("url".into(), json!(url));
+                    }
+                    j
+                })
+                .collect();
+            let pagination = ghost_core::models::pagination_json(q.page, if q.limit > 0 { q.limit } else { 15 }, total);
+            ok_json(json!({ "tags": items, "meta": { "pagination": pagination } }))
+        }
+        Err(e) => from_ghost(e),
+    }
+}
+
+async fn admin_read_tag(State(state): State<AppState>, Path(id): Path<String>, headers: HeaderMap) -> Response {
+    if let Err(r) = require_user(&state, &headers).await {
+        return r;
+    }
+    let found = if ghost_core::ids::is_objectid(&id) {
+        repos::tags::find_by_id(&state.db, &id).await
+    } else {
+        repos::tags::find_by_slug(&state.db, &id).await
+    };
+    match found {
+        Ok(Some(t)) => {
+            let resolver = crate::content::resolve(&state).await;
+            let mut j = ghost_core::models::tag_to_json(&t, None);
+            let url = resolver(&j);
+            if let Value::Object(m) = &mut j {
+                m.insert("url".into(), json!(url));
+            }
+            ok_json(json!({ "tags": [j] }))
+        }
+        _ => err(StatusCode::NOT_FOUND, "Tag not found", "NotFoundError"),
+    }
+}
+
+async fn admin_add_tag(State(state): State<AppState>, headers: HeaderMap, Json(body): Json<Value>) -> Response {
+    let user = match require_user(&state, &headers).await {
+        Ok(u) => u,
+        Err(r) => return r,
+    };
+    let tag = body.get("tags").and_then(|t| t.as_array()).and_then(|a| a.first()).cloned().unwrap_or(body);
+    let new = repos::tags::NewTag {
+        name: tag.get("name").and_then(|v| v.as_str()).unwrap_or("Untitled").to_string(),
+        slug: tag.get("slug").and_then(|v| v.as_str()).map(str::to_string),
+        description: tag.get("description").and_then(|v| v.as_str()).map(str::to_string),
+        feature_image: tag.get("feature_image").and_then(|v| v.as_str()).map(str::to_string),
+        visibility: tag.get("visibility").and_then(|v| v.as_str()).unwrap_or("public").to_string(),
+        accent_color: tag.get("accent_color").and_then(|v| v.as_str()).map(str::to_string),
+        meta_title: tag.get("meta_title").and_then(|v| v.as_str()).map(str::to_string),
+        meta_description: tag.get("meta_description").and_then(|v| v.as_str()).map(str::to_string),
+    };
+    match repos::tags::insert(&state.db, &new).await {
+        Ok(t) => {
+            let _ = repos::actions::record(&state.db, "tag", &t.id, &user.id, "added").await;
+            (StatusCode::CREATED, Json(json!({ "tags": [ghost_core::models::tag_to_json(&t, None)] }))).into_response()
+        }
+        Err(e) => from_ghost(e),
+    }
+}
+
+async fn admin_edit_tag(State(state): State<AppState>, Path(id): Path<String>, headers: HeaderMap, Json(body): Json<Value>) -> Response {
+    if let Err(r) = require_user(&state, &headers).await {
+        return r;
+    }
+    let tag = body.get("tags").and_then(|t| t.as_array()).and_then(|a| a.first()).cloned().unwrap_or(body);
+    // Absent key means "leave it alone"; a present key (even empty) is a
+    // change, which is what lets a client clear a field.
+    let f = |key: &str| tag.get(key).and_then(|v| v.as_str()).map(str::to_string);
+    let changes = repos::tags::TagChanges {
+        name: f("name"),
+        slug: f("slug"),
+        description: f("description"),
+        feature_image: f("feature_image"),
+        visibility: f("visibility"),
+        accent_color: f("accent_color"),
+        meta_title: f("meta_title"),
+        meta_description: f("meta_description"),
+        canonical_url: f("canonical_url"),
+        og_image: f("og_image"),
+        og_title: f("og_title"),
+        og_description: f("og_description"),
+        twitter_image: f("twitter_image"),
+        twitter_title: f("twitter_title"),
+        twitter_description: f("twitter_description"),
+        codeinjection_head: f("codeinjection_head"),
+        codeinjection_foot: f("codeinjection_foot"),
+    };
+    match repos::tags::update(&state.db, &id, &changes).await {
+        Ok(t) => ok_json(json!({ "tags": [ghost_core::models::tag_to_json(&t, None)] })),
+        Err(e) => from_ghost(e),
+    }
+}
+
+async fn admin_delete_tag(State(state): State<AppState>, Path(id): Path<String>, headers: HeaderMap) -> Response {
+    if let Err(r) = require_user(&state, &headers).await {
+        return r;
+    }
+    match repos::tags::destroy(&state.db, &id).await {
+        Ok(()) => (StatusCode::NO_CONTENT, Json(json!({ "tags": [] }))).into_response(),
+        Err(e) => from_ghost(e),
+    }
+}
+
+// ---------------------------------------------------------------------------
+// users
+// ---------------------------------------------------------------------------
+
+async fn admin_browse_users(State(state): State<AppState>, headers: HeaderMap) -> Response {
+    if let Err(r) = require_user(&state, &headers).await {
+        return r;
+    }
+    match repos::users::list(&state.db, false).await {
+        Ok(users) => {
+            let items: Vec<Value> = users
+                .iter()
+                .map(|u| {
+                    let mut j = admin_user_json(u);
+                    if let Value::Object(m) = &mut j {
+                        m.insert("roles".into(), json!([]));
+                    }
+                    j
+                })
+                .collect();
+            ok_json(json!({ "users": items }))
+        }
+        Err(e) => from_ghost(e),
+    }
+}
+
+async fn admin_read_user(State(state): State<AppState>, Path(id): Path<String>, headers: HeaderMap) -> Response {
+    if let Err(r) = require_user(&state, &headers).await {
+        return r;
+    }
+    match repos::users::find_by_id(&state.db, &id).await {
+        Ok(Some(u)) => ok_json(json!({ "users": [admin_user_json(&u)] })),
+        _ => err(StatusCode::NOT_FOUND, "User not found", "NotFoundError"),
+    }
+}
+
+async fn admin_edit_user(State(state): State<AppState>, Path(id): Path<String>, headers: HeaderMap, Json(body): Json<Value>) -> Response {
+    if let Err(r) = require_user(&state, &headers).await {
+        return r;
+    }
+    let user = body.get("users").and_then(|u| u.as_array()).and_then(|a| a.first()).cloned().unwrap_or(body);
+    let changes = repos::users::UserChanges {
+        name: user.get("name").and_then(|v| v.as_str()).map(str::to_string),
+        email: user.get("email").and_then(|v| v.as_str()).map(str::to_string),
+        password_hash: None,
+        bio: user.get("bio").and_then(|v| v.as_str()).map(str::to_string),
+        website: user.get("website").and_then(|v| v.as_str()).map(str::to_string),
+        location: user.get("location").and_then(|v| v.as_str()).map(str::to_string),
+        profile_image: user.get("profile_image").and_then(|v| v.as_str()).map(str::to_string),
+        cover_image: user.get("cover_image").and_then(|v| v.as_str()).map(str::to_string),
+        status: user.get("status").and_then(|v| v.as_str()).map(str::to_string),
+        meta_title: user.get("meta_title").and_then(|v| v.as_str()).map(str::to_string),
+        meta_description: user.get("meta_description").and_then(|v| v.as_str()).map(str::to_string),
+        twitter: user.get("twitter").and_then(|v| v.as_str()).map(str::to_string),
+        facebook: user.get("facebook").and_then(|v| v.as_str()).map(str::to_string),
+    };
+    match repos::users::update(&state.db, &id, &changes).await {
+        Ok(u) => ok_json(json!({ "users": [admin_user_json(&u)] })),
+        Err(e) => from_ghost(e),
+    }
+}
+
+async fn change_password(State(state): State<AppState>, headers: HeaderMap, Json(body): Json<Value>) -> Response {
+    let user = match require_user(&state, &headers).await {
+        Ok(u) => u,
+        Err(r) => return r,
+    };
+    let pw = body.get("password").and_then(|p| p.get("newPassword")).or_else(|| body.get("newPassword")).and_then(|v| v.as_str()).unwrap_or("");
+    if pw.len() < 10 {
+        return err(StatusCode::UNPROCESSABLE_ENTITY, "Password must be at least 10 characters", "ValidationError");
+    }
+    let pw = pw.to_string();
+    let hash = match tokio::task::spawn_blocking(move || bcrypt::hash(&pw, 12)).await {
+        Ok(Ok(h)) => h,
+        _ => return err(StatusCode::INTERNAL_SERVER_ERROR, "hash failed", "InternalServerError"),
+    };
+    match repos::users::update(&state.db, &user.id, &repos::users::UserChanges { password_hash: Some(hash), ..Default::default() }).await {
+        Ok(_) => (StatusCode::NO_CONTENT, "").into_response(),
+        Err(e) => from_ghost(e),
+    }
+}
+
+// ---------------------------------------------------------------------------
+// settings
+// ---------------------------------------------------------------------------
+
+/// Settings holding a credential, which must never be read back out.
+/// Matched by suffix as well as by name so a future `*_api_key` or
+/// `*_secret` is covered without having to remember to list it.
+pub fn is_secret_setting(key: &str) -> bool {
+    key.ends_with("_pass")
+        || key.ends_with("_password")
+        || key.ends_with("_api_key")
+        || key.ends_with("_secret")
+        || key.ends_with("_private_key")
+}
+
+async fn admin_browse_settings(State(state): State<AppState>, headers: HeaderMap) -> Response {
+    if let Err(r) = require_user(&state, &headers).await {
+        return r;
+    }
+    match repos::settings::all(&state.db).await {
+        Ok(all) => {
+            let items: Vec<Value> = all
+                .iter()
+                .map(|s| {
+                    // Credentials are write-only over the API too: an admin
+                    // token is for administering the site, not for reading
+                    // back the SMTP password or Mailgun key it was given.
+                    let value = if is_secret_setting(&s.key) {
+                        match s.typed_value() {
+                            Value::String(v) if !v.is_empty() => json!("••••••••"),
+                            other => other,
+                        }
+                    } else {
+                        s.typed_value()
+                    };
+                    json!({
+                        "id": s.id,
+                        "group": s.group,
+                        "key": s.key,
+                        "value": value,
+                        "type": s.value_type,
+                        "flags": s.flags,
+                    })
+                })
+                .collect();
+            ok_json(json!({ "settings": items }))
+        }
+        Err(e) => from_ghost(e),
+    }
+}
+
+async fn admin_edit_settings(State(state): State<AppState>, headers: HeaderMap, Json(body): Json<Value>) -> Response {
+    if let Err(r) = require_user(&state, &headers).await {
+        return r;
+    }
+    let Some(list) = body.get("settings").and_then(|s| s.as_array()).cloned() else {
+        return err(StatusCode::UNPROCESSABLE_ENTITY, "settings[] required", "ValidationError");
+    };
+    let mut updated = Vec::new();
+    for item in list {
+        let Some(key) = item.get("key").and_then(|k| k.as_str()) else { continue };
+        let Some(value) = item.get("value") else { continue };
+        if state.settings.set(&state.db, key, value).await.is_ok() {
+            updated.push(json!({ "key": { "key": key, "value": value } }));
+        }
+    }
+    ok_json(json!({ "settings": updated }))
+}
+
+// ---------------------------------------------------------------------------
+// integrations
+// ---------------------------------------------------------------------------
+
+async fn admin_browse_integrations(State(state): State<AppState>, headers: HeaderMap) -> Response {
+    if let Err(r) = require_user(&state, &headers).await {
+        return r;
+    }
+    match repos::integrations::list(&state.db).await {
+        Ok(ints) => {
+            let mut items = Vec::new();
+            for i in ints {
+                let mut j = json!({
+                    "id": i.id, "name": i.name, "slug": i.slug,
+                    "type": i.integration_type, "description": i.description,
+                });
+                if let Ok(keys) = repos::api_keys::find_by_integration(&state.db, &i.id).await {
+                    j["api_keys"] = Value::Array(
+                        keys.iter()
+                            .map(|k| {
+                                json!({ "id": k.id, "type": k.key_type, "secret": k.secret })
+                            })
+                            .collect(),
+                    );
+                }
+                items.push(j);
+            }
+            ok_json(json!({ "integrations": items }))
+        }
+        Err(e) => from_ghost(e),
+    }
+}
+
+async fn admin_read_integration(State(state): State<AppState>, Path(id): Path<String>, headers: HeaderMap) -> Response {
+    if let Err(r) = require_user(&state, &headers).await {
+        return r;
+    }
+    let rows = sqlx::query_as::<_, (String, String, String, Option<String>)>(
+        "SELECT id, type, name, slug FROM integrations WHERE id = ? OR slug = ? LIMIT 1",
+    )
+    .bind(&id)
+    .bind(&id)
+    .fetch_optional(&state.db)
+    .await
+    .ok()
+    .flatten();
+    match rows {
+        Some((id, typ, name, slug)) => {
+            let mut j = json!({ "id": id, "name": name, "slug": slug, "type": typ });
+            if let Ok(keys) = repos::api_keys::find_by_integration(&state.db, &id).await {
+                j["api_keys"] = Value::Array(
+                    keys.iter().map(|k| json!({ "id": k.id, "type": k.key_type, "secret": k.secret })).collect(),
+                );
+            }
+            ok_json(json!({ "integrations": [j] }))
+        }
+        None => err(StatusCode::NOT_FOUND, "Integration not found", "NotFoundError"),
+    }
+}
+
+async fn admin_add_integration(State(state): State<AppState>, headers: HeaderMap, Json(body): Json<Value>) -> Response {
+    let user = match require_user(&state, &headers).await {
+        Ok(u) => u,
+        Err(r) => return r,
+    };
+    let name = body.get("integrations").and_then(|i| i.as_array()).and_then(|a| a.first())
+        .and_then(|i| i.get("name")).and_then(|n| n.as_str())
+        .or_else(|| body.get("name").and_then(|n| n.as_str()))
+        .unwrap_or("Unnamed integration");
+    let key_type = body.get("integrations").and_then(|i| i.as_array()).and_then(|a| a.first())
+        .and_then(|i| i.get("api_keys")).and_then(|k| k.as_array()).and_then(|a| a.first())
+        .and_then(|k| k.get("type")).and_then(|t| t.as_str())
+        .or_else(|| body.get("type").and_then(|t| t.as_str()))
+        .unwrap_or("content");
+    match repos::api_keys::create_integration(&state.db, name, key_type).await {
+        Ok((integration, key)) => {
+            let _ = repos::actions::record(&state.db, "integration", &integration.id, &user.id, "added").await;
+            (
+                StatusCode::CREATED,
+                Json(json!({
+                    "integrations": [{
+                        "id": integration.id,
+                        "name": integration.name,
+                        "slug": integration.slug,
+                        "type": integration.integration_type,
+                        "api_keys": [{ "id": key.id, "type": key.key_type, "secret": key.secret }],
+                    }]
+                })),
+            )
+                .into_response()
+        }
+        Err(e) => from_ghost(e),
+    }
+}
+
+// ---------------------------------------------------------------------------
+// site
+// ---------------------------------------------------------------------------
+
+async fn site_info(State(state): State<AppState>, Query(params): Query<HashMap<String, String>>) -> Response {
+    let _ = params;
+    let version = env!("CARGO_PKG_VERSION");
+    ok_json(json!({
+        "site": {
+            "title": state.settings.get_str("title").unwrap_or_else(|| "Ghost".into()),
+            "description": state.settings.get_str("description").unwrap_or_default(),
+            "url": state.site_url(),
+            "version": version,
+        }
+    }))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn credentials_are_recognised_as_secret() {
+        for key in [
+            "mail_smtp_pass",
+            "mailgun_api_key",
+            "members_email_auth_secret",
+            "theme_session_secret",
+            "members_private_key",
+        ] {
+            assert!(is_secret_setting(key), "{key} must never be readable back");
+        }
+    }
+
+    #[test]
+    fn ordinary_settings_are_not_masked() {
+        // masking these would break the admin UI, which reads them to
+        // populate its forms
+        for key in ["title", "mail_smtp_host", "mail_smtp_user", "mailgun_domain", "mail_transport"] {
+            assert!(!is_secret_setting(key), "{key} is not a credential");
+        }
+    }
+}

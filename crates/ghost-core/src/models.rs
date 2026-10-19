@@ -1,0 +1,338 @@
+//! Domain models + the canonical Content-API JSON shape.
+//!
+//! These structs are what repos return; the `*_to_json` functions produce
+//! the exact shape templates, the Content API and `{{#get}}` all consume.
+use serde::{Deserialize, Serialize};
+use serde_json::{json, Map, Value};
+
+use crate::dates;
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct Post {
+    pub id: String,
+    pub uuid: Option<String>,
+    pub title: Option<String>,
+    pub slug: Option<String>,
+    pub mobiledoc: Option<String>,
+    pub lexical: Option<String>,
+    /// markdown source for posts authored in the ghost-rust editor
+    pub markdown: Option<String>,
+    pub html: Option<String>,
+    pub plaintext: Option<String>,
+    pub comment_id: Option<String>,
+    pub feature_image: Option<String>,
+    pub featured: bool,
+    #[serde(rename = "type")]
+    pub post_type: String, // "post" | "page"
+    pub status: String,    // published | draft | scheduled | sent
+    pub locale: Option<String>,
+    pub visibility: String, // public | members | paid | tiers
+    pub email_recipient_filter: Option<String>,
+    pub created_at: Option<String>,
+    pub updated_at: Option<String>,
+    pub published_at: Option<String>,
+    pub published_by: Option<String>,
+    pub custom_excerpt: Option<String>,
+    pub auto_excerpt: Option<String>,
+    pub reading_time: i64,
+    pub codeinjection_head: Option<String>,
+    pub codeinjection_foot: Option<String>,
+    pub custom_template: Option<String>,
+    pub canonical_url: Option<String>,
+    pub newsletter_id: Option<String>,
+    pub show_title_and_feature_image: bool,
+    /// Flattened from posts_meta on read.
+    pub meta: Option<PostMeta>,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct PostMeta {
+    pub post_id: String,
+    pub meta_title: Option<String>,
+    pub meta_description: Option<String>,
+    pub og_image: Option<String>,
+    pub og_title: Option<String>,
+    pub og_description: Option<String>,
+    pub twitter_image: Option<String>,
+    pub twitter_title: Option<String>,
+    pub twitter_description: Option<String>,
+    pub email_subject: Option<String>,
+    pub email_preview: Option<String>,
+    pub frontmatter: Option<String>,
+    pub feature_image_alt: Option<String>,
+    pub feature_image_caption: Option<String>,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct User {
+    pub id: String,
+    pub name: Option<String>,
+    pub slug: Option<String>,
+    pub password: Option<String>,
+    pub email: Option<String>,
+    pub profile_image: Option<String>,
+    pub cover_image: Option<String>,
+    pub bio: Option<String>,
+    pub website: Option<String>,
+    pub location: Option<String>,
+    pub facebook: Option<String>,
+    pub twitter: Option<String>,
+    pub threads: Option<String>,
+    pub bluesky: Option<String>,
+    pub mastodon: Option<String>,
+    pub tiktok: Option<String>,
+    pub youtube: Option<String>,
+    pub instagram: Option<String>,
+    pub linkedin: Option<String>,
+    pub accessibility: Option<String>,
+    pub status: Option<String>,
+    pub locale: Option<String>,
+    pub visibility: Option<String>,
+    pub meta_title: Option<String>,
+    pub meta_description: Option<String>,
+    pub tour: Option<String>,
+    pub last_seen: Option<String>,
+    pub created_at: Option<String>,
+    pub updated_at: Option<String>,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct Tag {
+    pub id: String,
+    pub name: Option<String>,
+    pub slug: Option<String>,
+    pub description: Option<String>,
+    pub feature_image: Option<String>,
+    pub parent_id: Option<String>,
+    pub visibility: String,
+    pub meta_title: Option<String>,
+    pub meta_description: Option<String>,
+    pub og_image: Option<String>,
+    pub og_title: Option<String>,
+    pub og_description: Option<String>,
+    pub twitter_image: Option<String>,
+    pub twitter_title: Option<String>,
+    pub twitter_description: Option<String>,
+    pub codeinjection_head: Option<String>,
+    pub codeinjection_foot: Option<String>,
+    pub canonical_url: Option<String>,
+    pub accent_color: Option<String>,
+    pub created_at: Option<String>,
+    pub updated_at: Option<String>,
+    /// from include=count
+    pub count_posts: Option<i64>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Setting {
+    pub id: String,
+    #[serde(rename = "group")]
+    pub group: String,
+    pub key: String,
+    pub value: String,
+    #[serde(rename = "type")]
+    pub value_type: String,
+    pub flags: Option<String>,
+    pub created_at: Option<String>,
+    pub updated_at: Option<String>,
+}
+
+impl Setting {
+    /// Resolve the stored string to its typed JSON value (Ghost semantics).
+    pub fn typed_value(&self) -> Value {
+        match self.value_type.as_str() {
+            "boolean" => matches!(self.value.as_str(), "true" | "1").into(),
+            "number" => self
+                .value
+                .parse::<i64>()
+                .map(Value::from)
+                .or_else(|_| self.value.parse::<f64>().map(Value::from))
+                .unwrap_or(Value::Null),
+            "array" | "object" => serde_json::from_str(&self.value).unwrap_or(Value::Null),
+            _ => Value::String(self.value.clone()),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Integration {
+    pub id: String,
+    #[serde(rename = "type")]
+    pub integration_type: String,
+    pub name: String,
+    pub slug: Option<String>,
+    pub icon_image: Option<String>,
+    pub description: Option<String>,
+    pub created_at: Option<String>,
+    pub updated_at: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ApiKey {
+    pub id: String,
+    #[serde(rename = "type")]
+    pub key_type: String, // content | admin
+    pub secret: String,
+    pub role_id: Option<String>,
+    pub integration_id: Option<String>,
+    pub user_id: Option<String>,
+    pub last_seen_at: Option<String>,
+    pub last_seen_version: Option<String>,
+    pub created_at: Option<String>,
+    pub updated_at: Option<String>,
+}
+
+/// Serialize a post the way Ghost's Content API / templates see it.
+///
+/// `url` must be precomputed by the caller (routing-owned permalink).
+/// Relations are already resolved: `authors`, `tags` ordered with primary first.
+pub fn post_to_json(p: &Post, authors: &[User], tags: &[Tag], url: &str) -> Value {
+    let mut m = Map::new();
+    m.insert("id".into(), json!(p.id));
+    m.insert("uuid".into(), json!(p.uuid));
+    m.insert("title".into(), json!(p.title));
+    m.insert("slug".into(), json!(p.slug));
+    m.insert("html".into(), json!(p.html));
+    m.insert("comment_id".into(), json!(p.comment_id.clone().or_else(|| p.uuid.clone())));
+    m.insert("featured".into(), json!(p.featured));
+    m.insert("status".into(), json!(p.status));
+    m.insert("type".into(), json!(p.post_type));
+    m.insert("visibility".into(), json!(p.visibility));
+    m.insert("reading_time".into(), json!(p.reading_time));
+    m.insert("access".into(), json!(p.visibility == "public"));
+    m.insert("url".into(), json!(url));
+    m.insert("feature_image".into(), json!(p.feature_image));
+    m.insert(
+        "excerpt".into(),
+        json!(p
+            .custom_excerpt
+            .clone()
+            .or_else(|| excerpt_from_plaintext(p.plaintext.as_deref(), 50))
+            .unwrap_or_default()),
+    );
+    m.insert("custom_excerpt".into(), json!(p.custom_excerpt));
+    m.insert("published_at".into(), json!(dates::db_to_api(p.published_at.as_deref())));
+    m.insert("updated_at".into(), json!(dates::db_to_api(p.updated_at.as_deref())));
+    m.insert("codeinjection_head".into(), json!(p.codeinjection_head));
+    m.insert("codeinjection_foot".into(), json!(p.codeinjection_foot));
+    m.insert("custom_template".into(), json!(p.custom_template));
+    m.insert("canonical_url".into(), json!(p.canonical_url));
+    m.insert(
+        "published_by".into(),
+        json!(authors.iter().find(|a| Some(a.id.clone()) == p.published_by).map(|a| a.id.clone())),
+    );
+
+    // posts_meta flattened
+    if let Some(meta) = &p.meta {
+        for (k, v) in [
+            ("meta_title", &meta.meta_title),
+            ("meta_description", &meta.meta_description),
+            ("og_image", &meta.og_image),
+            ("og_title", &meta.og_title),
+            ("og_description", &meta.og_description),
+            ("twitter_image", &meta.twitter_image),
+            ("twitter_title", &meta.twitter_title),
+            ("twitter_description", &meta.twitter_description),
+            ("email_subject", &meta.email_subject),
+            ("feature_image_alt", &meta.feature_image_alt),
+            ("feature_image_caption", &meta.feature_image_caption),
+        ] {
+            m.insert(k.into(), json!(v));
+        }
+    }
+
+    m.insert("authors".into(), Value::Array(authors.iter().map(|a| user_public_json(a, None)).collect()));
+    m.insert(
+        "primary_author".into(),
+        authors
+            .first()
+            .map(|a| user_public_json(a, None))
+            .unwrap_or(Value::Null),
+    );
+    m.insert("tags".into(), Value::Array(tags.iter().map(|t| tag_to_json(t, None)).collect()));
+    m.insert(
+        "primary_tag".into(),
+        tags.iter()
+            .find(|t| t.visibility == "public")
+            .map(|t| tag_to_json(t, None))
+            .unwrap_or(Value::Null),
+    );
+    Value::Object(m)
+}
+
+/// Ghost's excerpt fallback: truncate plaintext to N words.
+pub fn excerpt_from_plaintext(plaintext: Option<&str>, words: usize) -> Option<String> {
+    let pt = plaintext?;
+    let out: Vec<&str> = pt.split_whitespace().take(words).collect();
+    if out.is_empty() {
+        None
+    } else {
+        Some(out.join(" "))
+    }
+}
+
+/// Public author shape (also used for staff on admin endpoints).
+pub fn user_public_json(u: &User, url: Option<&str>) -> Value {
+    let mut m = Map::new();
+    m.insert("id".into(), json!(u.id));
+    m.insert("name".into(), json!(u.name));
+    m.insert("slug".into(), json!(u.slug));
+    m.insert("url".into(), json!(url));
+    m.insert("profile_image".into(), json!(u.profile_image));
+    m.insert("cover_image".into(), json!(u.cover_image));
+    m.insert("bio".into(), json!(u.bio));
+    m.insert("website".into(), json!(u.website));
+    m.insert("location".into(), json!(u.location));
+    m.insert("facebook".into(), json!(u.facebook));
+    m.insert("twitter".into(), json!(u.twitter));
+    m.insert("threads".into(), json!(u.threads));
+    m.insert("bluesky".into(), json!(u.bluesky));
+    m.insert("mastodon".into(), json!(u.mastodon));
+    m.insert("tiktok".into(), json!(u.tiktok));
+    m.insert("youtube".into(), json!(u.youtube));
+    m.insert("instagram".into(), json!(u.instagram));
+    m.insert("linkedin".into(), json!(u.linkedin));
+    m.insert("meta_title".into(), json!(u.meta_title));
+    m.insert("meta_description".into(), json!(u.meta_description));
+    Value::Object(m)
+}
+
+pub fn tag_to_json(t: &Tag, url: Option<&str>) -> Value {
+    let mut m = Map::new();
+    m.insert("id".into(), json!(t.id));
+    m.insert("name".into(), json!(t.name));
+    m.insert("slug".into(), json!(t.slug));
+    m.insert("description".into(), json!(t.description));
+    m.insert("feature_image".into(), json!(t.feature_image));
+    m.insert("url".into(), json!(url));
+    m.insert("visibility".into(), json!(t.visibility));
+    m.insert("meta_title".into(), json!(t.meta_title));
+    m.insert("meta_description".into(), json!(t.meta_description));
+    m.insert("og_image".into(), json!(t.og_image));
+    m.insert("og_title".into(), json!(t.og_title));
+    m.insert("og_description".into(), json!(t.og_description));
+    m.insert("twitter_image".into(), json!(t.twitter_image));
+    m.insert("twitter_title".into(), json!(t.twitter_title));
+    m.insert("twitter_description".into(), json!(t.twitter_description));
+    m.insert("codeinjection_head".into(), json!(t.codeinjection_head));
+    m.insert("codeinjection_foot".into(), json!(t.codeinjection_foot));
+    m.insert("canonical_url".into(), json!(t.canonical_url));
+    m.insert("accent_color".into(), json!(t.accent_color));
+    if let Some(count) = t.count_posts {
+        m.insert("count".into(), json!({ "posts": count }));
+    }
+    Value::Object(m)
+}
+
+/// Ghost pagination meta.
+pub fn pagination_json(page: i64, limit: i64, total: i64) -> Value {
+    let pages = if limit > 0 { (total + limit - 1) / limit } else { 1 }.max(1);
+    json!({
+        "page": page,
+        "limit": limit,
+        "pages": pages,
+        "total": total,
+        "next": if page < pages { Some(page + 1) } else { None },
+        "prev": if page > 1 { Some(page - 1) } else { None },
+    })
+}

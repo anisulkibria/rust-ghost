@@ -1,0 +1,73 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/ghost-core",
+    "crates/ghost-nql",
+    "crates/ghost-db",
+    "crates/ghost-routing",
+    "crates/ghost-render",
+    "crates/ghost-api",
+    "crates/ghost-admin-ui",
+    "crates/ghost-mail",
+    "crates/ghost-stripe",
+    "crates/ghost-front",
+    "crates/ghost",
+]
+
+[workspace.package]
+version = "1.0.0"
+edition = "2021"
+license = "MIT"
+
+[workspace.dependencies]
+ghost-core = { path = "crates/ghost-core" }
+ghost-nql = { path = "crates/ghost-nql" }
+ghost-db = { path = "crates/ghost-db" }
+ghost-routing = { path = "crates/ghost-routing" }
+ghost-render = { path = "crates/ghost-render" }
+ghost-api = { path = "crates/ghost-api" }
+ghost-admin-ui = { path = "crates/ghost-admin-ui" }
+ghost-mail = { path = "crates/ghost-mail" }
+ghost-stripe = { path = "crates/ghost-stripe" }
+ghost-front = { path = "crates/ghost-front" }
+
+tokio = { version = "1", features = ["full"] }
+axum = { version = "0.8", features = ["multipart", "macros", "query"] }
+tower = "0.5"
+tower-http = { version = "0.6", features = ["fs", "cors", "trace", "compression-gzip"] }
+sqlx = { version = "0.8", default-features = false, features = ["runtime-tokio", "sqlite", "macros", "migrate", "chrono", "json"] }
+handlebars = { version = "6", features = ["script_helper", "dir_source"] }
+comrak = { version = "0.42" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+serde_yaml = "0.9"
+chrono = { version = "0.4", features = ["serde"] }
+chrono-tz = "0.10"
+bcrypt = "0.17"
+rand = "0.9"
+sha2 = "0.10"
+hex = "0.4"
+regex = "1"
+thiserror = "2"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+jsonwebtoken = "9"
+askama = "0.14"
+percent-encoding = "2"
+form_urlencoded = "1"
+unicode-segmentation = "1"
+once_cell = "1"
+slug = "0.1"
+async-trait = "0.1"
+futures = "0.3"
+mime_guess = "2"
+walkdir = "2"
+csv = "1"
+# transactional mail (SMTP) and bulk mail (Mailgun's HTTP API). rustls keeps
+# TLS self-contained rather than depending on a system OpenSSL.
+lettre = { version = "0.11", default-features = false, features = ["builder", "hostname", "smtp-transport", "pool", "tokio1", "tokio1-rustls-tls", "ring", "webpki-roots"] }
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "multipart", "json", "charset", "http2"] }
+# MX lookups for the Direct transport, which delivers straight to the
+# recipient's mail server with no relay in between.
+hickory-resolver = { version = "0.26", default-features = false, features = ["system-config", "tokio"] }
+zip = { version = "2", default-features = false, features = ["deflate"] }

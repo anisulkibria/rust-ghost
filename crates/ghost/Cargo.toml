@@ -1,0 +1,30 @@
+[package]
+name = "ghost"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "ghost"
+path = "src/main.rs"
+
+[dependencies]
+ghost-core = { workspace = true }
+ghost-db = { workspace = true }
+ghost-nql = { workspace = true }
+ghost-render = { workspace = true }
+ghost-routing = { workspace = true }
+ghost-api = { workspace = true }
+ghost-admin-ui = { workspace = true }
+ghost-front = { workspace = true }
+tokio = { workspace = true }
+axum = { workspace = true }
+tower = { workspace = true }
+tower-http = { workspace = true }
+serde_json = { workspace = true }
+sqlx = { workspace = true }
+hex = { workspace = true }
+sha2 = { workspace = true }
+walkdir = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }

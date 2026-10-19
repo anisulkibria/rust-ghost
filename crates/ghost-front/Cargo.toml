@@ -1,0 +1,28 @@
+[package]
+name = "ghost-front"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+ghost-core = { workspace = true }
+ghost-db = { workspace = true }
+ghost-nql = { workspace = true }
+ghost-render = { workspace = true }
+ghost-routing = { workspace = true }
+ghost-api = { workspace = true }
+tokio = { workspace = true }
+sqlx = { workspace = true }
+axum = { workspace = true }
+tower = { workspace = true }
+tower-http = { workspace = true }
+serde = { workspace = true }
+serde_yaml = { workspace = true }
+serde_json = { workspace = true }
+chrono = { workspace = true }
+tracing = { workspace = true }
+percent-encoding = { workspace = true }
+mime_guess = { workspace = true }
+regex = { workspace = true }
+hex = { workspace = true }
+sha2 = { workspace = true }

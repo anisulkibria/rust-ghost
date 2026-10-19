@@ -1,0 +1,26 @@
+[package]
+name = "ghost-admin-ui"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+ghost-core = { workspace = true }
+ghost-db = { workspace = true }
+ghost-mail = { workspace = true }
+ghost-stripe = { workspace = true }
+csv = { workspace = true }
+ghost-routing = { workspace = true }
+sha2 = { workspace = true }
+hex = { workspace = true }
+ghost-render = { workspace = true }
+ghost-nql = { workspace = true }
+ghost-api = { workspace = true }
+tokio = { workspace = true }
+axum = { workspace = true }
+serde = { workspace = true }
+sqlx = { workspace = true }
+serde_json = { workspace = true }
+tracing = { workspace = true }
+bcrypt = { workspace = true }
+form_urlencoded = { workspace = true }

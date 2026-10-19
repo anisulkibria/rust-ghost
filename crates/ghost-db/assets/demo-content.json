@@ -1,0 +1,186 @@
+{
+  "tags": [
+    {
+      "name": "Engineering",
+      "slug": "engineering",
+      "description": "How we build things, and what breaks along the way.",
+      "accent_color": "#3b5bdb",
+      "feature_image": "https://images.unsplash.com/photo-1498050108023-c5249f4df085?w=2000&q=80"
+    },
+    {
+      "name": "Design",
+      "slug": "design",
+      "description": "Interface, typography and the craft of making software feel considered.",
+      "accent_color": "#c2255c",
+      "feature_image": "https://images.unsplash.com/photo-1531482615713-2afd69097998?w=2000&q=80"
+    },
+    {
+      "name": "Product",
+      "slug": "product",
+      "description": "Deciding what to build, and what to leave out.",
+      "accent_color": "#2b8a3e",
+      "feature_image": "https://images.unsplash.com/photo-1519389950473-47ba0277781c?w=2000&q=80"
+    },
+    {
+      "name": "Culture",
+      "slug": "culture",
+      "description": "How a small distributed team actually works day to day.",
+      "accent_color": "#e8590c",
+      "feature_image": "https://images.unsplash.com/photo-1522071820081-009f0129c71c?w=2000&q=80"
+    },
+    {
+      "name": "Tutorials",
+      "slug": "tutorials",
+      "description": "Step-by-step guides you can follow start to finish.",
+      "accent_color": "#5f3dc4",
+      "feature_image": "https://images.unsplash.com/photo-1555066931-4365d14bab8c?w=2000&q=80"
+    },
+    {
+      "name": "Announcements",
+      "slug": "announcements",
+      "description": "Releases, changes and the occasional milestone.",
+      "accent_color": "#0b7285",
+      "feature_image": "https://images.unsplash.com/photo-1484417894907-623942c8ee29?w=2000&q=80"
+    },
+    {
+      "name": "#internal",
+      "slug": "hash-internal",
+      "visibility": "internal",
+      "description": "An internal tag — themes should never show this one."
+    }
+  ],
+  "posts": [
+    {
+      "slug": "why-we-rewrote-our-renderer-in-rust",
+      "title": "Why we rewrote our renderer in Rust",
+      "days_ago": 2,
+      "featured": true,
+      "tags": [
+        "engineering",
+        "hash-internal"
+      ],
+      "feature_image": "https://images.unsplash.com/photo-1461749280684-dccba630e2f6?w=2000&q=80",
+      "feature_image_alt": "A screen full of source code in a dark editor",
+      "feature_image_caption": "Photo by <a href=\"https://unsplash.com\">Unsplash</a>",
+      "custom_excerpt": "Template rendering was the slowest thing we did on every single request. Here is what changed when we moved it off the old path, and the two weeks of profiling that got us there.",
+      "html": "<p>Every page view went through the same bottleneck: we parsed the template, walked it, resolved each helper, and threw the whole intermediate tree away. On a cold cache that was comfortably the most expensive thing in the request.</p><h2>Finding the real cost</h2><p>Our first instinct was wrong. We assumed the database was the problem, because the database is usually the problem. It was not. A flame graph made the answer obvious within about ten minutes of looking at it.</p><blockquote><p>Measure first. The thing you are sure is slow is almost never the thing that is slow.</p></blockquote><p>Roughly seventy per cent of the time in a typical request was spent in template work, and most of that was allocation — building strings we immediately discarded.</p><h2>What we changed</h2><ul><li><strong>Compile once, render many.</strong> Templates are parsed at theme-activation time now, not per request.</li><li><strong>Borrow instead of clone.</strong> Helpers read from the render context rather than copying values out of it.</li><li><strong>Write straight to the output buffer.</strong> No intermediate <code>String</code> per helper call.</li></ul><p>The third one sounds minor and was not. A page with two hundred helper invocations was doing two hundred heap allocations purely to hand a string back to its caller.</p><h2>Results</h2><p>Median render time dropped from 48ms to 6ms. The p99 — which is what people actually feel — went from 310ms to 22ms, because the worst cases were the allocation-heavy ones.</p><pre><code>before   median  48ms   p99  310ms\nafter    median   6ms   p99   22ms</code></pre><p>We did not rewrite anything for the sake of rewriting it. We rewrote the one piece that profiling pointed at, and left the rest alone.</p><h2>What we did not change</h2><p>The template language is identical. Not one theme needed editing, which was the hard constraint we set at the start — a performance win that costs every user a migration is not a win, it is a tax with a nice graph attached.</p><p>We also left the database layer completely alone, despite a persistent urge to \"while we are in here\" it. That urge is how two-week projects become two-quarter projects.</p><h2>The part that was genuinely hard</h2><p>Borrowing instead of cloning sounds like a mechanical transformation and is not. The render context outlives individual helper calls, but block contexts do not, and several helpers wanted to hold a reference to a value that was about to be popped off the block stack.</p><p>We solved it the boring way: helpers that need a value past the end of their own call get an owned copy, and everything else borrows. About fifteen per cent of call sites still clone. Chasing the last fifteen per cent would have doubled the work for roughly two per cent more speed.</p><blockquote><p>Optimise until the profile goes flat, then stop. The next hour is always worth less than the last one.</p></blockquote><h2>Keeping it fast</h2><p>A benchmark that nobody runs is a benchmark that quietly regresses. Ours runs on every pull request against a fixed set of fifteen real themes, and fails the build if median render time moves more than ten per cent in the wrong direction.</p><p>It has fired twice since we set it up. Both times it was right, and both times the author had no idea the change was expensive.</p>"
+    },
+    {
+      "slug": "designing-a-type-system-that-gets-out-of-your-way",
+      "title": "Designing a type system that gets out of your way",
+      "days_ago": 9,
+      "featured": true,
+      "tags": [
+        "engineering",
+        "design"
+      ],
+      "feature_image": "https://images.unsplash.com/photo-1555066931-4365d14bab8c?w=2000&q=80",
+      "feature_image_alt": "Code on a laptop screen, lit in blue",
+      "custom_excerpt": "The best type system is the one you stop noticing. A look at the three rules we used to decide what the compiler should know and what it should stay out of.",
+      "html": "<p>There is a point in every schema design where you have to decide how much the system is allowed to know about your data. Too little and everything is a string. Too much and adding a field becomes a migration, a deploy and an apology.</p><h2>Rule one: encode what breaks</h2><p>If getting it wrong causes a bug at runtime, the type system should catch it. If getting it wrong causes a slightly odd-looking page, it probably should not. We spent a long time typing things that were never going to hurt anyone.</p><h2>Rule two: make the common case free</h2><p>Every required field is a tax on every caller. We looked at the twenty most common call sites and asked what the minimum honest input was. For most resources it was two fields, not eleven.</p><ul><li>Required: the things with no sensible default.</li><li>Optional with a default: everything else.</li><li>Computed: anything derivable from the above.</li></ul><h2>Rule three: let the edges be loose</h2><p>Data arriving from outside — an import, an old client, a hand-written config file — gets parsed leniently and normalised once, at the boundary. Internally it is strict. The mistake we made early was being strict at both ends, which meant a single malformed field could reject an entire import.</p><p>None of this is novel. It is just unusually easy to forget while you are in the middle of it.</p><h2>Where we got it wrong first</h2><p>Our original schema had eleven required fields on a post. Four of them were timestamps the system could set itself, two were derivable from the content, and one existed only because an early prototype needed it and nobody deleted it afterwards.</p><p>Every integration that talked to us had to supply all eleven. Every one of them got at least one wrong, and the errors they got back were unhelpful because we validated everything at once and reported the first failure.</p><h2>Better errors beat stricter types</h2><p>Half the value we thought we were getting from strictness was actually available from better error messages. \"Expected ISO 8601, got '2024-13-45'\" solves the problem. \"Invalid input\" does not, no matter how precisely typed the thing rejecting it is.</p><ul><li>Report every failure, not the first one.</li><li>Name the field, show the value, say what was expected.</li><li>Where there is an obvious correction, suggest it.</li></ul><h2>Living with the result</h2><p>Six months in, the schema has grown four fields and lost three. None of those changes required a migration, because they were all optional with defaults. That is the whole return on the design: change is cheap now.</p><p>The cost is that a handful of genuinely invalid states are representable. We catch them at the boundary instead of in the type system, and we have not yet regretted the trade.</p>"
+    },
+    {
+      "slug": "a-practical-guide-to-colour-contrast",
+      "title": "A practical guide to colour contrast",
+      "days_ago": 16,
+      "tags": [
+        "design",
+        "tutorials"
+      ],
+      "feature_image": "https://images.unsplash.com/photo-1531482615713-2afd69097998?w=2000&q=80",
+      "feature_image_alt": "A designer's desk with colour swatches",
+      "custom_excerpt": "Contrast ratios are not a design constraint to work around. Used well they are the fastest way to make an interface readable. Here is the short version.",
+      "html": "<p>Most accessibility advice about colour stops at \"meet 4.5:1\" and leaves you there. That number is a floor, not a goal, and treating it as a goal produces interfaces that technically pass and are still unpleasant to read.</p><h2>The numbers that matter</h2><ul><li><strong>4.5:1</strong> — body text. The legal minimum in most contexts.</li><li><strong>3:1</strong> — large text (24px, or 19px bold) and meaningful UI borders.</li><li><strong>7:1</strong> — what you actually want for long-form reading.</li></ul><p>The jump from 4.5 to 7 costs very little and is the single highest-leverage change you can make to a text-heavy site.</p><h2>Picking a text colour automatically</h2><p>If you let people choose an accent colour, you cannot hardcode the text colour that sits on top of it. The standard trick is a luminance test:</p><pre><code>yiq = (r * 0.299 + g * 0.587 + b * 0.114)\ntext = yiq >= 186 ? black : white</code></pre><p>It is crude, it ignores the formal contrast formula entirely, and it is right often enough that it is what most systems ship. Know that you are approximating.</p><h2>What to check by hand</h2><p>Automated checks miss text over images, disabled states, and anything with partial transparency. Those three cover most of the real failures we have found.</p>"
+    },
+    {
+      "slug": "what-we-learned-shipping-to-ten-thousand-users",
+      "title": "What we learned shipping to 10,000 users in a week",
+      "days_ago": 24,
+      "tags": [
+        "product",
+        "culture"
+      ],
+      "feature_image": "https://images.unsplash.com/photo-1522071820081-009f0129c71c?w=2000&q=80",
+      "feature_image_alt": "A team gathered around a table working together",
+      "custom_excerpt": "We planned for a slow rollout and got a fast one. Four things we would do differently, and one thing that turned out not to matter at all.",
+      "html": "<p>The plan was five hundred users in week one. We got rather more than that, and the plan did not survive contact with them.</p><h2>What broke</h2><p>Not the servers, which was the thing we had spent three weeks preparing for. What broke was everything around the product: onboarding email got rate-limited, our support inbox had one person on it, and the docs assumed a level of context that new users did not have.</p><blockquote><p>We had load-tested the application and never once load-tested ourselves.</p></blockquote><h2>Four things we would change</h2><ul><li><strong>Staff the inbox before the launch, not after.</strong> Support volume tracks signups almost exactly, and it arrives on day one.</li><li><strong>Write the FAQ from real questions.</strong> Ours was written from imagined ones and answered almost nothing people asked.</li><li><strong>Put a human in the welcome email.</strong> Reply rates went up roughly fivefold when it came from a person.</li><li><strong>Watch activation, not signups.</strong> Signups felt great and told us nothing.</li></ul><h2>What did not matter</h2><p>The thing we agonised over for a month — pricing page copy — had no measurable effect on anything. We rewrote it four times. We should have rewritten the onboarding flow once instead.</p><h2>The metrics we switched to</h2><p>Signups told us nothing useful. We replaced them with three numbers, and only three, because a dashboard with twenty numbers on it is a dashboard nobody looks at.</p><ul><li><strong>Activation.</strong> Did this person reach the thing the product is actually for, within seven days?</li><li><strong>Week-four retention.</strong> Are they still here after the novelty has worn off?</li><li><strong>Time to first value.</strong> How many minutes from signup to the first moment that felt worth it?</li></ul><p>That third one was the most uncomfortable to measure, because measuring it honestly meant admitting it was forty minutes for most people. We had been telling ourselves it was five.</p><h2>What we changed because of it</h2><p>Onboarding lost four steps. Two of them collected information we never used. One asked a question most people could not answer on day one and could trivially answer on day ten. The fourth was a tour.</p><blockquote><p>Nobody has ever finished a product tour and felt the product was simpler than they feared.</p></blockquote><h2>Where we are now</h2><p>Time to first value is eleven minutes. Activation went from thirty-one per cent to fifty-eight. Week-four retention barely moved, which is a useful reminder that onboarding fixes onboarding problems and nothing else.</p>"
+    },
+    {
+      "slug": "the-quiet-power-of-boring-technology",
+      "title": "The quiet power of boring technology",
+      "days_ago": 33,
+      "tags": [
+        "engineering"
+      ],
+      "feature_image": "https://images.unsplash.com/photo-1517180102446-f3ece451e9d8?w=2000&q=80",
+      "feature_image_alt": "Server racks lit in blue and green",
+      "custom_excerpt": "Every piece of novel infrastructure spends a budget you did not know you had. An argument for spending it deliberately, and almost always somewhere else.",
+      "html": "<p>There is a fixed amount of novelty a team can absorb at once. Spend it on your database, your queue, your deployment system and your language all at the same time and you will spend the next year learning four things badly instead of shipping one thing well.</p><h2>Where the budget goes</h2><p>We run SQLite in production. Not because it is clever, but because it is the thing none of us has to think about. The entire operational surface is a file. Backups are a copy. There is no connection pool to tune at three in the morning.</p><p>What that buys is attention, and attention is the actual constraint.</p><h2>When to spend it</h2><ul><li>When the boring option has a hard ceiling you can see from here.</li><li>When the novel option removes a whole category of work, not just some of it.</li><li>When you have someone who already knows it well.</li></ul><p>That last one is underrated. A technology is only boring if someone on the team finds it boring.</p><h2>The uncomfortable part</h2><p>Boring technology is a worse recruiting pitch and a worse conference talk. It is a better Tuesday.</p><h2>A worked example</h2><p>We were asked, reasonably, why we do not run Postgres. The honest answer is that we have never hit a limit that would require it, and the day we do, migrating is a known quantity with a well-trodden path.</p><p>Meanwhile the cost of <em>not</em> running it is zero connection pooling, zero replication lag, zero \"which version is staging on\", and a backup story that fits in one sentence.</p><h2>Counting the real cost</h2><p>Every piece of infrastructure has a cost that only appears later:</p><ul><li>Someone has to patch it.</li><li>Someone has to be woken up by it.</li><li>Someone new has to learn it before they can be useful.</li><li>It has to be in the disaster recovery plan, and that plan has to be tested.</li></ul><p>None of those appear in the evaluation spreadsheet where you compared feature matrices, and all of them are paid every month for years.</p><h2>The honest caveat</h2><p>Boring is relative to the team, not absolute. For a team that has run Kubernetes for five years, Kubernetes is boring and a single VM is the exotic choice they have no tooling for. Pick the thing your people already find dull.</p>"
+    },
+    {
+      "slug": "writing-documentation-developers-actually-read",
+      "title": "Writing documentation developers actually read",
+      "days_ago": 41,
+      "tags": [
+        "culture",
+        "tutorials"
+      ],
+      "feature_image": "https://images.unsplash.com/photo-1499750310107-5fef28a66643?w=2000&q=80",
+      "feature_image_alt": "An open notebook and laptop on a wooden desk",
+      "custom_excerpt": "Nobody reads your docs front to back. They arrive mid-problem, scan for thirty seconds, and leave. Write for that person.",
+      "html": "<p>Documentation fails in a predictable way. It is written by someone who already understands the system, organised the way the system is organised, and read by someone who is stuck and in a hurry.</p><h2>Write for the scanner</h2><p>Assume thirty seconds of attention and a search box. That means headings that say what they contain, code samples near the top, and the answer before the explanation.</p><blockquote><p>If the first paragraph is history, the reader is already somewhere else.</p></blockquote><h2>Four kinds of document</h2><ul><li><strong>Tutorial</strong> — gets a beginner to a working thing. Linear, opinionated, no choices.</li><li><strong>How-to</strong> — solves one specific problem for someone who already has context.</li><li><strong>Reference</strong> — complete, dry, alphabetical. Nobody reads it; everybody searches it.</li><li><strong>Explanation</strong> — why it works this way. The only one that gets read front to back, and the one most often skipped.</li></ul><p>Most bad documentation is two of these fighting inside one page. A reference section with a tutorial's narrative voice helps nobody.</p><h2>Keep the examples runnable</h2><p>Every sample in our docs is executed in CI. Examples rot faster than prose, and a wrong example is worse than no example — it costs the reader the time to try it plus the time to work out why it failed.</p>"
+    },
+    {
+      "slug": "measuring-what-matters-performance-budgets",
+      "title": "Measuring what matters: performance budgets",
+      "days_ago": 52,
+      "tags": [
+        "engineering",
+        "product"
+      ],
+      "feature_image": "https://images.unsplash.com/photo-1504384308090-c894fdcc538d?w=2000&q=80",
+      "feature_image_alt": "An analytics dashboard on a monitor",
+      "custom_excerpt": "A performance budget is a number you agree on before you need it. Ours is boring, specific, and it has stopped three features from shipping.",
+      "html": "<p>Performance work fails when it is a value rather than a number. Everyone agrees the site should be fast. Nobody agrees on whether this particular 40KB library is worth it, because there is nothing to check it against.</p><h2>Our budget</h2><ul><li>HTML, compressed: <strong>14KB</strong> for the first response.</li><li>CSS: <strong>50KB</strong>, all of it.</li><li>JavaScript on a reading page: <strong>0KB</strong> required for the content to be readable.</li><li>Server render time, p99: <strong>50ms</strong>.</li></ul><p>The 14KB figure is not arbitrary — it is roughly what fits in the first round trip after TCP slow start. Getting under it means the page starts rendering a full round trip earlier.</p><h2>Enforcing it</h2><p>The budget runs in CI and fails the build. This is the entire reason it works. A budget in a document is a wish; a budget in CI is a constraint.</p><pre><code>$ npm run budget\n  html   11.2KB / 14KB   ok\n  css    47.9KB / 50KB   ok\n  js      0.0KB /  0KB   ok</code></pre><h2>What it has cost us</h2><p>Three features, so far, in their first proposed form. All three shipped later in a smaller version. That is the budget working, not the budget failing.</p><h2>Choosing the numbers</h2><p>The budget has to come from somewhere defensible or the first person to breach it will argue the number instead of fixing the code. Ours came from two places: the network, and the competition.</p><p>The 14KB figure is physics — roughly what fits in the first congestion window. The 50ms server figure came from measuring the three fastest sites in our category and matching them.</p><h2>What to do when you breach it</h2><p>The rule is: the budget does not move without a written trade. If a feature needs 20KB of JavaScript, someone has to say what is coming out, or why this page is exempt, and that goes in the pull request.</p><blockquote><p>A budget that can be raised quietly is not a budget, it is a suggestion with extra steps.</p></blockquote><p>We have raised it once, deliberately, for the editor — which is an application, not a document, and holding it to a reading page's budget was never sensible.</p><h2>The part people skip</h2><p>Measure on the hardware your readers actually have. Our budget was comfortably met on the laptops we develop on and badly missed on a four-year-old Android phone over 3G, which is a meaningful share of real traffic.</p><p>We now run the budget check throttled, against a simulated mid-tier device. The numbers got worse and the work got honest.</p>"
+    },
+    {
+      "slug": "building-an-accessible-colour-palette",
+      "title": "Building an accessible colour palette from scratch",
+      "days_ago": 63,
+      "tags": [
+        "design",
+        "tutorials"
+      ],
+      "feature_image": "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=2000&q=80",
+      "feature_image_alt": "Colourful paint swatches arranged in a grid",
+      "custom_excerpt": "Nine steps per hue, locked lightness values, and one rule that makes dark mode nearly free. The process we use for every palette now.",
+      "html": "<p>Picking colours one at a time produces a palette that works in the three places you tested it. Generating them produces one that works everywhere, including the places you have not built yet.</p><h2>Start with lightness, not hue</h2><p>Fix the lightness steps first and apply them to every hue. Ours are nine steps, and the same step number means the same perceived lightness regardless of colour. That single constraint is what makes the rest of the system work.</p><ul><li>Steps 1–3: backgrounds and subtle fills.</li><li>Steps 4–6: borders, dividers, disabled text.</li><li>Steps 7–9: text and anything that needs to be read.</li></ul><h2>The dark mode rule</h2><p>If the steps are perceptually even, dark mode is mostly an inversion: step 1 becomes step 9, step 2 becomes step 8. It is not literally that simple — saturation needs a nudge at the dark end, because colours read as more intense on a dark field — but it gets you ninety per cent of the way with no new decisions.</p><blockquote><p>A palette you can derive is a palette you can change. A palette you hand-picked is one you are stuck with.</p></blockquote><h2>Checking it</h2><p>Any step-7 colour on any step-1 background should clear 7:1. If one hue fails, the lightness curve is wrong, not that colour. Fix the curve.</p>"
+    },
+    {
+      "slug": "how-we-run-remote-first-design-reviews",
+      "title": "How we run remote-first design reviews",
+      "days_ago": 78,
+      "tags": [
+        "design",
+        "culture"
+      ],
+      "feature_image": "https://images.unsplash.com/photo-1486312338219-ce68d2c6f44d?w=2000&q=80",
+      "feature_image_alt": "A laptop open on a desk beside a cup of coffee",
+      "custom_excerpt": "Synchronous design review is mostly a performance. We moved ours to writing and the feedback got sharper, slower and considerably more useful.",
+      "html": "<p>A live design review rewards whoever speaks first and most confidently. That is not the same as whoever is most right, and over time the team learns the difference and stops bothering.</p><h2>How ours works now</h2><ol><li>The designer posts the work with a short written framing: what problem, what was tried, what they are unsure about.</li><li>Reviewers have 48 hours to comment asynchronously.</li><li>A 30-minute call happens <em>only</em> if the comments disagree with each other.</li></ol><p>Most reviews never reach step three. The ones that do are the ones that genuinely needed a conversation.</p><h2>Why writing helps</h2><p>Written feedback is slower to produce, and that is the point. People delete the lazy version of their comment before posting it. We get fewer notes and better ones.</p><blockquote><p>\"I do not like it\" rarely survives being typed out.</p></blockquote><h2>The one thing to insist on</h2><p>The framing paragraph is mandatory. Work posted without it gets vague feedback, every time, because reviewers do not know which decisions are settled and which are open. Thirty seconds of writing from the author saves an hour across everyone else.</p>"
+    },
+    {
+      "slug": "our-2026-roadmap",
+      "title": "Our 2026 roadmap",
+      "days_ago": 95,
+      "tags": [
+        "announcements",
+        "product"
+      ],
+      "feature_image": "https://images.unsplash.com/photo-1484417894907-623942c8ee29?w=2000&q=80",
+      "feature_image_alt": "A whiteboard covered in planning notes",
+      "custom_excerpt": "Three things we are building this year, one thing we are deliberately not building, and how to tell us we have got the priorities wrong.",
+      "html": "<p>Publishing a roadmap is a commitment to being visibly wrong about some of it. We think that is a reasonable trade for letting people plan around us.</p><h2>What we are building</h2><ul><li><strong>Full-text search.</strong> The most requested thing by a wide margin, and currently the weakest part of the product.</li><li><strong>A real import path.</strong> Moving in should take minutes, not an afternoon of manual cleanup.</li><li><strong>Better media handling.</strong> Responsive images, sensible defaults, and no thinking required from the author.</li></ul><h2>What we are not building</h2><p>A plugin system. Not this year. We have been asked for it often and we understand why, but a plugin API is a permanent commitment to a set of internals we are still changing every month. Shipping one now would freeze decisions we are not ready to freeze.</p><blockquote><p>The cost of a plugin system is not building it. It is never being able to change anything underneath it again.</p></blockquote><h2>Telling us we are wrong</h2><p>These priorities come from support volume and from conversations, which means they are biased toward people who already talk to us. If you are not in that group and something here looks misordered, that is exactly the signal we are missing.</p>"
+    }
+  ]
+}

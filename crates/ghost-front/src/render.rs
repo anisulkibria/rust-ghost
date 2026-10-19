@@ -1,0 +1,163 @@
+//! The render step: build the full template data (with @site/@config),
+/// pick the first existing template, render inside spawn_blocking.
+use axum::http::{header, HeaderMap, StatusCode};
+use axum::response::{Html, IntoResponse, Response};
+use ghost_api::AppState;
+use ghost_core::Result;
+use ghost_render::{context as render_context, ThemeState};
+use serde_json::{Map, Value};
+
+pub struct RenderCtx {
+    pub context: Vec<String>,
+    pub relative_url: String,
+    /// `@member` — the signed-in member, or `Null` for an anonymous visitor.
+    /// Themes branch on this to swap "Sign in" for "Account", so it has to be
+    /// resolved server-side even though Portal also fetches it over XHR.
+    pub member: Value,
+}
+
+/// Resolve `@member` from the request's session cookie.
+pub async fn member_context(state: &AppState, headers: &HeaderMap) -> Value {
+    match ghost_api::members::current_member(state, headers).await {
+        Some(m) => serde_json::json!({
+            "uuid": m.uuid,
+            "email": m.email,
+            "name": m.name,
+            "firstname": m.name.as_deref().and_then(|n| n.split_whitespace().next()),
+            "expertise": m.expertise,
+            "status": m.status,
+            "paid": m.status != "free",
+            "created_at": m.created_at,
+        }),
+        None => Value::Null,
+    }
+}
+
+/// Render the first template in `candidates` that the theme has.
+pub async fn render_template(
+    state: &AppState,
+    theme: &std::sync::Arc<ThemeState>,
+    candidates: &[String],
+    mut data: Value,
+    rctx: &RenderCtx,
+) -> Result<String> {
+    // pick template
+    let template = candidates
+        .iter()
+        .find(|c| theme.has_template(c))
+        .or_else(|| theme.has_template("index").then(|| &candidates[candidates.len() - 1]))
+        .cloned()
+        .or_else(|| candidates.iter().find(|c| theme.has_template(c)).cloned());
+    let Some(template) = template else {
+        return Err(ghost_core::GhostError::ThemeError(format!(
+            "no template found among {candidates:?}"
+        )));
+    };
+
+    // build the full root: data + site/config/member/labs/custom + context
+    let site = render_context::build_site(
+        &state.settings,
+        &state.site_url(),
+        &state.admin_url(),
+    );
+    let config = render_context::build_config(
+        theme.posts_per_page(),
+        serde_json::to_value(&theme.pkg.config.image_sizes).unwrap_or(Value::Array(vec![])),
+        theme.pkg.config.card_assets.any(),
+        crate::cards::version(),
+    );
+
+    // `@custom`: the theme's declared settings at their defaults, with any
+    // the site owner has changed applied on top
+    let overrides = state
+        .settings
+        .get("custom_theme_settings")
+        .and_then(|v| v.get(&theme.name).cloned());
+    let custom = theme.custom_settings(overrides.as_ref());
+
+    // `ghost_head` reads this to stamp `data-key` onto the Portal and Sodo
+    // Search script tags; both are useless without it.
+    let frontend_key = state.frontend_key().await.unwrap_or_default();
+
+    let root = match &mut data {
+        Value::Object(m) => {
+            m.insert("site".into(), site);
+            m.insert("config".into(), config);
+            m.insert("member".into(), rctx.member.clone());
+            m.insert("labs".into(), serde_json::json!({}));
+            m.insert("custom".into(), custom.clone());
+            m.insert("context".into(), serde_json::json!(rctx.context));
+            m.insert("relativeUrl".into(), Value::String(rctx.relative_url.clone()));
+            m.insert("frontendKey".into(), Value::String(frontend_key.clone()));
+            Value::Object(m.clone())
+        }
+        other => {
+            let mut m = Map::new();
+            m.insert("this".into(), other.clone());
+            m.insert("site".into(), site);
+            m.insert("config".into(), config);
+            m.insert("member".into(), rctx.member.clone());
+            m.insert("labs".into(), serde_json::json!({}));
+            m.insert("custom".into(), custom.clone());
+            m.insert("context".into(), serde_json::json!(rctx.context));
+            m.insert("relativeUrl".into(), Value::String(rctx.relative_url.clone()));
+            m.insert("frontendKey".into(), Value::String(frontend_key));
+            Value::Object(m)
+        }
+    };
+
+    let theme = theme.clone();
+    let template_name = template;
+    let html = tokio::task::spawn_blocking(move || theme.render(&template_name, &root))
+        .await
+        .map_err(|e| ghost_core::GhostError::Internal(e.to_string()))??;
+    Ok(html)
+}
+
+/// Render the theme's error page (error-<code> → error-<N>xx → error → builtin).
+pub async fn error_page(
+    state: &AppState,
+    status: StatusCode,
+    path: &str,
+    headers: HeaderMap,
+) -> Response {
+    let code = status.as_u16();
+    let theme = state.theme.read().await.clone();
+    let nxx = format!("error-{}xx", code / 100);
+    let candidates = vec![format!("error-{code}"), nxx, "error".to_string()];
+
+    let message = if code == 404 {
+        "Page not found".to_string()
+    } else {
+        status.canonical_reason().unwrap_or("Error").to_string()
+    };
+
+    let mut root = Map::new();
+    root.insert("statusCode".into(), serde_json::json!(code));
+    root.insert("message".into(), Value::String(message));
+    root.insert("errorDetails".into(), Value::Null);
+    root.insert("path".into(), Value::String(path.to_string()));
+
+    let rctx = RenderCtx {
+        context: vec![format!("error-{code}")],
+        relative_url: path.to_string(),
+        member: member_context(state, &headers).await,
+    };
+
+    if let Ok(html) = render_template(state, &theme, &candidates, Value::Object(root), &rctx).await {
+        if !html.trim().is_empty() {
+            // the theme's error page carries the same member-dependent nav
+            return (status, [(header::VARY, header::COOKIE.as_str())], Html(html)).into_response();
+        }
+    }
+
+    // builtin fallback
+    (
+        status,
+        Html(format!(
+            "<!DOCTYPE html><html><head><title>{code}</title></head><body style=\"font-family:sans-serif;text-align:center;padding:4rem\"><h1>{code}</h1><p>{}</p></body></html>",
+            status.canonical_reason().unwrap_or("Error")
+        )),
+    )
+        .into_response()
+}
