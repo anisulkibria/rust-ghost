@@ -1,4 +1,5 @@
 //! ghost-core: config, errors, ids, slugs, dates and domain models.
+pub mod comments;
 pub mod config;
 pub mod dates;
 pub mod error;

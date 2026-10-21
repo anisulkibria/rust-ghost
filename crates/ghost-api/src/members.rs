@@ -549,9 +549,20 @@ fn session_transient_id(state: &AppState, headers: &HeaderMap) -> Option<String>
 
 /// The columns every member-shaped response is built from.
 const MEMBER_COLUMNS: &str =
-    "id, uuid, transient_id, email, name, expertise, status, created_at, enable_comment_notifications";
+    "id, uuid, transient_id, email, name, expertise, status, created_at, enable_comment_notifications, commenting";
 
-type MemberRow = (String, Option<String>, String, String, Option<String>, Option<String>, String, String, bool);
+type MemberRow = (
+    String,
+    Option<String>,
+    String,
+    String,
+    Option<String>,
+    Option<String>,
+    String,
+    String,
+    bool,
+    Option<String>,
+);
 
 fn row_to_member(r: MemberRow) -> Member {
     Member {
@@ -564,6 +575,7 @@ fn row_to_member(r: MemberRow) -> Member {
         status: r.6,
         created_at: r.7,
         enable_comment_notifications: r.8,
+        commenting: crate::comments::Commenting::parse(r.9.as_deref()),
     }
 }
 
@@ -577,6 +589,8 @@ pub struct Member {
     pub status: String,
     pub created_at: String,
     pub enable_comment_notifications: bool,
+    /// Whether a moderator has suspended this member's ability to comment.
+    pub commenting: crate::comments::Commenting,
 }
 
 async fn member_by_transient_id(state: &AppState, transient_id: &str) -> Option<Member> {
@@ -631,14 +645,21 @@ fn avatar_image() -> Value {
     Value::Null
 }
 
-/// Whether this member may post comments, per Settings → Comments: `all`
-/// opens them to every member, `paid` to paying members only, `off` to none.
-fn can_comment(state: &AppState, status: &str) -> bool {
-    match state.settings.get_str("comments_enabled").unwrap_or_else(|| "off".into()).as_str() {
+/// Whether this member may post comments.
+///
+/// Two independent gates, both of which Ghost applies here: the site-wide
+/// Settings → Comments level (`all` / `paid` / `off`), and whether a
+/// moderator has suspended this particular member. The comments widget reads
+/// `can_comment` off the session to decide whether to show the form at all,
+/// and the write endpoints re-check it — the flag is a UI hint, not the
+/// enforcement.
+fn can_comment(state: &AppState, m: &Member) -> bool {
+    let tier_ok = match state.settings.get_str("comments_enabled").unwrap_or_else(|| "off".into()).as_str() {
         "all" => true,
-        "paid" => status != "free",
+        "paid" => m.status != "free",
         _ => false,
-    }
+    };
+    tier_ok && m.commenting.can_comment()
 }
 
 /// The newsletters a member is subscribed to, in Portal's shape.
@@ -683,8 +704,8 @@ async fn member_json(state: &AppState, m: &Member) -> Value {
         "paid": m.status != "free",
         "created_at": m.created_at,
         "enable_comment_notifications": m.enable_comment_notifications,
-        "can_comment": can_comment(state, &m.status),
-        "commenting": Value::Null,
+        "can_comment": can_comment(state, m),
+        "commenting": m.commenting.to_json(),
         "newsletters": newsletters,
         "email_suppression": { "suppressed": false, "info": Value::Null },
     })
@@ -1236,7 +1257,7 @@ async fn set_member_newsletters(state: &AppState, member_id: &str, list: &[Value
 /// The unsubscribe-link flow: authenticated by `uuid` plus an HMAC `key`
 /// rather than a session, because it is followed from an email client where no
 /// cookie exists. Ghost derives the key from `members_email_auth_secret`.
-fn newsletter_key(state: &AppState, uuid: &str) -> String {
+pub(crate) fn newsletter_key(state: &AppState, uuid: &str) -> String {
     let secret = state
         .settings
         .get_str("members_email_auth_secret")

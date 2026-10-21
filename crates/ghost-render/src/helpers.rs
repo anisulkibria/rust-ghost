@@ -73,6 +73,12 @@ fn hash_str(h: &Helper<'_>, key: &str) -> Option<String> {
     h.hash_get(key).and_then(|v| v.value().as_str()).map(str::to_string)
 }
 
+/// A hash option as its raw JSON value, for the few helpers that have to
+/// tell `count=false` from `count="false"` from an absent `count`.
+fn hash_value(h: &Helper<'_>, key: &str) -> Option<Value> {
+    h.hash_get(key).map(|v| v.value().clone())
+}
+
 // ---------------------------------------------------------------------------
 // shared deps
 // ---------------------------------------------------------------------------
@@ -2046,6 +2052,25 @@ impl HelperDef for GhostHead {
             tags.push(format!(r#"<link rel="stylesheet" type="text/css" href="{css}">"#));
         }
 
+        // The comment-count script, which fills in every `{{comment_count}}`
+        // placeholder on the page from one request to
+        // `/members/api/comments/counts/`. It goes in whenever comments are
+        // on at all, not just on posts: an index page is exactly where the
+        // counts are wanted, and that is the page with no comments on it.
+        let comments_enabled = site.get("comments_enabled").and_then(|v| v.as_str()).unwrap_or("off");
+        if comments_enabled != "off" {
+            let src = ghost_core::url::base("/public/comment-counts.min.js");
+            let api = format!(
+                "{}{}/members/api/comments/counts/",
+                origin.trim_end_matches('/'),
+                ghost_core::url::subdir()
+            );
+            tags.push(format!(
+                r#"<script defer src="{src}" data-ghost-comments-counts-api="{}"></script>"#,
+                html_escape(&api)
+            ));
+        }
+
         // accent color css var
         if let Some(accent) = site.get("accent_color").and_then(|a| a.as_str()).filter(|a| !a.is_empty()) {
             tags.push(format!(r#"<style>:root {{--ghost-accent-color: {accent};}}</style>"#));
@@ -2755,7 +2780,29 @@ impl HelperDef for CommentCount {
     }
 }
 
-/// `{{comments}}` — the mount point Ghost's comments bundle replaces.
+/// `{{comments}}` — the script tag that mounts Ghost's comments widget.
+///
+/// The widget itself is `comments-ui`, loaded from the CDN like Portal and
+/// Sodo Search. It inserts a `<div id="ghost-comments-root">` immediately
+/// before its own script tag and renders the thread into it, reading every
+/// setting it needs off the `data-*` attributes here. Which means this
+/// helper's whole job is to emit those attributes correctly: the widget talks
+/// to `/members/api/comments/*` on the site origin and to
+/// `/ghost/api/admin/comments/*` through the auth frame, and it finds both
+/// from `data-ghost-comments` and `data-admin`.
+///
+/// Three gates, all Ghost's:
+///
+/// * only on a post — `comment_id` is the marker, since a page has none;
+/// * only when `comments_enabled` is not `off`;
+/// * only when the visitor has access to the post, so the form is not
+///   offered next to a paywall.
+///
+/// Options are `{{comments mode="dark" saturation=40 count=false
+/// title="Discussion"}}`. `title` is deliberately the *string* `"null"` when
+/// unset — the widget tests for exactly that to decide between its own
+/// default heading and a theme-supplied one, so an omitted attribute would
+/// mean something different.
 pub struct CommentsHelper;
 impl HelperDef for CommentsHelper {
     fn call<'reg: 'rc, 'rc>(
@@ -2766,28 +2813,103 @@ impl HelperDef for CommentsHelper {
         rc: &mut RenderContext<'reg, 'rc>,
         out: &mut dyn Output,
     ) -> HelperResult {
-        // comments only exist on a post, and only when enabled site-wide
         let this = current_value(rc, ctx);
         let post = this.get("post").filter(|p| p.is_object()).unwrap_or(&this);
-        if !is_post(post) {
+
+        // Ghost keys "is this a post?" off `comment_id` rather than the
+        // context, because the helper can be called from a partial that has
+        // no idea what it is rendering inside.
+        let has_comment_id = post
+            .get("comment_id")
+            .and_then(|v| v.as_str())
+            .map(|s| !s.is_empty())
+            .unwrap_or(false);
+        if !has_comment_id {
             return Ok(());
         }
-        let enabled = root_get(rc, ctx, "site.comments_enabled");
-        if matches!(enabled.as_str(), None | Some("off")) {
+        // A gated post renders its upgrade CTA instead; offering a comment
+        // box under it would invite writing a comment that cannot be posted.
+        if post.get("access") == Some(&Value::Bool(false)) {
             return Ok(());
         }
 
-        let id = post.get("id").and_then(|v| v.as_str()).unwrap_or_default();
-        let title = post.get("title").and_then(|v| v.as_str()).unwrap_or_default();
-        let count_label = hash_str(h, "count").unwrap_or_else(|| "true".into());
+        let site = root_get(rc, ctx, "site");
+        let enabled = site.get("comments_enabled").and_then(|v| v.as_str()).unwrap_or("off");
+        if enabled == "off" {
+            return Ok(());
+        }
+
+        // Without a Content API key the widget loads but every request it
+        // makes 401s, so emit nothing rather than a tag that cannot work —
+        // the same call `ghost_head` makes about Portal.
+        let frontend_key = root_get(rc, ctx, "frontendKey").as_str().unwrap_or("").to_string();
+        if frontend_key.is_empty() {
+            return Ok(());
+        }
+
+        let origin = site.get("url").and_then(|v| v.as_str()).unwrap_or("").trim_end_matches('/').to_string();
+        let subdir = ghost_core::url::subdir();
+
+        let mode = hash_str(h, "mode").unwrap_or_default();
+        let color_scheme = match mode.as_str() {
+            "dark" | "light" => mode,
+            _ => "auto".to_string(),
+        };
+        // `parseInt` of a non-number is NaN in Ghost, which falls back to 60.
+        let saturation = hash_value(h, "saturation")
+            .and_then(|v| match v {
+                Value::Number(n) => n.as_i64(),
+                Value::String(s) => s.trim().parse::<i64>().ok(),
+                _ => None,
+            })
+            .unwrap_or(60);
+        // Only an explicit `count=false` turns the header count off.
+        let count = hash_value(h, "count") != Some(Value::Bool(false));
+        let title = match hash_value(h, "title") {
+            Some(Value::String(t)) => t,
+            _ => "null".to_string(),
+        };
+
+        let attrs = data_attributes_keep_empty(&[
+            ("locale", site.get("locale").and_then(|v| v.as_str()).unwrap_or("en").to_string()),
+            ("ghost-comments", format!("{origin}{subdir}/")),
+            ("api", format!("{origin}{subdir}/ghost/api/content/")),
+            ("admin", format!("{origin}{subdir}/ghost/")),
+            ("key", frontend_key),
+            ("title", title),
+            ("count", count.to_string()),
+            ("post-id", post.get("id").and_then(|v| v.as_str()).unwrap_or_default().to_string()),
+            ("color-scheme", color_scheme),
+            ("avatar-saturation", saturation.to_string()),
+            ("accent-color", site.get("accent_color").and_then(|v| v.as_str()).unwrap_or("").to_string()),
+            ("comments-enabled", enabled.to_string()),
+            ("publication", site.get("title").and_then(|v| v.as_str()).unwrap_or("").to_string()),
+        ]);
+
+        // Ghost's own whitespace: the helper returns a template literal that
+        // opens with a newline and closes with one.
         let html = format!(
-            r#"<div class="gh-comments" data-ghost-comments="{}" data-ghost-comments-title="{}" data-ghost-comments-count="{}"></div>"#,
-            html_escape(id),
-            html_escape(title),
-            html_escape(&count_label),
+            "\n        <script defer src=\"{}\" {attrs} crossorigin=\"anonymous\"></script>\n    ",
+            crate::apps::comments_script_url()
         );
         write_out(rc, out, &html, false)
     }
+}
+
+/// `data_attributes`, but keeping empty values.
+///
+/// Ghost's `getDataAttributes` only skips `undefined`, so an unset accent
+/// colour still emits `data-accent-color=""` — and `data-title="null"` is
+/// load-bearing rather than noise. Unlike Ghost this escapes the values:
+/// Ghost interpolates them into the attribute raw, which puts the
+/// publication title one quote mark away from breaking out of it. The
+/// browser decodes `dataset` either way, so the widget reads the same string.
+fn data_attributes_keep_empty(pairs: &[(&str, String)]) -> String {
+    pairs
+        .iter()
+        .map(|(k, v)| format!(r#"data-{}="{}""#, k, html_escape(v)))
+        .collect::<Vec<_>>()
+        .join(" ")
 }
 
 /// `{{tiers}}` — the names of the tiers a post is available to.

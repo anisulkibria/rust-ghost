@@ -26,6 +26,10 @@ pub fn admin_router() -> Router<AppState> {
         // users
         .route("/users/", get(admin_browse_users))
         .route("/users/{id}", get(admin_read_user).put(admin_edit_user))
+        // The trailing-slash form too: the comments widget's auth frame asks
+        // for `/users/me/?include=roles`, and Ghost's `prettyUrls` middleware
+        // makes both spellings resolve there.
+        .route("/users/{id}/", get(admin_read_user).put(admin_edit_user))
         .route("/users/password", post(change_password))
         // newsletters
         .route("/newsletters/", get(admin_browse_newsletters).post(admin_add_newsletter))
@@ -997,14 +1001,49 @@ async fn admin_browse_users(State(state): State<AppState>, headers: HeaderMap) -
     }
 }
 
-async fn admin_read_user(State(state): State<AppState>, Path(id): Path<String>, headers: HeaderMap) -> Response {
-    if let Err(r) = require_user(&state, &headers).await {
-        return r;
+/// Read one staff user.
+///
+/// `id` may be the literal `me`, which Ghost resolves to the session's own
+/// user — the comments widget's auth frame calls `/users/me/?include=roles`
+/// to find out whether the person browsing the site is a moderator, and that
+/// is the only way to ask without already knowing the answer.
+async fn admin_read_user(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+    Query(params): Query<HashMap<String, String>>,
+    headers: HeaderMap,
+) -> Response {
+    let actor = match require_user(&state, &headers).await {
+        Ok(u) => u,
+        Err(r) => return r,
+    };
+    let found = if id == "me" {
+        Some(actor)
+    } else {
+        repos::users::find_by_id(&state.db, &id).await.ok().flatten()
+    };
+    let Some(u) = found else {
+        return err(StatusCode::NOT_FOUND, "User not found", "NotFoundError");
+    };
+
+    let mut json = admin_user_json(&u);
+    let wants_roles = params
+        .get("include")
+        .map(|i| i.split(',').any(|p| p.trim() == "roles"))
+        .unwrap_or(false);
+    if wants_roles {
+        let name = repos::users::role_name(&state.db, &u.id).await.ok().flatten();
+        if let Value::Object(m) = &mut json {
+            m.insert(
+                "roles".into(),
+                match name {
+                    Some(name) => json!([{ "name": name }]),
+                    None => json!([]),
+                },
+            );
+        }
     }
-    match repos::users::find_by_id(&state.db, &id).await {
-        Ok(Some(u)) => ok_json(json!({ "users": [admin_user_json(&u)] })),
-        _ => err(StatusCode::NOT_FOUND, "User not found", "NotFoundError"),
-    }
+    ok_json(json!({ "users": [json] }))
 }
 
 async fn admin_edit_user(State(state): State<AppState>, Path(id): Path<String>, headers: HeaderMap, Json(body): Json<Value>) -> Response {

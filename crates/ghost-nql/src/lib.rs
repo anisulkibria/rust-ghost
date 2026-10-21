@@ -92,18 +92,26 @@ fn lex(input: &str) -> Result<Vec<Tok>> {
     let mut toks = Vec::new();
     let chars: Vec<char> = input.chars().collect();
     let mut i = 0;
+    // Whether the next bare literal is a *value* rather than a key.
+    //
+    // Ghost's grammar separates the two: a key is `[a-zA-Z_][\w.]*` ending at
+    // its `:`, while a value literal may contain `:` freely. That matters for
+    // exactly one shape in practice, and it is one the comments widget sends
+    // on every request — `created_at:<=2025-10-21T10:00:00.000Z`, where the
+    // time's colons belong to the value.
+    let mut value_pos = false;
     while i < chars.len() {
         let c = chars[i];
         match c {
             ' ' | '\t' => i += 1,
             '[' => { toks.push(Tok::LBracket); i += 1; }
-            ']' => { toks.push(Tok::RBracket); i += 1; }
-            '(' => { toks.push(Tok::LParen); i += 1; }
-            ')' => { toks.push(Tok::RParen); i += 1; }
-            '+' => { toks.push(Tok::Plus); i += 1; }
-            ',' => { toks.push(Tok::Comma); i += 1; }
-            ':' => { toks.push(Tok::Colon); i += 1; }
-            '~' => { toks.push(Tok::Comparator("~".into())); i += 1; }
+            ']' => { toks.push(Tok::RBracket); value_pos = false; i += 1; }
+            '(' => { toks.push(Tok::LParen); value_pos = false; i += 1; }
+            ')' => { toks.push(Tok::RParen); value_pos = false; i += 1; }
+            '+' => { toks.push(Tok::Plus); value_pos = false; i += 1; }
+            ',' => { toks.push(Tok::Comma); value_pos = false; i += 1; }
+            ':' => { toks.push(Tok::Colon); value_pos = true; i += 1; }
+            '~' => { toks.push(Tok::Comparator("~".into())); value_pos = true; i += 1; }
             '>' | '<' => {
                 let mut op = c.to_string();
                 if i + 1 < chars.len() && chars[i + 1] == '=' {
@@ -111,6 +119,7 @@ fn lex(input: &str) -> Result<Vec<Tok>> {
                     i += 1;
                 }
                 toks.push(Tok::Comparator(op));
+                value_pos = true;
                 i += 1;
             }
             '\'' | '"' => {
@@ -134,18 +143,21 @@ fn lex(input: &str) -> Result<Vec<Tok>> {
                     return Err(GhostError::BadRequest("unterminated quote in filter".into()));
                 }
                 i += 1; // closing quote
+                value_pos = false;
                 toks.push(Tok::Quoted(s));
             }
             _ => {
+                let breaks = if value_pos { " \t[],()+~<>'\"" } else { " \t[],()+~<>'\":" };
                 let mut s = String::new();
                 while i < chars.len() {
                     let ch = chars[i];
-                    if " \t[],()+,:~<>'\"".contains(ch) {
+                    if breaks.contains(ch) {
                         break;
                     }
                     s.push(ch);
                     i += 1;
                 }
+                value_pos = false;
                 match s.as_str() {
                     "true" => toks.push(Tok::Bool(true)),
                     "false" => toks.push(Tok::Bool(false)),
@@ -319,6 +331,36 @@ pub fn parse(input: &str) -> Result<Expr> {
     Ok(e)
 }
 
+/// Rewrite ISO-8601 date values under `keys` into the DB's storage format.
+///
+/// Dates are stored as `YYYY-MM-DD HH:MM:SS` text and compared lexically by
+/// SQLite, so an ISO literal straight off the wire compares wrongly: the `T`
+/// separator sorts *after* the space, which makes
+/// `created_at:<=2025-10-21T10:00:00.000Z` match a row stored as
+/// `2025-10-21 11:00:00`. Normalising the literal instead of coercing the
+/// column keeps any index on it usable.
+pub fn normalize_date_values(expr: &mut Expr, keys: &[&str]) {
+    let fix = |v: &mut NqlValue| {
+        if let NqlValue::Str(s) = v {
+            if let Some(dt) = ghost_core::dates::from_api_string(s) {
+                *s = ghost_core::dates::to_db_string(&dt);
+            }
+        }
+    };
+    match expr {
+        Expr::And(parts) | Expr::Or(parts) => {
+            for p in parts {
+                normalize_date_values(p, keys);
+            }
+        }
+        Expr::Cond(c) if keys.contains(&c.key.as_str()) => match &mut c.value {
+            NqlValue::List(items) => items.iter_mut().for_each(fix),
+            other => fix(other),
+        },
+        Expr::Cond(_) => {}
+    }
+}
+
 /// AND-merge two optional expressions (enforced + user filters).
 pub fn and(a: Option<Expr>, b: Option<Expr>) -> Option<Expr> {
     match (a, b) {
@@ -428,6 +470,33 @@ pub fn column_for(resource: &str, key: &str) -> Result<Col> {
                 expr: "(SELECT COUNT(*) FROM posts_tags pt JOIN posts p ON p.id = pt.post_id WHERE pt.tag_id = tags.id AND p.status = 'published')".into(),
                 kind: ColKind::Numeric,
             }),
+            _ => Err(unknown(key)),
+        },
+        // The members Comments API filters on `post_id` and paginates with
+        // `created_at:<=…` / `id:>'…'`; the admin moderation screen adds
+        // `status` and `count.reports`. The count keys are correlated
+        // subqueries rather than joins so that a filter on one cannot
+        // multiply rows for another.
+        "comments" => match expanded {
+            "id" | "post_id" | "member_id" | "parent_id" | "in_reply_to_id" | "status" | "html"
+            | "created_at" | "updated_at" | "edited_at" | "pinned_at" => {
+                simple("comments", expanded, ColKind::Text)
+            }
+            "count.likes" => Ok(Col::Simple {
+                expr: "(SELECT COUNT(*) FROM comment_likes cl WHERE cl.comment_id = comments.id)".into(),
+                kind: ColKind::Numeric,
+            }),
+            "count.reports" => Ok(Col::Simple {
+                expr: "(SELECT COUNT(*) FROM comment_reports cr WHERE cr.comment_id = comments.id)".into(),
+                kind: ColKind::Numeric,
+            }),
+            "count.replies" => Ok(Col::Simple {
+                expr: "(SELECT COUNT(*) FROM comments r WHERE r.parent_id = comments.id AND r.status = 'published')".into(),
+                kind: ColKind::Numeric,
+            }),
+            "member.name" => exists("EXISTS (SELECT 1 FROM members m WHERE m.id = comments.member_id AND m.name {op} {v})"),
+            "member.email" => exists("EXISTS (SELECT 1 FROM members m WHERE m.id = comments.member_id AND m.email {op} {v})"),
+            "post.title" => exists("EXISTS (SELECT 1 FROM posts p WHERE p.id = comments.post_id AND p.title {op} {v})"),
             _ => Err(unknown(key)),
         },
         "users" | "authors" => match expanded {
@@ -678,6 +747,41 @@ mod tests {
     fn parses_parens() {
         let e = parse("(status:published,featured:true)+type:post").unwrap();
         assert!(matches!(e, Expr::And(_)));
+    }
+
+    /// An unquoted ISO timestamp is one literal, colons and all — the shape
+    /// Ghost's comments widget sends to paginate a thread. Checked against
+    /// `@tryghost/nql`, which parses it to `{created_at: {$lte: "…"}}`.
+    #[test]
+    fn a_bare_iso_timestamp_is_one_value() {
+        match parse("created_at:<=2025-10-21T10:00:00.000Z").unwrap() {
+            Expr::Cond(c) => {
+                assert_eq!(c.key, "created_at");
+                assert_eq!(c.cmp, Cmp::Lte);
+                assert_eq!(c.value, NqlValue::Str("2025-10-21T10:00:00.000Z".into()));
+            }
+            other => panic!("expected one condition, got {other:?}"),
+        }
+        // and it still works alongside another clause, where the `+` ends
+        // the value rather than the colon doing it
+        let combined = parse("post_id:abc+created_at:<=2025-10-21T10:00:00.000Z").unwrap();
+        match combined {
+            Expr::And(parts) => assert_eq!(parts.len(), 2),
+            other => panic!("expected two clauses, got {other:?}"),
+        }
+    }
+
+    /// The key side keeps breaking on its colon, so a value containing one
+    /// cannot swallow the statement that follows it.
+    #[test]
+    fn keys_still_end_at_their_colon() {
+        match parse("count.reports:>0").unwrap() {
+            Expr::Cond(c) => {
+                assert_eq!(c.key, "count.reports");
+                assert_eq!(c.value, NqlValue::Num(0.0));
+            }
+            other => panic!("expected one condition, got {other:?}"),
+        }
     }
 
     #[test]

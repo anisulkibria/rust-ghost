@@ -112,9 +112,18 @@ pub async fn entrypoint(State(state): State<AppState>, uri: Uri, headers: Header
 }
 
 /// Serialize a page of posts with relations resolved (one query per page).
-async fn posts_page_json(state: &AppState, posts: &[ghost_core::models::Post]) -> Vec<Value> {
+///
+/// `member` is the `@member` context, which decides each post's `access`
+/// flag — a listing shows a lock on a post the visitor cannot read, and the
+/// answer depends on who is asking.
+async fn posts_page_json(
+    state: &AppState,
+    posts: &[ghost_core::models::Post],
+    member: &Value,
+) -> Vec<Value> {
     let rel = repos::posts::load_relations(&state.db, posts).await.unwrap_or_default();
     let resolver = resolver_now(state).await;
+    let status = crate::render::member_status(member);
     posts
         .iter()
         .map(|p| {
@@ -123,13 +132,19 @@ async fn posts_page_json(state: &AppState, posts: &[ghost_core::models::Post]) -
             let mut j = models::post_to_json(p, &authors, &tags, "");
             j["url"] = json!(resolver(&j));
             ghost_render::util::resolve_nested_urls(&mut j, &*resolver);
+            crate::render::apply_member_access(&mut j, status);
             j
         })
         .collect()
 }
 
 /// Serialize a single post with relations.
-async fn post_json(state: &AppState, post: &ghost_core::models::Post, url: Option<&str>) -> Value {
+async fn post_json(
+    state: &AppState,
+    post: &ghost_core::models::Post,
+    url: Option<&str>,
+    member: &Value,
+) -> Value {
     let rel: ghost_db::repos::PostRelations =
         repos::posts::load_relations(&state.db, std::slice::from_ref(post)).await.unwrap_or_default();
     let authors = rel.authors_for(&post.id);
@@ -140,6 +155,7 @@ async fn post_json(state: &AppState, post: &ghost_core::models::Post, url: Optio
         j["url"] = json!(resolver(&j));
     }
     ghost_render::util::resolve_nested_urls(&mut j, &*resolver);
+    crate::render::apply_member_access(&mut j, crate::render::member_status(member));
     j
 }
 
@@ -180,13 +196,14 @@ async fn render_collection(
         }
     }
 
-    let posts_json = posts_page_json(&state, &result.posts).await;
+    let member = crate::render::member_context(&state, &headers).await;
+    let posts_json = posts_page_json(&state, &result.posts, &member).await;
 
     // data: entries (e.g. data: page.blog)
     let mut extra = serde_json::Map::new();
     if let Some(yaml) = &data {
         if let Some(s) = yaml.as_str() {
-            if let Some(data_json) = resolve_data_entry(&state, s).await {
+            if let Some(data_json) = resolve_data_entry(&state, s, &member).await {
                 extra.insert(data_entry_key(s), data_json);
             }
         }
@@ -216,7 +233,7 @@ async fn render_collection(
     let rctx = RenderCtx {
         context,
         relative_url: path.to_string(),
-        member: crate::render::member_context(&state, &headers).await,
+        member,
     };
     match render_template(&state, &theme, &candidates, Value::Object(root), &rctx).await {
         Ok(html) => html_response(html),
@@ -228,14 +245,18 @@ fn data_entry_key(short: &str) -> String {
     short.split('.').next().unwrap_or("data").to_string()
 }
 
-async fn resolve_data_entry(state: &AppState, short: &str) -> Option<Value> {
+/// Resolve a `data:` route entry (`data: page.blog`).
+///
+/// `member` is threaded through so a `data:`-loaded post is gated for the
+/// same visitor as the page embedding it.
+async fn resolve_data_entry(state: &AppState, short: &str, member: &Value) -> Option<Value> {
     let (resource, slug) = short.split_once('.')?;
     let resolver = resolver_now(state).await;
     match resource {
         "page" | "post" => {
             let post_type = if resource == "page" { "page" } else { "post" };
             let p = repos::posts::find_by_slug(&state.db, slug, post_type, true).await.ok()??;
-            Some(post_json(state, &p, None).await)
+            Some(post_json(state, &p, None, member).await)
         }
         "tag" => {
             let t = repos::tags::find_by_slug(&state.db, slug).await.ok()??;
@@ -271,7 +292,8 @@ async fn render_entry(state: AppState, slug: String, path: &str, headers: Header
         },
     };
 
-    let post_json = post_json(&state, &post, None).await;
+    let member = crate::render::member_context(&state, &headers).await;
+    let post_json = post_json(&state, &post, None, &member).await;
     let mut context = vec![post_type.to_string()];
     if post_type == "page" {
         context.push("page".into());
@@ -300,7 +322,7 @@ async fn render_entry(state: AppState, slug: String, path: &str, headers: Header
     let rctx = RenderCtx {
         context,
         relative_url: path.to_string(),
-        member: crate::render::member_context(&state, &headers).await,
+        member,
     };
     match render_template(&state, &theme, &candidates, Value::Object(root), &rctx).await {
         Ok(html) => html_response(html),
@@ -366,7 +388,8 @@ async fn render_taxonomy(
         Err(e) => return error_response(e),
     };
 
-    let posts_json = posts_page_json(&state, &result.posts).await;
+    let member = crate::render::member_context(&state, &headers).await;
+    let posts_json = posts_page_json(&state, &result.posts, &member).await;
 
     let pagination = models::pagination_json(result.page, result.limit.max(1), result.total);
     let mut context: Vec<String> = Vec::new();
@@ -384,7 +407,7 @@ async fn render_taxonomy(
     let rctx = RenderCtx {
         context,
         relative_url: path.to_string(),
-        member: crate::render::member_context(&state, &headers).await,
+        member,
     };
     match render_template(&state, &theme, &candidates, Value::Object(root), &rctx).await {
         Ok(html) => html_response(html),
@@ -402,10 +425,11 @@ async fn render_custom(
     _headers: HeaderMap,
 ) -> Response {
     let theme = state.theme.read().await.clone();
+    let member = crate::render::member_context(&state, &_headers).await;
     let mut root = serde_json::Map::new();
     if let Some(yaml) = &data {
         if let Some(s) = yaml.as_str() {
-            if let Some(d) = resolve_data_entry(&state, s).await {
+            if let Some(d) = resolve_data_entry(&state, s, &member).await {
                 root.insert(data_entry_key(s), d);
             }
         }
@@ -415,7 +439,7 @@ async fn render_custom(
     let rctx = RenderCtx {
         context: vec![name],
         relative_url: path.to_string(),
-        member: crate::render::member_context(&state, &_headers).await,
+        member,
     };
     match render_template(&state, &theme, &candidates, Value::Object(root), &rctx).await {
         Ok(html) => {
@@ -451,7 +475,8 @@ async fn render_preview(state: AppState, uuid: String, path: &str, headers: Head
     // passed in rather than resolved, so it needs the base path putting on
     // here the way the resolver would have
     let preview_url = ghost_core::url::base(&format!("/p/{uuid}/"));
-    let post_json = post_json(&state, &post, Some(&preview_url)).await;
+    let member = crate::render::member_context(&state, &headers).await;
+    let post_json = post_json(&state, &post, Some(&preview_url), &member).await;
 
     let mut context = vec!["preview".to_string()];
     let label = if post.post_type == "page" { "page" } else { "post" };
@@ -474,7 +499,7 @@ async fn render_preview(state: AppState, uuid: String, path: &str, headers: Head
     let rctx = RenderCtx {
         context,
         relative_url: path.to_string(),
-        member: crate::render::member_context(&state, &headers).await,
+        member,
     };
     match render_template(&state, &theme, &candidates, Value::Object(root), &rctx).await {
         Ok(html) => html_response(html),

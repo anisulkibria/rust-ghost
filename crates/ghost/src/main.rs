@@ -306,6 +306,7 @@ fn build_app(state: AppState) -> axum::Router {
     let api = axum::Router::new()
         .nest("/content", ghost_api::content::content_router())
         .nest("/admin", ghost_api::admin::admin_router()
+            .merge(ghost_api::admin_comments::admin_comments_router())
             .merge(axum::Router::new()
                 .nest("/images", ghost_api::images::images_router())
                 .nest("/media", ghost_api::images::media_router())
@@ -314,7 +315,20 @@ fn build_app(state: AppState) -> axum::Router {
                 .merge(ghost_api::oembed::oembed_router())))
         .with_state(state.clone());
 
-    let backend = axum::Router::new().nest("/api", api);
+    // The invisible iframe the comments widget talks to when a moderator is
+    // signed in. It lives under /ghost because that is where the admin
+    // session cookie is scoped — the whole point is that it can reach the
+    // Admin API with credentials, which a script on the site origin cannot.
+    let auth_frame = axum::Router::new()
+        .route("/auth-frame/", axum::routing::get(ghost_api::admin_comments::auth_frame))
+        .route("/auth-frame", axum::routing::get(ghost_api::admin_comments::auth_frame))
+        .route(
+            "/auth-frame/admin-auth.min.js",
+            axum::routing::get(ghost_api::admin_comments::auth_frame_script),
+        )
+        .with_state(state.clone());
+
+    let backend = axum::Router::new().nest("/api", api).merge(auth_frame);
 
     // built-in admin UI at /ghost
     let admin_ui = ghost_admin_ui::admin_ui_router().with_state(state.clone());
@@ -322,7 +336,12 @@ fn build_app(state: AppState) -> axum::Router {
     // /members/* — Portal's backend. Merged (not nested) at the site root,
     // since Portal builds these URLs from the site origin and carries the
     // /members prefix itself.
-    let members = ghost_api::members::members_router().with_state(state.clone());
+    let members = ghost_api::members::members_router()
+        // `/members/api/comments/*` — where the CDN-hosted comments widget
+        // is hardcoded to look, so it is merged at the site root alongside
+        // the rest of the members API rather than nested.
+        .merge(ghost_api::comments::comments_router())
+        .with_state(state.clone());
 
     // `nest` binds the admin UI's own `/` route at `/ghost` but not at
     // `/ghost/`, so the canonical admin URL would otherwise fall through to

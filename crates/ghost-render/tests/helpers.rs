@@ -91,6 +91,10 @@ fn check(cases: &[(&str, &Value, &str)]) {
 fn post() -> Value {
     json!({
         "id": "p1",
+        // `comment_id` is how Ghost's `{{comments}}` tells a post from a
+        // page, so the fixture carries it like the real serializer does.
+        "comment_id": "p1-uuid",
+        "access": true,
         "title": "Hello & <World>",
         "slug": "hello",
         "html": "<p>One two three four five six.</p>",
@@ -889,12 +893,116 @@ fn search_and_comment_count_emit_their_mount_points() {
     assert!(cc.contains(r#"data-ghost-comment-count-singular="comment""#), "{cc}");
 }
 
+/// The root a post page renders with comments available.
+fn commentable() -> Value {
+    json!({
+        "post": post(),
+        "site": {
+            "url": "https://site.test",
+            "title": "My Site",
+            "locale": "en",
+            "accent_color": "#FF1A75",
+            "comments_enabled": "all",
+        },
+        "frontendKey": "abc123",
+    })
+}
+
+/// `{{comments}}` emits the script tag the CDN widget needs, with the data
+/// attributes it reads. Checked against Ghost 6.39's `comments` helper.
 #[test]
-fn comments_needs_the_feature_switched_on() {
-    let off = json!({"post": post(), "site": {"comments_enabled": "off"}});
-    check(&[("{{comments}}", &off, "")]);
-    let on = json!({"post": post(), "site": {"comments_enabled": "all"}});
-    assert!(render("{{comments}}", &on).contains(r#"data-ghost-comments="p1""#));
+fn comments_emits_the_widget_script_tag() {
+    let out = render("{{comments}}", &commentable());
+    assert!(
+        out.contains(r#"<script defer src="https://cdn.jsdelivr.net/ghost/comments-ui@~1.4/umd/comments-ui.min.js""#),
+        "{out}"
+    );
+    assert!(out.contains(r#"crossorigin="anonymous""#), "{out}");
+    for attr in [
+        r#"data-locale="en""#,
+        r#"data-ghost-comments="https://site.test/""#,
+        r#"data-api="https://site.test/ghost/api/content/""#,
+        r#"data-admin="https://site.test/ghost/""#,
+        r#"data-key="abc123""#,
+        // the literal string "null" — the widget tests for it to pick its
+        // own default heading
+        r#"data-title="null""#,
+        r#"data-count="true""#,
+        r#"data-post-id="p1""#,
+        r#"data-color-scheme="auto""#,
+        r#"data-avatar-saturation="60""#,
+        r##"data-accent-color="#FF1A75""##,
+        r#"data-comments-enabled="all""#,
+        r#"data-publication="My Site""#,
+    ] {
+        assert!(out.contains(attr), "missing {attr} in {out}");
+    }
+}
+
+#[test]
+fn comments_honours_its_options() {
+    let root = commentable();
+    let out = render(r#"{{comments mode="dark" saturation=40 count=false title="Discussion"}}"#, &root);
+    assert!(out.contains(r#"data-color-scheme="dark""#), "{out}");
+    assert!(out.contains(r#"data-avatar-saturation="40""#), "{out}");
+    assert!(out.contains(r#"data-count="false""#), "{out}");
+    assert!(out.contains(r#"data-title="Discussion""#), "{out}");
+    // an unrecognised mode falls back to auto rather than passing through
+    assert!(render(r#"{{comments mode="sepia"}}"#, &root).contains(r#"data-color-scheme="auto""#));
+    // and so does a saturation that is not a number
+    assert!(render(r#"{{comments saturation="x"}}"#, &root).contains(r#"data-avatar-saturation="60""#));
+}
+
+#[test]
+fn comments_stays_silent_when_it_should() {
+    let blank = |root: &Value| assert_eq!(render("{{comments}}", root), "", "{root}");
+
+    // comments switched off site-wide
+    let mut off = commentable();
+    off["site"]["comments_enabled"] = json!("off");
+    blank(&off);
+
+    // a page, which has no comment_id
+    let mut page = commentable();
+    page["post"]["comment_id"] = Value::Null;
+    blank(&page);
+
+    // a post the visitor cannot read
+    let mut gated = commentable();
+    gated["post"]["access"] = json!(false);
+    blank(&gated);
+
+    // no Content API key, so every request the widget made would 401
+    let mut keyless = commentable();
+    keyless["frontendKey"] = json!("");
+    blank(&keyless);
+}
+
+/// The publication title and accent colour reach an attribute value, so they
+/// are escaped — Ghost interpolates them raw.
+#[test]
+fn comments_escapes_its_attribute_values() {
+    let mut root = commentable();
+    root["site"]["title"] = json!(r#"Pat" onload="x"#);
+    let out = render("{{comments}}", &root);
+    assert!(!out.contains(r#"onload="x""#), "{out}");
+    assert!(out.contains("data-publication=\"Pat&quot; onload=&quot;x\""), "{out}");
+}
+
+/// The counts script goes into `ghost_head` whenever comments are on, since
+/// an index page is where `{{comment_count}}` placeholders live.
+#[test]
+fn ghost_head_links_the_comment_counts_script() {
+    let out = render("{{ghost_head}}", &commentable());
+    assert!(out.contains(r#"src="/public/comment-counts.min.js""#), "{out}");
+    assert!(
+        out.contains(r#"data-ghost-comments-counts-api="https://site.test/members/api/comments/counts/""#),
+        "{out}"
+    );
+
+    let mut off = commentable();
+    off["site"]["comments_enabled"] = json!("off");
+    assert!(!render("{{ghost_head}}", &off).contains("comment-counts.min.js"));
 }
 
 // ---------------------------------------------------------------------------
@@ -1015,4 +1123,23 @@ fn a_theme_can_turn_the_card_assets_off() {
 fn card_assets_default_to_on_when_the_theme_says_nothing() {
     let head = render("{{ghost_head}}", &json!({"config": {}, "site": {}}));
     assert!(head.contains("cards.min.css"), "{head}");
+}
+
+/// Themes guard the section with `{{#if comments}}` — Source does exactly
+/// that — and handlebars.js answers it by *calling* the helper, since a
+/// registered helper wins an ambiguous reference. handlebars-rust only looks
+/// up the context, so the renderer seeds a root-level `comments` flag.
+///
+/// This pins both halves of that arrangement: the flag makes the guard pass,
+/// and the helper still wins in helper position so `{{comments}}` renders
+/// the script tag rather than printing the flag.
+#[test]
+fn the_comments_flag_answers_the_themes_guard() {
+    let mut root = commentable();
+    root["comments"] = json!(true);
+    assert_eq!(render("{{#if comments}}YES{{else}}NO{{/if}}", &root), "YES");
+    assert!(render("{{comments}}", &root).contains("comments-ui.min.js"));
+
+    root["comments"] = json!(false);
+    assert_eq!(render("{{#if comments}}YES{{else}}NO{{/if}}", &root), "NO");
 }

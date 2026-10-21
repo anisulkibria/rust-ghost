@@ -1,6 +1,7 @@
 //! ghost-front: the public site — routing → fetch → render.
 mod analytics;
 pub mod cards;
+pub mod comment_counts;
 mod render;
 mod routes;
 mod sitemap;
@@ -22,6 +23,7 @@ pub fn site_router(state: AppState) -> Router {
         // under /public/ comes off disk
         .route("/public/cards.min.css", get(cards::cards_css))
         .route("/public/cards.min.js", get(cards::cards_js))
+        .route("/public/comment-counts.min.js", get(comment_counts::comment_counts_js))
         .route("/public/{*path}", get(routes::public_file))
         .route("/favicon.ico", get(routes::favicon))
         .route("/sitemap.xml", get(sitemap::sitemap_index))

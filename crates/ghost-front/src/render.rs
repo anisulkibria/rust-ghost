@@ -33,6 +33,63 @@ pub async fn member_context(state: &AppState, headers: &HeaderMap) -> Value {
     }
 }
 
+/// The `status` of the `@member` context, for the access checks below.
+pub fn member_status(member: &Value) -> Option<&str> {
+    member.get("status").and_then(|v| v.as_str())
+}
+
+/// Recompute a serialized post's `access` flag for the visitor looking at it.
+///
+/// `post_to_json` can only answer the anonymous case — it has no request to
+/// consult — so it sets `access` from `visibility` alone, which reads as
+/// "members-only posts are closed to everybody". That is right for a
+/// signed-out visitor and wrong for the member who paid for it.
+///
+/// `access` is not cosmetic: `{{content}}` swaps the post body for the
+/// upgrade CTA when it is false, and `{{comments}}` renders nothing at all.
+/// So without this a signed-in member sees a paywall on a post they have
+/// access to, and no comment form under it.
+pub fn apply_member_access(post: &mut Value, member_status: Option<&str>) {
+    let Some(visibility) = post.get("visibility").and_then(|v| v.as_str()) else {
+        return;
+    };
+    let allowed = ghost_core::comments::check_post_access(visibility, member_status);
+    if let Value::Object(m) = post {
+        m.insert("access".into(), Value::Bool(allowed));
+    }
+}
+
+/// Whether `{{comments}}` would render anything, as a root-level flag.
+///
+/// Themes wrap the comments section in `{{#if comments}}` — Source does
+/// exactly that — so that a post with comments off does not get an empty
+/// heading and a stray `<div>`. In handlebars.js that guard *calls* the
+/// helper, because a registered helper wins an ambiguous reference;
+/// handlebars-rust only consults the context, so the guard would always be
+/// false and the section would never appear.
+///
+/// Seeding the flag fixes that, and it has to agree with the helper exactly:
+/// if the flag were the looser of the two, a theme would render the wrapper
+/// around nothing.
+fn comments_available(data: &Value, site: &Value, frontend_key: &str) -> bool {
+    if frontend_key.is_empty() {
+        return false;
+    }
+    if matches!(site.get("comments_enabled").and_then(|v| v.as_str()), None | Some("off")) {
+        return false;
+    }
+    let post = data.get("post").filter(|p| p.is_object());
+    let Some(post) = post else { return false };
+    // `comment_id` is the marker for "this is a post, not a page", and
+    // `access` for "this visitor may read it".
+    let is_post = post
+        .get("comment_id")
+        .and_then(|v| v.as_str())
+        .map(|s| !s.is_empty())
+        .unwrap_or(false);
+    is_post && post.get("access") != Some(&Value::Bool(false))
+}
+
 /// Render the first template in `candidates` that the theme has.
 pub async fn render_template(
     state: &AppState,
@@ -79,6 +136,19 @@ pub async fn render_template(
     // Search script tags; both are useless without it.
     let frontend_key = state.frontend_key().await.unwrap_or_default();
 
+    // The flag goes on the post as well as the root: themes write the guard
+    // inside a `{{#post}}` block, where a bare `comments` resolves against
+    // the post rather than the root, and handlebars-rust does not walk up to
+    // find it. Source's `post.hbs` is exactly that shape.
+    let has_comments = comments_available(&data, &site, &frontend_key);
+    if has_comments {
+        for key in ["post", "page"] {
+            if let Some(Value::Object(p)) = data.get_mut(key) {
+                p.insert("comments".into(), Value::Bool(true));
+            }
+        }
+    }
+
     let root = match &mut data {
         Value::Object(m) => {
             m.insert("site".into(), site);
@@ -89,6 +159,7 @@ pub async fn render_template(
             m.insert("context".into(), serde_json::json!(rctx.context));
             m.insert("relativeUrl".into(), Value::String(rctx.relative_url.clone()));
             m.insert("frontendKey".into(), Value::String(frontend_key.clone()));
+            m.insert("comments".into(), Value::Bool(has_comments));
             Value::Object(m.clone())
         }
         other => {
@@ -102,6 +173,7 @@ pub async fn render_template(
             m.insert("context".into(), serde_json::json!(rctx.context));
             m.insert("relativeUrl".into(), Value::String(rctx.relative_url.clone()));
             m.insert("frontendKey".into(), Value::String(frontend_key));
+            m.insert("comments".into(), Value::Bool(has_comments));
             Value::Object(m)
         }
     };

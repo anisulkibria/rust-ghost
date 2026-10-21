@@ -9,6 +9,7 @@ pub mod staff;
 pub mod api_keys;
 pub mod sessions;
 pub mod actions;
+pub mod comments;
 pub mod integrations;
 pub mod newsletters;
 

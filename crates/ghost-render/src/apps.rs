@@ -14,6 +14,9 @@
 pub const PORTAL_VERSION: &str = "2.68";
 /// `sodo-search.min.js` — renders every `data-ghost-search` / `#/search` link.
 pub const SODO_SEARCH_VERSION: &str = "1.8";
+/// `comments-ui.min.js` — the comment thread, form and moderation controls
+/// that `{{comments}}` mounts.
+pub const COMMENTS_VERSION: &str = "1.4";
 
 pub fn portal_script_url() -> String {
     format!("https://cdn.jsdelivr.net/ghost/portal@~{PORTAL_VERSION}/umd/portal.min.js")
@@ -25,6 +28,10 @@ pub fn sodo_search_script_url() -> String {
 
 pub fn sodo_search_styles_url() -> String {
     format!("https://cdn.jsdelivr.net/ghost/sodo-search@~{SODO_SEARCH_VERSION}/umd/main.css")
+}
+
+pub fn comments_script_url() -> String {
+    format!("https://cdn.jsdelivr.net/ghost/comments-ui@~{COMMENTS_VERSION}/umd/comments-ui.min.js")
 }
 
 /// Ghost ships these in `core/frontend/helpers/tpl/styles.js` and injects them

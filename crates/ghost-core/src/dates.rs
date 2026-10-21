@@ -21,6 +21,25 @@ pub fn from_db_string(s: &str) -> Option<DateTime<Utc>> {
         .map(|n| Utc.from_utc_datetime(&n))
 }
 
+/// Parse an API-shaped date back to a timestamp.
+///
+/// Accepts what a client can realistically send: the ISO form this module
+/// emits, the same without milliseconds, an explicit numeric offset, and the
+/// DB form — so a filter value echoed back from an earlier response round
+/// trips whichever of the two shapes it came from.
+pub fn from_api_string(s: &str) -> Option<DateTime<Utc>> {
+    let s = s.trim();
+    if let Ok(dt) = DateTime::parse_from_rfc3339(s) {
+        return Some(dt.with_timezone(&Utc));
+    }
+    for fmt in ["%Y-%m-%dT%H:%M:%S%.fZ", "%Y-%m-%dT%H:%M:%S%.f", "%Y-%m-%d %H:%M:%S%.f"] {
+        if let Ok(n) = NaiveDateTime::parse_from_str(s, fmt) {
+            return Some(Utc.from_utc_datetime(&n));
+        }
+    }
+    None
+}
+
 /// DB string -> ISO8601 millis API shape (Ghost's serialization).
 pub fn db_to_api(s: Option<&str>) -> Option<String> {
     s.and_then(from_db_string).map(|dt| api_from_datetime(&dt))

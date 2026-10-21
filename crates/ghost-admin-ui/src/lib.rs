@@ -12,6 +12,7 @@ use std::collections::HashMap;
 
 use ghost_api::AppState;
 
+pub mod comments;
 pub mod schedule;
 
 /// Upload ceiling for theme zips and content imports. Ghost's own limit is
@@ -31,6 +32,13 @@ pub fn admin_ui_router() -> Router<AppState> {
         .route("/members/import/", post(members_import).layer(axum::extract::DefaultBodyLimit::max(MAX_UPLOAD_BYTES)))
         .route("/members/{id}/", get(member_edit_page).post(member_edit_save))
         .route("/members/{id}/delete/", post(member_delete))
+        .route("/members/{id}/commenting/disable/", post(comments::member_commenting_disable))
+        .route("/members/{id}/commenting/enable/", post(comments::member_commenting_enable))
+        // Comment moderation. Ghost puts this at /ghost/#/comments, so the
+        // path a report notification deep-links to is the same one here.
+        .route("/comments/", get(comments::comments_page))
+        .route("/comments/{id}/hide/", post(comments::comment_hide))
+        .route("/comments/{id}/show/", post(comments::comment_show))
         .route("/posts/", get(posts_list))
         .route("/posts/new/", get(editor_new).post(editor_create))
         .route("/posts/{id}/", get(editor_page).post(editor_save))
@@ -227,6 +235,8 @@ fn icon(name: &str) -> &'static str {
         "check" => r#"<path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/>"#,
         "ghost" => r#"<path d="M12 2a8 8 0 0 0-8 8v10.6c0 .7.85 1.05 1.35.55l1.9-1.9 2.2 2.2c.3.3.78.3 1.08 0L12 20l1.47 1.45c.3.3.78.3 1.08 0l2.2-2.2 1.9 1.9c.5.5 1.35.15 1.35-.55V10a8 8 0 0 0-8-8zm-3 8.5A1.5 1.5 0 1 1 10.5 9 1.5 1.5 0 0 1 9 10.5zm6 0A1.5 1.5 0 1 1 16.5 9 1.5 1.5 0 0 1 15 10.5z"/>"#,
         "menu" => r#"<path d="M3 18h18v-2H3v2zm0-5h18v-2H3v2zm0-7v2h18V6H3z"/>"#,
+        "comment" => r#"<path d="M20 2H4c-1.1 0-2 .9-2 2v18l4-4h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zM6 9h12v2H6V9zm8 5H6v-2h8v2zm4-6H6V6h12v2z"/>"#,
+        "hide" => r#"<path d="M12 7c2.76 0 5 2.24 5 5 0 .65-.13 1.26-.36 1.83l2.92 2.92c1.51-1.26 2.7-2.89 3.43-4.75-1.73-4.39-6-7.5-11-7.5-1.4 0-2.74.25-3.98.7l2.16 2.16C10.74 7.13 11.35 7 12 7zM2 4.27l2.28 2.28.46.46C3.08 8.3 1.78 10.02 1 12c1.73 4.39 6 7.5 11 7.5 1.55 0 3.03-.3 4.38-.84l.42.42L19.73 22 21 20.73 3.27 3 2 4.27zM7.53 9.8l1.55 1.55c-.05.21-.08.43-.08.65 0 1.66 1.34 3 3 3 .22 0 .44-.03.65-.08l1.55 1.55c-.67.33-1.41.53-2.2.53-2.76 0-5-2.24-5-5 0-.79.2-1.53.53-2.2z"/>"#,
         "close" => r#"<path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/>"#,
         "up" => r#"<path d="M7.41 15.41L12 10.83l4.59 4.58L18 14l-6-6-6 6z"/>"#,
         "down" => r#"<path d="M7.41 8.59L12 13.17l4.59-4.58L18 10l-6 6-6-6z"/>"#,
@@ -993,6 +1003,7 @@ fn rail(active: &str, user: Option<&ghost_core::models::User>, role: Role) -> St
         ("design", "/ghost/design/", "Design", "tune", "purple"),
         ("navigation", "/ghost/navigation/", "Navigation", "menu", "red"),
         ("members", "/ghost/members/", "Members", "ghost", "blue"),
+        ("comments", "/ghost/comments/", "Comments", "comment", "purple"),
         // Integrations is not a rail item: like Ghost, it lives under
         // Settings → Advanced → Integrations.
         ("settings", "/ghost/settings/", "Settings", "settings", "pink"),
@@ -1000,7 +1011,10 @@ fn rail(active: &str, user: Option<&ghost_core::models::User>, role: Role) -> St
     let mut links: String = items
         .iter()
         .filter(|(key, _, _, _, _)| match *key {
-            "analytics" | "themes" | "design" | "navigation" | "members" | "settings" => role.is_admin(),
+            // Ghost grants the `comment` permission set to Administrator and
+            // above only, so moderation is not offered below that.
+            "analytics" | "themes" | "design" | "navigation" | "members" | "settings"
+            | "comments" => role.is_admin(),
             "tags" => role.can_manage_tags(),
             _ => true,
         })
@@ -2134,17 +2148,28 @@ async fn member_edit_page(
         Ok(a) => (a.user, a.role),
         Err(r) => return r,
     };
-    let row = sqlx::query_as::<_, (String, Option<String>, String, String, Option<String>, String, Option<String>)>(
-        "SELECT id, name, email, status, note, created_at, uuid FROM members WHERE id = ? LIMIT 1",
+    let row = sqlx::query_as::<_, (String, Option<String>, String, String, Option<String>, String, Option<String>, Option<String>)>(
+        "SELECT id, name, email, status, note, created_at, uuid, commenting FROM members WHERE id = ? LIMIT 1",
     )
     .bind(&id)
     .fetch_optional(&state.db)
     .await
     .ok()
     .flatten();
-    let Some((mid, name, email, status, note, created, _uuid)) = row else {
+    let Some((mid, name, email, status, note, created, _uuid, commenting)) = row else {
         return not_found_page(&user, "That member could not be found.");
     };
+
+    // Commenting is per-member state a moderator acts on from here: a
+    // suspension is aimed at a person, not at a comment, so it belongs on
+    // their profile rather than on the moderation queue.
+    let commenting = ghost_api::comments::Commenting::parse(commenting.as_deref());
+    let comment_count: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM comments WHERE member_id = ? AND status <> 'deleted'")
+            .bind(&mid)
+            .fetch_one(&state.db)
+            .await
+            .unwrap_or(0);
 
     let labels = member_labels(&state, &mid).await;
     let subscribed: Vec<String> = sqlx::query_scalar::<_, String>(
@@ -2222,6 +2247,7 @@ async fn member_edit_page(
 <p class="muted" style="margin:6px 0 0">{status_note}</p></div></div>
 </div>
 </form>
+{commenting_card}
 <div class="section">Danger zone</div>
 <div class="card rows rise" style="--i:5">
 <div class="row"><span class="ic tint-red">{del}</span>
@@ -2250,6 +2276,7 @@ async fn member_edit_page(
             del = svg("delete"),
             car = SELECT_CARET,
             newsletter_rows = newsletter_rows,
+            commenting_card = comments::member_commenting_card(&mid, &commenting, comment_count),
             status_opts = select_options(
                 &[("free", "Free"), ("comped", "Complimentary — paid access, no charge")],
                 &status
@@ -6924,14 +6951,6 @@ async fn site_save(State(state): State<AppState>, headers: HeaderMap, form: Site
 
 // --- membership: access, tiers, signup portal, welcome emails, newsletters ---
 
-/// One row of the `products` table (Ghost calls them tiers).
-struct TierRow {
-    name: String,
-    tier_type: String,
-    monthly_price: Option<i64>,
-    yearly_price: Option<i64>,
-}
-
 /// Ghost's price display: cents with whole-dollar collapsing ("$5").
 fn tier_price(cents: Option<i64>) -> String {
     match cents {
@@ -7685,6 +7704,9 @@ async fn membership_page(State(state): State<AppState>, headers: HeaderMap, Quer
 <div class="row"><span class="ic tint-teal">{lock}</span>
 <div class="body"><label class="field fixed" style="margin:0;max-width:320px"><select name="default_content_visibility" form="membership-form">{visibility_opts}</select><span>Default post access</span>{car}</label>
 <p class="muted" style="margin:6px 0 0">Access used by new posts when none is set in the editor.</p></div></div>
+<div class="row"><span class="ic tint-teal">{comment_ic}</span>
+<div class="body"><label class="field fixed" style="margin:0;max-width:320px"><select name="comments_enabled" form="membership-form">{comment_opts}</select><span>Commenting</span>{car}</label>
+<p class="muted" style="margin:6px 0 0">Who can comment on posts. Readers always need an account to comment. Existing comments stay visible when you turn commenting off — <a href="/ghost/comments/">moderate them here</a>.</p></div></div>
 </div>
 {stripe_card}
 <div class="section">Tiers</div>
@@ -7720,6 +7742,9 @@ async fn membership_page(State(state): State<AppState>, headers: HeaderMap, Quer
             car = SELECT_CARET,
             access_opts = select_options(&[("all", "Anybody can sign up"), ("invite", "People can only be invited"), ("none", "Nobody can sign up")], &get("members_signup_access", "all")),
             visibility_opts = select_options(&[("public", "Public"), ("members", "Members only"), ("paid", "Paid members only")], &get("default_content_visibility", "public")),
+            comment_ic = svg("comment"),
+            // Ghost's three levels, same values: `off`, `all`, `paid`.
+            comment_opts = select_options(&[("off", "Nobody"), ("all", "All members"), ("paid", "Paid members only")], &get("comments_enabled", "off")),
             tier_rows = tier_rows,
             stripe_card = stripe_card,
             add = svg("add"),
@@ -7777,10 +7802,12 @@ async fn membership_save(State(state): State<AppState>, headers: HeaderMap, Form
     let access = one_of(get("members_signup_access"), &["all", "invite", "none"], "all".into());
     let visibility = one_of(get("default_content_visibility"), &["public", "members", "paid"], "public".into());
     let style = one_of(get("portal_button_style"), &["icon-and-text", "icon", "text"], "icon-and-text".into());
+    let commenting = one_of(get("comments_enabled"), &["off", "all", "paid"], "off".into());
 
     let mut ok = true;
     ok &= state.settings.set(&state.db, "members_signup_access", &serde_json::json!(access)).await.is_ok();
     ok &= state.settings.set(&state.db, "default_content_visibility", &serde_json::json!(visibility)).await.is_ok();
+    ok &= state.settings.set(&state.db, "comments_enabled", &serde_json::json!(commenting)).await.is_ok();
     ok &= state.settings.set(&state.db, "portal_button_style", &serde_json::json!(style)).await.is_ok();
     for key in ["portal_button_signup_text", "portal_button_icon", "portal_signup_terms_html"] {
         ok &= state.settings.set(&state.db, key, &serde_json::json!(get(key))).await.is_ok();
