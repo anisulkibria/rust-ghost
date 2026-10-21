@@ -171,100 +171,10 @@ pub fn magic_link_html(
     )
 }
 
-/// One post, rendered as a newsletter.
-///
-/// Deliberately plain: a table shell, the post's own HTML dropped in, and the
-/// footer Ghost always includes. The unsubscribe link is not optional —
-/// bulk senders reject mail without one, and recipients are entitled to it.
-pub fn newsletter(
-    site_title: &str,
-    site_url: &str,
-    post_title: &str,
-    post_url: &str,
-    feature_image: Option<&str>,
-    content_html: &str,
-    excerpt: &str,
-    unsubscribe_url: &str,
-    accent_color: &str,
-) -> String {
-    let accent = if accent_color.trim().is_empty() { "#15212A" } else { accent_color };
-    let hero = feature_image
-        .filter(|i| !i.is_empty())
-        .map(|i| {
-            format!(
-                r#"<tr><td style="padding:0 0 24px;"><img src="{}" alt="" width="100%" style="display:block;width:100%;max-width:100%;border-radius:8px;"></td></tr>"#,
-                esc(i)
-            )
-        })
-        .unwrap_or_default();
-    format!(
-        r#"<!doctype html>
-<html><head>
-<meta name="viewport" content="width=device-width">
-<meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
-<meta name="color-scheme" content="light only">
-<title>{title}</title>
-<style>
-@media only screen and (max-width:620px) {{
-  .container {{ width:100% !important; padding:0 !important; }}
-  .wrapper {{ padding:20px !important; }}
-  h1 {{ font-size:26px !important; }}
-}}
-img {{ max-width:100%; height:auto; }}
-blockquote {{ margin:0 0 20px; padding:0 0 0 20px; border-left:3px solid #e5eff5; color:#738a94; }}
-pre {{ background:#f4f8fb; padding:14px; border-radius:6px; overflow-x:auto; font-size:13px; }}
-figure {{ margin:0 0 24px; }}
-figcaption {{ font-size:13px; color:#738a94; text-align:center; margin-top:8px; }}
-</style>
-</head>
-<body style="margin:0;padding:0;background:#f6f6f6;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:17px;line-height:1.6;color:#15212A;">
-<span style="display:none;max-height:0;overflow:hidden;opacity:0;">{preheader}</span>
-<table role="presentation" width="100%" border="0" cellpadding="0" cellspacing="0" style="background:#f6f6f6;">
-<tr><td align="center">
-<table role="presentation" class="container" width="600" border="0" cellpadding="0" cellspacing="0" style="max-width:600px;width:100%;">
-<tr><td style="padding:28px 0 16px;text-align:center;">
-<a href="{site_url}" style="color:#738a94;font-size:14px;font-weight:600;text-decoration:none;letter-spacing:.2px;">{site}</a>
-</td></tr>
-<tr><td style="background:#ffffff;border-radius:10px;">
-<table role="presentation" width="100%" border="0" cellpadding="0" cellspacing="0"><tr><td class="wrapper" style="padding:36px;">
-<table role="presentation" width="100%" border="0" cellpadding="0" cellspacing="0">{hero}</table>
-<h1 style="margin:0 0 24px;font-size:32px;line-height:1.15;font-weight:700;color:#15212A;">{title}</h1>
-<div>{content}</div>
-<table role="presentation" border="0" cellpadding="0" cellspacing="0" style="margin:32px 0 0;"><tr><td>
-<a href="{post_url}" style="display:inline-block;background:{accent};border-radius:6px;color:#fff;font-size:15px;font-weight:600;padding:11px 22px;text-decoration:none;">Read online</a>
-</td></tr></table>
-</td></tr></table>
-</td></tr>
-<tr><td style="padding:22px 12px 40px;text-align:center;color:#9baab1;font-size:12px;line-height:1.6;">
-<p style="margin:0 0 6px;">You are receiving this because you subscribed to {site}.</p>
-<p style="margin:0;"><a href="{unsub}" style="color:#9baab1;text-decoration:underline;">Unsubscribe</a> &nbsp;·&nbsp; <a href="{site_url}" style="color:#9baab1;text-decoration:underline;">{site}</a></p>
-</td></tr>
-</table></td></tr></table></body></html>"#,
-        title = esc(post_title),
-        site = esc(site_title),
-        site_url = esc(site_url),
-        preheader = esc(excerpt),
-        hero = hero,
-        // the post body is engine-rendered HTML and must not be escaped
-        content = content_html,
-        post_url = esc(post_url),
-        unsub = esc(unsubscribe_url),
-        accent = esc(accent),
-    )
-}
-
-/// The plain-text alternative for a newsletter.
-pub fn newsletter_text(
-    site_title: &str,
-    post_title: &str,
-    post_url: &str,
-    plaintext: &str,
-    unsubscribe_url: &str,
-) -> String {
-    format!(
-        "{post_title}\n\n{plaintext}\n\nRead online: {post_url}\n\n---\nYou are receiving this because you subscribed to {site_title}.\nUnsubscribe: {unsubscribe_url}"
-    )
-}
+// Newsletters are not rendered here. They go through Ghost's own Handlebars
+// templates in `crate::newsletter`, which is the only way the design
+// settings — colours, typography, corners, the Koenig card styles — can come
+// out looking like a Ghost newsletter.
 
 /// The staff invitation email. Ghost sends the invitee a link that carries
 /// the token; following it is what lets them set a name and password.

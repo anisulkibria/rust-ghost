@@ -405,7 +405,11 @@
             stripeEnabled: !!config.stripeEnabled,
             feature: {},
             deprecated: {headerV1: true},
-            unsplash: null,
+            // Koenig builds its Unsplash provider straight from this object,
+            // using it as the request headers against api.unsplash.com. Null
+            // falls back to its own bundled sample gallery, which is what an
+            // install with the app on but no access key gets.
+            unsplash: config.unsplash || null,
             fetchEmbed: fetchEmbed,
             fetchAutocompleteLinks: function () {
               return Promise.resolve([{label: 'Homepage', value: config.siteUrl + '/'}]);

@@ -1,912 +1,919 @@
 [
-  {
-    "group": "core",
-    "key": "last_mentions_report_email_timestamp",
-    "type": "number",
-    "flags": "",
-    "value": ""
-  },
-  {
-    "group": "core",
-    "key": "db_hash",
-    "type": "string",
-    "flags": "",
-    "value": ""
-  },
-  {
-    "group": "core",
-    "key": "next_update_check",
-    "type": "number",
-    "flags": "",
-    "value": ""
-  },
-  {
-    "group": "core",
-    "key": "notifications",
-    "type": "array",
-    "flags": "",
-    "value": "[]"
-  },
-  {
-    "group": "core",
-    "key": "version_notifications",
-    "type": "array",
-    "flags": "",
-    "value": "[]"
-  },
-  {
-    "group": "core",
-    "key": "admin_session_secret",
-    "type": "string",
-    "flags": "",
-    "value": ""
-  },
-  {
-    "group": "core",
-    "key": "theme_session_secret",
-    "type": "string",
-    "flags": "",
-    "value": ""
-  },
-  {
-    "group": "core",
-    "key": "ghost_public_key",
-    "type": "string",
-    "flags": "",
-    "value": ""
-  },
-  {
-    "group": "core",
-    "key": "ghost_private_key",
-    "type": "string",
-    "flags": "",
-    "value": ""
-  },
-  {
-    "group": "core",
-    "key": "ghost_next_private_key",
-    "type": "string",
-    "flags": "",
-    "value": ""
-  },
-  {
-    "group": "core",
-    "key": "ghost_previous_public_key",
-    "type": "string",
-    "flags": "",
-    "value": ""
-  },
-  {
-    "group": "core",
-    "key": "members_public_key",
-    "type": "string",
-    "flags": "",
-    "value": ""
-  },
-  {
-    "group": "core",
-    "key": "members_private_key",
-    "type": "string",
-    "flags": "",
-    "value": ""
-  },
-  {
-    "group": "core",
-    "key": "members_next_private_key",
-    "type": "string",
-    "flags": "",
-    "value": ""
-  },
-  {
-    "group": "core",
-    "key": "members_previous_public_key",
-    "type": "string",
-    "flags": "",
-    "value": ""
-  },
-  {
-    "group": "core",
-    "key": "members_email_auth_secret",
-    "type": "string",
-    "flags": "",
-    "value": ""
-  },
-  {
-    "group": "core",
-    "key": "members_stripe_webhook_id",
-    "type": "string",
-    "flags": "",
-    "value": ""
-  },
-  {
-    "group": "core",
-    "key": "members_stripe_webhook_secret",
-    "type": "string",
-    "flags": "",
-    "value": ""
-  },
-  {
-    "group": "core",
-    "key": "members_otc_secret",
-    "type": "string",
-    "flags": "",
-    "value": ""
-  },
-  {
-    "group": "core",
-    "key": "machine_payments_secret",
-    "type": "string",
-    "flags": "",
-    "value": ""
-  },
-  {
-    "group": "core",
-    "key": "machine_payments_deposit_address",
-    "type": "string",
-    "flags": "",
-    "value": ""
-  },
-  {
-    "group": "core",
-    "key": "site_uuid",
-    "type": "string",
-    "flags": "PUBLIC,RO",
-    "value": ""
-  },
-  {
-    "group": "site",
-    "key": "title",
-    "type": "string",
-    "flags": "PUBLIC",
-    "value": "Ghost"
-  },
-  {
-    "group": "site",
-    "key": "description",
-    "type": "string",
-    "flags": "PUBLIC",
-    "value": "Thoughts, stories and ideas"
-  },
-  {
-    "group": "site",
-    "key": "heading_font",
-    "type": "string",
-    "flags": "",
-    "value": ""
-  },
-  {
-    "group": "site",
-    "key": "body_font",
-    "type": "string",
-    "flags": "",
-    "value": ""
-  },
-  {
-    "group": "site",
-    "key": "logo",
-    "type": "string",
-    "flags": "",
-    "value": ""
-  },
-  {
-    "group": "site",
-    "key": "cover_image",
-    "type": "string",
-    "flags": "",
-    "value": "https://static.ghost.org/v5.0.0/images/publication-cover.jpg"
-  },
-  {
-    "group": "site",
-    "key": "icon",
-    "type": "string",
-    "flags": "",
-    "value": ""
-  },
-  {
-    "group": "site",
-    "key": "accent_color",
-    "type": "string",
-    "flags": "PUBLIC",
-    "value": "#FF1A75"
-  },
-  {
-    "group": "site",
-    "key": "locale",
-    "type": "string",
-    "flags": "",
-    "value": "en"
-  },
-  {
-    "group": "site",
-    "key": "timezone",
-    "type": "string",
-    "flags": "",
-    "value": "Etc/UTC"
-  },
-  {
-    "group": "site",
-    "key": "codeinjection_head",
-    "type": "string",
-    "flags": "",
-    "value": ""
-  },
-  {
-    "group": "site",
-    "key": "codeinjection_foot",
-    "type": "string",
-    "flags": "",
-    "value": ""
-  },
-  {
-    "group": "site",
-    "key": "facebook",
-    "type": "string",
-    "flags": "",
-    "value": "ghost"
-  },
-  {
-    "group": "site",
-    "key": "twitter",
-    "type": "string",
-    "flags": "",
-    "value": "@ghost"
-  },
-  {
-    "group": "site",
-    "key": "threads",
-    "type": "string",
-    "flags": "PUBLIC",
-    "value": ""
-  },
-  {
-    "group": "site",
-    "key": "bluesky",
-    "type": "string",
-    "flags": "PUBLIC",
-    "value": ""
-  },
-  {
-    "group": "site",
-    "key": "mastodon",
-    "type": "string",
-    "flags": "PUBLIC",
-    "value": ""
-  },
-  {
-    "group": "site",
-    "key": "tiktok",
-    "type": "string",
-    "flags": "PUBLIC",
-    "value": ""
-  },
-  {
-    "group": "site",
-    "key": "youtube",
-    "type": "string",
-    "flags": "PUBLIC",
-    "value": ""
-  },
-  {
-    "group": "site",
-    "key": "instagram",
-    "type": "string",
-    "flags": "PUBLIC",
-    "value": ""
-  },
-  {
-    "group": "site",
-    "key": "linkedin",
-    "type": "string",
-    "flags": "PUBLIC",
-    "value": ""
-  },
-  {
-    "group": "site",
-    "key": "navigation",
-    "type": "array",
-    "flags": "",
-    "value": "[{\"label\":\"Home\",\"url\":\"/\"},{\"label\":\"About\",\"url\":\"/about/\"}]"
-  },
-  {
-    "group": "site",
-    "key": "secondary_navigation",
-    "type": "array",
-    "flags": "",
-    "value": "[{\"label\":\"Sign up\",\"url\":\"#/portal/\"}]"
-  },
-  {
-    "group": "site",
-    "key": "llms_enabled",
-    "type": "boolean",
-    "flags": "",
-    "value": "true"
-  },
-  {
-    "group": "site",
-    "key": "machine_payments_enabled",
-    "type": "boolean",
-    "flags": "",
-    "value": "false"
-  },
-  {
-    "group": "site",
-    "key": "machine_payments_currency",
-    "type": "string",
-    "flags": "",
-    "value": ""
-  },
-  {
-    "group": "site",
-    "key": "machine_payments_amount",
-    "type": "number",
-    "flags": "",
-    "value": "100"
-  },
-  {
-    "group": "site",
-    "key": "machine_payments_stripe_profile_id",
-    "type": "string",
-    "flags": "",
-    "value": ""
-  },
-  {
-    "group": "site",
-    "key": "meta_title",
-    "type": "string",
-    "flags": "",
-    "value": ""
-  },
-  {
-    "group": "site",
-    "key": "meta_description",
-    "type": "string",
-    "flags": "",
-    "value": ""
-  },
-  {
-    "group": "site",
-    "key": "og_image",
-    "type": "string",
-    "flags": "",
-    "value": ""
-  },
-  {
-    "group": "site",
-    "key": "og_title",
-    "type": "string",
-    "flags": "",
-    "value": ""
-  },
-  {
-    "group": "site",
-    "key": "og_description",
-    "type": "string",
-    "flags": "",
-    "value": ""
-  },
-  {
-    "group": "site",
-    "key": "twitter_image",
-    "type": "string",
-    "flags": "",
-    "value": ""
-  },
-  {
-    "group": "site",
-    "key": "twitter_title",
-    "type": "string",
-    "flags": "",
-    "value": ""
-  },
-  {
-    "group": "site",
-    "key": "twitter_description",
-    "type": "string",
-    "flags": "",
-    "value": ""
-  },
-  {
-    "group": "theme",
-    "key": "active_theme",
-    "type": "string",
-    "flags": "RO",
-    "value": "source"
-  },
-  {
-    "group": "private",
-    "key": "is_private",
-    "type": "boolean",
-    "flags": "",
-    "value": "false"
-  },
-  {
-    "group": "private",
-    "key": "password",
-    "type": "string",
-    "flags": "",
-    "value": ""
-  },
-  {
-    "group": "private",
-    "key": "public_hash",
-    "type": "string",
-    "flags": "",
-    "value": ""
-  },
-  {
-    "group": "members",
-    "key": "default_content_visibility",
-    "type": "string",
-    "flags": "",
-    "value": "public"
-  },
-  {
-    "group": "members",
-    "key": "default_content_visibility_tiers",
-    "type": "array",
-    "flags": "",
-    "value": "[]"
-  },
-  {
-    "group": "members",
-    "key": "members_signup_access",
-    "type": "string",
-    "flags": "",
-    "value": "all"
-  },
-  {
-    "group": "members",
-    "key": "members_support_address",
-    "type": "string",
-    "flags": "PUBLIC,RO",
-    "value": "noreply"
-  },
-  {
-    "group": "members",
-    "key": "stripe_billing_portal_configuration_id",
-    "type": "string",
-    "flags": "",
-    "value": ""
-  },
-  {
-    "group": "members",
-    "key": "stripe_secret_key",
-    "type": "string",
-    "flags": "",
-    "value": ""
-  },
-  {
-    "group": "members",
-    "key": "stripe_publishable_key",
-    "type": "string",
-    "flags": "",
-    "value": ""
-  },
-  {
-    "group": "members",
-    "key": "stripe_plans",
-    "type": "array",
-    "flags": "",
-    "value": "[]"
-  },
-  {
-    "group": "members",
-    "key": "stripe_connect_publishable_key",
-    "type": "string",
-    "flags": "",
-    "value": ""
-  },
-  {
-    "group": "members",
-    "key": "stripe_connect_secret_key",
-    "type": "string",
-    "flags": "",
-    "value": ""
-  },
-  {
-    "group": "members",
-    "key": "stripe_connect_livemode",
-    "type": "boolean",
-    "flags": "",
-    "value": ""
-  },
-  {
-    "group": "members",
-    "key": "stripe_connect_display_name",
-    "type": "string",
-    "flags": "",
-    "value": ""
-  },
-  {
-    "group": "members",
-    "key": "stripe_connect_account_id",
-    "type": "string",
-    "flags": "",
-    "value": ""
-  },
-  {
-    "group": "members",
-    "key": "members_monthly_price_id",
-    "type": "string",
-    "flags": "",
-    "value": ""
-  },
-  {
-    "group": "members",
-    "key": "members_yearly_price_id",
-    "type": "string",
-    "flags": "",
-    "value": ""
-  },
-  {
-    "group": "members",
-    "key": "members_track_sources",
-    "type": "boolean",
-    "flags": "",
-    "value": "true"
-  },
-  {
-    "group": "members",
-    "key": "blocked_email_domains",
-    "type": "array",
-    "flags": "",
-    "value": "[]"
-  },
-  {
-    "group": "portal",
-    "key": "portal_name",
-    "type": "boolean",
-    "flags": "",
-    "value": "true"
-  },
-  {
-    "group": "portal",
-    "key": "portal_button",
-    "type": "boolean",
-    "flags": "",
-    "value": "false"
-  },
-  {
-    "group": "portal",
-    "key": "portal_plans",
-    "type": "array",
-    "flags": "",
-    "value": "[\"free\"]"
-  },
-  {
-    "group": "portal",
-    "key": "portal_default_plan",
-    "type": "string",
-    "flags": "",
-    "value": "yearly"
-  },
-  {
-    "group": "portal",
-    "key": "portal_products",
-    "type": "array",
-    "flags": "",
-    "value": "[]"
-  },
-  {
-    "group": "portal",
-    "key": "portal_button_style",
-    "type": "string",
-    "flags": "",
-    "value": "icon-and-text"
-  },
-  {
-    "group": "portal",
-    "key": "portal_button_icon",
-    "type": "string",
-    "flags": "",
-    "value": ""
-  },
-  {
-    "group": "portal",
-    "key": "portal_button_signup_text",
-    "type": "string",
-    "flags": "",
-    "value": "Subscribe"
-  },
-  {
-    "group": "portal",
-    "key": "portal_signup_terms_html",
-    "type": "string",
-    "flags": "",
-    "value": ""
-  },
-  {
-    "group": "portal",
-    "key": "portal_signup_checkbox_required",
-    "type": "boolean",
-    "flags": "",
-    "value": "false"
-  },
-  {
-    "group": "portal",
-    "key": "portal_signup_gift_promotion",
-    "type": "boolean",
-    "flags": "",
-    "value": "true"
-  },
-  {
-    "group": "portal",
-    "key": "portal_account_gift_promotion",
-    "type": "boolean",
-    "flags": "",
-    "value": "true"
-  },
-  {
-    "group": "email",
-    "key": "mailgun_domain",
-    "type": "string",
-    "flags": "",
-    "value": ""
-  },
-  {
-    "group": "email",
-    "key": "mailgun_api_key",
-    "type": "string",
-    "flags": "",
-    "value": ""
-  },
-  {
-    "group": "email",
-    "key": "mailgun_base_url",
-    "type": "string",
-    "flags": "",
-    "value": ""
-  },
-  {
-    "group": "email",
-    "key": "email_track_opens",
-    "type": "boolean",
-    "flags": "",
-    "value": "true"
-  },
-  {
-    "group": "email",
-    "key": "email_track_clicks",
-    "type": "boolean",
-    "flags": "",
-    "value": "true"
-  },
-  {
-    "group": "email",
-    "key": "email_verification_required",
-    "type": "boolean",
-    "flags": "RO",
-    "value": "false"
-  },
-  {
-    "group": "firstpromoter",
-    "key": "firstpromoter",
-    "type": "boolean",
-    "flags": "",
-    "value": "false"
-  },
-  {
-    "group": "firstpromoter",
-    "key": "firstpromoter_id",
-    "type": "string",
-    "flags": "",
-    "value": ""
-  },
-  {
-    "group": "labs",
-    "key": "labs",
-    "type": "object",
-    "flags": "",
-    "value": "{}"
-  },
-  {
-    "group": "slack",
-    "key": "slack_url",
-    "type": "string",
-    "flags": "",
-    "value": ""
-  },
-  {
-    "group": "slack",
-    "key": "slack_username",
-    "type": "string",
-    "flags": "",
-    "value": "Ghost"
-  },
-  {
-    "group": "unsplash",
-    "key": "unsplash",
-    "type": "boolean",
-    "flags": "",
-    "value": "true"
-  },
-  {
-    "group": "transistor",
-    "key": "transistor",
-    "type": "boolean",
-    "flags": "",
-    "value": "false"
-  },
-  {
-    "group": "transistor",
-    "key": "transistor_portal_enabled",
-    "type": "boolean",
-    "flags": "PUBLIC",
-    "value": "true"
-  },
-  {
-    "group": "transistor",
-    "key": "transistor_portal_heading",
-    "type": "string",
-    "flags": "PUBLIC",
-    "value": "Podcasts"
-  },
-  {
-    "group": "transistor",
-    "key": "transistor_portal_description",
-    "type": "string",
-    "flags": "PUBLIC",
-    "value": "Access your private podcast feed"
-  },
-  {
-    "group": "transistor",
-    "key": "transistor_portal_button_text",
-    "type": "string",
-    "flags": "PUBLIC",
-    "value": "View"
-  },
-  {
-    "group": "transistor",
-    "key": "transistor_portal_url_template",
-    "type": "string",
-    "flags": "PUBLIC",
-    "value": "https://partner.transistor.fm/ghost/{memberUuid}"
-  },
-  {
-    "group": "views",
-    "key": "shared_views",
-    "type": "array",
-    "flags": "",
-    "value": "[]"
-  },
-  {
-    "group": "editor",
-    "key": "editor_default_email_recipients",
-    "type": "string",
-    "flags": "",
-    "value": "visibility"
-  },
-  {
-    "group": "editor",
-    "key": "editor_default_email_recipients_filter",
-    "type": "string",
-    "flags": "",
-    "value": "all"
-  },
-  {
-    "group": "announcement",
-    "key": "announcement_content",
-    "type": "string",
-    "flags": "PUBLIC",
-    "value": ""
-  },
-  {
-    "group": "announcement",
-    "key": "announcement_visibility",
-    "type": "array",
-    "flags": "",
-    "value": "[]"
-  },
-  {
-    "group": "announcement",
-    "key": "announcement_background",
-    "type": "string",
-    "flags": "PUBLIC",
-    "value": "dark"
-  },
-  {
-    "group": "comments",
-    "key": "comments_enabled",
-    "type": "string",
-    "flags": "",
-    "value": "all"
-  },
-  {
-    "group": "analytics",
-    "key": "outbound_link_tagging",
-    "type": "boolean",
-    "flags": "",
-    "value": "true"
-  },
-  {
-    "group": "analytics",
-    "key": "web_analytics",
-    "type": "boolean",
-    "flags": "",
-    "value": "true"
-  },
-  {
-    "group": "pintura",
-    "key": "pintura",
-    "type": "boolean",
-    "flags": "",
-    "value": "true"
-  },
-  {
-    "group": "pintura",
-    "key": "pintura_js_url",
-    "type": "string",
-    "flags": "",
-    "value": ""
-  },
-  {
-    "group": "pintura",
-    "key": "pintura_css_url",
-    "type": "string",
-    "flags": "",
-    "value": ""
-  },
-  {
-    "group": "donations",
-    "key": "donations_currency",
-    "type": "string",
-    "flags": "",
-    "value": "USD"
-  },
-  {
-    "group": "donations",
-    "key": "donations_suggested_amount",
-    "type": "number",
-    "flags": "",
-    "value": "500"
-  },
-  {
-    "group": "recommendations",
-    "key": "recommendations_enabled",
-    "type": "boolean",
-    "flags": "",
-    "value": "false"
-  },
-  {
-    "group": "security",
-    "key": "require_email_mfa",
-    "type": "boolean",
-    "flags": "",
-    "value": "false"
-  },
-  {
-    "group": "social_web",
-    "key": "social_web",
-    "type": "boolean",
-    "flags": "",
-    "value": "true"
-  },
-  {
-    "group": "explore",
-    "key": "explore_ping",
-    "type": "boolean",
-    "flags": "",
-    "value": "true"
-  },
-  {
-    "group": "explore",
-    "key": "explore_ping_growth",
-    "type": "boolean",
-    "flags": "",
-    "value": "false"
-  },
-  {
-    "group": "indexnow",
-    "key": "indexnow_api_key",
-    "type": "string",
-    "flags": "",
-    "value": ""
-  },
-  {
-    "group": "theme",
-    "key": "custom_theme_settings",
-    "type": "object",
-    "flags": "",
-    "value": "{}"
-  }
+    {
+        "group": "core",
+        "key": "last_mentions_report_email_timestamp",
+        "type": "number",
+        "flags": "",
+        "value": ""
+    },
+    {
+        "group": "core",
+        "key": "db_hash",
+        "type": "string",
+        "flags": "",
+        "value": ""
+    },
+    {
+        "group": "core",
+        "key": "next_update_check",
+        "type": "number",
+        "flags": "",
+        "value": ""
+    },
+    {
+        "group": "core",
+        "key": "notifications",
+        "type": "array",
+        "flags": "",
+        "value": "[]"
+    },
+    {
+        "group": "core",
+        "key": "version_notifications",
+        "type": "array",
+        "flags": "",
+        "value": "[]"
+    },
+    {
+        "group": "core",
+        "key": "admin_session_secret",
+        "type": "string",
+        "flags": "",
+        "value": ""
+    },
+    {
+        "group": "core",
+        "key": "theme_session_secret",
+        "type": "string",
+        "flags": "",
+        "value": ""
+    },
+    {
+        "group": "core",
+        "key": "ghost_public_key",
+        "type": "string",
+        "flags": "",
+        "value": ""
+    },
+    {
+        "group": "core",
+        "key": "ghost_private_key",
+        "type": "string",
+        "flags": "",
+        "value": ""
+    },
+    {
+        "group": "core",
+        "key": "ghost_next_private_key",
+        "type": "string",
+        "flags": "",
+        "value": ""
+    },
+    {
+        "group": "core",
+        "key": "ghost_previous_public_key",
+        "type": "string",
+        "flags": "",
+        "value": ""
+    },
+    {
+        "group": "core",
+        "key": "members_public_key",
+        "type": "string",
+        "flags": "",
+        "value": ""
+    },
+    {
+        "group": "core",
+        "key": "members_private_key",
+        "type": "string",
+        "flags": "",
+        "value": ""
+    },
+    {
+        "group": "core",
+        "key": "members_next_private_key",
+        "type": "string",
+        "flags": "",
+        "value": ""
+    },
+    {
+        "group": "core",
+        "key": "members_previous_public_key",
+        "type": "string",
+        "flags": "",
+        "value": ""
+    },
+    {
+        "group": "core",
+        "key": "members_email_auth_secret",
+        "type": "string",
+        "flags": "",
+        "value": ""
+    },
+    {
+        "group": "core",
+        "key": "members_stripe_webhook_id",
+        "type": "string",
+        "flags": "",
+        "value": ""
+    },
+    {
+        "group": "core",
+        "key": "members_stripe_webhook_secret",
+        "type": "string",
+        "flags": "",
+        "value": ""
+    },
+    {
+        "group": "core",
+        "key": "members_otc_secret",
+        "type": "string",
+        "flags": "",
+        "value": ""
+    },
+    {
+        "group": "core",
+        "key": "machine_payments_secret",
+        "type": "string",
+        "flags": "",
+        "value": ""
+    },
+    {
+        "group": "core",
+        "key": "machine_payments_deposit_address",
+        "type": "string",
+        "flags": "",
+        "value": ""
+    },
+    {
+        "group": "core",
+        "key": "site_uuid",
+        "type": "string",
+        "flags": "PUBLIC,RO",
+        "value": ""
+    },
+    {
+        "group": "site",
+        "key": "title",
+        "type": "string",
+        "flags": "PUBLIC",
+        "value": "Ghost"
+    },
+    {
+        "group": "site",
+        "key": "description",
+        "type": "string",
+        "flags": "PUBLIC",
+        "value": "Thoughts, stories and ideas"
+    },
+    {
+        "group": "site",
+        "key": "heading_font",
+        "type": "string",
+        "flags": "",
+        "value": ""
+    },
+    {
+        "group": "site",
+        "key": "body_font",
+        "type": "string",
+        "flags": "",
+        "value": ""
+    },
+    {
+        "group": "site",
+        "key": "logo",
+        "type": "string",
+        "flags": "",
+        "value": ""
+    },
+    {
+        "group": "site",
+        "key": "cover_image",
+        "type": "string",
+        "flags": "",
+        "value": "https://static.ghost.org/v5.0.0/images/publication-cover.jpg"
+    },
+    {
+        "group": "site",
+        "key": "icon",
+        "type": "string",
+        "flags": "",
+        "value": ""
+    },
+    {
+        "group": "site",
+        "key": "accent_color",
+        "type": "string",
+        "flags": "PUBLIC",
+        "value": "#FF1A75"
+    },
+    {
+        "group": "site",
+        "key": "locale",
+        "type": "string",
+        "flags": "",
+        "value": "en"
+    },
+    {
+        "group": "site",
+        "key": "timezone",
+        "type": "string",
+        "flags": "",
+        "value": "Etc/UTC"
+    },
+    {
+        "group": "site",
+        "key": "codeinjection_head",
+        "type": "string",
+        "flags": "",
+        "value": ""
+    },
+    {
+        "group": "site",
+        "key": "codeinjection_foot",
+        "type": "string",
+        "flags": "",
+        "value": ""
+    },
+    {
+        "group": "site",
+        "key": "facebook",
+        "type": "string",
+        "flags": "",
+        "value": "ghost"
+    },
+    {
+        "group": "site",
+        "key": "twitter",
+        "type": "string",
+        "flags": "",
+        "value": "@ghost"
+    },
+    {
+        "group": "site",
+        "key": "threads",
+        "type": "string",
+        "flags": "PUBLIC",
+        "value": ""
+    },
+    {
+        "group": "site",
+        "key": "bluesky",
+        "type": "string",
+        "flags": "PUBLIC",
+        "value": ""
+    },
+    {
+        "group": "site",
+        "key": "mastodon",
+        "type": "string",
+        "flags": "PUBLIC",
+        "value": ""
+    },
+    {
+        "group": "site",
+        "key": "tiktok",
+        "type": "string",
+        "flags": "PUBLIC",
+        "value": ""
+    },
+    {
+        "group": "site",
+        "key": "youtube",
+        "type": "string",
+        "flags": "PUBLIC",
+        "value": ""
+    },
+    {
+        "group": "site",
+        "key": "instagram",
+        "type": "string",
+        "flags": "PUBLIC",
+        "value": ""
+    },
+    {
+        "group": "site",
+        "key": "linkedin",
+        "type": "string",
+        "flags": "PUBLIC",
+        "value": ""
+    },
+    {
+        "group": "site",
+        "key": "navigation",
+        "type": "array",
+        "flags": "",
+        "value": "[{\"label\":\"Home\",\"url\":\"/\"},{\"label\":\"About\",\"url\":\"/about/\"}]"
+    },
+    {
+        "group": "site",
+        "key": "secondary_navigation",
+        "type": "array",
+        "flags": "",
+        "value": "[{\"label\":\"Sign up\",\"url\":\"#/portal/\"}]"
+    },
+    {
+        "group": "site",
+        "key": "llms_enabled",
+        "type": "boolean",
+        "flags": "",
+        "value": "true"
+    },
+    {
+        "group": "site",
+        "key": "machine_payments_enabled",
+        "type": "boolean",
+        "flags": "",
+        "value": "false"
+    },
+    {
+        "group": "site",
+        "key": "machine_payments_currency",
+        "type": "string",
+        "flags": "",
+        "value": ""
+    },
+    {
+        "group": "site",
+        "key": "machine_payments_amount",
+        "type": "number",
+        "flags": "",
+        "value": "100"
+    },
+    {
+        "group": "site",
+        "key": "machine_payments_stripe_profile_id",
+        "type": "string",
+        "flags": "",
+        "value": ""
+    },
+    {
+        "group": "site",
+        "key": "meta_title",
+        "type": "string",
+        "flags": "",
+        "value": ""
+    },
+    {
+        "group": "site",
+        "key": "meta_description",
+        "type": "string",
+        "flags": "",
+        "value": ""
+    },
+    {
+        "group": "site",
+        "key": "og_image",
+        "type": "string",
+        "flags": "",
+        "value": ""
+    },
+    {
+        "group": "site",
+        "key": "og_title",
+        "type": "string",
+        "flags": "",
+        "value": ""
+    },
+    {
+        "group": "site",
+        "key": "og_description",
+        "type": "string",
+        "flags": "",
+        "value": ""
+    },
+    {
+        "group": "site",
+        "key": "twitter_image",
+        "type": "string",
+        "flags": "",
+        "value": ""
+    },
+    {
+        "group": "site",
+        "key": "twitter_title",
+        "type": "string",
+        "flags": "",
+        "value": ""
+    },
+    {
+        "group": "site",
+        "key": "twitter_description",
+        "type": "string",
+        "flags": "",
+        "value": ""
+    },
+    {
+        "group": "theme",
+        "key": "active_theme",
+        "type": "string",
+        "flags": "RO",
+        "value": "source"
+    },
+    {
+        "group": "private",
+        "key": "is_private",
+        "type": "boolean",
+        "flags": "",
+        "value": "false"
+    },
+    {
+        "group": "private",
+        "key": "password",
+        "type": "string",
+        "flags": "",
+        "value": ""
+    },
+    {
+        "group": "private",
+        "key": "public_hash",
+        "type": "string",
+        "flags": "",
+        "value": ""
+    },
+    {
+        "group": "members",
+        "key": "default_content_visibility",
+        "type": "string",
+        "flags": "",
+        "value": "public"
+    },
+    {
+        "group": "members",
+        "key": "default_content_visibility_tiers",
+        "type": "array",
+        "flags": "",
+        "value": "[]"
+    },
+    {
+        "group": "members",
+        "key": "members_signup_access",
+        "type": "string",
+        "flags": "",
+        "value": "all"
+    },
+    {
+        "group": "members",
+        "key": "members_support_address",
+        "type": "string",
+        "flags": "PUBLIC,RO",
+        "value": "noreply"
+    },
+    {
+        "group": "members",
+        "key": "stripe_billing_portal_configuration_id",
+        "type": "string",
+        "flags": "",
+        "value": ""
+    },
+    {
+        "group": "members",
+        "key": "stripe_secret_key",
+        "type": "string",
+        "flags": "",
+        "value": ""
+    },
+    {
+        "group": "members",
+        "key": "stripe_publishable_key",
+        "type": "string",
+        "flags": "",
+        "value": ""
+    },
+    {
+        "group": "members",
+        "key": "stripe_plans",
+        "type": "array",
+        "flags": "",
+        "value": "[]"
+    },
+    {
+        "group": "members",
+        "key": "stripe_connect_publishable_key",
+        "type": "string",
+        "flags": "",
+        "value": ""
+    },
+    {
+        "group": "members",
+        "key": "stripe_connect_secret_key",
+        "type": "string",
+        "flags": "",
+        "value": ""
+    },
+    {
+        "group": "members",
+        "key": "stripe_connect_livemode",
+        "type": "boolean",
+        "flags": "",
+        "value": ""
+    },
+    {
+        "group": "members",
+        "key": "stripe_connect_display_name",
+        "type": "string",
+        "flags": "",
+        "value": ""
+    },
+    {
+        "group": "members",
+        "key": "stripe_connect_account_id",
+        "type": "string",
+        "flags": "",
+        "value": ""
+    },
+    {
+        "group": "members",
+        "key": "members_monthly_price_id",
+        "type": "string",
+        "flags": "",
+        "value": ""
+    },
+    {
+        "group": "members",
+        "key": "members_yearly_price_id",
+        "type": "string",
+        "flags": "",
+        "value": ""
+    },
+    {
+        "group": "members",
+        "key": "members_track_sources",
+        "type": "boolean",
+        "flags": "",
+        "value": "true"
+    },
+    {
+        "group": "members",
+        "key": "blocked_email_domains",
+        "type": "array",
+        "flags": "",
+        "value": "[]"
+    },
+    {
+        "group": "portal",
+        "key": "portal_name",
+        "type": "boolean",
+        "flags": "",
+        "value": "true"
+    },
+    {
+        "group": "portal",
+        "key": "portal_button",
+        "type": "boolean",
+        "flags": "",
+        "value": "false"
+    },
+    {
+        "group": "portal",
+        "key": "portal_plans",
+        "type": "array",
+        "flags": "",
+        "value": "[\"free\"]"
+    },
+    {
+        "group": "portal",
+        "key": "portal_default_plan",
+        "type": "string",
+        "flags": "",
+        "value": "yearly"
+    },
+    {
+        "group": "portal",
+        "key": "portal_products",
+        "type": "array",
+        "flags": "",
+        "value": "[]"
+    },
+    {
+        "group": "portal",
+        "key": "portal_button_style",
+        "type": "string",
+        "flags": "",
+        "value": "icon-and-text"
+    },
+    {
+        "group": "portal",
+        "key": "portal_button_icon",
+        "type": "string",
+        "flags": "",
+        "value": ""
+    },
+    {
+        "group": "portal",
+        "key": "portal_button_signup_text",
+        "type": "string",
+        "flags": "",
+        "value": "Subscribe"
+    },
+    {
+        "group": "portal",
+        "key": "portal_signup_terms_html",
+        "type": "string",
+        "flags": "",
+        "value": ""
+    },
+    {
+        "group": "portal",
+        "key": "portal_signup_checkbox_required",
+        "type": "boolean",
+        "flags": "",
+        "value": "false"
+    },
+    {
+        "group": "portal",
+        "key": "portal_signup_gift_promotion",
+        "type": "boolean",
+        "flags": "",
+        "value": "true"
+    },
+    {
+        "group": "portal",
+        "key": "portal_account_gift_promotion",
+        "type": "boolean",
+        "flags": "",
+        "value": "true"
+    },
+    {
+        "group": "email",
+        "key": "mailgun_domain",
+        "type": "string",
+        "flags": "",
+        "value": ""
+    },
+    {
+        "group": "email",
+        "key": "mailgun_api_key",
+        "type": "string",
+        "flags": "",
+        "value": ""
+    },
+    {
+        "group": "email",
+        "key": "mailgun_base_url",
+        "type": "string",
+        "flags": "",
+        "value": ""
+    },
+    {
+        "group": "email",
+        "key": "email_track_opens",
+        "type": "boolean",
+        "flags": "",
+        "value": "true"
+    },
+    {
+        "group": "email",
+        "key": "email_track_clicks",
+        "type": "boolean",
+        "flags": "",
+        "value": "true"
+    },
+    {
+        "group": "email",
+        "key": "email_verification_required",
+        "type": "boolean",
+        "flags": "RO",
+        "value": "false"
+    },
+    {
+        "group": "firstpromoter",
+        "key": "firstpromoter",
+        "type": "boolean",
+        "flags": "",
+        "value": "false"
+    },
+    {
+        "group": "firstpromoter",
+        "key": "firstpromoter_id",
+        "type": "string",
+        "flags": "",
+        "value": ""
+    },
+    {
+        "group": "labs",
+        "key": "labs",
+        "type": "object",
+        "flags": "",
+        "value": "{}"
+    },
+    {
+        "group": "slack",
+        "key": "slack_url",
+        "type": "string",
+        "flags": "",
+        "value": ""
+    },
+    {
+        "group": "slack",
+        "key": "slack_username",
+        "type": "string",
+        "flags": "",
+        "value": "Ghost"
+    },
+    {
+        "group": "unsplash",
+        "key": "unsplash",
+        "type": "boolean",
+        "flags": "",
+        "value": "true"
+    },
+    {
+        "group": "unsplash",
+        "key": "unsplash_access_key",
+        "type": "string",
+        "flags": "",
+        "value": ""
+    },
+    {
+        "group": "transistor",
+        "key": "transistor",
+        "type": "boolean",
+        "flags": "",
+        "value": "false"
+    },
+    {
+        "group": "transistor",
+        "key": "transistor_portal_enabled",
+        "type": "boolean",
+        "flags": "PUBLIC",
+        "value": "true"
+    },
+    {
+        "group": "transistor",
+        "key": "transistor_portal_heading",
+        "type": "string",
+        "flags": "PUBLIC",
+        "value": "Podcasts"
+    },
+    {
+        "group": "transistor",
+        "key": "transistor_portal_description",
+        "type": "string",
+        "flags": "PUBLIC",
+        "value": "Access your private podcast feed"
+    },
+    {
+        "group": "transistor",
+        "key": "transistor_portal_button_text",
+        "type": "string",
+        "flags": "PUBLIC",
+        "value": "View"
+    },
+    {
+        "group": "transistor",
+        "key": "transistor_portal_url_template",
+        "type": "string",
+        "flags": "PUBLIC",
+        "value": "https://partner.transistor.fm/ghost/{memberUuid}"
+    },
+    {
+        "group": "views",
+        "key": "shared_views",
+        "type": "array",
+        "flags": "",
+        "value": "[]"
+    },
+    {
+        "group": "editor",
+        "key": "editor_default_email_recipients",
+        "type": "string",
+        "flags": "",
+        "value": "visibility"
+    },
+    {
+        "group": "editor",
+        "key": "editor_default_email_recipients_filter",
+        "type": "string",
+        "flags": "",
+        "value": "all"
+    },
+    {
+        "group": "announcement",
+        "key": "announcement_content",
+        "type": "string",
+        "flags": "PUBLIC",
+        "value": ""
+    },
+    {
+        "group": "announcement",
+        "key": "announcement_visibility",
+        "type": "array",
+        "flags": "",
+        "value": "[]"
+    },
+    {
+        "group": "announcement",
+        "key": "announcement_background",
+        "type": "string",
+        "flags": "PUBLIC",
+        "value": "dark"
+    },
+    {
+        "group": "comments",
+        "key": "comments_enabled",
+        "type": "string",
+        "flags": "",
+        "value": "all"
+    },
+    {
+        "group": "analytics",
+        "key": "outbound_link_tagging",
+        "type": "boolean",
+        "flags": "",
+        "value": "true"
+    },
+    {
+        "group": "analytics",
+        "key": "web_analytics",
+        "type": "boolean",
+        "flags": "",
+        "value": "true"
+    },
+    {
+        "group": "pintura",
+        "key": "pintura",
+        "type": "boolean",
+        "flags": "",
+        "value": "true"
+    },
+    {
+        "group": "pintura",
+        "key": "pintura_js_url",
+        "type": "string",
+        "flags": "",
+        "value": ""
+    },
+    {
+        "group": "pintura",
+        "key": "pintura_css_url",
+        "type": "string",
+        "flags": "",
+        "value": ""
+    },
+    {
+        "group": "donations",
+        "key": "donations_currency",
+        "type": "string",
+        "flags": "",
+        "value": "USD"
+    },
+    {
+        "group": "donations",
+        "key": "donations_suggested_amount",
+        "type": "number",
+        "flags": "",
+        "value": "500"
+    },
+    {
+        "group": "recommendations",
+        "key": "recommendations_enabled",
+        "type": "boolean",
+        "flags": "",
+        "value": "false"
+    },
+    {
+        "group": "security",
+        "key": "require_email_mfa",
+        "type": "boolean",
+        "flags": "",
+        "value": "false"
+    },
+    {
+        "group": "social_web",
+        "key": "social_web",
+        "type": "boolean",
+        "flags": "",
+        "value": "true"
+    },
+    {
+        "group": "explore",
+        "key": "explore_ping",
+        "type": "boolean",
+        "flags": "",
+        "value": "true"
+    },
+    {
+        "group": "explore",
+        "key": "explore_ping_growth",
+        "type": "boolean",
+        "flags": "",
+        "value": "false"
+    },
+    {
+        "group": "indexnow",
+        "key": "indexnow_api_key",
+        "type": "string",
+        "flags": "",
+        "value": ""
+    },
+    {
+        "group": "theme",
+        "key": "custom_theme_settings",
+        "type": "object",
+        "flags": "",
+        "value": "{}"
+    }
 ]

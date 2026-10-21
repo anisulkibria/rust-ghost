@@ -27,6 +27,9 @@ pub fn admin_router() -> Router<AppState> {
         .route("/users/", get(admin_browse_users))
         .route("/users/{id}", get(admin_read_user).put(admin_edit_user))
         .route("/users/password", post(change_password))
+        // newsletters
+        .route("/newsletters/", get(admin_browse_newsletters).post(admin_add_newsletter))
+        .route("/newsletters/{id}", get(admin_read_newsletter).put(admin_edit_newsletter))
         // settings
         .route("/settings/", get(admin_browse_settings).put(admin_edit_settings))
         // integrations
@@ -54,6 +57,288 @@ fn from_ghost(e: ghost_core::GhostError) -> Response {
 
 fn ok_json(body: Value) -> Response {
     (StatusCode::OK, [(header::CACHE_CONTROL, "private")], Json(body)).into_response()
+}
+
+// ---------------------------------------------------------------------------
+// newsletters
+// ---------------------------------------------------------------------------
+
+/// Ghost's newsletter API shape. Every column is exposed, including the
+/// design settings — the Admin API is how the editor and any external tool
+/// read them, and a missing field reads as "unset" rather than as an error.
+fn newsletter_json(n: &ghost_db::repos::newsletters::Newsletter) -> Value {
+    // Built by insertion rather than one `json!` literal: at 44 keys the
+    // macro's recursive expansion hits rustc's recursion limit.
+    let mut o = Map::new();
+    let mut put = |k: &str, v: Value| {
+        o.insert(k.to_string(), v);
+    };
+    put("id", json!(n.id));
+    put("uuid", json!(n.uuid));
+    put("name", json!(n.name));
+    put("description", json!(n.description));
+    put("slug", json!(n.slug));
+    put("sender_name", json!(n.sender_name));
+    put("sender_email", json!(n.sender_email));
+    put("sender_reply_to", json!(n.sender_reply_to));
+    put("status", json!(n.status));
+    put("visibility", json!(n.visibility));
+    put("subscribe_on_signup", json!(n.subscribe_on_signup));
+    put("sort_order", json!(n.sort_order));
+    put("header_image", json!(n.header_image));
+    put("show_header_icon", json!(n.show_header_icon));
+    put("show_header_title", json!(n.show_header_title));
+    put("show_header_name", json!(n.show_header_name));
+    put("show_post_title_section", json!(n.show_post_title_section));
+    put("show_excerpt", json!(n.show_excerpt));
+    put("show_feature_image", json!(n.show_feature_image));
+    put("title_font_category", json!(n.title_font_category));
+    put("title_alignment", json!(n.title_alignment));
+    put("title_font_weight", json!(n.title_font_weight));
+    put("body_font_category", json!(n.body_font_category));
+    put("background_color", json!(n.background_color));
+    put("header_background_color", json!(n.header_background_color));
+    put("post_title_color", json!(n.post_title_color));
+    put("section_title_color", json!(n.section_title_color));
+    put("divider_color", json!(n.divider_color));
+    put("link_color", json!(n.link_color));
+    put("link_style", json!(n.link_style));
+    put("button_color", json!(n.button_color));
+    put("button_style", json!(n.button_style));
+    put("button_corners", json!(n.button_corners));
+    put("image_corners", json!(n.image_corners));
+    put("footer_content", json!(n.footer_content));
+    put("show_badge", json!(n.show_badge));
+    put("show_comment_cta", json!(n.show_comment_cta));
+    put("show_subscription_details", json!(n.show_subscription_details));
+    put("show_latest_posts", json!(n.show_latest_posts));
+    put("show_share_button", json!(n.show_share_button));
+    put("feedback_enabled", json!(n.feedback_enabled));
+    put("created_at", json!(ghost_core::dates::db_to_api(n.created_at.as_deref())));
+    put("updated_at", json!(ghost_core::dates::db_to_api(n.updated_at.as_deref())));
+    drop(put);
+    Value::Object(o)
+}
+
+async fn admin_browse_newsletters(State(state): State<AppState>, headers: HeaderMap) -> Response {
+    if let Err(r) = require_user(&state, &headers).await {
+        return r;
+    }
+    match repos::newsletters::list(&state.db).await {
+        Ok(list) => ok_json(json!({
+            "newsletters": list.iter().map(newsletter_json).collect::<Vec<_>>(),
+        })),
+        Err(e) => from_ghost(e),
+    }
+}
+
+async fn admin_read_newsletter(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+    headers: HeaderMap,
+) -> Response {
+    if let Err(r) = require_user(&state, &headers).await {
+        return r;
+    }
+    match repos::newsletters::find_by_id(&state.db, &id).await {
+        Ok(Some(n)) => ok_json(json!({ "newsletters": [newsletter_json(&n)] })),
+        Ok(None) => err(StatusCode::NOT_FOUND, "Newsletter not found", "NotFoundError"),
+        Err(e) => from_ghost(e),
+    }
+}
+
+async fn admin_add_newsletter(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(body): Json<Value>,
+) -> Response {
+    if let Err(r) = require_user(&state, &headers).await {
+        return r;
+    }
+    let name = body
+        .get("newsletters")
+        .and_then(|v| v.as_array())
+        .and_then(|a| a.first())
+        .and_then(|n| n.get("name"))
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
+    match repos::newsletters::create(&state.db, name).await {
+        Ok(n) => (
+            StatusCode::CREATED,
+            Json(json!({ "newsletters": [newsletter_json(&n)] })),
+        )
+            .into_response(),
+        Err(e) => from_ghost(e),
+    }
+}
+
+async fn admin_edit_newsletter(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+    headers: HeaderMap,
+    Json(body): Json<Value>,
+) -> Response {
+    if let Err(r) = require_user(&state, &headers).await {
+        return r;
+    }
+    let Some(patch) = body
+        .get("newsletters")
+        .and_then(|v| v.as_array())
+        .and_then(|a| a.first())
+    else {
+        return err(
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "newsletters[0] payload required",
+            "ValidationError",
+        );
+    };
+    let mut n = match repos::newsletters::find_by_id(&state.db, &id).await {
+        Ok(Some(n)) => n,
+        Ok(None) => return err(StatusCode::NOT_FOUND, "Newsletter not found", "NotFoundError"),
+        Err(e) => return from_ghost(e),
+    };
+
+    // A PATCH-shaped PUT: only fields the body mentions are touched, so a
+    // client that knows nothing about the design settings cannot reset them.
+    let text = |key: &str| patch.get(key).and_then(|v| v.as_str()).map(str::to_string);
+    let flag = |key: &str| patch.get(key).and_then(|v| v.as_bool());
+    // A JSON `null` on a nullable colour clears it; an absent key leaves it.
+    let nullable = |key: &str| -> Option<Option<String>> {
+        patch.get(key).map(|v| match v {
+            Value::Null => None,
+            other => other.as_str().map(str::to_string),
+        })
+    };
+
+    if let Some(v) = text("name") {
+        if v.trim().is_empty() {
+            return err(
+                StatusCode::UNPROCESSABLE_ENTITY,
+                "A newsletter needs a name.",
+                "ValidationError",
+            );
+        }
+        n.name = v;
+    }
+    if let Some(v) = nullable("description") {
+        n.description = v;
+    }
+    if let Some(v) = nullable("sender_name") {
+        n.sender_name = v;
+    }
+    if let Some(v) = nullable("sender_email") {
+        n.sender_email = v;
+    }
+    if let Some(v) = text("sender_reply_to") {
+        n.sender_reply_to = v;
+    }
+    if let Some(v) = text("status") {
+        n.status = v;
+    }
+    if let Some(v) = text("visibility") {
+        n.visibility = v;
+    }
+    if let Some(v) = flag("subscribe_on_signup") {
+        n.subscribe_on_signup = v;
+    }
+    if let Some(v) = patch.get("sort_order").and_then(|v| v.as_i64()) {
+        n.sort_order = v;
+    }
+    if let Some(v) = nullable("header_image") {
+        n.header_image = v;
+    }
+    if let Some(v) = flag("show_header_icon") {
+        n.show_header_icon = v;
+    }
+    if let Some(v) = flag("show_header_title") {
+        n.show_header_title = v;
+    }
+    if let Some(v) = flag("show_header_name") {
+        n.show_header_name = v;
+    }
+    if let Some(v) = flag("show_post_title_section") {
+        n.show_post_title_section = v;
+    }
+    if let Some(v) = flag("show_excerpt") {
+        n.show_excerpt = v;
+    }
+    if let Some(v) = flag("show_feature_image") {
+        n.show_feature_image = v;
+    }
+    if let Some(v) = text("title_font_category") {
+        n.title_font_category = v;
+    }
+    if let Some(v) = text("title_alignment") {
+        n.title_alignment = v;
+    }
+    if let Some(v) = text("title_font_weight") {
+        n.title_font_weight = v;
+    }
+    if let Some(v) = text("body_font_category") {
+        n.body_font_category = v;
+    }
+    if let Some(v) = text("background_color") {
+        n.background_color = v;
+    }
+    if let Some(v) = text("header_background_color") {
+        n.header_background_color = v;
+    }
+    if let Some(v) = nullable("post_title_color") {
+        n.post_title_color = v;
+    }
+    if let Some(v) = nullable("section_title_color") {
+        n.section_title_color = v;
+    }
+    if let Some(v) = nullable("divider_color") {
+        n.divider_color = v;
+    }
+    if let Some(v) = nullable("link_color") {
+        n.link_color = v;
+    }
+    if let Some(v) = text("link_style") {
+        n.link_style = v;
+    }
+    if let Some(v) = nullable("button_color") {
+        n.button_color = v;
+    }
+    if let Some(v) = text("button_style") {
+        n.button_style = v;
+    }
+    if let Some(v) = text("button_corners") {
+        n.button_corners = v;
+    }
+    if let Some(v) = text("image_corners") {
+        n.image_corners = v;
+    }
+    if let Some(v) = nullable("footer_content") {
+        n.footer_content = v;
+    }
+    if let Some(v) = flag("show_badge") {
+        n.show_badge = v;
+    }
+    if let Some(v) = flag("show_comment_cta") {
+        n.show_comment_cta = v;
+    }
+    if let Some(v) = flag("show_subscription_details") {
+        n.show_subscription_details = v;
+    }
+    if let Some(v) = flag("show_latest_posts") {
+        n.show_latest_posts = v;
+    }
+    if let Some(v) = flag("show_share_button") {
+        n.show_share_button = v;
+    }
+    if let Some(v) = flag("feedback_enabled") {
+        n.feedback_enabled = v;
+    }
+
+    match repos::newsletters::update(&state.db, &n).await {
+        Ok(()) => match repos::newsletters::find_by_id(&state.db, &id).await {
+            Ok(Some(fresh)) => ok_json(json!({ "newsletters": [newsletter_json(&fresh)] })),
+            _ => ok_json(json!({ "newsletters": [newsletter_json(&n)] })),
+        },
+        Err(e) => from_ghost(e),
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -133,10 +418,15 @@ async fn complete_setup(
     };
 
     // title / description settings
+    let seeded_title = state.settings.get_str("title").unwrap_or_default();
     let _ = state.settings.set(&state.db, "title", &json!(blog_title)).await;
     if !description.is_empty() {
         let _ = state.settings.set(&state.db, "description", &json!(description)).await;
     }
+    // The seeded newsletter was named after the placeholder title; this is
+    // the one moment it is renamed to match the real one. From here on the
+    // name is the owner's, and a later title change leaves it alone.
+    let _ = repos::newsletters::name_after_site(&state.db, &seeded_title, blog_title).await;
     // fix fixture post placeholders
     let _ = sqlx::query("UPDATE posts SET title = ? WHERE slug = 'coming-soon'")
         .bind(blog_title)

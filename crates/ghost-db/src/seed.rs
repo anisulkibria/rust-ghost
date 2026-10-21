@@ -324,11 +324,19 @@ async fn seed_content(pool: &SqlitePool) -> Result<()> {
             .map_err(|e| ghost_core::GhostError::Db(e.to_string()))?;
     }
 
-    // Default newsletter
+    // Default newsletter, named after the site. The title is whatever
+    // `seed_settings` just wrote; setup rewrites both a moment later when the
+    // owner gives the site its real name.
+    let site_title: String = sqlx::query_scalar("SELECT value FROM settings WHERE key = 'title'")
+        .fetch_optional(pool)
+        .await
+        .ok()
+        .flatten()
+        .unwrap_or_default();
     sqlx::query("INSERT INTO newsletters (id, uuid, name, slug, sender_reply_to, status, visibility, subscribe_on_signup, created_at, updated_at) VALUES (?, ?, ?, ?, 'newsletter', 'active', 'members', 1, ?, ?)")
         .bind(&ids::new_id())
         .bind(&uuid_v4())
-        .bind("Default Newsletter")
+        .bind(crate::repos::newsletters::default_name(&site_title))
         .bind("default-newsletter")
         .bind(&now)
         .bind(&now)
@@ -502,4 +510,62 @@ pub async fn populate_missing_settings(pool: &SqlitePool) -> Result<()> {
 /// UUID v4 helper for other modules.
 pub fn new_uuid_v4() -> String {
     uuid_v4()
+}
+
+/// Make sure the built-in integrations exist, on every boot.
+///
+/// `seed_if_empty` only runs once, so a database created before an integration
+/// was added would never get it — and the Zapier screen would sit there with
+/// no key to show. This is the integrations counterpart of
+/// `populate_missing_settings`: idempotent, keyed on slug, and safe to call
+/// every time.
+///
+/// Only Zapier is here. Slack and Unsplash are configuration rather than API
+/// clients — they live in settings, which is the same split Ghost makes.
+pub async fn ensure_builtin_integrations(pool: &SqlitePool) -> Result<()> {
+    for (name, slug, key_type) in [("Zapier", "zapier", "admin")] {
+        let exists: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM integrations WHERE slug = ?")
+            .bind(slug)
+            .fetch_one(pool)
+            .await
+            .unwrap_or(0);
+        if exists > 0 {
+            continue;
+        }
+        let now = dates::now_db();
+        let integration_id = ids::new_id();
+        sqlx::query(
+            "INSERT INTO integrations (id, type, name, slug, created_at, updated_at) \
+             VALUES (?, 'builtin', ?, ?, ?, ?)",
+        )
+        .bind(&integration_id)
+        .bind(name)
+        .bind(slug)
+        .bind(&now)
+        .bind(&now)
+        .execute(pool)
+        .await
+        .map_err(|e| ghost_core::GhostError::Db(e.to_string()))?;
+
+        let role_id: Option<String> = sqlx::query_scalar("SELECT id FROM roles WHERE name = 'Admin Integration'")
+            .fetch_optional(pool)
+            .await
+            .map_err(|e| ghost_core::GhostError::Db(e.to_string()))?;
+        sqlx::query(
+            "INSERT INTO api_keys (id, type, secret, role_id, integration_id, created_at, updated_at) \
+             VALUES (?, ?, ?, ?, ?, ?, ?)",
+        )
+        .bind(ids::new_id())
+        .bind(key_type)
+        .bind(ids::random_hex(32))
+        .bind(&role_id)
+        .bind(&integration_id)
+        .bind(&now)
+        .bind(&now)
+        .execute(pool)
+        .await
+        .map_err(|e| ghost_core::GhostError::Db(e.to_string()))?;
+        tracing::info!("created builtin integration '{slug}'");
+    }
+    Ok(())
 }

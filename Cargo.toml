@@ -70,4 +70,9 @@ reqwest = { version = "0.12", default-features = false, features = ["rustls-tls"
 # MX lookups for the Direct transport, which delivers straight to the
 # recipient's mail server with no relay in between.
 hickory-resolver = { version = "0.26", default-features = false, features = ["system-config", "tokio"] }
+# The Rust equivalent of the `juice` Ghost pipes its newsletters through: it
+# moves the stylesheet into `style` attributes, which is what mail clients
+# actually honour. Default features would pull in a second HTTP stack to fetch
+# remote stylesheets; the email templates have none.
+css-inline = { version = "0.23", default-features = false }
 zip = { version = "2", default-features = false, features = ["deflate"] }

@@ -11,6 +11,7 @@
 //! the render context's public allowlist, so they never reach a theme or the
 //! Content API; the Admin API masks them on read.
 
+pub mod newsletter;
 pub mod templates;
 
 use ghost_core::{GhostError, Result};

@@ -12,6 +12,8 @@ use std::collections::HashMap;
 
 use ghost_api::AppState;
 
+pub mod schedule;
+
 /// Upload ceiling for theme zips and content imports. Ghost's own limit is
 /// also in this range; it exists to bound memory, since multipart bodies are
 /// buffered before being written out.
@@ -66,6 +68,11 @@ pub fn admin_ui_router() -> Router<AppState> {
         .route("/settings/email/", get(email_page).post(email_save))
         .route("/settings/email/test/", post(email_test))
         .route("/settings/newsletters/", get(newsletters_settings_page).post(newsletters_settings_save))
+        // The static segment is matched ahead of `{id}`, the same way the
+        // tier routes above rely on.
+        .route("/settings/newsletters/new/", post(newsletter_create))
+        .route("/settings/newsletters/{id}/", get(newsletter_edit_page).post(newsletter_edit_save))
+        .route("/settings/newsletters/{id}/preview/", get(newsletter_preview))
         // the page was called "Bulk email" before it took Ghost's name
         .route("/settings/bulkemail/", get(|| async { Redirect::permanent("/ghost/settings/newsletters/") }))
         .route("/settings/growth/", get(growth_page).post(growth_save))
@@ -89,7 +96,21 @@ pub fn admin_ui_router() -> Router<AppState> {
         // redeeming an invitation is the one staff route a signed-out person
         // must reach
         .route("/invite/{token}/", get(invite_accept_page).post(invite_accept_submit))
-        .route("/settings/advanced/integrations/", get(integrations_page))
+        .route("/settings/advanced/integrations/", get(integrations_page).post(integration_create))
+        // the built-in apps. Static segments, so they cannot be shadowed by a
+        // custom integration's id — which is why those live under /custom/.
+        .route("/settings/advanced/integrations/zapier/", get(zapier_page))
+        .route("/settings/advanced/integrations/slack/", get(slack_page).post(slack_save))
+        .route("/settings/advanced/integrations/slack/test/", post(slack_test))
+        .route("/settings/advanced/integrations/unsplash/", get(unsplash_page).post(unsplash_save))
+        .route(
+            "/settings/advanced/integrations/custom/{id}/",
+            get(custom_integration_page).post(custom_integration_save),
+        )
+        .route(
+            "/settings/advanced/integrations/custom/{id}/delete/",
+            post(custom_integration_delete),
+        )
         // bookmarks and in-page links from before Integrations moved under
         // Settings still resolve
         .route("/integrations/", get(integrations_redirect))
@@ -287,7 +308,7 @@ svg.i { width: 22px; height: 22px; flex: none; display: block; }
 
 /* ---- shell: nav rail + content ---- */
 .shell { display: flex; min-height: 100vh; }
-.rail { width: 224px; flex: none; padding: 8px 10px 12px; display: flex; flex-direction: column; gap: 2px;
+.rail { width: 196px; flex: none; padding: 8px 10px 12px; display: flex; flex-direction: column; gap: 2px;
   background: var(--sc-low); position: sticky; top: 0; height: 100vh; overflow-y: auto;
   scrollbar-width: thin; scrollbar-color: var(--outline-variant) transparent;
   border-right: 1px solid color-mix(in srgb, var(--outline-variant) 55%, transparent); }
@@ -320,7 +341,7 @@ svg.i { width: 22px; height: 22px; flex: none; display: block; }
 .tint-slate { background: var(--slate-bg); color: var(--slate-fg); }
 .rail-foot { margin-top: auto; padding-top: 10px;
   border-top: 1px solid color-mix(in srgb, var(--outline-variant) 55%, transparent); }
-.who { display: flex; align-items: center; gap: 10px; padding: 8px 8px 2px; }
+.who { display: flex; align-items: center; gap: 8px; padding: 8px 6px 2px; }
 .avatar { width: 30px; height: 30px; border-radius: 50%; background: var(--primary); color: var(--on-primary);
   display: grid; place-items: center; font-weight: 600; font-size: 13px; flex: none; }
 .avatar.lg { width: 64px; height: 64px; font-size: 26px; object-fit: cover; }
@@ -330,7 +351,7 @@ svg.i { width: 22px; height: 22px; flex: none; display: block; }
 .rail .icon-btn svg.i { width: 18px; height: 18px; }
 /* the account block is a link to your own profile; keep it looking like the
    block it replaced, and keep long names/emails from pushing out the rail */
-.who-link { display: flex; align-items: center; gap: 12px; flex: 1; min-width: 0;
+.who-link { display: flex; align-items: center; gap: 10px; flex: 1; min-width: 0;
   color: inherit; text-decoration: none; border-radius: 999px; padding: 4px; margin: -4px;
   transition: background var(--dur) var(--ease); }
 .who-link:hover { background: color-mix(in srgb, var(--on-surface) 6%, transparent); }
@@ -425,6 +446,34 @@ svg.i { width: 22px; height: 22px; flex: none; display: block; }
 .icon-btn.danger:hover { background: var(--error-container); color: var(--on-error-container); }
 .icon-btn svg.i { width: 20px; height: 20px; }
 
+/* ---- file picker ----
+   A bare `<input type=file>` draws the operating system's button, the one
+   control in the admin that belongs to no design system and looks like it.
+   The input stays — it carries the file and the form posts without script —
+   and only its two halves are restyled: the box around it, and the button
+   itself through `::file-selector-button`. The label on that button and the
+   "no file chosen" text beside it are the browser's and cannot be changed
+   from CSS, which is the one thing this cannot fix.
+
+   Those two halves are centred with `line-height` and `vertical-align`, not
+   with flexbox: they live in the input's shadow tree, which takes no part in
+   a flex container declared out here, so `align-items` silently does nothing
+   and both sit a few pixels high. The line height is the content box — 42px
+   less the two 1px borders. */
+.filefield { flex: 1; min-width: 200px; max-width: 420px; height: 42px; box-sizing: border-box;
+  display: block; line-height: 40px; padding: 0 12px 0 5px; border: 1px dashed var(--outline);
+  border-radius: 12px; background: transparent; color: var(--on-surface-variant);
+  font-family: inherit; font-size: 13px; cursor: pointer;
+  transition: border-color .15s var(--ease), background .15s var(--ease); }
+.filefield:hover { border-color: var(--primary); background: color-mix(in srgb, var(--on-surface) 4%, transparent); }
+.filefield:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
+.filefield::file-selector-button { appearance: none; -webkit-appearance: none; height: 32px;
+  vertical-align: middle; margin: 0 12px 0 0; padding: 0 16px; border: none; border-radius: 999px;
+  background: var(--secondary-container); color: var(--on-secondary-container);
+  font-family: inherit; font-size: 13px; font-weight: 600; letter-spacing: .1px; cursor: pointer;
+  transition: background .15s var(--ease); }
+.filefield:hover::file-selector-button { background: color-mix(in srgb, var(--on-secondary-container) 8%, var(--secondary-container)); }
+
 /* ---- text fields (M3 outlined, floating label) ---- */
 .field { position: relative; display: block; margin-bottom: 14px; }
 .field input, .field textarea, .field select { width: 100%; font-family: inherit; font-size: 15px;
@@ -437,10 +486,17 @@ svg.i { width: 22px; height: 22px; flex: none; display: block; }
   padding: 0 5px; pointer-events: none; transition: all .15s var(--ease); background: var(--sc-lowest); }
 .field input:focus, .field textarea:focus, .field select:focus { border-color: var(--primary);
   box-shadow: inset 0 0 0 1px var(--primary); }
-.field input:focus + span, .field textarea:focus + span,
-.field input:not(:placeholder-shown) + span, .field textarea:not(:placeholder-shown) + span,
+/* Asked of the field, not of the input's next sibling. `input + span` is the
+   obvious way to write a floating label and it breaks in the wild: password
+   managers inject their own button directly after the input they offer to
+   fill, which puts an element between the input and its label and leaves the
+   label sitting on top of the value. `:has()` does not care where in the
+   field the control is. */
+.field:focus-within > span,
+.field:has(input:not(:placeholder-shown)) > span,
+.field:has(textarea:not(:placeholder-shown)) > span,
 .field.fixed > span, .field:has(textarea) > span { top: -8px; font-size: 12px; font-weight: 600; color: var(--primary);
-  background: var(--surface); border-radius: 4px; }
+  background: var(--sc-lowest); border-radius: 4px; }
 .field:has(textarea.code) > span { background: var(--sc-lowest); }
 .field select { appearance: none; cursor: pointer; padding-right: 40px; }
 .field .car { position: absolute; right: 12px; top: 50%; transform: translateY(-50%); pointer-events: none;
@@ -459,6 +515,96 @@ svg.i { width: 22px; height: 22px; flex: none; display: block; }
 .switch input:checked ~ .track { background: var(--primary); box-shadow: none; }
 .switch input:checked ~ .track .thumb { width: 24px; height: 24px; background: var(--on-primary); margin-left: auto; margin-right: 6px; }
 .switch input:focus-visible ~ .track { outline: 2px solid var(--primary); outline-offset: 3px; }
+
+/* ---- settings toggle row (label + supporting text + switch) ----
+   Global so pages outside the editor rail get the same list-item shape;
+   the rail keeps its own, tighter scale below. */
+.toggle-row { display: flex; align-items: center; gap: 14px; min-height: 48px; }
+.toggle-row .label { flex: 1; min-width: 0; }
+.toggle-row .label b { display: block; font-size: 14.5px; font-weight: 500; }
+.toggle-row .label span { display: block; font-size: 12.5px; line-height: 1.4; color: var(--on-surface-variant); }
+
+/* ---- M3 segmented button ----
+   Connected outlined segments; the selected segment inverts to the
+   secondary container and reveals a leading check. */
+.seg { display: inline-flex; align-items: stretch; height: 40px; border: 1px solid var(--outline);
+  border-radius: 999px; overflow: hidden; flex: none; background: var(--sc-lowest); }
+.seg > label { display: inline-flex; align-items: center; gap: 0; padding: 0 16px; cursor: pointer;
+  font-size: 13.5px; font-weight: 500; color: var(--on-surface-variant); user-select: none;
+  border-left: 1px solid var(--outline); transition: background .15s var(--ease), color .15s var(--ease); }
+.seg > label:first-of-type { border-left: none; }
+.seg > label:hover { background: color-mix(in srgb, var(--on-surface) 6%, transparent); }
+.seg input { position: absolute; opacity: 0; pointer-events: none; }
+.seg .ck { width: 0; overflow: hidden; display: flex; transition: width .2s var(--ease), margin .2s var(--ease); }
+.seg .ck svg { width: 17px; height: 17px; }
+.seg label:has(input:checked) { background: var(--secondary-container); color: var(--on-secondary-container); font-weight: 600; }
+.seg label:has(input:checked) .ck { width: 19px; margin-right: 6px; }
+.seg label:has(input:focus-visible) { outline: 2px solid var(--primary); outline-offset: -3px; }
+
+/* ---- a field and the button that submits it, on one line ----
+   The fields carry 14px of bottom margin for stacked forms, and in a flex row
+   that margin is part of the item: `align-items: flex-end` then lines the
+   button up with the *margin's* edge, leaving it sitting 14px below the input
+   it belongs to. Dropping the margin is what makes the two bottom edges
+   actually meet; the row's own gap still spaces things when it wraps. */
+.inline-form { display: flex; gap: 12px; align-items: flex-end; flex-wrap: wrap; }
+.inline-form .field { margin-bottom: 0; }
+
+/* ---- compact trailing controls for settings rows ----
+   A row already states what the setting is, on the left. The control beside
+   it is the value alone: one line, vertically centred, no floating label and
+   none of the 22px of head room a label would need. `.field` is the opposite
+   — a label *is* its header — so it belongs in a row's body, never here. */
+.selbox, .textbox { position: relative; display: inline-flex; flex: none; }
+.selbox select, .textbox input { height: 40px; min-width: 150px; max-width: 240px;
+  border: 1px solid var(--outline); border-radius: 12px; background: transparent; color: var(--on-surface);
+  font-family: inherit; font-size: 13.5px; font-weight: 500; outline: none;
+  transition: border-color .15s var(--ease), box-shadow .15s var(--ease); }
+.selbox select { appearance: none; -webkit-appearance: none; padding: 0 38px 0 16px; cursor: pointer; }
+.textbox { flex: 1; }
+.textbox input { width: 100%; padding: 0 14px; }
+.selbox select:hover, .textbox input:hover { background: color-mix(in srgb, var(--on-surface) 5%, transparent); }
+.selbox select:focus, .textbox input:focus { border-color: var(--primary); box-shadow: inset 0 0 0 1px var(--primary); }
+.textbox input:focus { background: transparent; }
+.selbox .car { position: absolute; right: 10px; top: 50%; transform: translateY(-50%); pointer-events: none;
+  color: var(--on-surface-variant); width: 20px; height: 20px; }
+
+/* ---- colour swatch chips ---- */
+.swatches { display: inline-flex; align-items: center; gap: 8px; flex: none; flex-wrap: wrap; justify-content: flex-end; }
+.swatch { position: relative; display: inline-flex; align-items: center; gap: 8px; height: 40px; padding: 0 14px 0 10px;
+  border: 1px solid var(--outline); border-radius: 999px; cursor: pointer; font-size: 13px; font-weight: 500;
+  color: var(--on-surface-variant); user-select: none; background: var(--sc-lowest);
+  transition: background .15s var(--ease), color .15s var(--ease); }
+.swatch:hover { background: color-mix(in srgb, var(--on-surface) 6%, transparent); }
+.swatch input[type=radio] { position: absolute; opacity: 0; pointer-events: none; }
+.swatch .dot { width: 22px; height: 22px; border-radius: 50%; box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--on-surface) 18%, transparent); }
+/* "no colour" reads as the classic transparent checkerboard */
+.swatch .dot.none { background: conic-gradient(var(--sc-highest) 25%, transparent 0 50%, var(--sc-highest) 0 75%, transparent 0) 0 0/10px 10px; }
+.swatch:has(input:checked) { background: var(--secondary-container); color: var(--on-secondary-container);
+  border-color: transparent; font-weight: 600; box-shadow: inset 0 0 0 1px var(--outline); }
+.swatch:has(input:focus-visible) { outline: 2px solid var(--primary); outline-offset: 2px; }
+/* The custom chip's dot is the native picker itself, so one click both
+   selects the mode and opens the colour picker. */
+.swatch.custom { padding: 0 14px 0 6px; }
+.swatch.custom input[type=color] { position: static; opacity: 1; pointer-events: auto; width: 28px; height: 28px;
+  border: none; border-radius: 50%; background: none; padding: 0; cursor: pointer; flex: none; }
+.swatch.custom input[type=color]::-webkit-color-swatch-wrapper { padding: 2px; }
+.swatch.custom input[type=color]::-webkit-color-swatch { border-radius: 50%; border: none; }
+.swatch.custom:has(input[type=radio]:checked) input[type=color] { outline: 2px solid var(--on-secondary-container); outline-offset: 1px; }
+/* Colour rows sit their chips on a second line under the label, where the
+   hint and the chips can never fight for the same width. */
+.swatches.under { margin-top: 10px; justify-content: flex-start; }
+
+/* Settings pages: supporting lines are allowed to wrap — an ellipsized
+   explanation reads as broken, while list pages want the clip. */
+.settings .rows .row .detail { white-space: normal; overflow: visible; text-overflow: clip; }
+.settings .rows .row .title { white-space: normal; overflow: visible; }
+/* Controls that fell out of the trailing slot on a narrow screen line up
+   under the text instead of hanging at the card's edge. */
+@media (max-width: 919px) {
+  .settings .rows .row .trailing { padding-left: 56px; }
+  .swatches.under { padding-left: 0; }
+}
 
 /* ---- banners, hints, code ---- */
 .banner { display: flex; gap: 12px; align-items: flex-start; border-radius: 16px; padding: 14px 18px;
@@ -613,8 +759,9 @@ body:has(#side-toggle:checked) .editor-main { max-width: none; }
 .panel .field textarea { min-height: 62px; }
 .panel .field textarea.code { font-size: 12px; }
 .panel .field > span { background: var(--sc-lowest); font-size: 13.5px; top: 12px; left: 9px; }
-.panel .field input:focus + span, .panel .field textarea:focus + span, .panel .field select:focus + span,
-.panel .field input:not(:placeholder-shown) + span, .panel .field textarea:not(:placeholder-shown) + span,
+.panel .field:focus-within > span,
+.panel .field:has(input:not(:placeholder-shown)) > span,
+.panel .field:has(textarea:not(:placeholder-shown)) > span,
 .panel .field.fixed > span, .panel .field:has(textarea) > span { top: -7px; font-size: 11px; }
 .panel .field .car { width: 18px; height: 18px; right: 10px; }
 .panel .fchip { height: 28px; padding: 0 11px; font-size: 12.5px; }
@@ -624,10 +771,9 @@ body:has(#side-toggle:checked) .editor-main { max-width: none; }
 .panel .hint { font-size: 12px; color: var(--on-surface-variant); margin: -6px 0 14px; }
 .panel .hint:first-child, .panel .chips + .hint { margin-top: 10px; }
 .panel .panel-body > .hint:last-child { margin-bottom: 0; }
-.panel .toggle-row { display: flex; align-items: center; gap: 14px; padding: 8px 0; }
-.panel .toggle-row .label { flex: 1; min-width: 0; }
-.panel .toggle-row .label b { display: block; font-size: 14px; font-weight: 500; }
-.panel .toggle-row .label span { display: block; font-size: 12px; color: var(--on-surface-variant); }
+.panel .toggle-row { padding: 8px 0; min-height: 0; }
+.panel .toggle-row .label b { font-size: 14px; }
+.panel .toggle-row .label span { font-size: 12px; }
 .panel .chips { max-height: 220px; overflow-y: auto; }
 .editor-side .btn.text.danger { width: 100%; justify-content: center; }
 
@@ -668,8 +814,10 @@ body:has(#side-toggle:checked) .editor-main { max-width: none; }
 .color-field input[type=color] { width: 44px; height: 44px; border-radius: 50%; border: none; cursor: pointer;
   background: none; padding: 0; flex: none; }
 .color-field input[type=color]::-webkit-color-swatch-wrapper { padding: 3px; }
+/* The hairline ring is what keeps a white or near-white value legible: a
+   #ffffff swatch on a white card is otherwise an empty hole. */
 .color-field input[type=color]::-webkit-color-swatch { border-radius: 50%; border: 2px solid var(--surface);
-  box-shadow: var(--shadow-1); }
+  box-shadow: var(--shadow-1), 0 0 0 1px var(--outline-variant); }
 
 /* ---- dialog + snackbar ---- */
 dialog { border: none; border-radius: 28px; background: var(--sc-lowest); color: var(--on-surface);
@@ -788,6 +936,16 @@ const JS: &str = r#"
     });
   }
 
+  // colour settings: picking a custom colour selects the custom mode too, so
+  // the swatch chip and the picker can never disagree about which is in force
+  document.addEventListener('input', function (e) {
+    if (e.target.type !== 'color') return;
+    var chip = e.target.closest('.swatch.custom');
+    if (!chip) return;
+    var radio = chip.querySelector('input[type=radio]');
+    if (radio) radio.checked = true;
+  });
+
   // navigation editor: reorder/remove rows in place instead of round-tripping
   // (the action= buttons still work without JS — the server applies them)
   document.addEventListener('click', function (e) {
@@ -880,9 +1038,14 @@ fn rail(active: &str, user: Option<&ghost_core::models::User>, role: Role) -> St
         email = email,
     );
     let who = match user.and_then(|u| u.slug.as_deref()) {
+        // The rail is narrow enough that a full name or address is usually
+        // ellipsed, so the tooltip carries them rather than restating what
+        // the link obviously is.
         Some(slug) => format!(
-            r#"<a class="who-link" href="/ghost/settings/staff/{slug}/" title="Your profile">{who_inner}</a>"#,
+            r#"<a class="who-link" href="/ghost/settings/staff/{slug}/" title="{name} · {email}">{who_inner}</a>"#,
             slug = esc(slug),
+            name = name,
+            email = email,
             who_inner = who_inner,
         ),
         None => who_inner,
@@ -1178,7 +1341,11 @@ async fn setup_submit(State(state): State<AppState>, Form(form): Form<SetupForm>
     }
     match repos::users::setup_owner(&state.db, &form.name, &form.email, &hash).await {
         Ok(_) => {
+            let seeded_title = state.settings.get_str("title").unwrap_or_default();
             let _ = state.settings.set(&state.db, "title", &serde_json::json!(form.blog_title)).await;
+            // Only here: the seeded newsletter takes the site's real name at
+            // setup and keeps whatever it is called after that.
+            let _ = repos::newsletters::name_after_site(&state.db, &seeded_title, &form.blog_title).await;
             let _ = sqlx::query("UPDATE posts SET title = ? WHERE slug = 'coming-soon'").bind(&form.blog_title).execute(&state.db).await;
             state.refresh_setup_flag().await;
             Redirect::to("/ghost/signin/").into_response()
@@ -1619,7 +1786,7 @@ async fn members_page(State(state): State<AppState>, headers: HeaderMap, Query(q
 <div class="row" style="align-items:flex-start"><span class="ic tint-green">{upload}</span>
 <div class="body" style="width:100%"><span class="title" style="display:block;margin-bottom:8px">Import members</span>
 <form method="post" action="/ghost/members/import/" enctype="multipart/form-data" style="display:flex;gap:12px;align-items:center;flex-wrap:wrap">
-<input type="file" name="file" accept=".csv,text/csv" required style="flex:1;min-width:200px">
+<input type="file" name="file" accept=".csv,text/csv" required class="filefield">
 <button class="btn tonal small" type="submit">Import CSV</button>
 </form>
 <p class="muted" style="margin:10px 0 0">A CSV with at least an <code>email</code> column. <code>name</code>, <code>note</code>, <code>labels</code>, <code>subscribed_to_emails</code>, <code>complimentary_plan</code> and <code>stripe_customer_id</code> are used when present; anything else is ignored. Rows whose email already exists update that member instead of duplicating it.</p>
@@ -2414,12 +2581,39 @@ struct Editor<'a> {
     /// True once this post has been emailed; the newsletter picker is then
     /// withheld so an edit cannot send it a second time.
     already_sent: bool,
+    /// What a scheduled post is already set to do when its date arrives, so
+    /// re-opening it shows that choice rather than resetting it.
+    delivery: repos::posts::Delivery,
     /// False for Contributors, who may only save drafts.
     can_publish: bool,
     members_enabled: bool,
+    /// Request headers for api.unsplash.com, or `Null` when the Unsplash app
+    /// is off or has no access key. Koenig uses this object verbatim.
+    unsplash_headers: serde_json::Value,
     site_url: String,
     site_title: String,
     site_description: String,
+}
+
+/// The Authorization header Koenig needs to query Unsplash, if this site can.
+///
+/// Both halves have to be true: the app switched on, and an access key
+/// present. Ghost proxies Unsplash through its own application key; this port
+/// has none to ship, so the site owner supplies theirs and the editor talks to
+/// Unsplash directly.
+fn unsplash_headers(state: &AppState) -> serde_json::Value {
+    if !state.settings.get_bool("unsplash") {
+        return serde_json::Value::Null;
+    }
+    let key = state.settings.get_str("unsplash_access_key").unwrap_or_default();
+    let key = key.trim();
+    if key.is_empty() {
+        return serde_json::Value::Null;
+    }
+    serde_json::json!({
+        "Authorization": format!("Client-ID {key}"),
+        "Accept-Version": "v1",
+    })
 }
 
 impl Editor<'_> {
@@ -2510,7 +2704,7 @@ fn option_row(value: &str, label: &str, selected: bool) -> String {
 
 fn toggle_row(name: &str, title: &str, detail: &str, on: bool) -> String {
     format!(
-        r#"<div class="toggle-row"><div class="label"><b>{title}</b><span>{detail}</span></div>
+        r#"<div class="row toggle-row"><div class="label"><b>{title}</b><span>{detail}</span></div>
 <label class="switch"><input type="checkbox" name="{name}" value="1"{on}><span class="track"><span class="thumb"></span></span></label></div>"#,
         title = esc(title),
         detail = esc(detail),
@@ -2602,6 +2796,10 @@ fn editor_html(ed: &Editor<'_>) -> String {
         // cannot read the base path off the page, since its own script URL has
         // already been rewritten
         "basePath": ghost_core::url::subdir(),
+        // Unsplash: the editor talks to api.unsplash.com directly, so what it
+        // needs is the Authorization header. Sent only when the app is on and
+        // a key exists; otherwise Koenig shows its bundled sample gallery.
+        "unsplash": ed.unsplash_headers,
     });
 
     let content = format!(
@@ -2667,33 +2865,58 @@ fn editor_html(ed: &Editor<'_>) -> String {
             String::new()
         },
     );
-    // Offered only when creating a post. Pages are never emailed, and an edit
-    // must never be able to mail subscribers — a post goes out once, at the
-    // moment it is written, or not at all.
-    let publish_action = if ed.post_type == "page" || ed.id().is_some() || ed.already_sent || !ed.can_publish {
+    // Offered when creating a post, and while one is scheduled: the email for
+    // a scheduled post has not gone out yet, so the choice is still live and
+    // has to be editable right up to its date. Pages are never emailed, and
+    // an edit to anything already out must never be able to mail subscribers
+    // a second time.
+    let scheduled = status == "scheduled";
+    let publish_action = if ed.post_type == "page"
+        || ed.already_sent
+        || !ed.can_publish
+        || (ed.id().is_some() && !scheduled)
+    {
         String::new()
     } else {
+        let current = ed.delivery;
         format!(
-            r#"{select}<p class="hint">Emailing happens once, when the {singular} is first created.</p>"#,
+            r#"{select}<p class="hint">{hint}</p>"#,
             select = select_field(
                 "publish_action",
                 "When publishing",
                 &format!(
                     "{}{}{}",
-                    option_row("publish_only", "Publish only", true),
-                    option_row("publish_email", "Publish and email", false),
-                    option_row("email_only", "Email only", false),
+                    option_row("publish_only", "Publish only", !current.email),
+                    option_row("publish_email", "Publish and email", current.email && !current.email_only),
+                    option_row("email_only", "Email only", current.email_only),
                 ),
             ),
-            singular = singular,
+            hint = if scheduled {
+                "Decided when the date arrives. Change it any time before then."
+            } else {
+                "Emailing happens once, when the post is first created."
+            },
         )
+    };
+    // The date is what a scheduled post is waiting for, so say so where it is
+    // set rather than leaving an empty box to guess at.
+    let schedule_hint = if scheduled {
+        match ed.field(|p| p.published_at.as_deref()) {
+            "" => r#"<p class="hint">Set a publish date below — a scheduled post needs one in the future.</p>"#.to_string(),
+            at => format!(
+                r#"<p class="hint">Goes out {} UTC, on its own.</p>"#,
+                esc(&to_datetime_local(at).replace('T', " at ")),
+            ),
+        }
+    } else {
+        String::new()
     };
     side.push_str(&panel(
         "flag",
         "pink",
         "Publishing",
         &format!(
-            "{status}{publish_action}{featured}{show_title}",
+            "{status}{schedule_hint}{publish_action}{featured}{show_title}",
             status = select_field("status", "Status", &status_options),
             featured = toggle_row(
                 "featured",
@@ -3035,6 +3258,10 @@ async fn editor_context<'a>(
         Some(p) => newsletter_already_sent(state, &p.id).await,
         None => false,
     };
+    let delivery = match post {
+        Some(p) => repos::posts::delivery(&state.db, &p.id).await,
+        None => repos::posts::Delivery::default(),
+    };
     Editor {
         post_type,
         post,
@@ -3044,8 +3271,10 @@ async fn editor_context<'a>(
         all_authors: repos::users::list(&state.db, false).await.unwrap_or_default(),
         templates: custom_templates(state).await,
         already_sent,
+        delivery,
         can_publish,
         members_enabled: state.settings.get_str("members_signup_access").as_deref() != Some("none"),
+        unsplash_headers: unsplash_headers(state),
         site_url: state.site_url(),
         site_title: state.settings.get_str("title").unwrap_or_default(),
         site_description: state.settings.get_str("description").unwrap_or_default(),
@@ -3079,7 +3308,12 @@ async fn page_new(State(state): State<AppState>, headers: HeaderMap) -> Response
     editor_new_impl(&state, &headers, "page").await
 }
 
-async fn editor_page(State(state): State<AppState>, Path(id): Path<String>, headers: HeaderMap) -> Response {
+async fn editor_page(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+    headers: HeaderMap,
+    Query(q): Query<HashMap<String, String>>,
+) -> Response {
     let actor = match require_actor(&state, &headers).await {
         Ok(a) => a,
         Err(r) => return r,
@@ -3102,7 +3336,7 @@ async fn editor_page(State(state): State<AppState>, Path(id): Path<String>, head
         if post.post_type == "page" { "pages" } else { "posts" },
         Some(&user),
         actor.role,
-        &editor_html(&ed),
+        &format!("{}{}", flash_banner(&q), editor_html(&ed)),
         true,
     )
     .into_response()
@@ -3329,6 +3563,48 @@ fn editor_owned_fields(is_koenig: bool, has_content: bool) -> Vec<&'static str> 
     fields
 }
 
+/// What a save that asks for "Scheduled" actually amounts to.
+enum Scheduling {
+    /// Not a scheduled save; nothing to arrange.
+    No,
+    /// Hold it until this moment, then deliver it this way.
+    At(repos::posts::Delivery),
+    /// Scheduled to a date that has already passed, or to none at all.
+    Undated,
+}
+
+/// Read the schedule off the form.
+///
+/// A date in the past is treated as no date rather than as "publish now": the
+/// author picked a moment, and silently deciding they meant *this* moment is
+/// how a half-written post ends up emailed to everyone.
+fn scheduling(form: &EditorForm, post_type: &str, action: PublishAction) -> Scheduling {
+    if form.status != "scheduled" {
+        return Scheduling::No;
+    }
+    // `YYYY-MM-DD HH:MM:SS`, so later times sort later as text — no date
+    // library needed to tell the future from the past.
+    let future = form
+        .published_at
+        .as_deref()
+        .is_some_and(|at| at.len() >= 19 && at > ghost_core::dates::now_db().as_str());
+    if !future {
+        return Scheduling::Undated;
+    }
+    // Pages have no newsletter; a page scheduled "and email" still only
+    // appears on the site.
+    let sends = post_type == "post" && action.sends_email();
+    Scheduling::At(repos::posts::Delivery {
+        email: sends,
+        email_only: sends && action == PublishAction::EmailOnly,
+    })
+}
+
+/// What the author is told when a schedule has no usable date. The post is
+/// still saved — as a draft, with every word in it — because losing the
+/// writing to a mis-set date would be the worse failure by far.
+const UNDATED: &str = "Saved as a draft: a scheduled post needs a publish date in the future.";
+
 async fn editor_create_impl(state: &AppState, headers: &HeaderMap, mut form: EditorForm, post_type: &str) -> Response {
     let actor = match require_actor(state, headers).await {
         Ok(a) => a,
@@ -3339,14 +3615,31 @@ async fn editor_create_impl(state: &AppState, headers: &HeaderMap, mut form: Edi
     }
     let user = actor.user;
     let action = PublishAction::parse(&form.publish_action);
-    let going_out = post_type == "post"
+    let schedule = scheduling(&form, post_type, action);
+    if matches!(schedule, Scheduling::Undated) {
+        form.status = "draft".into();
+    }
+    // A scheduled post sends nothing now — that is the whole point of it.
+    let going_out = !matches!(schedule, Scheduling::At(_))
+        && post_type == "post"
         && action.sends_email()
         && (form.status == "published" || action == PublishAction::EmailOnly);
     let mut new = form_to_new(&form, post_type);
-    new.status = action.status_for(&form.status);
+    // `status_for` turns an email-only post into Ghost's `sent`, which is
+    // where it lands when it actually goes out, not while it waits.
+    new.status = match schedule {
+        Scheduling::At(_) => "scheduled".to_string(),
+        _ => action.status_for(&form.status),
+    };
     match repos::posts::insert(&state.db, &new, &user.id).await {
         Ok(post) => {
             let _ = repos::actions::record(&state.db, post_type, &post.id, &user.id, "added").await;
+            if post.status == "published" {
+                notify_slack_published(state, &post).await;
+            }
+            if let Scheduling::At(delivery) = schedule {
+                let _ = repos::posts::set_delivery(&state.db, &post.id, delivery).await;
+            }
             if going_out {
                 return match send_post_as_newsletter(state, &post.id).await {
                     Ok(n) => posts_flash("ok", &format!("Published and emailed to {n} subscriber{}.", if n == 1 { "" } else { "s" })),
@@ -3355,8 +3648,11 @@ async fn editor_create_impl(state: &AppState, headers: &HeaderMap, mut form: Edi
             }
             // Straight back into the editor, now that it has somewhere to
             // save to — the same place Ghost leaves you.
-            Redirect::to(&format!("{}{}/", if post_type == "page" { "/ghost/pages/" } else { "/ghost/posts/" }, post.id))
-                .into_response()
+            let editor = format!("{}{}/", if post_type == "page" { "/ghost/pages/" } else { "/ghost/posts/" }, post.id);
+            match schedule {
+                Scheduling::Undated => Redirect::to(&with_flash(&editor, "error", UNDATED)).into_response(),
+                _ => Redirect::to(&editor).into_response(),
+            }
         }
         Err(e) => page_u("Error", "", Some(&user), &format!("<div class='banner error'>{}</div>", esc(&e.message())), true).into_response(),
     }
@@ -3372,10 +3668,15 @@ async fn page_create(State(state): State<AppState>, headers: HeaderMap, form: Ed
 
 /// Redirect back to the posts list with a one-shot banner.
 fn posts_flash(kind: &str, message: &str) -> Response {
+    Redirect::to(&with_flash("/ghost/posts/", kind, message)).into_response()
+}
+
+/// A path carrying a one-shot banner for the page it lands on.
+fn with_flash(path: &str, kind: &str, message: &str) -> String {
     let encoded: String = form_urlencoded::Serializer::new(String::new())
         .append_pair(kind, message)
         .finish();
-    Redirect::to(&format!("/ghost/posts/?{encoded}")).into_response()
+    format!("{path}?{encoded}")
 }
 
 // --- sending a post as a newsletter ---
@@ -3411,26 +3712,142 @@ impl PublishAction {
     }
 }
 
+/// One member a newsletter is going to.
+///
+/// `status` and `created_at` are carried along because the "Subscription
+/// details" box in the email prints them per recipient.
+struct Subscriber {
+    email: String,
+    name: String,
+    uuid: String,
+    status: String,
+    created_at: String,
+}
+
 /// Who a post goes to, from its visibility. Ghost derives the recipient
 /// filter the same way: a paid-members post is not emailed to free members.
-async fn newsletter_recipients(state: &AppState, visibility: &str) -> Vec<(String, String, String)> {
+async fn newsletter_recipients(
+    state: &AppState,
+    newsletter_id: &str,
+    visibility: &str,
+) -> Vec<Subscriber> {
     let paid_only = matches!(visibility, "paid" | "tiers");
+    let base = "SELECT DISTINCT m.email, coalesce(m.name, ''), coalesce(m.uuid, ''), m.status, \
+                coalesce(m.created_at, '') FROM members m \
+                JOIN members_newsletters mn ON mn.member_id = m.id \
+                WHERE mn.newsletter_id = ? AND m.email_disabled = 0";
     let sql = if paid_only {
-        "SELECT DISTINCT m.email, coalesce(m.name, ''), coalesce(m.uuid, '') FROM members m          JOIN members_newsletters mn ON mn.member_id = m.id          JOIN newsletters n ON n.id = mn.newsletter_id AND n.status = 'active'          WHERE m.email_disabled = 0 AND m.status IN ('paid', 'comped')"
+        format!("{base} AND m.status IN ('paid', 'comped', 'gift')")
     } else {
-        "SELECT DISTINCT m.email, coalesce(m.name, ''), coalesce(m.uuid, '') FROM members m          JOIN members_newsletters mn ON mn.member_id = m.id          JOIN newsletters n ON n.id = mn.newsletter_id AND n.status = 'active'          WHERE m.email_disabled = 0"
+        base.to_string()
     };
-    sqlx::query_as::<_, (String, String, String)>(sql)
+    sqlx::query_as::<_, (String, String, String, String, String)>(&sql)
+        .bind(newsletter_id)
         .fetch_all(&state.db)
         .await
         .unwrap_or_default()
+        .into_iter()
+        .map(|(email, name, uuid, status, created_at)| Subscriber {
+            email,
+            name,
+            uuid,
+            status,
+            created_at,
+        })
+        .collect()
 }
 
-/// Render and send `post` to its subscribers through Mailgun.
+/// The byline a newsletter prints under the post title.
 ///
-/// Returns how many messages were accepted. Mailgun is required: this is bulk
-/// mail, and pushing hundreds of messages through a transactional SMTP relay
-/// is how a sending domain gets blocked.
+/// Ghost's own joining: one or two authors are listed in full, and beyond
+/// that it becomes "First & N others" rather than a run-on line.
+async fn newsletter_byline(state: &AppState, post_id: &str) -> String {
+    let names: Vec<String> = sqlx::query_scalar(
+        "SELECT u.name FROM posts_authors pa JOIN users u ON u.id = pa.author_id \
+         WHERE pa.post_id = ? ORDER BY pa.sort_order",
+    )
+    .bind(post_id)
+    .fetch_all(&state.db)
+    .await
+    .unwrap_or_default();
+    match names.len() {
+        0 => String::new(),
+        1 | 2 => names.join(" & "),
+        n => format!("{} & {} others", names[0], n - 1),
+    }
+}
+
+/// Cut to `max` characters on a character boundary, with an ellipsis when
+/// something was actually removed.
+fn truncate_chars(s: &str, max: usize) -> String {
+    let s = s.trim();
+    if s.chars().count() <= max {
+        return s.to_string();
+    }
+    let cut: String = s.chars().take(max.saturating_sub(1)).collect();
+    format!("{}…", cut.trim_end())
+}
+
+/// Tell Slack a post went live, if the app is configured.
+///
+/// Fire-and-forget by design: a wedged or misconfigured webhook must not fail
+/// a publish that has already happened, so a failure is logged and the
+/// editor's response is unaffected. Ghost treats it the same way.
+async fn notify_slack_published(state: &AppState, post: &ghost_core::models::Post) {
+    let Some(cfg) = ghost_api::slack::SlackConfig::from_settings(&state.settings) else {
+        return;
+    };
+    let site_title = state.settings.get_str("title").unwrap_or_else(|| "Ghost".into());
+    let site_url = state.site_url();
+    let router = state.router.read().await.clone();
+    let j = ghost_core::models::post_to_json(post, &[], &[], "");
+    let path = match router.permalink_for(&j) {
+        Some((_, pl)) => ghost_routing::tree::build_permalink(&pl, &j),
+        None => format!("/{}/", post.slug.clone().unwrap_or_default()),
+    };
+    let excerpt = post
+        .custom_excerpt
+        .clone()
+        .or_else(|| ghost_core::models::excerpt_from_plaintext(post.plaintext.as_deref(), 30))
+        .unwrap_or_default();
+    let author = repos::users::find_by_id(&state.db, post.published_by.as_deref().unwrap_or(""))
+        .await
+        .ok()
+        .flatten()
+        .and_then(|u| u.name);
+
+    if let Err(e) = ghost_api::slack::notify_published(
+        &cfg,
+        &site_title,
+        post.title.as_deref().unwrap_or("Untitled"),
+        &format!("{site_url}{path}"),
+        &excerpt,
+        author.as_deref(),
+    )
+    .await
+    {
+        tracing::warn!("slack: publish notification failed: {}", e.message());
+    }
+}
+
+/// Which transport carries a newsletter.
+///
+/// Mailgun is the right answer for a real list — it is built for bulk, and
+/// pushing hundreds of messages through a transactional relay is how a sending
+/// domain gets blocked. But requiring it outright makes a newsletter
+/// untestable without a Mailgun account, and leaves a site with a dozen
+/// members no way to mail them at all, so a configured SMTP relay is accepted
+/// as a fallback. A local relay such as MailHog or Mailpit then works for
+/// testing exactly as you would expect.
+enum BulkTransport {
+    Mailgun(ghost_mail::MailgunConfig),
+    /// The relay from Settings → Email, one message per recipient.
+    Smtp,
+}
+
+/// Render and send `post` to its subscribers.
+///
+/// Returns how many messages were accepted.
 async fn send_post_as_newsletter(state: &AppState, post_id: &str) -> Result<usize, String> {
     let Ok(Some(post)) = repos::posts::find_by_id(&state.db, post_id).await else {
         return Err("post not found".into());
@@ -3439,15 +3856,38 @@ async fn send_post_as_newsletter(state: &AppState, post_id: &str) -> Result<usiz
         return Err("This post has already been emailed.".into());
     }
 
+    // Which newsletter's design and sender identity this goes out with: the
+    // one the post names, else the default. Without one there is nothing to
+    // send — the design settings live on the newsletter, not in `settings`.
+    let newsletter = match post.newsletter_id.as_deref() {
+        Some(id) => repos::newsletters::find_by_id(&state.db, id).await.ok().flatten(),
+        None => repos::newsletters::default_newsletter(&state.db).await.ok().flatten(),
+    };
+    let Some(newsletter) = newsletter else {
+        return Err("No active newsletter to send on. Create one in Settings → Newsletters.".into());
+    };
+
     let site_url = state.site_url();
     let title = state.settings.get_str("title").unwrap_or_else(|| "Ghost".into());
     let accent = state.settings.get_str("accent_color").unwrap_or_default();
     let mail_cfg = ghost_mail::MailConfig::from_settings(&state.settings, &title, &site_url);
-    let Some(mg) = ghost_mail::MailgunConfig::from_settings(&state.settings, &mail_cfg) else {
-        return Err("Mailgun is not configured — set it up in Settings → Newsletters.".into());
+    let bulk = match ghost_mail::MailgunConfig::from_settings(&state.settings, &mail_cfg) {
+        Some(mg) => BulkTransport::Mailgun(mg),
+        // Direct is deliberately not accepted here: it delivers by looking up
+        // each recipient's MX records, which is both slow per message and the
+        // surest way to have a newsletter filed as spam.
+        None if mail_cfg.uses_relay() => {
+            tracing::info!("newsletter: Mailgun not configured, sending via the SMTP relay");
+            BulkTransport::Smtp
+        }
+        None => {
+            return Err("No bulk transport is configured. Set up Mailgun in \
+                        Settings → Newsletters, or an SMTP relay in Settings → Email."
+                .into())
+        }
     };
 
-    let recipients = newsletter_recipients(state, &post.visibility).await;
+    let recipients = newsletter_recipients(state, &newsletter.id, &post.visibility).await;
     if recipients.is_empty() {
         return Err("No subscribers to send to.".into());
     }
@@ -3467,38 +3907,159 @@ async fn send_post_as_newsletter(state: &AppState, post_id: &str) -> Result<usiz
         &post.html.clone().unwrap_or_default(),
     );
     let plaintext = post.plaintext.clone().unwrap_or_default();
-    let excerpt = post
-        .custom_excerpt
-        .clone()
-        .or_else(|| ghost_core::models::excerpt_from_plaintext(post.plaintext.as_deref(), 30))
-        .unwrap_or_default();
 
     let secret = state
         .settings
         .get_str("members_email_auth_secret")
         .unwrap_or_default();
+    let timezone = state.settings.get_str("timezone").unwrap_or_else(|| "Etc/UTC".into());
+
+    let site_ctx = ghost_mail::newsletter::SiteContext {
+        title: title.clone(),
+        url: site_url.clone(),
+        icon_url: state
+            .settings
+            .get_str("icon")
+            .filter(|i| !i.is_empty())
+            .map(|i| ghost_core::url::absolute(&site_url, &ghost_core::url::base_asset(&i))),
+        locale: state.settings.get_str("locale").unwrap_or_else(|| "en".into()),
+        // Ghost takes this from i18next's `dir(locale)`. There is no
+        // catalogue here, so left-to-right it is until one exists.
+        direction: "ltr".into(),
+        accent_color: accent,
+    };
+
+    // `posts_meta` is not attached by `find_by_id`, and three of its columns
+    // are visible in the email, so it is fetched directly.
+    let (email_subject, feature_image_alt, feature_image_caption) =
+        sqlx::query_as::<_, (Option<String>, Option<String>, Option<String>)>(
+            "SELECT email_subject, feature_image_alt, feature_image_caption \
+             FROM posts_meta WHERE post_id = ?",
+        )
+        .bind(&post.id)
+        .fetch_optional(&state.db)
+        .await
+        .ok()
+        .flatten()
+        .unwrap_or((None, None, None));
+
+    let post_ctx = ghost_mail::newsletter::PostContext {
+        id: post.id.clone(),
+        title: post_title.clone(),
+        url: post_url.clone(),
+        html: content_html.clone(),
+        plaintext: plaintext.clone(),
+        custom_excerpt: post.custom_excerpt.clone(),
+        published_at: ghost_core::dates::short_date_in_zone(
+            post.published_at.as_deref().unwrap_or(""),
+            &timezone,
+        ),
+        authors: newsletter_byline(state, &post.id).await,
+        feature_image: post.feature_image.clone(),
+        feature_image_width: None,
+        feature_image_alt,
+        feature_image_caption,
+        email_only: post.status == "sent",
+        // Paywalled sends would need per-segment bodies; one body for
+        // everyone means nothing is truncated, so there is no paywall card.
+        paywall: false,
+    };
+
+    // "Keep reading": the three most recent published posts, excluding this
+    // one. Permalinks go through the router rather than being assumed to be
+    // `/{slug}/`, so a site with a dated or prefixed structure links
+    // correctly from the email.
+    let mut latest: Vec<ghost_mail::newsletter::LatestPost> = Vec::new();
+    if newsletter.show_latest_posts {
+        let ids: Vec<String> = sqlx::query_scalar(
+            "SELECT id FROM posts WHERE status = 'published' AND type = 'post' AND id != ? \
+             ORDER BY published_at DESC LIMIT 3",
+        )
+        .bind(&post.id)
+        .fetch_all(&state.db)
+        .await
+        .unwrap_or_default();
+        for id in ids {
+            let Ok(Some(p)) = repos::posts::find_by_id(&state.db, &id).await else {
+                continue;
+            };
+            let pj = ghost_core::models::post_to_json(&p, &[], &[], "");
+            let ppath = match router.permalink_for(&pj) {
+                Some((_, pl)) => ghost_routing::tree::build_permalink(&pl, &pj),
+                None => format!("/{}/", p.slug.clone().unwrap_or_default()),
+            };
+            latest.push(ghost_mail::newsletter::LatestPost {
+                title: p.title.clone().unwrap_or_else(|| "Untitled".into()),
+                url: format!("{site_url}{ppath}"),
+                feature_image: p.feature_image.clone(),
+                excerpt: p
+                    .custom_excerpt
+                    .clone()
+                    .or_else(|| p.plaintext.clone())
+                    .map(|e| truncate_chars(&e, 120))
+                    .filter(|e| !e.is_empty()),
+            });
+        }
+    }
+
+    let rendered = ghost_mail::newsletter::NewsletterEmail {
+        site: &site_ctx,
+        newsletter: &newsletter,
+        post: &post_ctx,
+        latest_posts: &latest,
+        comments_enabled: state
+            .settings
+            .get_str("comments_enabled")
+            .map(|v| v != "off")
+            .unwrap_or(false),
+    };
+
+    // Rendered once; only the `%%{…}%%` tokens differ per member. Compiling
+    // 3,000 lines of template per subscriber would be the slowest part of a
+    // send by a wide margin.
+    let template_html = match rendered.render() {
+        Ok(h) => h,
+        Err(e) => return Err(format!("could not render the newsletter: {}", e.message())),
+    };
+    let template_text = ghost_mail::newsletter::plaintext(&template_html);
+
+    // Ghost lets the editor override the subject without changing the title.
+    let subject = email_subject
+        .filter(|s| !s.trim().is_empty())
+        .unwrap_or_else(|| post_title.clone());
 
     let mut sent = 0usize;
     let mut last_error: Option<String> = None;
-    for (email, _name, uuid) in &recipients {
+    for sub in &recipients {
         // Per-recipient unsubscribe link, same HMAC the members API verifies.
-        let key = hmac_hex(&secret, uuid);
-        let unsub = format!("{site_url}/unsubscribe/?uuid={uuid}&key={key}");
-        let html = ghost_mail::templates::newsletter(
-            &title, &site_url, &post_title, &post_url,
-            post.feature_image.as_deref(), &content_html, &excerpt, &unsub, &accent,
-        );
-        let text = ghost_mail::templates::newsletter_text(&title, &post_title, &post_url, &plaintext, &unsub);
-        let msg = ghost_mail::Message {
-            to: email.clone(),
-            subject: post_title.clone(),
-            html,
-            text,
+        let key = hmac_hex(&secret, &sub.uuid);
+        let member = ghost_mail::newsletter::Recipient {
+            uuid: sub.uuid.clone(),
+            email: sub.email.clone(),
+            name: Some(sub.name.clone()).filter(|n| !n.trim().is_empty()),
+            status: sub.status.clone(),
+            created_at: ghost_core::dates::short_date_in_zone(&sub.created_at, &timezone),
+            unsubscribe_url: format!(
+                "{site_url}/unsubscribe/?uuid={}&key={key}",
+                sub.uuid
+            ),
+            manage_account_url: format!("{site_url}/#/portal/account"),
+            key,
         };
-        match ghost_mail::send_mailgun(&mg, &msg).await {
-            Ok(_) => sent += 1,
+        let msg = ghost_mail::Message {
+            to: sub.email.clone(),
+            subject: subject.clone(),
+            html: ghost_mail::newsletter::personalize(&template_html, &member),
+            text: ghost_mail::newsletter::personalize(&template_text, &member),
+        };
+        let delivered = match &bulk {
+            BulkTransport::Mailgun(mg) => ghost_mail::send_mailgun(mg, &msg).await.map(|_| ()),
+            BulkTransport::Smtp => ghost_mail::send(&mail_cfg, &msg).await,
+        };
+        match delivered {
+            Ok(()) => sent += 1,
             Err(e) => {
-                tracing::warn!("newsletter: {email} failed: {}", e.message());
+                tracing::warn!("newsletter: {} failed: {}", sub.email, e.message());
                 last_error = Some(e.message());
             }
         }
@@ -3506,12 +4067,7 @@ async fn send_post_as_newsletter(state: &AppState, post_id: &str) -> Result<usiz
 
     // Record the send so the post cannot be mailed twice.
     let now = ghost_core::dates::now_db();
-    let newsletter_id: Option<String> =
-        sqlx::query_scalar("SELECT id FROM newsletters WHERE status = 'active' ORDER BY sort_order LIMIT 1")
-            .fetch_optional(&state.db)
-            .await
-            .ok()
-            .flatten();
+    let newsletter_id = Some(newsletter.id.clone());
     let _ = sqlx::query(
         "INSERT INTO emails (id, post_id, status, recipient_filter, email_count, delivered_count,          subject, `from`, html, plaintext, source, submitted_at, newsletter_id, created_at, updated_at)          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'html', ?, ?, ?, ?)",
     )
@@ -3521,10 +4077,13 @@ async fn send_post_as_newsletter(state: &AppState, post_id: &str) -> Result<usiz
     .bind(&post.visibility)
     .bind(recipients.len() as i64)
     .bind(sent as i64)
-    .bind(&post_title)
-    .bind(&mg.from_address)
-    .bind(&content_html)
-    .bind(&plaintext)
+    .bind(&subject)
+    // the envelope sender, whichever transport carried it
+    .bind(&mail_cfg.from_address)
+    // the email as it went out, not the post body — this is the record of
+    // what subscribers actually received
+    .bind(&template_html)
+    .bind(&template_text)
     .bind(&now)
     .bind(newsletter_id)
     .bind(&now)
@@ -3576,6 +4135,18 @@ async fn newsletter_already_sent(state: &AppState, post_id: &str) -> bool {
         > 0
 }
 
+/// The post's first author, for an audit entry written with nobody signed in.
+async fn post_author_id(state: &AppState, post_id: &str) -> Option<String> {
+    sqlx::query_scalar::<_, String>(
+        "SELECT author_id FROM posts_authors WHERE post_id = ? ORDER BY sort_order, id LIMIT 1",
+    )
+    .bind(post_id)
+    .fetch_optional(&state.db)
+    .await
+    .ok()
+    .flatten()
+}
+
 async fn editor_save(State(state): State<AppState>, Path(id): Path<String>, headers: HeaderMap, mut form: EditorForm) -> Response {
     let actor = match require_actor(&state, &headers).await {
         Ok(a) => a,
@@ -3591,12 +4162,21 @@ async fn editor_save(State(state): State<AppState>, Path(id): Path<String>, head
         form.status = "draft".into();
     }
     let user = actor.user;
-    let post_type = repos::posts::find_by_id(&state.db, &id)
-        .await
-        .ok()
-        .flatten()
-        .map(|p| p.post_type)
+    let existing = repos::posts::find_by_id(&state.db, &id).await.ok().flatten();
+    let post_type = existing
+        .as_ref()
+        .map(|p| p.post_type.clone())
         .unwrap_or_else(|| "post".into());
+    // Slack hears about a post the moment it goes live, and only then — an
+    // edit to something already published is not news.
+    let was_published = existing.as_ref().is_some_and(|p| p.status == "published");
+    // Scheduling is settled here as well as at creation: a draft can be
+    // scheduled later, and a scheduled post's date and delivery can both be
+    // changed right up until it goes out.
+    let schedule = scheduling(&form, &post_type, PublishAction::parse(&form.publish_action));
+    if matches!(schedule, Scheduling::Undated) {
+        form.status = "draft".into();
+    }
     // A save with no body in it is a settings-only save; the content columns
     // keep what they already hold rather than being rendered from nothing.
     let content = form.has_content().then(|| form.rendered());
@@ -3646,7 +4226,33 @@ async fn editor_save(State(state): State<AppState>, Path(id): Path<String>, head
     match repos::posts::update(&state.db, &id, &changes).await {
         Ok(post) => {
             let _ = repos::actions::record(&state.db, &post_type, &post.id, &user.id, "edited").await;
-            Redirect::to(if post_type == "page" { "/ghost/pages/" } else { "/ghost/posts/" }).into_response()
+            if !was_published && post.status == "published" {
+                notify_slack_published(&state, &post).await;
+            }
+            let list = if post_type == "page" { "/ghost/pages/" } else { "/ghost/posts/" };
+            match schedule {
+                Scheduling::At(delivery) => {
+                    let _ = repos::posts::set_delivery(&state.db, &post.id, delivery).await;
+                    Redirect::to(list).into_response()
+                }
+                // Anything else means the post is no longer waiting on a
+                // date, and a standing instruction to email itself must not
+                // outlive the schedule that carried it — the post could be
+                // scheduled again later by someone who never saw this form.
+                // A post that was *already* emailed keeps its record: that
+                // one is in `emails`, and this only clears the intent.
+                other => {
+                    if existing.as_ref().is_some_and(|p| p.status == "scheduled") {
+                        let _ = repos::posts::set_delivery(&state.db, &post.id, Default::default()).await;
+                    }
+                    match other {
+                        // The date was unusable, so this came back as a draft
+                        // and the author needs to know before closing the tab.
+                        Scheduling::Undated => Redirect::to(&with_flash(list, "error", UNDATED)).into_response(),
+                        _ => Redirect::to(list).into_response(),
+                    }
+                }
+            }
         }
         Err(e) => page_u("Error", "", Some(&user), &format!("<div class='banner error'>{}</div>", esc(&e.message())), true).into_response(),
     }
@@ -3716,7 +4322,7 @@ async fn tags_list(State(state): State<AppState>, headers: HeaderMap) -> Respons
         Some(&user),
         &format!(
             r#"<header class="page-head rise"><div><h1>Tags</h1><p class="sub">{count} {tag_word}</p></div></header>
-<div class="card padded rise" style="--i:1"><form method="post" action="/ghost/tags/" style="display:flex;gap:12px;align-items:flex-end;flex-wrap:wrap">
+<div class="card padded rise" style="--i:1"><form method="post" action="/ghost/tags/" class="inline-form">
 <label class="field" style="flex:1;min-width:220px;margin:0"><input name="name" placeholder=" " required><span>New tag name</span></label>
 <button class="btn tonal" type="submit">{add} Add tag</button></form></div>
 <div class="section">All tags</div>
@@ -4093,7 +4699,7 @@ async fn themes_page(State(state): State<AppState>, headers: HeaderMap, Query(q)
 {banner}
 <div class="section">Install</div>
 <div class="card padded rise" style="--i:2"><form method="post" action="/ghost/themes/upload/" enctype="multipart/form-data" style="display:flex;gap:12px;align-items:center;flex-wrap:wrap">
-<input type="file" name="file" accept=".zip,application/zip" required style="flex:1;min-width:200px">
+<input type="file" name="file" accept=".zip,application/zip" required class="filefield">
 <button class="btn tonal" type="submit">{up} Upload theme</button>
 </form><p class="muted" style="margin:10px 0 0">A Ghost theme zip. Uploading a theme that is already installed replaces it.</p></div>
 <div class="section">Installed</div>
@@ -4283,21 +4889,13 @@ fn design_field_row(f: &CustomField, value: &serde_json::Value) -> String {
             )
         }
         "select" => {
-            let opts: String = f
-                .options
-                .iter()
-                .map(|o| {
-                    let selected = if value.as_str() == Some(o.as_str()) { " selected" } else { "" };
-                    format!(r#"<option value="{o}"{selected}>{o}</option>"#, o = esc(o), selected = selected)
-                })
-                .collect();
+            // A theme's options are plain strings, so each is its own label.
+            let options: Vec<(&str, &str)> =
+                f.options.iter().map(|o| (o.as_str(), o.as_str())).collect();
             format!(
                 r#"<div class="row"><div class="body">{body}</div>
-<div class="trailing" style="flex:1;max-width:260px"><label class="field fixed" style="margin:0">
-<select name="{key}">{opts}</select><span class="sr-only">{title}</span><svg class="car" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M7 10l5 5 5-5z"/></svg></label></div></div>"#,
-                key = esc(&f.key),
-                opts = opts,
-                title = title,
+<div class="trailing">{control}</div></div>"#,
+                control = selbox(&f.key, &f.label(), &options, value.as_str().unwrap_or("")),
                 body = body,
             )
         }
@@ -4327,17 +4925,12 @@ fn design_field_row(f: &CustomField, value: &serde_json::Value) -> String {
             r#"<div class="row"><div class="body">{body}</div><div class="trailing"><span class="chip tonal">not editable</span></div></div>"#,
             body = body,
         ),
-        _ => {
-            let v = value.as_str().unwrap_or("");
-            format!(
-                r#"<div class="row" style="align-items:center"><div class="body">{body}</div>
-<div class="trailing" style="flex:1;max-width:320px"><label class="field" style="margin:0"><input name="{key}" value="{v}" placeholder=" "><span>{title}</span></label></div></div>"#,
-                key = esc(&f.key),
-                v = esc(v),
-                title = title,
-                body = body,
-            )
-        }
+        _ => format!(
+            r#"<div class="row"><div class="body">{body}</div>
+<div class="trailing" style="flex:1;max-width:260px">{control}</div></div>"#,
+            control = textbox(&f.key, &f.label(), value.as_str().unwrap_or("")),
+            body = body,
+        ),
     }
 }
 
@@ -4684,6 +5277,53 @@ fn select_options(list: &[(&str, &str)], current: &str) -> String {
 
 /// Dropdown caret used inside `.field select` rows.
 const SELECT_CARET: &str = r#"<svg class="car" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M7 10l5 5 5-5z"/></svg>"#;
+
+/// An M3 segmented button: the connected-chips control for a setting with a
+/// handful of options, where every choice deserves to be visible at once.
+/// Radios post exactly like the select they replace.
+fn segmented(name: &str, options: &[(&str, &str)], current: &str) -> String {
+    let segs: String = options
+        .iter()
+        .map(|(value, label)| {
+            format!(
+                r#"<label><input type="radio" name="{name}" value="{value}"{ck}><span class="ck">{check}</span><span>{label}</span></label>"#,
+                name = esc(name),
+                value = esc(value),
+                ck = if *value == current { " checked" } else { "" },
+                check = svg("check"),
+                label = esc(label),
+            )
+        })
+        .collect();
+    format!(r#"<div class="seg" role="radiogroup">{segs}</div>"#)
+}
+
+/// A compact dropdown for a settings row's trailing position, for option
+/// lists too long for a segmented button.
+///
+/// `label` is the row's own title: the control has no visible label of its
+/// own, so without it a screen reader announces the select by its current
+/// value — "Bold" rather than "Title weight".
+fn selbox(name: &str, label: &str, options: &[(&str, &str)], current: &str) -> String {
+    format!(
+        r#"<div class="selbox"><select name="{name}" aria-label="{label}">{opts}</select>{car}</div>"#,
+        name = esc(name),
+        label = esc(label),
+        opts = select_options(options, current),
+        car = SELECT_CARET,
+    )
+}
+
+/// The text counterpart of [`selbox`], for a value that is typed rather than
+/// chosen.
+fn textbox(name: &str, label: &str, value: &str) -> String {
+    format!(
+        r#"<div class="textbox"><input name="{name}" value="{value}" aria-label="{label}"></div>"#,
+        name = esc(name),
+        value = esc(value),
+        label = esc(label),
+    )
+}
 
 /// Redirect back to a settings group page carrying a one-shot banner.
 fn settings_flash(group: &str, kind: &str, message: &str) -> Response {
@@ -5176,7 +5816,706 @@ async fn email_test(State(state): State<AppState>, headers: HeaderMap, Form(form
     }
 }
 
-// --- newsletters: the Mailgun transport that carries them ---
+// --- newsletters: the newsletters themselves, and the Mailgun transport
+//     that carries them. Ghost keeps both on this one settings screen. ---
+
+/// Redirect back to one newsletter's editor with a one-shot banner.
+fn newsletter_flash(id: &str, kind: &str, message: &str) -> Response {
+    let encoded: String = form_urlencoded::Serializer::new(String::new())
+        .append_pair(kind, message)
+        .finish();
+    Redirect::to(&format!("/ghost/settings/newsletters/{id}/?{encoded}")).into_response()
+}
+
+/// A colour setting, as a mode `<select>` plus a swatch for a custom value.
+///
+/// Every colour column in `newsletters` holds *either* a sentinel — `accent`,
+/// `light`, `transparent` — *or* a literal `#rrggbb`, so one control cannot
+/// express it. The select picks the meaning; the swatch only matters when the
+/// meaning is "a specific colour".
+///
+/// `modes` are `(stored value, label)` pairs, where an empty stored value
+/// means the column's "unset" state (NULL, or the column default).
+/// A colour setting as Ghost-style swatch chips: one per named mode plus a
+/// custom picker. Posts `{key}_mode` and `{key}_custom`, which
+/// [`colour_from_form`] folds back into the stored value.
+///
+/// Each mode carries the colour its chip should show — `""` for a mode with
+/// no single colour (Automatic), `"none"` for transparent, else a hex.
+fn colour_row(
+    key: &str,
+    label: &str,
+    detail: &str,
+    modes: &[(&str, &str, &str)],
+    stored: Option<&str>,
+    default_mode: &str,
+) -> String {
+    let custom = stored.filter(|v| ghost_mail::newsletter::is_hex_color(v));
+    let mode = match custom {
+        Some(_) => "custom",
+        None => stored
+            .map(|v| v.trim())
+            .filter(|v| modes.iter().any(|(m, _, _)| m == v))
+            .unwrap_or(default_mode),
+    };
+
+    let chips: String = modes
+        .iter()
+        .map(|(value, name, swatch)| {
+            let dot = match *swatch {
+                "" => String::new(),
+                "none" => r#"<span class="dot none"></span>"#.to_string(),
+                hex => format!(r#"<span class="dot" style="background:{hex}"></span>"#),
+            };
+            format!(
+                r#"<label class="swatch"><input type="radio" name="{key}_mode" value="{value}"{ck}>{dot}<span>{name}</span></label>"#,
+                key = esc(key),
+                value = esc(value),
+                ck = if *value == mode { " checked" } else { "" },
+                name = esc(name),
+            )
+        })
+        .collect();
+
+    // A swatch has to be a valid hex for the colour input to accept it, so an
+    // unset value falls back to Ghost's own dark ink.
+    let custom_swatch = custom.unwrap_or("#15212a");
+
+    format!(
+        r#"<div class="row"><span class="ic tint-pink">{palette}</span>
+<div class="body"><span class="title">{label}</span><span class="detail">{detail}</span>
+<div class="swatches under">{chips}
+<label class="swatch custom"><input type="radio" name="{key}_mode" value="custom"{ck_custom}><input type="color" name="{key}_custom" value="{custom_swatch}" aria-label="{label} custom colour"><span>Custom</span></label>
+</div></div></div>"#,
+        palette = svg("themes"),
+        label = esc(label),
+        detail = esc(detail),
+        chips = chips,
+        key = esc(key),
+        ck_custom = if mode == "custom" { " checked" } else { "" },
+        custom_swatch = esc(custom_swatch),
+    )
+}
+
+/// Collapse a `colour_row`'s two inputs back into the single stored value.
+fn colour_from_form(form: &HashMap<String, String>, key: &str) -> Option<String> {
+    let mode = form.get(&format!("{key}_mode")).map(String::as_str).unwrap_or("");
+    match mode {
+        "custom" => form
+            .get(&format!("{key}_custom"))
+            .map(|v| v.trim().to_lowercase())
+            .filter(|v| ghost_mail::newsletter::is_hex_color(v)),
+        // The "unset" option, which the nullable colour columns store as NULL
+        // and the renderer reads as "derive it".
+        "" => None,
+        m => Some(m.to_string()),
+    }
+}
+
+/// The per-newsletter design editor. Every setting Ghost exposes for a
+/// newsletter is here, grouped the way Ghost groups them.
+async fn newsletter_edit_page(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+    headers: HeaderMap,
+    Query(q): Query<HashMap<String, String>>,
+) -> Response {
+    let (user, actor_role) = match require_role(&state, &headers, Role::Administrator).await {
+        Ok(a) => (a.user, a.role),
+        Err(r) => return r,
+    };
+    let Ok(Some(n)) = repos::newsletters::find_by_id(&state.db, &id).await else {
+        return settings_flash("newsletters", "error", "That newsletter no longer exists.");
+    };
+    let subscribers = repos::newsletters::subscriber_count(&state.db, &n.id).await;
+
+    // The site accent colour, for the swatch chips that preview it. Ghost's
+    // own fallback when a site never set one is the dark ink.
+    let accent = state
+        .settings
+        .get_str("accent_color")
+        .filter(|c| ghost_mail::newsletter::is_hex_color(c))
+        .unwrap_or_else(|| "#15212A".into());
+    let accent_chip: (&str, &str, &str) = ("accent", "Accent", &accent);
+    let contrast_chip: (&str, &str, &str) = ("", "Contrast", "");
+
+    // A settings row: leading tinted icon, title over a supporting line, and
+    // the control in the trailing slot — the Material list item the whole
+    // editor is built from.
+    let setting = |tint: &str, icon: &str, title: &str, hint: &str, control: &str| {
+        format!(
+            r#"<div class="row"><span class="ic tint-{tint}">{ic}</span>
+<div class="body"><span class="title">{title}</span><span class="detail">{hint}</span></div>
+<div class="trailing">{control}</div></div>"#,
+            tint = tint,
+            ic = svg(icon),
+            title = esc(title),
+            hint = esc(hint),
+            control = control,
+        )
+    };
+
+    let body = format!(
+        r#"<header class="page-head rise"><a class="icon-btn" style="transform:rotate(180deg)" href="/ghost/settings/newsletters/" title="Back to newsletters">{back}</a>
+<div><h1>{name}</h1><p class="sub">{subscribers} subscriber{plural} · {status}</p></div></header>
+{banner}
+<form method="post" action="/ghost/settings/newsletters/{id}/">
+<div class="settings">
+
+<div class="section">Details</div>
+<div class="card rows rise" style="--i:1">
+<div class="row" style="align-items:flex-start"><span class="ic tint-purple">{title_ic}</span>
+<div class="body" style="width:100%">{name_field}{desc_field}</div></div>
+{subscribe_on_signup}
+{status_row}
+</div>
+
+<div class="section">Sender</div>
+<div class="card rows rise" style="--i:2">
+<div class="row" style="align-items:flex-start"><span class="ic tint-teal">{send_ic}</span>
+<div class="body" style="width:100%"><div class="grid2">{sender_name}{sender_email}</div>
+<p class="muted" style="margin:8px 0 0">Leave the name empty to send as the site title, and the address empty to use the one from <a href="/ghost/settings/email/">Settings → Email</a>.</p></div></div>
+{reply_to}
+</div>
+
+<div class="section">Header</div>
+<div class="card rows rise" style="--i:3">
+<div class="row" style="align-items:flex-start"><span class="ic tint-blue">{image_ic}</span>
+<div class="body" style="width:100%">{header_image}
+<p class="muted" style="margin:8px 0 0">A banner across the top of every email. Use a full URL or an uploaded image path.</p></div></div>
+{show_header_icon}
+{show_header_title}
+{show_header_name}
+{header_background}
+</div>
+
+<div class="section">Post title</div>
+<div class="card rows rise" style="--i:4">
+{show_post_title_section}
+{title_font}
+{title_weight}
+{title_alignment}
+{post_title_colour}
+{show_excerpt}
+{show_feature_image}
+</div>
+
+<div class="section">Body</div>
+<div class="card rows rise" style="--i:5">
+{body_font}
+{background_colour}
+{section_title_colour}
+{divider_colour}
+{image_corners}
+</div>
+
+<div class="section">Links &amp; buttons</div>
+<div class="card rows rise" style="--i:6">
+{link_colour}
+{link_style}
+{button_colour}
+{button_style}
+{button_corners}
+</div>
+
+<div class="section">Footer</div>
+<div class="card rows rise" style="--i:7">
+<div class="row" style="align-items:flex-start"><span class="ic tint-slate">{notes_ic}</span>
+<div class="body" style="width:100%"><label class="field" style="margin:0"><textarea name="footer_content" rows="3" placeholder=" ">{footer_content}</textarea><span>Footer · HTML, shown above the unsubscribe line</span></label></div></div>
+{show_badge}
+{show_latest_posts}
+{show_comment_cta}
+{show_share_button}
+{feedback_enabled}
+{show_subscription_details}
+</div>
+
+</div>
+<div style="margin:18px 4px 8px"><button class="btn" type="submit">Save newsletter</button></div>
+</form>
+
+<div class="section">Preview</div>
+<div class="card padded rise" style="--i:8">
+<p class="muted" style="margin:0 0 12px">Rendered with the saved settings, using your most recent post. Save to see a change here.</p>
+<iframe src="/ghost/settings/newsletters/{id}/preview/" title="Newsletter preview" style="width:100%;height:760px;border:1px solid var(--outline-variant);border-radius:16px;background:#fff"></iframe>
+</div>"#,
+        back = svg("chevron"),
+        name = esc(&n.name),
+        subscribers = subscribers,
+        plural = if subscribers == 1 { "" } else { "s" },
+        status = esc(&n.status),
+        banner = flash_banner(&q),
+        id = esc(&n.id),
+        title_ic = svg("title"),
+        send_ic = svg("send"),
+        image_ic = svg("upload"),
+        notes_ic = svg("notes"),
+        name_field = text_field("name", "Newsletter name", &n.name),
+        desc_field = format!(
+            r#"<label class="field" style="margin:12px 0 0"><textarea name="description" rows="2" placeholder=" ">{}</textarea><span>Description · shown in the signup portal</span></label>"#,
+            esc(n.description.as_deref().unwrap_or(""))
+        ),
+        subscribe_on_signup = toggle_row(
+            "subscribe_on_signup",
+            "Subscribe new members",
+            "New members are added to this newsletter when they sign up",
+            n.subscribe_on_signup
+        ),
+        status_row = setting(
+            "purple",
+            "flag",
+            "Status",
+            "Archived newsletters are hidden from the signup portal",
+            &segmented("status", &[("active", "Active"), ("archived", "Archived")], &n.status),
+        ),
+        sender_name = text_field("sender_name", "Sender name", n.sender_name.as_deref().unwrap_or("")),
+        sender_email = text_field("sender_email", "Sender email", n.sender_email.as_deref().unwrap_or("")),
+        reply_to = setting(
+            "teal",
+            "mail",
+            "Replies go to",
+            "The address readers' replies are delivered to",
+            &segmented(
+                "sender_reply_to",
+                &[("newsletter", "Newsletter address"), ("support", "Support address")],
+                &n.sender_reply_to,
+            ),
+        ),
+        header_image = text_field("header_image", "Header image URL", n.header_image.as_deref().unwrap_or("")),
+        show_header_icon = toggle_row(
+            "show_header_icon",
+            "Publication icon",
+            "Show the site icon at the top of the email",
+            n.show_header_icon
+        ),
+        show_header_title = toggle_row(
+            "show_header_title",
+            "Publication title",
+            "Show the site title at the top of the email",
+            n.show_header_title
+        ),
+        show_header_name = toggle_row(
+            "show_header_name",
+            "Newsletter name",
+            "Show this newsletter's name under the title",
+            n.show_header_name
+        ),
+        header_background = colour_row(
+            "header_background_color",
+            "Header background",
+            "A colour behind the header and post title.",
+            &[
+                ("transparent", "Transparent", "none"),
+                ("accent", "Accent", &accent),
+            ],
+            Some(&n.header_background_color),
+            "transparent",
+        ),
+        show_post_title_section = toggle_row(
+            "show_post_title_section",
+            "Post title",
+            "Show the title, byline and date above the content",
+            n.show_post_title_section
+        ),
+        title_font = setting(
+            "amber",
+            "title",
+            "Title font",
+            "The typeface of the post title",
+            &segmented(
+                "title_font_category",
+                &[("sans_serif", "Sans-serif"), ("serif", "Serif")],
+                &n.title_font_category,
+            ),
+        ),
+        title_weight = setting(
+            "amber",
+            "title",
+            "Title weight",
+            "How heavy the post title's strokes are",
+            &selbox(
+                "title_font_weight",
+                "Title weight",
+                &[
+                    ("normal", "Normal"),
+                    ("medium", "Medium"),
+                    ("semibold", "Semibold"),
+                    ("bold", "Bold"),
+                ],
+                &n.title_font_weight,
+            ),
+        ),
+        title_alignment = setting(
+            "amber",
+            "title",
+            "Title alignment",
+            "Centered under the header, or to the left",
+            &segmented("title_alignment", &[("center", "Centered"), ("left", "Left")], &n.title_alignment),
+        ),
+        post_title_colour = colour_row(
+            "post_title_color",
+            "Post title colour",
+            "Automatic picks black or white, whichever reads on the background.",
+            &[("", "Automatic", ""), accent_chip],
+            n.post_title_color.as_deref(),
+            "",
+        ),
+        show_excerpt = toggle_row(
+            "show_excerpt",
+            "Excerpt",
+            "Show the post's custom excerpt under the title",
+            n.show_excerpt
+        ),
+        show_feature_image = toggle_row(
+            "show_feature_image",
+            "Feature image",
+            "Show the post's feature image",
+            n.show_feature_image
+        ),
+        body_font = setting(
+            "green",
+            "notes",
+            "Body font",
+            "The typeface of the post content",
+            &segmented(
+                "body_font_category",
+                &[("sans_serif", "Sans-serif"), ("serif", "Serif")],
+                &n.body_font_category,
+            ),
+        ),
+        background_colour = colour_row(
+            "background_color",
+            "Background",
+            "Light is white. A dark colour flips the text and borders to suit it.",
+            &[("light", "Light", "#ffffff")],
+            Some(&n.background_color),
+            "light",
+        ),
+        section_title_colour = colour_row(
+            "section_title_color",
+            "Heading colour",
+            "Applies to headings inside the post content.",
+            &[("", "Automatic", ""), accent_chip],
+            n.section_title_color.as_deref(),
+            "",
+        ),
+        divider_colour = colour_row(
+            "divider_color",
+            "Divider colour",
+            "Horizontal rules and the lines between sections.",
+            &[("", "Default grey", "#e0e7eb"), accent_chip],
+            n.divider_color.as_deref(),
+            "",
+        ),
+        image_corners = setting(
+            "green",
+            "upload",
+            "Image corners",
+            "The corners of images inside the post",
+            &segmented("image_corners", &[("square", "Square"), ("rounded", "Rounded")], &n.image_corners),
+        ),
+        link_colour = colour_row(
+            "link_color",
+            "Link colour",
+            "Contrast uses black or white, whichever reads on the background.",
+            &[accent_chip, contrast_chip],
+            n.link_color.as_deref(),
+            "accent",
+        ),
+        link_style = setting(
+            "pink",
+            "link",
+            "Link style",
+            "How links stand out from the surrounding text",
+            &segmented(
+                "link_style",
+                &[("underline", "Underlined"), ("regular", "Regular"), ("bold", "Bold")],
+                &n.link_style,
+            ),
+        ),
+        button_colour = colour_row(
+            "button_color",
+            "Button colour",
+            "Used by button and CTA cards in the post content.",
+            &[accent_chip, contrast_chip],
+            n.button_color.as_deref(),
+            "accent",
+        ),
+        button_style = setting(
+            "pink",
+            "themes",
+            "Button style",
+            "Filled with the button colour, or outlined by it",
+            &segmented("button_style", &[("fill", "Filled"), ("outline", "Outlined")], &n.button_style),
+        ),
+        button_corners = setting(
+            "pink",
+            "themes",
+            "Button corners",
+            "The corners of buttons in the post content",
+            &segmented(
+                "button_corners",
+                &[("square", "Square"), ("rounded", "Rounded"), ("pill", "Pill")],
+                &n.button_corners,
+            ),
+        ),
+        footer_content = esc(n.footer_content.as_deref().unwrap_or("")),
+        show_badge = toggle_row(
+            "show_badge",
+            "Powered by Ghost badge",
+            "Show the badge at the very bottom of the email",
+            n.show_badge
+        ),
+        show_latest_posts = toggle_row(
+            "show_latest_posts",
+            "Latest posts",
+            "Add a \"Keep reading\" list of the three most recent posts",
+            n.show_latest_posts
+        ),
+        show_comment_cta = toggle_row(
+            "show_comment_cta",
+            "Comments link",
+            "Invite readers to comment on the post",
+            n.show_comment_cta
+        ),
+        show_share_button = toggle_row(
+            "show_share_button",
+            "Share button",
+            "Let readers share the post",
+            n.show_share_button
+        ),
+        feedback_enabled = toggle_row(
+            "feedback_enabled",
+            "Audience feedback",
+            "Add \"More like this\" and \"Less like this\" buttons",
+            n.feedback_enabled
+        ),
+        show_subscription_details = toggle_row(
+            "show_subscription_details",
+            "Subscription details",
+            "Print each member's own subscription details in the footer",
+            n.show_subscription_details
+        ),
+    );
+
+    page_for_role(actor_role, &n.name, "settings", Some(&user), &body, true).into_response()
+}
+
+async fn newsletter_edit_save(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+    headers: HeaderMap,
+    Form(form): Form<HashMap<String, String>>,
+) -> Response {
+    if let Err(r) = require_role(&state, &headers, Role::Administrator).await {
+        return r;
+    }
+    let Ok(Some(mut n)) = repos::newsletters::find_by_id(&state.db, &id).await else {
+        return settings_flash("newsletters", "error", "That newsletter no longer exists.");
+    };
+
+    let get = |k: &str| form.get(k).cloned().unwrap_or_default().trim().to_string();
+    let keep = |k: &str| Some(get(k)).filter(|v| !v.is_empty());
+    let on = |k: &str| form.get(k).map(|v| v == "1").unwrap_or(false);
+    // An unrecognised value is never written: these columns are enums in
+    // Ghost, and the renderer's `match` arms assume it.
+    let one_of = |k: &str, allowed: &[&str], fallback: &str| {
+        let v = get(k);
+        if allowed.contains(&v.as_str()) { v } else { fallback.to_string() }
+    };
+
+    let name = get("name");
+    if name.is_empty() {
+        return newsletter_flash(&id, "error", "A newsletter needs a name.");
+    }
+    n.name = name;
+    n.description = keep("description");
+    n.sender_name = keep("sender_name");
+    n.sender_email = keep("sender_email");
+    n.sender_reply_to = one_of("sender_reply_to", &["newsletter", "support"], "newsletter");
+    n.status = one_of("status", &["active", "archived"], "active");
+    n.subscribe_on_signup = on("subscribe_on_signup");
+
+    n.header_image = keep("header_image");
+    n.show_header_icon = on("show_header_icon");
+    n.show_header_title = on("show_header_title");
+    n.show_header_name = on("show_header_name");
+    n.show_post_title_section = on("show_post_title_section");
+    n.show_excerpt = on("show_excerpt");
+    n.show_feature_image = on("show_feature_image");
+
+    n.title_font_category = one_of("title_font_category", &["serif", "sans_serif"], "sans_serif");
+    n.title_alignment = one_of("title_alignment", &["center", "left"], "center");
+    n.title_font_weight = one_of(
+        "title_font_weight",
+        &["normal", "medium", "semibold", "bold"],
+        "bold",
+    );
+    n.body_font_category = one_of("body_font_category", &["serif", "sans_serif"], "sans_serif");
+
+    // The two NOT NULL colour columns keep their sentinel when nothing else
+    // was chosen; the nullable ones are allowed to go back to NULL.
+    n.background_color = colour_from_form(&form, "background_color").unwrap_or_else(|| "light".into());
+    n.header_background_color =
+        colour_from_form(&form, "header_background_color").unwrap_or_else(|| "transparent".into());
+    n.post_title_color = colour_from_form(&form, "post_title_color");
+    n.section_title_color = colour_from_form(&form, "section_title_color");
+    n.divider_color = colour_from_form(&form, "divider_color");
+    n.link_color = colour_from_form(&form, "link_color");
+    n.button_color = colour_from_form(&form, "button_color");
+
+    n.link_style = one_of("link_style", &["underline", "regular", "bold"], "underline");
+    n.button_style = one_of("button_style", &["fill", "outline"], "fill");
+    n.button_corners = one_of("button_corners", &["square", "rounded", "pill"], "rounded");
+    n.image_corners = one_of("image_corners", &["square", "rounded"], "square");
+
+    n.footer_content = keep("footer_content");
+    n.show_badge = on("show_badge");
+    n.show_latest_posts = on("show_latest_posts");
+    n.show_comment_cta = on("show_comment_cta");
+    n.show_share_button = on("show_share_button");
+    n.feedback_enabled = on("feedback_enabled");
+    n.show_subscription_details = on("show_subscription_details");
+
+    match repos::newsletters::update(&state.db, &n).await {
+        Ok(()) => newsletter_flash(&id, "ok", "Newsletter saved."),
+        Err(e) => newsletter_flash(&id, "error", &e.message()),
+    }
+}
+
+async fn newsletter_create(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Form(form): Form<HashMap<String, String>>,
+) -> Response {
+    if let Err(r) = require_role(&state, &headers, Role::Administrator).await {
+        return r;
+    }
+    let name = form.get("name").cloned().unwrap_or_default();
+    match repos::newsletters::create(&state.db, &name).await {
+        Ok(n) => Redirect::to(&format!("/ghost/settings/newsletters/{}/", n.id)).into_response(),
+        Err(e) => settings_flash("newsletters", "error", &e.message()),
+    }
+}
+
+/// The design editor's preview pane: the real renderer, on a real post.
+///
+/// Rendering the actual template rather than an approximation is the point —
+/// a preview that agreed with a mock-up instead of the email would be worse
+/// than none.
+async fn newsletter_preview(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+    headers: HeaderMap,
+) -> Response {
+    if let Err(r) = require_role(&state, &headers, Role::Administrator).await {
+        return r;
+    }
+    let Ok(Some(n)) = repos::newsletters::find_by_id(&state.db, &id).await else {
+        return (StatusCode::NOT_FOUND, "No such newsletter").into_response();
+    };
+    let site_url = state.site_url();
+    let title = state.settings.get_str("title").unwrap_or_else(|| "Ghost".into());
+    let timezone = state.settings.get_str("timezone").unwrap_or_else(|| "Etc/UTC".into());
+
+    // The most recent published post, so the preview shows real content and
+    // real card styling. A brand-new site has none, hence the placeholder.
+    let sample_id: Option<String> = sqlx::query_scalar(
+        "SELECT id FROM posts WHERE status IN ('published', 'sent') AND type = 'post' \
+         ORDER BY published_at DESC LIMIT 1",
+    )
+    .fetch_optional(&state.db)
+    .await
+    .ok()
+    .flatten();
+    let sample = match sample_id {
+        Some(id) => repos::posts::find_by_id(&state.db, &id).await.ok().flatten(),
+        None => None,
+    };
+
+    let (post, post_title, html, plaintext, feature_image, published_at) = match sample {
+        Some(p) => {
+            let title = p.title.clone().unwrap_or_else(|| "Untitled".into());
+            let html = p.html.clone().unwrap_or_default();
+            let plaintext = p.plaintext.clone().unwrap_or_default();
+            let feature_image = p.feature_image.clone();
+            let published_at = p.published_at.clone().unwrap_or_default();
+            (p, title, html, plaintext, feature_image, published_at)
+        }
+        None => (
+            ghost_core::models::Post::default(),
+            "Your next newsletter".to_string(),
+            "<p>Publish a post and its content will appear here, styled exactly as subscribers will see it.</p>".to_string(),
+            "Publish a post and its content will appear here.".to_string(),
+            None,
+            ghost_core::dates::now_db(),
+        ),
+    };
+    // The permalink goes through the router for the same reason the send path
+    // does it: a dated or prefixed structure is not /{slug}/.
+    let post_json = ghost_core::models::post_to_json(&post, &[], &[], "");
+    let router = state.router.read().await.clone();
+    let path = match router.permalink_for(&post_json) {
+        Some((_, p)) => ghost_routing::tree::build_permalink(&p, &post_json),
+        None => format!("/{}/", post.slug.clone().unwrap_or_default()),
+    };
+    let post_url = format!("{site_url}{path}");
+
+    let site_ctx = ghost_mail::newsletter::SiteContext {
+        title: title.clone(),
+        url: site_url.clone(),
+        icon_url: state
+            .settings
+            .get_str("icon")
+            .filter(|i| !i.is_empty())
+            .map(|i| ghost_core::url::absolute(&site_url, &ghost_core::url::base_asset(&i))),
+        locale: state.settings.get_str("locale").unwrap_or_else(|| "en".into()),
+        direction: "ltr".into(),
+        accent_color: state.settings.get_str("accent_color").unwrap_or_default(),
+    };
+    let post_ctx = ghost_mail::newsletter::PostContext {
+        id: post.id.clone(),
+        title: post_title,
+        url: post_url,
+        html: ghost_core::url::absolutize_html(&site_url, &html),
+        plaintext,
+        custom_excerpt: post.custom_excerpt.clone().filter(|e| !e.is_empty()),
+        published_at: ghost_core::dates::short_date_in_zone(&published_at, &timezone),
+        authors: title.clone(),
+        feature_image,
+        email_only: post.status == "sent",
+        ..Default::default()
+    };
+
+    let rendered = ghost_mail::newsletter::NewsletterEmail {
+        site: &site_ctx,
+        newsletter: &n,
+        post: &post_ctx,
+        latest_posts: &[],
+        comments_enabled: state
+            .settings
+            .get_str("comments_enabled")
+            .map(|v| v != "off")
+            .unwrap_or(false),
+    };
+    let html = match rendered.render() {
+        Ok(h) => h,
+        Err(e) => return (StatusCode::INTERNAL_SERVER_ERROR, e.message()).into_response(),
+    };
+    // The preview is not addressed to anybody, so the member tokens get
+    // sample values rather than being left as `%%{…}%%` literals.
+    let preview_member = ghost_mail::newsletter::Recipient {
+        uuid: "preview".into(),
+        email: "subscriber@example.com".into(),
+        name: Some("Subscriber".into()),
+        status: "free".into(),
+        created_at: ghost_core::dates::short_date_in_zone(&ghost_core::dates::now_db(), &timezone),
+        unsubscribe_url: "#".into(),
+        manage_account_url: "#".into(),
+        key: "preview".into(),
+    };
+    Html(ghost_mail::newsletter::personalize(&html, &preview_member)).into_response()
+}
 
 async fn newsletters_settings_page(State(state): State<AppState>, headers: HeaderMap, Query(q): Query<HashMap<String, String>>) -> Response {
     let (user, actor_role) = match require_role(&state, &headers, Role::Administrator).await {
@@ -5207,15 +6546,53 @@ async fn newsletters_settings_page(State(state): State<AppState>, headers: Heade
         )
     };
 
-    page_for_role(actor_role, 
+    // The newsletters themselves. Each row opens the design editor, which is
+    // where every setting that shapes the email lives.
+    let mut newsletter_rows = String::new();
+    match repos::newsletters::list(&state.db).await {
+        Ok(list) if !list.is_empty() => {
+            for nl in &list {
+                let count = repos::newsletters::subscriber_count(&state.db, &nl.id).await;
+                newsletter_rows.push_str(&format!(
+                    r#"<a class="row" href="/ghost/settings/newsletters/{id}/"><span class="ic tint-purple">{mail}</span>
+<div class="body"><span class="title">{name}</span><span class="detail">{count} subscriber{plural}{desc}</span></div>
+<div class="trailing"><span class="chip {chip}">{status}</span>{chev}</div></a>"#,
+                    id = esc(&nl.id),
+                    mail = svg("mail"),
+                    name = esc(&nl.name),
+                    count = count,
+                    plural = if count == 1 { "" } else { "s" },
+                    desc = match nl.description.as_deref().filter(|d| !d.is_empty()) {
+                        Some(d) => format!(" · {}", esc(d)),
+                        None => String::new(),
+                    },
+                    chip = if nl.status == "active" { "published" } else { "draft" },
+                    status = esc(&nl.status),
+                    chev = svg("chevron"),
+                ));
+            }
+        }
+        _ => {
+            newsletter_rows = r#"<div class="row"><div class="body"><span class="muted">No newsletters yet — add one below and posts will have somewhere to go.</span></div></div>"#.into();
+        }
+    }
+
+    page_for_role(actor_role,
         "Newsletters",
         "settings",
         Some(&user),
         &format!(
             r#"{head}{banner}{status}
+<div class="section">Newsletters</div>
+<div class="card rows rise" style="--i:2">{newsletter_rows}</div>
+<div class="card padded rise" style="--i:3"><form method="post" action="/ghost/settings/newsletters/new/" class="inline-form">
+<div style="flex:1;min-width:220px">{new_name}</div>
+<button class="btn tonal" type="submit">{add} Add newsletter</button>
+</form>
+<p class="muted" style="margin:10px 0 0">A new newsletter starts from Ghost's defaults. Open it to set the design — colours, typography, header and footer.</p></div>
 <form method="post" action="/ghost/settings/newsletters/" id="newsletters-form">
 <div class="section">Mailgun</div>
-<div class="card rows rise" style="--i:2">
+<div class="card rows rise" style="--i:4">
 <div class="row" style="align-items:flex-start"><span class="ic tint-purple">{send}</span>
 <div class="body" style="width:100%"><div class="grid2" style="gap:12px">
 <label class="field" style="margin:0"><input name="mailgun_api_key" type="password" value="" placeholder=" " autocomplete="off"><span>API key</span></label>
@@ -5227,13 +6604,16 @@ async fn newsletters_settings_page(State(state): State<AppState>, headers: Heade
 </div></div>
 </div>
 </form>
-<div class="banner info rise" style="--i:3">{bulb}These credentials are stored for newsletter delivery. Composing and sending newsletters is not built yet — this page configures the transport ahead of it.</div>"#,
+<div class="banner info rise" style="--i:4">{bulb}Newsletters are sent from the editor: choose <b>Publish and email</b> when publishing a post. Without Mailgun, a configured SMTP relay is used instead, one message per subscriber.</div>"#,
             head = group_head(group, Some("newsletters-form")),
             banner = flash_banner(&q),
             status = status,
             send = svg("send"),
             bulb = svg("mail"),
             car = SELECT_CARET,
+            newsletter_rows = newsletter_rows,
+            new_name = text_field("name", "Newsletter name", ""),
+            add = svg("add"),
             key_hint = secret_state(&state, "mailgun_api_key"),
             domain = s("mailgun_domain"),
             region_opts = select_options(
@@ -6017,7 +7397,7 @@ async fn stripe_connect(
 /// rotating an existing secret.
 fn stripe_webhook_secret_form(site_url: &str) -> String {
     format!(
-        r#"<form method="post" action="/ghost/settings/membership/stripe/webhook/" style="display:flex;gap:12px;align-items:flex-end;flex-wrap:wrap">
+        r#"<form method="post" action="/ghost/settings/membership/stripe/webhook/" class="inline-form">
 <label class="field" style="flex:1;min-width:240px;margin:0"><input name="webhook_secret" type="password" placeholder=" " autocomplete="off" required><span>Webhook signing secret · whsec_…</span></label>
 <button class="btn tonal small" type="submit">Save secret</button></form>
 <p class="muted" style="margin:10px 0 0">Testing locally? Run this and paste the <code>whsec_…</code> it prints:</p>
@@ -6331,6 +7711,7 @@ async fn membership_page(State(state): State<AppState>, headers: HeaderMap, Quer
 <div class="section">Newsletters</div>
 <div class="card rows rise" style="--i:5">{newsletter_rows}</div>
 {newsletter_edit}
+<p class="muted" style="margin:4px 0 0 16px">The design of each newsletter — colours, typography, header and footer — is set in <a href="/ghost/settings/newsletters/">Settings → Newsletters</a>.</p>
 "#,
             head = group_head(group, Some("membership-form")),
             banner = flash_banner(&q),
@@ -6543,7 +7924,7 @@ async fn advanced_page(State(state): State<AppState>, headers: HeaderMap, Query(
 <div class="row" style="align-items:flex-start"><span class="ic tint-red">{upload}</span>
 <div class="body" style="width:100%"><span class="title" style="display:block;margin-bottom:8px">Import content</span>
 <form method="post" action="/ghost/settings/advanced/import/" enctype="multipart/form-data" style="display:flex;gap:12px;align-items:center;flex-wrap:wrap">
-<input type="file" name="file" accept=".json,application/json" required style="flex:1;min-width:200px">
+<input type="file" name="file" accept=".json,application/json" required class="filefield">
 <button class="btn tonal small" type="submit">Import</button>
 </form>
 <p class="muted" style="margin:10px 0 0">A Ghost export file (JSON). Posts, pages and tags are imported; markdown is re-rendered. Existing content is kept.</p></div></div>
@@ -7470,7 +8851,7 @@ async fn staff_page(State(state): State<AppState>, headers: HeaderMap, Query(q):
         format!(
             r#"<div class="section">Invite people</div>
 <div class="card padded rise" style="--i:2">
-<form method="post" action="/ghost/settings/staff/invite/" style="display:flex;gap:12px;align-items:flex-end;flex-wrap:wrap">
+<form method="post" action="/ghost/settings/staff/invite/" class="inline-form">
 <label class="field" style="flex:1;min-width:220px;margin:0"><input name="email" type="email" placeholder=" " required><span>Email address</span></label>
 <label class="field fixed" style="min-width:190px;margin:0"><select name="role">{roles}</select><span>Role</span>{car}</label>
 <button class="btn tonal" type="submit">{add} Send invitation</button>
@@ -7929,7 +9310,7 @@ async fn profile_page(
 <div class="card rows rise" style="--i:5">
 <div class="row" style="align-items:flex-start"><span class="ic tint-pink">{people}</span>
 <div class="body" style="width:100%">
-<form method="post" action="/ghost/settings/staff/{slug}/role/" style="display:flex;gap:12px;align-items:flex-end;flex-wrap:wrap">
+<form method="post" action="/ghost/settings/staff/{slug}/role/" class="inline-form">
 <label class="field fixed" style="min-width:200px;margin:0"><select name="role">{role_opts}</select><span>Role</span>{car}</label>
 <button class="btn tonal small" type="submit">Change role</button>
 </form>
@@ -8195,69 +9576,497 @@ async fn integrations_redirect() -> Response {
     Redirect::permanent("/ghost/settings/advanced/integrations/").into_response()
 }
 
-async fn integrations_page(State(state): State<AppState>, headers: HeaderMap) -> Response {
+/// The three apps Ghost ships with. Slug, label, blurb, icon, tint.
+///
+/// Zapier is an integration row in the database because it authenticates with
+/// an API key; Slack and Unsplash are configuration only, which is the same
+/// split Ghost makes — so the hub lists all three but each page works
+/// differently underneath.
+const BUILTIN_APPS: &[(&str, &str, &str, &str, &str)] = &[
+    ("zapier", "Zapier", "Automate Ghost with 6,000+ apps", "share", "amber"),
+    ("slack", "Slack", "Post to a channel when you publish", "send", "purple"),
+    ("unsplash", "Unsplash", "Free photography inside the editor", "image", "green"),
+];
+
+fn integrations_flash(sub: &str, kind: &str, message: &str) -> Response {
+    let encoded: String = form_urlencoded::Serializer::new(String::new())
+        .append_pair(kind, message)
+        .finish();
+    Redirect::to(&format!("/ghost/settings/advanced/integrations/{sub}?{encoded}")).into_response()
+}
+
+/// A secret with a copy button. Long keys are shown in full — they have to be
+/// copied somewhere, and hiding them behind a reveal only adds a click.
+fn key_chip(key_type: &str, secret: &str) -> String {
+    format!(
+        r#"<span class="key"><span class="chip tonal">{}</span>{}<button type="button" data-copy="{secret}" title="Copy" aria-label="Copy key">{copy}</button></span>"#,
+        esc(key_type),
+        esc(secret),
+        secret = esc(secret),
+        copy = svg("copy"),
+    )
+}
+
+async fn integrations_page(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Query(q): Query<HashMap<String, String>>,
+) -> Response {
     let (user, actor_role) = match require_role(&state, &headers, Role::Administrator).await {
         Ok(a) => (a.user, a.role),
         Err(r) => return r,
     };
-    let copy = svg("copy");
-    let key_chip = |key_type: &str, secret: &str| {
-        format!(
-            r#"<span class="key"><span class="chip tonal">{}</span>{}<button type="button" data-copy="{secret}" title="Copy" aria-label="Copy key">{copy}</button></span>"#,
-            esc(key_type),
-            esc(secret),
-            secret = esc(secret),
-            copy = copy,
-        )
-    };
-    let mut rows = String::new();
-    if let Ok(ints) = repos::integrations::list(&state.db).await {
-        for i in ints {
-            let mut keys_html = String::new();
-            if let Ok(keys) = repos::api_keys::find_by_integration(&state.db, &i.id).await {
-                for k in keys {
-                    keys_html.push_str(&key_chip(&k.key_type, &k.secret));
-                    keys_html.push(' ');
-                }
-            }
-            rows.push_str(&format!(
-                r#"<div class="row" style="align-items:flex-start;flex-wrap:wrap"><span class="ic tint-teal">{ic}</span>
-<div class="body"><span class="title">{name}</span><div style="margin-top:6px">{keys}</div></div></div>"#,
-                ic = svg("integrations"),
-                name = esc(&i.name),
-                keys = keys_html,
-            ));
-        }
+
+    // --- built-in apps -----------------------------------------------------
+    let slack_on = ghost_api::slack::SlackConfig::from_settings(&state.settings).is_some();
+    let unsplash_on = state.settings.get_bool("unsplash");
+    let mut apps = String::new();
+    for (slug, name, blurb, icon, tint) in BUILTIN_APPS {
+        let status = match *slug {
+            "slack" if slack_on => r#"<span class="chip ok">Connected</span>"#,
+            "unsplash" if unsplash_on => r#"<span class="chip ok">On</span>"#,
+            "unsplash" => r#"<span class="chip tonal">Off</span>"#,
+            "zapier" => r#"<span class="chip tonal">API key ready</span>"#,
+            _ => r#"<span class="chip tonal">Not set up</span>"#,
+        };
+        apps.push_str(&format!(
+            r#"<a class="row" href="/ghost/settings/advanced/integrations/{slug}/"><span class="ic tint-{tint}">{ic}</span>
+<div class="body"><span class="title">{name}</span><span class="detail">{blurb}</span></div>
+<div class="trailing">{status}</div></a>"#,
+            slug = slug,
+            tint = tint,
+            ic = svg(icon),
+            name = esc(name),
+            blurb = esc(blurb),
+            status = status,
+        ));
     }
-    // internal keys too (handy for curl)
+
+    // --- custom integrations ----------------------------------------------
+    let customs = repos::integrations::list_custom(&state.db).await.unwrap_or_default();
+    let mut custom_rows = String::new();
+    for i in &customs {
+        let detail = i
+            .description
+            .clone()
+            .filter(|d| !d.is_empty())
+            .unwrap_or_else(|| format!("/{}", i.slug.clone().unwrap_or_default()));
+        custom_rows.push_str(&format!(
+            r#"<a class="row" href="/ghost/settings/advanced/integrations/custom/{id}/"><span class="ic tint-teal">{ic}</span>
+<div class="body"><span class="title">{name}</span><span class="detail">{detail}</span></div>
+<span class="chip tonal">2 keys</span></a>"#,
+            id = esc(&i.id),
+            ic = svg("integrations"),
+            name = esc(&i.name),
+            detail = esc(&detail),
+        ));
+    }
+    if custom_rows.is_empty() {
+        custom_rows = r#"<div class="row"><div class="body"><span class="detail">No custom integrations yet. Add one to get a Content API and Admin API key for your own scripts.</span></div></div>"#.to_string();
+    }
+
+    // --- the frontend's own key -------------------------------------------
+    let mut internal = String::new();
     if let Ok(Some(key)) = repos::integrations::internal_content_key(&state.db).await {
-        rows.push_str(&format!(
+        internal = format!(
             r#"<div class="row" style="align-items:flex-start;flex-wrap:wrap"><span class="ic tint-green">{ic}</span>
 <div class="body"><span class="title">Ghost Core Content API</span>
 <div style="margin-top:6px">{chip}</div>
-<span class="detail">curl ".../ghost/api/content/posts/?key={key}"</span></div></div>"#,
+<span class="detail">curl "{site}/ghost/api/content/posts/?key={key}"</span></div></div>"#,
             ic = svg("code"),
             chip = key_chip("content", &key),
+            site = esc(&state.site_url()),
             key = esc(&key),
-        ));
+        );
     }
-    page_for_role(actor_role, 
+
+    page_for_role(
+        actor_role,
         "Integrations",
         "settings",
         Some(&user),
         &format!(
             r#"<header class="page-head rise"><a class="icon-btn" style="transform:rotate(180deg)" href="/ghost/settings/advanced/" title="Back to advanced settings">{back}</a>
-<div><h1>Integrations</h1><p class="sub">API keys &amp; external services</p></div></header>
+<div><h1>Integrations</h1><p class="sub">Built-in apps, API keys &amp; your own scripts</p></div></header>
+{banner}
+<div class="section">Built-in apps</div>
+<div class="card rows rise" style="--i:1">{apps}</div>
+<div class="section">Custom integrations</div>
+<div class="card rows rise" style="--i:2">{custom_rows}</div>
+<div class="card padded rise" style="--i:3"><form method="post" action="/ghost/settings/advanced/integrations/">
+<div class="section" style="margin-top:0">Add a custom integration</div>
+<p class="muted" style="margin:0 0 12px">Creates a Content API key and an Admin API key you can use from your own code.</p>
+<div class="inline-form">
+{name_field}{desc_field}
+<button class="btn" type="submit">{add} Add integration</button></div></form></div>
 <div class="section">Content API</div>
-<div class="card rows rise" style="--i:1">{rows}</div>
-<div class="banner info rise" style="--i:2">{bulb}<span class="msg">Create custom integrations via the Admin API: <code>POST /ghost/api/admin/integrations/</code></span></div>"#,
+<div class="card rows rise" style="--i:4">{internal}</div>"#,
             back = svg("chevron"),
-            rows = rows,
-            bulb = svg("integrations"),
+            banner = flash_banner(&q),
+            apps = apps,
+            custom_rows = custom_rows,
+            name_field = text_field("name", "Name", ""),
+            desc_field = text_field("description", "Description (optional)", ""),
+            add = svg("add"),
+            internal = internal,
         ),
         true,
     )
     .into_response()
+}
+
+#[derive(Deserialize)]
+struct IntegrationForm {
+    name: String,
+    #[serde(default)]
+    description: String,
+}
+
+async fn integration_create(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Form(form): Form<IntegrationForm>,
+) -> Response {
+    let actor = match require_role(&state, &headers, Role::Administrator).await {
+        Ok(a) => a,
+        Err(r) => return r,
+    };
+    match repos::integrations::create_custom(&state.db, &form.name, Some(&form.description)).await {
+        Ok(i) => {
+            let _ = repos::actions::record(&state.db, "integrations", &i.id, &actor.user.id, "added").await;
+            integrations_flash(&format!("custom/{}/", i.id), "ok", "Integration created.")
+        }
+        Err(e) => integrations_flash("", "error", &e.message()),
+    }
+}
+
+/// One custom integration: rename it, read its keys, delete it.
+async fn custom_integration_page(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+    Query(q): Query<HashMap<String, String>>,
+) -> Response {
+    let (user, actor_role) = match require_role(&state, &headers, Role::Administrator).await {
+        Ok(a) => (a.user, a.role),
+        Err(r) => return r,
+    };
+    let Ok(Some(i)) = repos::integrations::find_by_id(&state.db, &id).await else {
+        return not_found_page_for(actor_role, &user, "That integration does not exist.");
+    };
+
+    let mut keys = String::new();
+    if let Ok(list) = repos::api_keys::find_by_integration(&state.db, &i.id).await {
+        for k in list {
+            // an admin key is an `id:secret` pair; both halves sign the JWT
+            let shown = match k.key_type.as_str() {
+                "admin" => format!("{}:{}", k.id, k.secret),
+                _ => k.secret.clone(),
+            };
+            keys.push_str(&format!(
+                r#"<div class="row" style="align-items:flex-start;flex-wrap:wrap"><span class="ic tint-teal">{ic}</span>
+<div class="body"><span class="title">{label}</span><div style="margin-top:6px">{chip}</div></div></div>"#,
+                ic = svg("code"),
+                label = if k.key_type == "admin" { "Admin API key" } else { "Content API key" },
+                chip = key_chip(&k.key_type, &shown),
+            ));
+        }
+    }
+
+    page_for_role(
+        actor_role,
+        &i.name,
+        "settings",
+        Some(&user),
+        &format!(
+            r#"<header class="page-head rise"><a class="icon-btn" style="transform:rotate(180deg)" href="/ghost/settings/advanced/integrations/" title="Back to integrations">{back}</a>
+<div><h1>{name}</h1><p class="sub">Custom integration</p></div></header>
+{banner}
+<div class="card padded rise" style="--i:1"><form method="post" action="/ghost/settings/advanced/integrations/custom/{id}/">
+{name_field}{desc_field}
+<div style="margin-top:14px"><button class="btn" type="submit">Save</button></div></form></div>
+<div class="section">API keys</div>
+<div class="card rows rise" style="--i:2">{keys}</div>
+<div class="card rows rise" style="--i:3"><div class="row" style="align-items:flex-start;flex-wrap:wrap"><span class="ic tint-blue">{globe}</span>
+<div class="body"><span class="title">API URL</span><div style="margin-top:6px">{api_chip}</div></div></div></div>
+<div class="section">Danger zone</div>
+<div class="card padded rise" style="--i:4">
+<form method="post" action="/ghost/settings/advanced/integrations/custom/{id}/delete/" data-confirm="Delete integration|&#8220;{name}&#8221; and its API keys will be removed. Anything using them will stop working.">
+<button class="btn danger" type="submit">{del} Delete integration</button></form></div>"#,
+            back = svg("chevron"),
+            banner = flash_banner(&q),
+            name = esc(&i.name),
+            id = esc(&i.id),
+            name_field = text_field("name", "Name", &i.name),
+            desc_field = text_field("description", "Description", i.description.as_deref().unwrap_or("")),
+            keys = keys,
+            globe = svg("globe"),
+            api_chip = key_chip("url", &format!("{}/ghost/api", state.site_url())),
+            del = svg("delete"),
+        ),
+        true,
+    )
+    .into_response()
+}
+
+async fn custom_integration_save(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+    Form(form): Form<IntegrationForm>,
+) -> Response {
+    if let Err(r) = require_role(&state, &headers, Role::Administrator).await {
+        return r;
+    }
+    let sub = format!("custom/{id}/");
+    match repos::integrations::update_custom(&state.db, &id, &form.name, Some(&form.description)).await {
+        Ok(()) => integrations_flash(&sub, "ok", "Integration saved."),
+        Err(e) => integrations_flash(&sub, "error", &e.message()),
+    }
+}
+
+async fn custom_integration_delete(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+) -> Response {
+    let actor = match require_role(&state, &headers, Role::Administrator).await {
+        Ok(a) => a,
+        Err(r) => return r,
+    };
+    match repos::integrations::delete_custom(&state.db, &id).await {
+        Ok(()) => {
+            let _ = repos::actions::record(&state.db, "integrations", &id, &actor.user.id, "deleted").await;
+            integrations_flash("", "ok", "Integration deleted.")
+        }
+        Err(e) => integrations_flash(&format!("custom/{id}/"), "error", &e.message()),
+    }
+}
+
+// ---------------------------------------------------------------------------
+// built-in app: Zapier
+// ---------------------------------------------------------------------------
+
+async fn zapier_page(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Query(q): Query<HashMap<String, String>>,
+) -> Response {
+    let (user, actor_role) = match require_role(&state, &headers, Role::Administrator).await {
+        Ok(a) => (a.user, a.role),
+        Err(r) => return r,
+    };
+    let key = repos::integrations::admin_key_for_slug(&state.db, "zapier")
+        .await
+        .ok()
+        .flatten();
+    let key_block = match &key {
+        Some(k) => format!(
+            r#"<div class="row" style="align-items:flex-start;flex-wrap:wrap"><span class="ic tint-amber">{ic}</span>
+<div class="body"><span class="title">Admin API key</span><div style="margin-top:6px">{chip}</div></div></div>
+<div class="row" style="align-items:flex-start;flex-wrap:wrap"><span class="ic tint-blue">{globe}</span>
+<div class="body"><span class="title">API URL</span><div style="margin-top:6px">{url}</div></div></div>"#,
+            ic = svg("lock"),
+            chip = key_chip("admin", k),
+            globe = svg("globe"),
+            url = key_chip("url", &format!("{}/ghost/api", state.site_url())),
+        ),
+        None => r#"<div class="row"><div class="body"><span class="detail">The Zapier key is missing from this database. Restart the server to have it recreated.</span></div></div>"#.to_string(),
+    };
+
+    page_for_role(
+        actor_role,
+        "Zapier",
+        "settings",
+        Some(&user),
+        &format!(
+            r#"<header class="page-head rise"><a class="icon-btn" style="transform:rotate(180deg)" href="/ghost/settings/advanced/integrations/" title="Back to integrations">{back}</a>
+<div><h1>Zapier</h1><p class="sub">Automate Ghost with 6,000+ apps</p></div></header>
+{banner}
+<div class="banner info rise" style="--i:1">{bulb}<span class="msg">Paste these into Zapier when it asks to connect to Ghost. The Admin API key lets a Zap create and edit content, so treat it like a password.</span></div>
+<div class="section">Credentials</div>
+<div class="card rows rise" style="--i:2">{key_block}</div>"#,
+            back = svg("chevron"),
+            banner = flash_banner(&q),
+            bulb = svg("integrations"),
+            key_block = key_block,
+        ),
+        true,
+    )
+    .into_response()
+}
+
+// ---------------------------------------------------------------------------
+// built-in app: Slack
+// ---------------------------------------------------------------------------
+
+#[derive(Deserialize)]
+struct SlackForm {
+    #[serde(default)]
+    slack_url: String,
+    #[serde(default)]
+    slack_username: String,
+}
+
+async fn slack_page(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Query(q): Query<HashMap<String, String>>,
+) -> Response {
+    let (user, actor_role) = match require_role(&state, &headers, Role::Administrator).await {
+        Ok(a) => (a.user, a.role),
+        Err(r) => return r,
+    };
+    let url = state.settings.get_str("slack_url").unwrap_or_default();
+    let username = state
+        .settings
+        .get_str("slack_username")
+        .filter(|u| !u.is_empty())
+        .unwrap_or_else(|| "Ghost".into());
+    let configured = !url.trim().is_empty();
+    let test = match configured {
+        true => r#"<form method="post" action="/ghost/settings/advanced/integrations/slack/test/" style="margin-top:14px"><button class="btn tonal" type="submit">Send test notification</button></form>"#,
+        false => "",
+    };
+
+    page_for_role(
+        actor_role,
+        "Slack",
+        "settings",
+        Some(&user),
+        &format!(
+            r#"<header class="page-head rise"><a class="icon-btn" style="transform:rotate(180deg)" href="/ghost/settings/advanced/integrations/" title="Back to integrations">{back}</a>
+<div><h1>Slack</h1><p class="sub">Post to a channel when you publish</p></div></header>
+{banner}
+<div class="banner info rise" style="--i:1">{bulb}<span class="msg">Create an <b>Incoming Webhook</b> in Slack (Slack → Apps → Incoming WebHooks), pick a channel, and paste the URL it gives you. The URL is a credential — anyone with it can post to that channel.</span></div>
+<div class="card padded rise" style="--i:2"><form method="post" action="/ghost/settings/advanced/integrations/slack/">
+{url_field}{name_field}
+<div style="margin-top:14px"><button class="btn" type="submit">Save</button></div></form>
+{test}</div>"#,
+            back = svg("chevron"),
+            banner = flash_banner(&q),
+            bulb = svg("send"),
+            url_field = text_field("slack_url", "Webhook URL", &url),
+            name_field = text_field("slack_username", "Username shown in Slack", &username),
+            test = test,
+        ),
+        true,
+    )
+    .into_response()
+}
+
+async fn slack_save(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Form(form): Form<SlackForm>,
+) -> Response {
+    if let Err(r) = require_role(&state, &headers, Role::Administrator).await {
+        return r;
+    }
+    if let Err(e) = ghost_api::slack::validate_url(&form.slack_url) {
+        return integrations_flash("slack/", "error", &e.message());
+    }
+    let url = form.slack_url.trim().to_string();
+    let username = match form.slack_username.trim() {
+        "" => "Ghost".to_string(),
+        u => u.to_string(),
+    };
+    for (key, value) in [("slack_url", url), ("slack_username", username)] {
+        if let Err(e) = state.settings.set(&state.db, key, &serde_json::json!(value)).await {
+            return integrations_flash("slack/", "error", &e.message());
+        }
+    }
+    integrations_flash("slack/", "ok", "Slack settings saved.")
+}
+
+async fn slack_test(State(state): State<AppState>, headers: HeaderMap) -> Response {
+    if let Err(r) = require_role(&state, &headers, Role::Administrator).await {
+        return r;
+    }
+    let Some(cfg) = ghost_api::slack::SlackConfig::from_settings(&state.settings) else {
+        return integrations_flash("slack/", "error", "Add a webhook URL first.");
+    };
+    let title = state.settings.get_str("title").unwrap_or_else(|| "Ghost".into());
+    match ghost_api::slack::send_test(&cfg, &title, &state.site_url()).await {
+        Ok(()) => integrations_flash("slack/", "ok", "Test notification sent to Slack."),
+        Err(e) => integrations_flash("slack/", "error", &e.message()),
+    }
+}
+
+// ---------------------------------------------------------------------------
+// built-in app: Unsplash
+// ---------------------------------------------------------------------------
+
+#[derive(Deserialize)]
+struct UnsplashForm {
+    #[serde(default)]
+    unsplash: Option<String>,
+    #[serde(default)]
+    unsplash_access_key: String,
+}
+
+async fn unsplash_page(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Query(q): Query<HashMap<String, String>>,
+) -> Response {
+    let (user, actor_role) = match require_role(&state, &headers, Role::Administrator).await {
+        Ok(a) => (a.user, a.role),
+        Err(r) => return r,
+    };
+    let on = state.settings.get_bool("unsplash");
+    let key = state.settings.get_str("unsplash_access_key").unwrap_or_default();
+    let note = match key.trim().is_empty() {
+        true => "Without an access key the picker shows a built-in sample gallery. Add a key from unsplash.com/developers to search the whole library.",
+        false => "Searching the full Unsplash library with your access key.",
+    };
+
+    page_for_role(
+        actor_role,
+        "Unsplash",
+        "settings",
+        Some(&user),
+        &format!(
+            r#"<header class="page-head rise"><a class="icon-btn" style="transform:rotate(180deg)" href="/ghost/settings/advanced/integrations/" title="Back to integrations">{back}</a>
+<div><h1>Unsplash</h1><p class="sub">Free photography inside the editor</p></div></header>
+{banner}
+<div class="card padded rise" style="--i:1"><form method="post" action="/ghost/settings/advanced/integrations/unsplash/">
+{toggle}
+<div style="margin-top:14px">{key_field}</div>
+<p class="muted" style="margin:10px 0 0">{note}</p>
+<div style="margin-top:14px"><button class="btn" type="submit">Save</button></div></form></div>"#,
+            back = svg("chevron"),
+            banner = flash_banner(&q),
+            toggle = toggle_row("unsplash", "Unsplash in the editor", "Adds an Unsplash button to image cards", on),
+            key_field = text_field("unsplash_access_key", "Unsplash access key (optional)", &key),
+            note = esc(note),
+        ),
+        true,
+    )
+    .into_response()
+}
+
+async fn unsplash_save(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Form(form): Form<UnsplashForm>,
+) -> Response {
+    if let Err(r) = require_role(&state, &headers, Role::Administrator).await {
+        return r;
+    }
+    let on = form.unsplash.as_deref() == Some("1");
+    if let Err(e) = state.settings.set(&state.db, "unsplash", &serde_json::json!(on)).await {
+        return integrations_flash("unsplash/", "error", &e.message());
+    }
+    let key = form.unsplash_access_key.trim().to_string();
+    if let Err(e) = state
+        .settings
+        .set(&state.db, "unsplash_access_key", &serde_json::json!(key))
+        .await
+    {
+        return integrations_flash("unsplash/", "error", &e.message());
+    }
+    integrations_flash("unsplash/", "ok", "Unsplash settings saved.")
 }
 
 #[cfg(test)]
@@ -8461,6 +10270,68 @@ mod tests {
         // the alternative is mailing every subscriber by accident
         assert_eq!(PublishAction::parse(""), PublishOnly);
         assert_eq!(PublishAction::parse("nonsense"), PublishOnly);
+    }
+
+    /// A scheduled save is the one case where the decision is stored instead
+    /// of acted on, so the storing has to be right: a bad date must never
+    /// become "now", and an email intent must survive to the delivery row.
+    #[test]
+    fn scheduling_reads_the_date_and_the_delivery() {
+        // The comparison is textual, so fixed dates either side of any
+        // plausible "now" make this independent of the clock.
+        const FUTURE: &str = "2099-01-01 09:00:00";
+        const PAST: &str = "2000-01-01 09:00:00";
+        let form = |status: &str, when: &str, action: &str| {
+            let mut f = EditorForm::parse("title=T&markdown=body");
+            f.status = status.into();
+            f.published_at = (!when.is_empty()).then(|| when.to_string());
+            f.publish_action = action.into();
+            f
+        };
+
+        // not scheduled: nothing to arrange, whatever the date says
+        let f = form("published", FUTURE, "publish_email");
+        assert!(matches!(scheduling(&f, "post", PublishAction::PublishAndEmail), Scheduling::No));
+
+        // scheduled into the future, with and without an email
+        let f = form("scheduled", FUTURE, "publish_only");
+        let Scheduling::At(d) = scheduling(&f, "post", PublishAction::PublishOnly) else {
+            panic!("a future date is a schedule");
+        };
+        assert!(!d.email && !d.email_only);
+        assert_eq!(d.status(), "published");
+
+        let f = form("scheduled", FUTURE, "publish_email");
+        let Scheduling::At(d) = scheduling(&f, "post", PublishAction::PublishAndEmail) else {
+            panic!("a future date is a schedule");
+        };
+        assert!(d.email && !d.email_only);
+        assert_eq!(d.status(), "published");
+
+        let f = form("scheduled", FUTURE, "email_only");
+        let Scheduling::At(d) = scheduling(&f, "post", PublishAction::EmailOnly) else {
+            panic!("a future date is a schedule");
+        };
+        assert!(d.email && d.email_only);
+        // email-only posts land in Ghost's `sent`, off the site's listings
+        assert_eq!(d.status(), "sent");
+
+        // a page has no newsletter, so the choice cannot make it send one
+        let f = form("scheduled", FUTURE, "publish_email");
+        let Scheduling::At(d) = scheduling(&f, "page", PublishAction::PublishAndEmail) else {
+            panic!("a page can be scheduled too");
+        };
+        assert!(!d.email);
+
+        // a date in the past, or none at all, is not a schedule — and must
+        // not fall through to publishing immediately
+        for when in [PAST, ""] {
+            let f = form("scheduled", &when, "publish_email");
+            assert!(
+                matches!(scheduling(&f, "post", PublishAction::PublishAndEmail), Scheduling::Undated),
+                "{when:?} was accepted as a schedule"
+            );
+        }
     }
 
     #[test]

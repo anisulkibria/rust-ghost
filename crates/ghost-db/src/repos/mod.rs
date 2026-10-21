@@ -10,6 +10,7 @@ pub mod api_keys;
 pub mod sessions;
 pub mod actions;
 pub mod integrations;
+pub mod newsletters;
 
 use ghost_core::models::{Post, PostMeta, Tag, User};
 

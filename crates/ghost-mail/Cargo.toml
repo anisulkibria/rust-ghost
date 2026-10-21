@@ -10,6 +10,11 @@ ghost-db = { workspace = true }
 lettre = { workspace = true }
 reqwest = { workspace = true }
 hickory-resolver = { workspace = true }
+# Ghost's newsletter templates are Handlebars, and they are vendored as-is
+handlebars = { workspace = true }
+css-inline = { workspace = true }
+serde = { workspace = true }
 serde_json = { workspace = true }
+once_cell = { workspace = true }
 tracing = { workspace = true }
 tokio = { workspace = true }

@@ -98,6 +98,7 @@ async fn main() {
         tracing::info!("seeded initial data (roles, settings, fixture posts)");
     }
     ghost_db::seed::populate_missing_settings(&db).await.expect("settings defaults");
+    ghost_db::seed::ensure_builtin_integrations(&db).await.expect("builtin integrations");
 
     // `ghost seed-demo` fills the site with demo content and exits, rather
     // than starting the server
@@ -201,7 +202,11 @@ async fn main() {
         tracing::info!("Content API key (ghost-core-content): {key}");
     }
 
-    // 8. build the app, mounted under the base path
+    // 8. start the publisher for scheduled posts, then build the app mounted
+    // under the base path. The publisher runs for the life of the process:
+    // a post scheduled for Friday has nobody making a request at the moment
+    // it is due, so nothing in the request path can publish it.
+    ghost_admin_ui::schedule::spawn(state.clone());
     let app = mount(build_app(state), subdir);
 
     // 9. listen

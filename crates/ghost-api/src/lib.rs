@@ -4,6 +4,7 @@ pub mod content;
 pub mod images;
 pub mod members;
 pub mod oembed;
+pub mod slack;
 pub mod state;
 pub mod themes;
 

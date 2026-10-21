@@ -672,6 +672,126 @@ pub async fn update(pool: &SqlitePool, id: &str, changes: &PostChanges) -> Resul
     find_by_id(pool, id).await?.ok_or_else(|| GhostError::Internal("post vanished after update".into()))
 }
 
+// ---------------------------------------------------------------------------
+// scheduling
+// ---------------------------------------------------------------------------
+
+/// What should happen to a post when its scheduled time arrives.
+///
+/// A scheduled post is written now and delivered later, so the decision the
+/// author made at writing time has to be stored rather than acted on. Ghost
+/// keeps the same two facts in the same two columns: `email_recipient_filter`
+/// on the post, and `email_only` on its meta row.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct Delivery {
+    /// Email it to the newsletter's subscribers. The post's own visibility
+    /// still decides which of them, at send time.
+    pub email: bool,
+    /// Deliver it to subscribers without listing it on the site — Ghost's
+    /// `sent` status.
+    pub email_only: bool,
+}
+
+impl Delivery {
+    /// How it is stored on the post row. `all` is Ghost's filter for "every
+    /// subscriber the post's visibility allows".
+    fn filter(self) -> Option<&'static str> {
+        self.email.then_some("all")
+    }
+
+    /// The status the post takes when it goes out.
+    pub fn status(self) -> &'static str {
+        if self.email_only {
+            "sent"
+        } else {
+            "published"
+        }
+    }
+}
+
+/// Record what a scheduled post should do when its time comes.
+pub async fn set_delivery(pool: &SqlitePool, post_id: &str, delivery: Delivery) -> Result<()> {
+    sqlx::query("UPDATE posts SET email_recipient_filter = ? WHERE id = ?")
+        .bind(delivery.filter())
+        .bind(post_id)
+        .execute(pool)
+        .await
+        .map_err(dberr)?;
+    // `post_id` is unique, so this is an upsert: a post whose meta row does
+    // not exist yet is the common case for one scheduled straight away.
+    sqlx::query(
+        "INSERT INTO posts_meta (id, post_id, email_only) VALUES (?, ?, ?) \
+         ON CONFLICT(post_id) DO UPDATE SET email_only = excluded.email_only",
+    )
+    .bind(ids::new_id())
+    .bind(post_id)
+    .bind(delivery.email_only)
+    .execute(pool)
+    .await
+    .map_err(dberr)?;
+    Ok(())
+}
+
+/// What one post is set to do, so the editor can show the choice it is
+/// holding rather than offering a fresh one and quietly dropping it.
+pub async fn delivery(pool: &SqlitePool, post_id: &str) -> Delivery {
+    let row: Option<(Option<String>, Option<bool>)> = sqlx::query_as(
+        "SELECT p.email_recipient_filter, m.email_only FROM posts p \
+         LEFT JOIN posts_meta m ON m.post_id = p.id WHERE p.id = ?",
+    )
+    .bind(post_id)
+    .fetch_optional(pool)
+    .await
+    .ok()
+    .flatten();
+    match row {
+        Some((filter, email_only)) => Delivery {
+            email: filter.is_some_and(|f| !f.is_empty() && f != "none"),
+            email_only: email_only.unwrap_or(false),
+        },
+        None => Delivery::default(),
+    }
+}
+
+/// A scheduled post whose time has come.
+#[derive(Debug, Clone)]
+pub struct DuePost {
+    pub id: String,
+    pub delivery: Delivery,
+}
+
+/// Scheduled posts due at or before `now`, oldest first.
+///
+/// "At or before" rather than "since the last check" on purpose: anything
+/// whose moment passed while the server was down is picked up by the first
+/// run after it starts, which is the behaviour an author expects from a date
+/// they set days ago.
+pub async fn due_scheduled(pool: &SqlitePool, now: &str) -> Result<Vec<DuePost>> {
+    let rows: Vec<(String, Option<String>, Option<bool>)> = sqlx::query_as(
+        "SELECT p.id, p.email_recipient_filter, m.email_only \
+         FROM posts p LEFT JOIN posts_meta m ON m.post_id = p.id \
+         WHERE p.status = 'scheduled' AND p.published_at IS NOT NULL AND p.published_at <= ? \
+         ORDER BY p.published_at",
+    )
+    .bind(now)
+    .fetch_all(pool)
+    .await
+    .map_err(dberr)?;
+
+    Ok(rows
+        .into_iter()
+        .map(|(id, filter, email_only)| DuePost {
+            id,
+            delivery: Delivery {
+                // Any filter at all means "email this"; Ghost writes `none`
+                // for a post that is not going out, and so do we.
+                email: filter.is_some_and(|f| !f.is_empty() && f != "none"),
+                email_only: email_only.unwrap_or(false),
+            },
+        })
+        .collect())
+}
+
 pub async fn destroy(pool: &SqlitePool, id: &str) -> Result<()> {
     let res = sqlx::query("DELETE FROM posts WHERE id = ?").bind(id).execute(pool).await.map_err(dberr)?;
     if res.rows_affected() == 0 {

@@ -34,6 +34,24 @@ pub fn now_api() -> String {
     api_from_datetime(&Utc::now())
 }
 
+/// `20 Oct 2026` in `timezone` — the byline date in a newsletter.
+///
+/// Ghost renders it with Luxon's
+/// `toLocaleString({year: 'numeric', month: 'short', day: 'numeric'})` in the
+/// site timezone. Doing it in the site timezone rather than UTC matters more
+/// than it looks: a post published at 23:30 in New York is already the next
+/// day in UTC, and the email would date it a day late.
+///
+/// An unrecognised timezone falls back to UTC rather than failing, since a
+/// wrong-by-hours date is better than no email.
+pub fn short_date_in_zone(db: &str, timezone: &str) -> String {
+    let Some(dt) = from_db_string(db) else {
+        return String::new();
+    };
+    let tz: chrono_tz::Tz = timezone.parse().unwrap_or(chrono_tz::UTC);
+    dt.with_timezone(&tz).format("%-d %b %Y").to_string()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

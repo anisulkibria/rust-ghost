@@ -733,6 +733,7 @@ be set as an environment variable with `GHOST_` and `__` for nesting —
 | Content API | ✅ `/ghost/api/content/{posts,pages,tags,authors,settings,tiers,newsletters}` browse + read by id/slug, `?key=` auth (anonymous = public only), NQL `filter=`/`include=`/`order=`/`limit=`/`fields=`, Ghost envelope shapes |
 | Admin API | ✅ setup flow, bcrypt session login (DB-backed, `ghost-admin-api-session` cookie), posts/pages/tags/users/settings/integrations CRUD, actions audit log, image/media upload |
 | Admin UI | ✅ server-rendered: setup wizard, sign in/out, posts/pages list, markdown editor (tags, featured, status), tags, full Ghost-style settings hub — general, meta data, social accounts, analytics, site (announcement bar w/ server-rendered bar), membership (access, tiers, signup portal, newsletters), growth (recommendations, signup forms; Network & Explore deferred), advanced (integrations, Ghost-format import/export, code injection, labs), history (audit log), danger zone — plus navigation editor (primary + secondary menus) |
+| Integrations | ✅ built-in apps — Zapier (Admin API key + URL), Slack (incoming webhook, test send, notify on publish), Unsplash (editor picker, own access key) — plus custom integrations with a Content and Admin API key each |
 | Markdown | ✅ comrak (GFM + raw HTML) → `html`/`plaintext`/`reading_time`; markdown source round-trips in a `markdown` column |
 | Sitemap / RSS | ✅ `/sitemap.xml` + per-resource maps, `/rss/` per collection/taxonomy, `/feed/` → 301 |
 | Errors | ✅ theme `error.hbs` hierarchy (`error-<code>` → `error-<N>xx` → `error`) with builtin fallback |
@@ -797,9 +798,9 @@ content/          themes/, data/, images/, routes.yaml, redirects.yaml
 cargo test --workspace
 ```
 
-263 unit tests: NQL parser/SQL compilation (incl. injection attempts), slug
+265 unit tests: NQL parser/SQL compilation (incl. injection attempts), slug
 rules, routes.yaml parsing + router matching, redirects, template resolution,
 preprocessor rewrites, markdown pipeline, handlebars helper mechanics,
 base-path joining/stripping with the HTML rewrite in both directions,
 `url` + `ssl` resolving into a listening plan, install-time port selection,
-and per-instance service naming.
+per-instance service naming, and Slack webhook validation.
