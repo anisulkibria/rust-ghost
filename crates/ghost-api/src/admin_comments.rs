@@ -438,6 +438,9 @@ async fn add(
             parent_id: parent_id.as_deref(),
             in_reply_to_id: in_reply_to_id.as_deref(),
             html: &html,
+            // an admin/import write is pre-moderated by definition: it goes
+            // out visible whatever the site's review setting is
+            status: "published",
             created_at,
         },
     )

@@ -475,6 +475,11 @@ pub async fn find_with_relations(
         is_admin,
         member_id: member_id.map(str::to_string),
         with_replies: with_replies && row.parent_id.is_none(),
+        // A single-comment read is always shown in context — the moderation
+        // screen, the API's reply snippet, the member's own view — and every
+        // one of them names the post. Leaving this at the default meant every
+        // caller rendered "(post deleted)" for a healthy post.
+        with_post: true,
         ..Default::default()
     };
     Ok(hydrate(pool, vec![row], &q).await?.into_iter().next())
@@ -491,6 +496,9 @@ pub struct NewComment<'a> {
     pub in_reply_to_id: Option<&'a str>,
     /// Already sanitised by `ghost_core::comments::prepare_html`.
     pub html: &'a str,
+    /// `published`, or `hidden` when the site holds new comments for review.
+    /// Insertion does not guess: the caller reads `comments_moderation`.
+    pub status: &'a str,
     /// Set only by the admin API's importer, which backdates comments.
     pub created_at: Option<String>,
 }
@@ -501,13 +509,14 @@ pub async fn insert(pool: &SqlitePool, new: NewComment<'_>) -> Result<Comment> {
     let created_at = new.created_at.unwrap_or_else(|| now.clone());
     sqlx::query(
         "INSERT INTO comments (id, post_id, member_id, parent_id, in_reply_to_id, status, html, created_at, updated_at) \
-         VALUES (?, ?, ?, ?, ?, 'published', ?, ?, ?)",
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
     )
     .bind(&id)
     .bind(new.post_id)
     .bind(new.member_id)
     .bind(new.parent_id)
     .bind(new.in_reply_to_id)
+    .bind(new.status)
     .bind(new.html)
     .bind(&created_at)
     .bind(&now)
@@ -518,6 +527,24 @@ pub async fn insert(pool: &SqlitePool, new: NewComment<'_>) -> Result<Comment> {
     find_raw(pool, &id)
         .await?
         .ok_or_else(|| GhostError::Internal("comment vanished after insert".into()))
+}
+
+/// Remove a comment for good — the moderator's action, as opposed to hiding,
+/// which is reversible, and to the author's own retraction, which sets
+/// `deleted` and leaves the row.
+///
+/// One statement is the whole job: the foreign keys cascade, so the
+/// comment's likes and reports go with it, and so do its replies — which is
+/// why the admin UI confirms before calling this. Returns `false` when the
+/// comment did not exist.
+pub async fn delete(pool: &SqlitePool, id: &str) -> Result<bool> {
+    let changed = sqlx::query("DELETE FROM comments WHERE id = ?")
+        .bind(id)
+        .execute(pool)
+        .await
+        .map_err(dberr)?
+        .rows_affected();
+    Ok(changed > 0)
 }
 
 /// Replace a comment's body and stamp `edited_at`, which is what makes the

@@ -704,6 +704,18 @@ async fn add(
     }
 }
 
+/// The status a brand-new comment lands with: `published`, unless the site
+/// holds new comments for review (`comments_moderation: review`), in which
+/// case `hidden` — the state the public API already withholds from visitors
+/// and the Comments screen's Hidden filter queues up for a moderator.
+fn new_comment_status(state: &AppState) -> &'static str {
+    if state.settings.get_str("comments_moderation").as_deref() == Some("review") {
+        "hidden"
+    } else {
+        "published"
+    }
+}
+
 /// Ghost's `commentOnPost`.
 pub async fn comment_on_post(
     state: &AppState,
@@ -720,6 +732,7 @@ pub async fn comment_on_post(
             parent_id: None,
             in_reply_to_id: None,
             html,
+            status: new_comment_status(state),
             created_at: None,
         },
     )
@@ -765,6 +778,7 @@ pub async fn reply_to_comment(
             parent_id: Some(&parent.id),
             in_reply_to_id: addressed.as_deref(),
             html,
+            status: new_comment_status(state),
             created_at: None,
         },
     )

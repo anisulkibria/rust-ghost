@@ -362,6 +362,225 @@ fn unpack(data: &[u8], staging: &Path) -> Result<PathBuf> {
     })
 }
 
+// ---------------------------------------------------------------------------
+// official themes
+// ---------------------------------------------------------------------------
+
+/// One theme from Ghost's "Official themes" gallery — the set the hosted admin
+/// offers under `/ghost/#/settings/design/change-theme`.
+///
+/// They are all free, MIT-licensed and published by Ghost itself from a known
+/// GitHub organisation, which is what makes a one-click install reasonable:
+/// the download target is fixed at compile time rather than coming off the
+/// request.
+pub struct OfficialTheme {
+    /// Display name, as Ghost lists it.
+    pub name: &'static str,
+    /// Directory it installs as — the `name` in the theme's `package.json`,
+    /// and so also the key the install/activate routes take.
+    pub slug: &'static str,
+    /// Ghost's own grouping: Blog, Newsletter, Magazine, …
+    pub category: &'static str,
+    /// Live demo site. Doubles as the gallery thumbnail.
+    pub preview_url: &'static str,
+    /// `Org/Repo` on GitHub. The zipball of its default branch is what gets
+    /// installed, which is how Ghost installs these too.
+    pub repo: &'static str,
+}
+
+/// Ghost's official themes, in the order the hosted admin lists them.
+pub const OFFICIAL_THEMES: &[OfficialTheme] = &[
+    OfficialTheme { name: "Source",   slug: "source",   category: "News",          preview_url: "https://source.ghost.io/",   repo: "TryGhost/Source" },
+    OfficialTheme { name: "Casper",   slug: "casper",   category: "Blog",          preview_url: "https://demo.ghost.io/",     repo: "TryGhost/Casper" },
+    OfficialTheme { name: "Edition",  slug: "edition",  category: "Newsletter",    preview_url: "https://edition.ghost.io/",  repo: "TryGhost/Edition" },
+    OfficialTheme { name: "Solo",     slug: "solo",     category: "Blog",          preview_url: "https://solo.ghost.io/",     repo: "TryGhost/Solo" },
+    OfficialTheme { name: "Taste",    slug: "taste",    category: "Blog",          preview_url: "https://taste.ghost.io/",    repo: "TryGhost/Taste" },
+    OfficialTheme { name: "Episode",  slug: "episode",  category: "Podcast",       preview_url: "https://episode.ghost.io/",  repo: "TryGhost/Episode" },
+    OfficialTheme { name: "Digest",   slug: "digest",   category: "Newsletter",    preview_url: "https://digest.ghost.io/",   repo: "TryGhost/Digest" },
+    OfficialTheme { name: "Bulletin", slug: "bulletin", category: "Newsletter",    preview_url: "https://bulletin.ghost.io/", repo: "TryGhost/Bulletin" },
+    OfficialTheme { name: "Alto",     slug: "alto",     category: "Blog",          preview_url: "https://alto.ghost.io/",     repo: "TryGhost/Alto" },
+    OfficialTheme { name: "Dope",     slug: "dope",     category: "Magazine",      preview_url: "https://dope.ghost.io/",     repo: "TryGhost/Dope" },
+    OfficialTheme { name: "Wave",     slug: "wave",     category: "Podcast",       preview_url: "https://wave.ghost.io/",     repo: "TryGhost/Wave" },
+    OfficialTheme { name: "Edge",     slug: "edge",     category: "Photography",   preview_url: "https://edge.ghost.io/",     repo: "TryGhost/Edge" },
+    OfficialTheme { name: "Dawn",     slug: "dawn",     category: "Newsletter",    preview_url: "https://dawn.ghost.io/",     repo: "TryGhost/Dawn" },
+    OfficialTheme { name: "Ease",     slug: "ease",     category: "Documentation", preview_url: "https://ease.ghost.io/",     repo: "TryGhost/Ease" },
+    OfficialTheme { name: "Headline", slug: "headline", category: "News",          preview_url: "https://headline.ghost.io/", repo: "TryGhost/Headline" },
+    OfficialTheme { name: "Ruby",     slug: "ruby",     category: "Magazine",      preview_url: "https://ruby.ghost.io/",     repo: "TryGhost/Ruby" },
+    OfficialTheme { name: "London",   slug: "london",   category: "Photography",   preview_url: "https://london.ghost.io/",   repo: "TryGhost/London" },
+    OfficialTheme { name: "Journal",  slug: "journal",  category: "Newsletter",    preview_url: "https://journal.ghost.io/",  repo: "TryGhost/Journal" },
+];
+
+/// Look up a gallery entry by the slug the install route carries.
+pub fn official(slug: &str) -> Option<&'static OfficialTheme> {
+    OFFICIAL_THEMES.iter().find(|t| t.slug == slug)
+}
+
+/// How long we give GitHub to hand over a theme archive. Generous, because
+/// this runs on an operator's click and the archives carry built assets.
+const DOWNLOAD_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(120);
+/// Ceiling on a downloaded archive, well above the largest official theme.
+const MAX_DOWNLOAD_BYTES: usize = 50 * 1024 * 1024;
+
+/// Download an official theme from GitHub and install it, returning the name
+/// it installed as.
+///
+/// Only the slugs in [`OFFICIAL_THEMES`] resolve, so no caller — and no
+/// request — can point this at an arbitrary host.
+pub async fn install_official(state: &AppState, slug: &str) -> Result<String> {
+    let theme = official(slug).ok_or_else(|| GhostError::NotFoundError {
+        message: format!("'{slug}' is not an official Ghost theme"),
+        context: None,
+    })?;
+    let data = download_zipball(theme.repo).await?;
+    let installed = install_zip(state, &format!("{}.zip", theme.slug), data).await?;
+    tracing::info!("official theme '{}' installed from {}", installed, theme.repo);
+    Ok(installed)
+}
+
+/// Ghost's marketplace screenshots, which is where the gallery thumbnails
+/// come from. 600x750 PNGs, one per theme slug.
+const THUMBNAIL_BASE: &str = "https://ghost.org/images/marketplace/themes";
+/// Ceiling on a thumbnail; the largest of Ghost's own is around 160KB.
+const MAX_THUMBNAIL_BYTES: usize = 4 * 1024 * 1024;
+/// How long the admin tells the browser to keep a gallery thumbnail.
+///
+/// The upstream images are served with `max-age=0, must-revalidate`, so
+/// pointing the gallery straight at ghost.org would mean 18 conditional
+/// requests on every visit to the themes page. Copying them in and serving
+/// them from here is what makes a real cache window possible — the art for a
+/// published theme does not change, so a week is conservative.
+pub const THUMBNAIL_MAX_AGE_SECONDS: u32 = 7 * 24 * 60 * 60;
+
+/// Where copied thumbnails live between restarts.
+fn thumbnail_cache_dir(state: &AppState) -> PathBuf {
+    state.config.content_path().join("cache").join("theme-thumbnails")
+}
+
+/// PNG bytes for an official theme's gallery thumbnail, fetched from Ghost's
+/// marketplace the first time and read off disk after that.
+pub async fn official_thumbnail(state: &AppState, slug: &str) -> Result<Vec<u8>> {
+    let theme = official(slug).ok_or_else(|| GhostError::NotFoundError {
+        message: format!("'{slug}' is not an official Ghost theme"),
+        context: None,
+    })?;
+
+    let dir = thumbnail_cache_dir(state);
+    let path = dir.join(format!("{}.png", theme.slug));
+    match tokio::fs::read(&path).await {
+        Ok(bytes) if !bytes.is_empty() => return Ok(bytes),
+        _ => {}
+    }
+
+    let bytes = download_thumbnail(theme.slug).await?;
+
+    // Written through a temporary name so a second request arriving mid-write
+    // reads either the previous file or the complete new one, never a
+    // half-written PNG. A failure to cache is not a failure to serve.
+    tokio::fs::create_dir_all(&dir).await?;
+    let tmp = dir.join(format!(".{}-{}.png", theme.slug, ghost_core::ids::random_hex(6)));
+    if tokio::fs::write(&tmp, &bytes).await.is_ok() && tokio::fs::rename(&tmp, &path).await.is_err() {
+        let _ = tokio::fs::remove_file(&tmp).await;
+    }
+    Ok(bytes)
+}
+
+async fn download_thumbnail(slug: &str) -> Result<Vec<u8>> {
+    let url = format!("{THUMBNAIL_BASE}/{slug}.png");
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(20))
+        .user_agent("Ghost-rust theme installer")
+        .build()
+        .map_err(|e| GhostError::Internal(e.to_string()))?;
+
+    let response = client
+        .get(&url)
+        .send()
+        .await
+        .map_err(|e| GhostError::Internal(format!("could not reach ghost.org: {e}")))?;
+    if !response.status().is_success() {
+        return Err(GhostError::NotFoundError {
+            message: format!("no gallery image for '{slug}'"),
+            context: Some(url),
+        });
+    }
+    if response.content_length().is_some_and(|n| n as usize > MAX_THUMBNAIL_BYTES) {
+        return Err(GhostError::ValidationError {
+            message: "that gallery image is too large".into(),
+            context: None,
+        });
+    }
+
+    let bytes = response
+        .bytes()
+        .await
+        .map_err(|e| GhostError::Internal(format!("download from ghost.org failed: {e}")))?;
+    // Only ever written out and served back as image/png, so check the magic
+    // rather than trusting the content type.
+    if !bytes.starts_with(b"\x89PNG\r\n\x1a\n") || bytes.len() > MAX_THUMBNAIL_BYTES {
+        return Err(GhostError::ValidationError {
+            message: format!("the gallery image for '{slug}' is not a usable PNG"),
+            context: None,
+        });
+    }
+    Ok(bytes.to_vec())
+}
+
+/// Fetch the default branch of `Org/Repo` as a zip, the way Ghost's own
+/// installer does (`/zipball` with no ref).
+async fn download_zipball(repo: &str) -> Result<Vec<u8>> {
+    let url = format!("https://api.github.com/repos/{}/zipball", repo.to_lowercase());
+    let client = reqwest::Client::builder()
+        .timeout(DOWNLOAD_TIMEOUT)
+        // GitHub rejects requests with no user agent outright
+        .user_agent("Ghost-rust theme installer")
+        .build()
+        .map_err(|e| GhostError::Internal(e.to_string()))?;
+
+    let mut response = client
+        .get(&url)
+        .header(reqwest::header::ACCEPT, "application/vnd.github.v3+json")
+        .send()
+        .await
+        .map_err(|e| GhostError::Internal(format!("could not reach GitHub: {e}")))?;
+
+    if response.status() == reqwest::StatusCode::NOT_FOUND {
+        return Err(GhostError::NotFoundError {
+            message: format!("the {repo} repository is not available on GitHub"),
+            context: Some(url),
+        });
+    }
+    if !response.status().is_success() {
+        return Err(GhostError::Internal(format!(
+            "GitHub returned {} for {repo}",
+            response.status()
+        )));
+    }
+    if response.content_length().is_some_and(|n| n as usize > MAX_DOWNLOAD_BYTES) {
+        return Err(GhostError::ValidationError {
+            message: "that theme archive is too large to install".into(),
+            context: None,
+        });
+    }
+
+    // Streamed rather than `bytes()` so a mis-declared (or absent)
+    // content-length cannot make us buffer the whole response anyway.
+    let mut data: Vec<u8> = Vec::new();
+    while let Some(chunk) = response
+        .chunk()
+        .await
+        .map_err(|e| GhostError::Internal(format!("download from GitHub failed: {e}")))?
+    {
+        if data.len() + chunk.len() > MAX_DOWNLOAD_BYTES {
+            return Err(GhostError::ValidationError {
+                message: "that theme archive is too large to install".into(),
+                context: None,
+            });
+        }
+        data.extend_from_slice(&chunk);
+    }
+    Ok(data)
+}
+
 /// Map a zip entry name to a relative path under the staging dir, or `None`
 /// when it must be skipped: absolute paths, `..` traversal (zip-slip),
 /// archiver cruft and dotfiles.
@@ -397,8 +616,25 @@ fn safe_entry_path(name: &str) -> Option<PathBuf> {
 
 #[cfg(test)]
 mod tests {
-    use super::safe_entry_path;
+    use super::{official, safe_entry_path, OFFICIAL_THEMES};
     use std::path::PathBuf;
+
+    #[test]
+    fn official_themes_are_addressable() {
+        for theme in OFFICIAL_THEMES {
+            // the slug names a directory under content/themes/ and is what the
+            // install and activate routes carry, so it has to survive the same
+            // single-plain-segment check theme_dir_for applies
+            assert!(
+                theme.slug.chars().all(|c| c.is_ascii_lowercase() || c == '-'),
+                "{} has a slug that cannot name a theme directory",
+                theme.name
+            );
+            assert_eq!(official(theme.slug).map(|t| t.name), Some(theme.name));
+            assert!(theme.repo.starts_with("TryGhost/"), "{} is not a Ghost repo", theme.name);
+        }
+        assert!(official("not-a-theme").is_none());
+    }
 
     #[test]
     fn rejects_traversal_and_cruft() {

@@ -5,6 +5,7 @@ release/
 **/*.rs.bk
 
 # runtime content (regenerated on first boot — never commit)
+content/cache/
 content/data/
 content/logs/
 content/images/

@@ -99,6 +99,7 @@ async fn main() {
     }
     ghost_db::seed::populate_missing_settings(&db).await.expect("settings defaults");
     ghost_db::seed::ensure_builtin_integrations(&db).await.expect("builtin integrations");
+    ghost_db::seed::ensure_default_automations(&db).await.expect("default automations");
 
     // `ghost seed-demo` fills the site with demo content and exits, rather
     // than starting the server
@@ -207,6 +208,10 @@ async fn main() {
     // a post scheduled for Friday has nobody making a request at the moment
     // it is due, so nothing in the request path can publish it.
     ghost_admin_ui::schedule::spawn(state.clone());
+    // The automations engine. Like the publisher above it runs for the life
+    // of the process: a member waiting three days for the next email in a
+    // chain has nobody making a request when it comes due.
+    ghost_api::automations_engine::spawn(state.clone());
     let app = mount(build_app(state), subdir);
 
     // 9. listen
@@ -307,6 +312,7 @@ fn build_app(state: AppState) -> axum::Router {
         .nest("/content", ghost_api::content::content_router())
         .nest("/admin", ghost_api::admin::admin_router()
             .merge(ghost_api::admin_comments::admin_comments_router())
+            .merge(ghost_api::automations::automations_router())
             .merge(axum::Router::new()
                 .nest("/images", ghost_api::images::images_router())
                 .nest("/media", ghost_api::images::media_router())

@@ -512,6 +512,47 @@ pub fn new_uuid_v4() -> String {
     uuid_v4()
 }
 
+/// Make sure Ghost's two default welcome flows exist, on every boot.
+///
+/// Ghost's own `ensureDefaultAutomations` inserts these before every browse:
+/// the free and paid member welcome flows, paused, as empty chains. Paused
+/// and empty is deliberate — a welcome email is real mail to real people, so
+/// the owner writes it and switches the flow on, rather than a brand-new
+/// site silently emailing its first signup (a fresh install has no mail
+/// configured, so there is nothing it could send).
+///
+/// The reserved slugs (`member-welcome-email-free`/`-paid`) are how Ghost's
+/// member service recognises the flows; user-made automations carry no slug,
+/// which is why the repo's `create` never sets one. Idempotent on that slug,
+/// like `ensure_builtin_integrations`, so a database created before
+/// automations existed gets the flows too — and deleting one brings it back
+/// on the next boot, which is also true in Ghost.
+pub async fn ensure_default_automations(pool: &SqlitePool) -> Result<()> {
+    for (name, description, slug, scope) in ghost_core::automations::DEFAULT_WELCOME_AUTOMATIONS {
+        let now = dates::now_db();
+        let inserted = sqlx::query(
+            "INSERT INTO automations (id, status, name, description, slug, trigger_tier_scope, created_at, updated_at) \
+             VALUES (?, 'inactive', ?, ?, ?, ?, ?, ?) \
+             ON CONFLICT(slug) DO NOTHING",
+        )
+        .bind(ids::new_id())
+        .bind(name)
+        .bind(description)
+        .bind(slug)
+        .bind(scope)
+        .bind(&now)
+        .bind(&now)
+        .execute(pool)
+        .await
+        .map_err(|e| ghost_core::GhostError::Db(e.to_string()))?
+        .rows_affected();
+        if inserted > 0 {
+            tracing::info!("created default automation '{slug}'");
+        }
+    }
+    Ok(())
+}
+
 /// Make sure the built-in integrations exist, on every boot.
 ///
 /// `seed_if_empty` only runs once, so a database created before an integration

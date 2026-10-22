@@ -444,6 +444,15 @@ async fn handle_subscription_change(state: &AppState, sub: &Value) {
         }
     }
     tracing::info!("stripe: subscription {sub_id} is {status}; member {member_id} is now {}", if paid { "paid" } else { "free" });
+
+    // Starting a paid subscription is the other event automations trigger on.
+    // It runs after the tier mirror above, because a tier-scoped automation
+    // matches on exactly those rows. Dropping back to free triggers nothing —
+    // there is no "cancelled" trigger — but the next poll will notice the
+    // status change and stop any paid chain they were partway through.
+    if paid {
+        crate::automations_engine::trigger_for_member(state, &member_id).await;
+    }
 }
 
 async fn stripe_unavailable() -> Response {
@@ -1107,6 +1116,12 @@ async fn create_member(
         .execute(&state.db)
         .await;
     }
+
+    // Automations are triggered by membership starting, so this is the one
+    // place a signup can enrol someone. It runs after the newsletter
+    // subscriptions are written, because whether the member wants updates at
+    // all is read from them.
+    crate::automations_engine::trigger_for_member(state, &id).await;
 
     member_by_email(state, email).await
 }

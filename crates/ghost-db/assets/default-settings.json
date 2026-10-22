@@ -819,6 +819,20 @@
         "value": "all"
     },
     {
+        "group": "comments",
+        "key": "comments_moderation",
+        "type": "string",
+        "flags": "",
+        "value": "immediate"
+    },
+    {
+        "group": "automations",
+        "key": "automations_enabled",
+        "type": "boolean",
+        "flags": "",
+        "value": true
+    },
+    {
         "group": "analytics",
         "key": "outbound_link_tagging",
         "type": "boolean",

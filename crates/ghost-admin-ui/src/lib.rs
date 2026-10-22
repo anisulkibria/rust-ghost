@@ -9,16 +9,22 @@ use axum::Router;
 use ghost_db::repos;
 use serde::Deserialize;
 use std::collections::HashMap;
+use std::sync::Arc;
 
 use ghost_api::AppState;
 
+pub mod automations;
 pub mod comments;
+pub mod posts;
 pub mod schedule;
 
 /// Upload ceiling for theme zips and content imports. Ghost's own limit is
 /// also in this range; it exists to bound memory, since multipart bodies are
 /// buffered before being written out.
 const MAX_UPLOAD_BYTES: usize = 100 * 1024 * 1024;
+/// Redirects and routes files are a few kilobytes; a megabyte is already
+/// generous and keeps a mistaken upload of something else from being read.
+const ONE_MB_BYTES: usize = 1024 * 1024;
 
 pub fn admin_ui_router() -> Router<AppState> {
     Router::new()
@@ -37,8 +43,20 @@ pub fn admin_ui_router() -> Router<AppState> {
         // Comment moderation. Ghost puts this at /ghost/#/comments, so the
         // path a report notification deep-links to is the same one here.
         .route("/comments/", get(comments::comments_page))
+        .route("/comments/{id}/", get(comments::comment_page))
         .route("/comments/{id}/hide/", post(comments::comment_hide))
         .route("/comments/{id}/show/", post(comments::comment_show))
+        .route("/comments/{id}/delete/", post(comments::comment_delete))
+        // Automations. `new` is a static segment and must precede `{id}`.
+        .route("/automations/", get(automations::automations_page))
+        .route("/automations/new/", post(automations::automation_create))
+        .route("/automations/{id}/", get(automations::automation_page).post(automations::automation_save))
+        .route("/automations/{id}/status/", post(automations::automation_set_status))
+        .route("/automations/{id}/delete/", post(automations::automation_delete))
+        .route("/automations/{id}/actions/add/", post(automations::action_add))
+        .route("/automations/{id}/actions/{action_id}/delete/", post(automations::action_delete))
+        .route("/automations/{id}/actions/{action_id}/move/", post(automations::action_move))
+        .route("/automations/{id}/actions/{action_id}/test/", post(automations::action_test))
         .route("/posts/", get(posts_list))
         .route("/posts/new/", get(editor_new).post(editor_create))
         .route("/posts/{id}/", get(editor_page).post(editor_save))
@@ -56,6 +74,9 @@ pub fn admin_ui_router() -> Router<AppState> {
         // than globally so an oversized body can only arrive where one is
         // actually expected.
         .route("/themes/upload/", post(theme_upload).layer(axum::extract::DefaultBodyLimit::max(MAX_UPLOAD_BYTES)))
+        // Static ahead of `{name}`, so "official" is never read as a theme name.
+        .route("/themes/official/{slug}/install/", post(theme_install_official))
+        .route("/themes/official/{slug}/thumbnail.png", get(theme_official_thumbnail))
         .route("/themes/{name}/activate/", post(theme_activate))
         .route("/themes/{name}/delete/", post(theme_delete))
         .route("/design/", get(design_page).post(design_save))
@@ -65,6 +86,7 @@ pub fn admin_ui_router() -> Router<AppState> {
         .route("/settings/metadata/", get(metadata_page).post(metadata_save))
         .route("/settings/social/", get(social_page).post(social_save))
         .route("/settings/analytics/", get(analytics_settings_page).post(analytics_settings_save))
+        .route("/settings/features/", get(features_page).post(features_save))
         .route("/settings/site/", get(site_page).post(site_save))
         .route("/settings/membership/", get(membership_page).post(membership_save))
         .route("/settings/membership/stripe/connect/", post(stripe_connect))
@@ -92,6 +114,14 @@ pub fn admin_ui_router() -> Router<AppState> {
         .route("/settings/advanced/labs/", post(labs_save))
         .route("/settings/advanced/export/", get(advanced_export))
         .route("/settings/advanced/import/", post(advanced_import).layer(axum::extract::DefaultBodyLimit::max(MAX_UPLOAD_BYTES)))
+        .route(
+            "/settings/advanced/redirects/",
+            get(redirects_download).post(redirects_upload).layer(axum::extract::DefaultBodyLimit::max(ONE_MB_BYTES)),
+        )
+        .route(
+            "/settings/advanced/routes/",
+            get(routes_download).post(routes_upload).layer(axum::extract::DefaultBodyLimit::max(ONE_MB_BYTES)),
+        )
         .route("/settings/staff/", get(staff_page))
         .route("/settings/staff/invite/", post(staff_invite))
         .route("/settings/staff/invite/{id}/resend/", post(staff_invite_resend))
@@ -209,6 +239,7 @@ fn icon(name: &str) -> &'static str {
         "posts" => r#"<path d="M19 5v14H5V5h14m0-2H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm-2.5 14H7v-2h9.5v2zm0-4H7v-2h9.5v2zm0-4H7V7h9.5v2z"/>"#,
         "pages" => r#"<path d="M14 2H6c-1.1 0-2 .9-2 2v16c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V8l-6-6zm2 16H8v-2h8v2zm0-4H8v-2h8v2zm-3-5V3.5L18.5 9H13z"/>"#,
         "tags" => r#"<path d="M21.41 11.58l-9-9C12.05 2.22 11.55 2 11 2H4c-1.1 0-2 .9-2 2v7c0 .55.22 1.05.59 1.42l9 9c.36.36.86.58 1.41.58s1.05-.22 1.41-.59l7-7c.37-.36.59-.86.59-1.41s-.23-1.06-.59-1.42zM5.5 7C4.67 7 4 6.33 4 5.5S4.67 4 5.5 4 7 4.67 7 5.5 6.33 7 5.5 7z"/>"#,
+        "archive" => r#"<path d="M20.54 5.23l-1.39-1.68C18.88 3.21 18.47 3 18 3H6c-.47 0-.88.21-1.16.55L3.46 5.23C3.17 5.57 3 6.02 3 6.5V19c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V6.5c0-.48-.17-.93-.46-1.27zM12 17.5L6.5 12H10v-2h4v2h3.5L12 17.5zM5.12 5l.81-1h12l.94 1H5.12z"/>"#,
         "themes" => r#"<path d="M12 3c-4.97 0-9 4.03-9 9s4.03 9 9 9c.83 0 1.5-.67 1.5-1.5 0-.39-.15-.74-.39-1.01-.23-.26-.38-.61-.38-.99 0-.83.67-1.5 1.5-1.5H16c2.76 0 5-2.24 5-5 0-4.42-4.03-8-9-8zm-5.5 9c-.83 0-1.5-.67-1.5-1.5S5.67 8 6.5 8 8 8.67 8 9.5 7.33 12 6.5 12zm3-4C8.67 8 8 7.33 8 6.5S8.67 5 9.5 5s1.5.67 1.5 1.5S10.33 8 9.5 8zm5 0c-.83 0-1.5-.67-1.5-1.5S13.67 5 14.5 5s1.5.67 1.5 1.5S15.33 8 14.5 8zm3 4c-.83 0-1.5-.67-1.5-1.5S16.67 9 17.5 9s1.5.67 1.5 1.5-.67 1.5-1.5 1.5z"/>"#,
         "tune" => r#"<path d="M3 17v2h6v-2H3zM3 5v2h10V5H3zm10 16v-2h8v-2h-8v-2h-2v6h2zM7 9v2H3v2h4v2h2V9H7zm14 4v-2H11v2h10zm-6-4h2V7h4V5h-4V3h-2v6z"/>"#,
         "settings" => r#"<path d="M19.14 12.94c.04-.3.06-.61.06-.94 0-.32-.02-.64-.07-.94l2.03-1.58c.18-.14.23-.41.12-.61l-1.92-3.32c-.12-.22-.37-.29-.59-.22l-2.39.96c-.5-.38-1.03-.7-1.62-.94l-.36-2.54c-.04-.24-.24-.41-.48-.41h-3.84c-.24 0-.43.17-.47.41l-.36 2.54c-.59.24-1.13.57-1.62.94l-2.39-.96c-.22-.08-.47 0-.59.22L2.74 8.87c-.12.21-.08.47.12.61l2.03 1.58c-.05.3-.09.63-.09.94s.02.64.07.94l-2.03 1.58c-.18.14-.23.41-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54c.05.24.24.41.48.41h3.84c.24 0 .44-.17.47-.41l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32c.12-.22.07-.47-.12-.61l-2.01-1.58zM12 15.6c-1.98 0-3.6-1.62-3.6-3.6s1.62-3.6 3.6-3.6 3.6 1.62 3.6 3.6-1.62 3.6-3.6 3.6z"/>"#,
@@ -236,6 +267,10 @@ fn icon(name: &str) -> &'static str {
         "ghost" => r#"<path d="M12 2a8 8 0 0 0-8 8v10.6c0 .7.85 1.05 1.35.55l1.9-1.9 2.2 2.2c.3.3.78.3 1.08 0L12 20l1.47 1.45c.3.3.78.3 1.08 0l2.2-2.2 1.9 1.9c.5.5 1.35.15 1.35-.55V10a8 8 0 0 0-8-8zm-3 8.5A1.5 1.5 0 1 1 10.5 9 1.5 1.5 0 0 1 9 10.5zm6 0A1.5 1.5 0 1 1 16.5 9 1.5 1.5 0 0 1 15 10.5z"/>"#,
         "menu" => r#"<path d="M3 18h18v-2H3v2zm0-5h18v-2H3v2zm0-7v2h18V6H3z"/>"#,
         "comment" => r#"<path d="M20 2H4c-1.1 0-2 .9-2 2v18l4-4h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zM6 9h12v2H6V9zm8 5H6v-2h8v2zm4-6H6V6h12v2z"/>"#,
+        // a node wired to two others: the shape of an automation flow
+        // an eye, for page views
+        "eye" => r#"<path d="M12 4.5C7 4.5 2.73 7.61 1 12c1.73 4.39 6 7.5 11 7.5s9.27-3.11 11-7.5c-1.73-4.39-6-7.5-11-7.5zm0 12.5a5 5 0 1 1 0-10 5 5 0 0 1 0 10zm0-8a3 3 0 1 0 0 6 3 3 0 0 0 0-6z"/>"#,
+        "flow" => r#"<path d="M5 3a2.5 2.5 0 0 1 2.45 2H11a3 3 0 0 1 3 3v1.05A2.5 2.5 0 1 1 14 14v1a3 3 0 0 1-3 3H7.45a2.5 2.5 0 1 1 0-2H11a1 1 0 0 0 1-1v-1.05A2.5 2.5 0 0 1 12 9.5V8a1 1 0 0 0-1-1H7.45A2.5 2.5 0 1 1 5 3zm0 2a.5.5 0 1 0 0 1 .5.5 0 0 0 0-1zm0 11a.5.5 0 1 0 0 1 .5.5 0 0 0 0-1zm11.5-5a.5.5 0 1 0 0 1 .5.5 0 0 0 0-1z"/>"#,
         "hide" => r#"<path d="M12 7c2.76 0 5 2.24 5 5 0 .65-.13 1.26-.36 1.83l2.92 2.92c1.51-1.26 2.7-2.89 3.43-4.75-1.73-4.39-6-7.5-11-7.5-1.4 0-2.74.25-3.98.7l2.16 2.16C10.74 7.13 11.35 7 12 7zM2 4.27l2.28 2.28.46.46C3.08 8.3 1.78 10.02 1 12c1.73 4.39 6 7.5 11 7.5 1.55 0 3.03-.3 4.38-.84l.42.42L19.73 22 21 20.73 3.27 3 2 4.27zM7.53 9.8l1.55 1.55c-.05.21-.08.43-.08.65 0 1.66 1.34 3 3 3 .22 0 .44-.03.65-.08l1.55 1.55c-.67.33-1.41.53-2.2.53-2.76 0-5-2.24-5-5 0-.79.2-1.53.53-2.2z"/>"#,
         "close" => r#"<path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/>"#,
         "up" => r#"<path d="M7.41 15.41L12 10.83l4.59 4.58L18 14l-6-6-6 6z"/>"#,
@@ -281,6 +316,10 @@ const CSS: &str = r#"
   --red-bg: #FFDAD6; --red-fg: #410002;
   --slate-bg: #E0E2EC; --slate-fg: #1B1C22;
   --font: 'Outfit', 'Google Sans', 'Product Sans', system-ui, -apple-system, sans-serif;
+  /* Editorial serif for headlines. Fraunces is a variable face with an
+     optical-size axis, so a 15px card title and a 30px hero title are drawn
+     with different contrast rather than the same outline scaled. */
+  --display: 'Fraunces', 'Iowan Old Style', Georgia, 'Times New Roman', serif;
   --mono: 'Roboto Mono', ui-monospace, 'SF Mono', Menlo, monospace;
   --ease: cubic-bezier(.2,0,0,1);
   --shadow-1: 0 1px 2px rgba(0,0,0,.08), 0 1px 3px 1px rgba(0,0,0,.04);
@@ -370,7 +409,7 @@ svg.i { width: 22px; height: 22px; flex: none; display: block; }
 .who-link b, .who-link span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; display: block; }
 
 .main { flex: 1; min-width: 0; }
-.content { max-width: 860px; margin: 0 auto; padding: 0 24px 64px; }
+.content { max-width: 1120px; margin: 0 auto; padding: 0 24px 64px; }
 
 /* ---- page head (sticky top app bar per page) ---- */
 .page-head { position: sticky; top: 0; z-index: 20; display: flex; align-items: center; gap: 16px;
@@ -412,6 +451,7 @@ svg.i { width: 22px; height: 22px; flex: none; display: block; }
 .chip.published { background: var(--green-bg); color: var(--green-fg); }
 .chip.draft { background: var(--amber-bg); color: var(--amber-fg); }
 .chip.scheduled { background: var(--blue-bg); color: var(--blue-fg); }
+.chip.sent { background: var(--purple-bg); color: var(--purple-fg); }
 .chip.tonal { background: var(--secondary-container); color: var(--on-secondary-container); }
 .chip.error { background: var(--red-bg); color: var(--red-fg); }
 
@@ -652,6 +692,28 @@ code { font-family: var(--mono); }
 .range-tabs a.active { background: var(--secondary-container); color: var(--on-secondary-container); }
 @media (max-width: 919px) { .tiles { grid-template-columns: 1fr 1fr; } }
 
+/* ---- themes: the official theme gallery ---- */
+.gallery { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; margin-bottom: 12px; }
+/* The thumbnails are Ghost's own marketplace screenshots, 600x750, served
+   back by the admin itself so they can carry a long cache header. The box
+   keeps its height whether or not the image arrives, so a missing thumbnail
+   leaves a tinted panel rather than collapsing the card. */
+.gallery .shot { display: block; position: relative; aspect-ratio: 4 / 5; overflow: hidden;
+  background: var(--sc); border-bottom: 1px solid var(--outline-variant); }
+.gallery .shot img { display: block; width: 100%; height: 100%;
+  object-fit: cover; object-position: top center; }
+.gallery .shot::after { content: ""; position: absolute; inset: 0;
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--on-surface) 6%, transparent); }
+.gallery .meta { display: flex; align-items: center; gap: 10px; padding: 14px 16px; }
+.gallery .meta .body { flex: 1; min-width: 0; }
+.gallery .meta .title { display: block; font-size: 15px; font-weight: 600; }
+.gallery .meta .detail { display: block; font-size: 12.5px; color: var(--on-surface-variant); }
+.gallery .actions { display: flex; align-items: center; gap: 8px; padding: 0 16px 14px; }
+.gallery .actions form { display: contents; }
+.gallery .actions .btn { flex: 1; }
+@media (max-width: 1100px) { .gallery { grid-template-columns: 1fr 1fr; } }
+@media (max-width: 719px) { .gallery { grid-template-columns: 1fr; } }
+
 /* ---- post/page editor: Koenig canvas + an always-open settings rail ----
    Ghost hides the post settings behind a slide-over panel; here they are a
    second column that is simply always there, so the editor needs more room
@@ -819,6 +881,154 @@ body:has(#side-toggle:checked) .editor-main { max-width: none; }
 .search input { flex: 1; border: none; outline: none; background: transparent; font-family: inherit;
   font-size: 14.5px; color: var(--on-surface); height: 100%; }
 
+/* ---- post list: the posts and pages index ---------------------------------
+   Rows, not cards. The column order follows Ghost's own list — thumbnail,
+   title and byline, what happened to it, then the numbers — because a list
+   of a hundred posts is scanned down a column, and fixed column widths are
+   the whole reason rows beat cards here.
+--------------------------------------------------------------------------- */
+
+/* tools row: search takes the space, sort sits at the end */
+.list-tools { display: flex; gap: 12px; align-items: center; margin: 4px 0 16px; }
+.list-tools .search { flex: 1; margin: 0; }
+.sort-picker { position: relative; display: flex; align-items: center; flex: none; }
+.sort-picker select { appearance: none; font-family: inherit; font-size: 14px; font-weight: 500;
+  height: 46px; padding: 0 38px 0 18px; border-radius: 999px; border: none; cursor: pointer;
+  background: var(--sc-lowest); color: var(--on-surface); box-shadow: var(--shadow-1); }
+.sort-picker .car { position: absolute; right: 12px; width: 20px; height: 20px; pointer-events: none;
+  color: var(--on-surface-variant); }
+.sort-picker select:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
+
+/* status tabs */
+.seg-bar { display: flex; flex-wrap: wrap; gap: 8px; margin: 2px 0 16px; }
+.seg { display: inline-flex; align-items: center; gap: 8px; height: 36px; padding: 0 8px 0 16px;
+  border-radius: 999px; font-size: 13.5px; font-weight: 500; text-decoration: none;
+  color: var(--on-surface-variant); background: transparent;
+  border: 1px solid var(--outline-variant); transition: all .18s var(--ease); }
+.seg:hover { background: color-mix(in srgb, var(--on-surface) 5%, transparent); color: var(--on-surface); }
+.seg.on { background: var(--secondary-container); color: var(--on-secondary-container);
+  border-color: transparent; font-weight: 600; }
+.seg-count { display: inline-grid; place-items: center; min-width: 22px; height: 22px; padding: 0 6px;
+  border-radius: 999px; font-size: 11.5px; font-weight: 600; font-variant-numeric: tabular-nums;
+  background: color-mix(in srgb, var(--on-surface) 8%, transparent); color: inherit; }
+.seg.on .seg-count { background: color-mix(in srgb, var(--on-secondary-container) 14%, transparent); }
+
+/* ---- the list ---- */
+.post-list { background: var(--sc-lowest); border-radius: 20px; overflow: hidden;
+  box-shadow: var(--shadow-1); }
+.post-row { display: flex; align-items: center; position: relative; }
+.post-row + .post-row::before { content: ""; position: absolute; top: 0; left: 122px; right: 16px;
+  height: 1px; background: var(--outline-variant); }
+.post-row:hover { background: color-mix(in srgb, var(--on-surface) 4%, transparent); }
+.post-row:focus-within { background: color-mix(in srgb, var(--on-surface) 4%, transparent); }
+
+.post-row-link { flex: 1; min-width: 0; display: flex; align-items: center; gap: 16px;
+  padding: 11px 6px 11px 16px; text-decoration: none; color: inherit; }
+.post-row-link:focus-visible { outline: 2px solid var(--primary); outline-offset: -3px;
+  border-radius: 12px; }
+
+/* thumbnail — Ghost uses an 80–100px 16:10 tile */
+.post-row-thumb { position: relative; width: 90px; aspect-ratio: 16 / 10; flex: none;
+  border-radius: 9px; overflow: hidden; background: var(--sc-high); }
+.post-row-img { width: 100%; height: 100%; object-fit: cover; display: block; }
+/* no feature image: a gradient keyed to the post id, so the column still
+   carries some recognition when scanning */
+.post-row-blank { position: absolute; inset: 0; display: grid; place-items: center;
+  background: linear-gradient(135deg, var(--from), var(--to)); }
+.post-row-blank span { font-size: 25px; font-weight: 700; line-height: 1;
+  color: rgba(255,255,255,.78); }
+.post-row-star { position: absolute; right: 4px; top: 4px; width: 19px; height: 19px;
+  display: grid; place-items: center; border-radius: 50%; color: #fff;
+  background: rgba(0,0,0,.5); backdrop-filter: blur(4px); }
+.post-row-star svg.i { width: 11px; height: 11px; }
+
+/* title and byline */
+.post-row-main { flex: 1; min-width: 0; }
+.post-row-title { margin: 0; font-family: var(--display); font-optical-sizing: auto;
+  font-size: 15.5px; font-weight: 600; line-height: 1.3; letter-spacing: -.008em;
+  color: var(--on-surface); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  transition: color .18s var(--ease); }
+.post-row:hover .post-row-title { color: var(--primary); }
+.post-row-meta { margin: 2px 0 0; font-size: 12.5px; color: var(--on-surface-variant);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.post-row-dot { opacity: .45; margin: 0 1px; }
+
+/* status column */
+.post-row-status { width: 192px; flex: none; display: flex; flex-direction: column;
+  align-items: flex-start; gap: 3px; }
+.post-row-chip { display: inline-flex; align-items: center; gap: 5px; font-size: 12.5px;
+  font-weight: 600; color: var(--on-surface-variant); }
+.post-row-chip::before { content: ""; width: 7px; height: 7px; border-radius: 50%;
+  background: currentColor; flex: none; }
+/* Ghost colours the dot by state: pink for a draft, green for scheduled */
+.post-row-chip.draft { color: var(--primary); }
+.post-row-chip.scheduled { color: var(--green-fg); }
+.post-row-chip.published, .post-row-chip.sent { color: var(--on-surface-variant); }
+@media (prefers-color-scheme: dark) { .post-row-chip.scheduled { color: var(--green-fg); } }
+.post-row-detail { font-size: 11.8px; color: var(--on-surface-variant); opacity: .8;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
+
+/* the numbers — fixed-width cells so they line up down the page */
+.post-row-stats { flex: none; display: flex; }
+.post-stat { width: 66px; flex: none; display: flex; flex-direction: column; align-items: flex-end;
+  gap: 1px; font-size: 11px; color: var(--on-surface-variant); }
+.post-stat b { font-weight: 600; font-size: 13.5px; color: var(--on-surface);
+  font-variant-numeric: tabular-nums; letter-spacing: -.01em; }
+
+
+/* delete, revealed on hover — it must not be the thing you hit while
+   reaching for the post */
+.post-row-action { flex: none; padding-right: 8px; opacity: 0;
+  transition: opacity .16s var(--ease); }
+.post-row:hover .post-row-action, .post-row:focus-within .post-row-action { opacity: 1; }
+.post-row-action .icon-btn { width: 34px; height: 34px; }
+.post-row-action .icon-btn svg.i { width: 18px; height: 18px; }
+@media (hover: none) { .post-row-action { opacity: 1; } }
+
+/* ---- page atmosphere ----
+   A warm wash behind the head and a fine grain over everything, so the page
+   has some depth instead of being a flat fill behind a floating slab. */
+.content:has(.post-list)::before { content: ""; position: fixed; inset: 0 0 auto 0; height: 420px;
+  pointer-events: none; z-index: 0;
+  background:
+    radial-gradient(60% 100% at 18% 0%, color-mix(in srgb, var(--primary) 10%, transparent), transparent 70%),
+    radial-gradient(44% 86% at 88% 4%, color-mix(in srgb, var(--teal-fg) 6%, transparent), transparent 70%); }
+.content:has(.post-list)::after { content: ""; position: fixed; inset: 0; pointer-events: none;
+  z-index: 0; opacity: .03; mix-blend-mode: multiply;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='3'/%3E%3C/filter%3E%3Crect width='140' height='140' filter='url(%23n)'/%3E%3C/svg%3E"); }
+@media (prefers-color-scheme: dark) {
+  .content:has(.post-list)::after { mix-blend-mode: screen; opacity: .045; }
+}
+.content:has(.post-list) > * { position: relative; z-index: 1; }
+
+/* No fill on the sticky header here. Elsewhere its translucent surface is
+   invisible against a flat page; over the wash below it reads as a lighter
+   band across the top. The backdrop blur stays, so rows scrolling under it
+   are still frosted rather than running into the title. */
+.content:has(.post-list) .page-head { background: transparent; }
+
+/* the list heading borrows the editorial face, so the page has one voice */
+.content:has(.post-list) .page-head h1,
+.content:has(.seg-bar) .page-head h1 { font-family: var(--display); font-optical-sizing: auto;
+  font-weight: 600; letter-spacing: -.02em; font-size: 27px; }
+
+/* a row is a lot of columns; drop them as the space runs out, numbers first
+   since the title is what you are actually looking for */
+@media (max-width: 1040px) {
+  .post-row-stats .post-stat:nth-child(3) { display: none; }
+}
+@media (max-width: 900px) {
+  .post-row-stats { display: none; }
+  .post-row-status { width: 150px; }
+}
+@media (max-width: 680px) {
+  .post-row-status { display: none; }
+  .post-row-thumb { width: 64px; }
+  .post-row + .post-row::before { left: 92px; }
+  .post-row-link { gap: 12px; padding-left: 12px; }
+  .post-row-action { opacity: 1; }
+}
+
 /* ---- color input ---- */
 .color-field { display: flex; align-items: center; gap: 14px; }
 .color-field input[type=color] { width: 44px; height: 44px; border-radius: 50%; border: none; cursor: pointer;
@@ -946,6 +1156,33 @@ const JS: &str = r#"
     });
   }
 
+  // settings hub search: typing swaps the page list for a flat index of
+  // pages, sub-pages, headings and fields, so any setting is one query away
+  // no matter which page buries it. The haystack rides in data-search
+  // because a row's visible text says what a thing is, not everything it
+  // should answer to.
+  var hub = document.getElementById('settings-search');
+  if (hub) {
+    var pages = document.getElementById('settings-groups');
+    var hitsCard = document.getElementById('settings-hits');
+    var emptyRow = document.getElementById('settings-empty');
+    var hits = Array.from(document.querySelectorAll('#settings-hits [data-search]'));
+    hub.addEventListener('input', function () {
+      var v = hub.value.trim().toLowerCase();
+      var shown = 0;
+      hits.forEach(function (h) {
+        var on = !!v && h.dataset.search.toLowerCase().indexOf(v) !== -1;
+        h.style.display = on ? '' : 'none';
+        if (on) shown++;
+      });
+      // a field only shows while something is being asked; clearing the box
+      // restores the pages, or every field in the index would appear
+      pages.style.display = v ? 'none' : '';
+      hitsCard.style.display = v ? '' : 'none';
+      emptyRow.style.display = v && !shown ? '' : 'none';
+    });
+  }
+
   // colour settings: picking a custom colour selects the custom mode too, so
   // the swatch chip and the picker can never disagree about which is in force
   document.addEventListener('input', function (e) {
@@ -1004,6 +1241,7 @@ fn rail(active: &str, user: Option<&ghost_core::models::User>, role: Role) -> St
         ("navigation", "/ghost/navigation/", "Navigation", "menu", "red"),
         ("members", "/ghost/members/", "Members", "ghost", "blue"),
         ("comments", "/ghost/comments/", "Comments", "comment", "purple"),
+        ("automations", "/ghost/automations/", "Automations", "flow", "green"),
         // Integrations is not a rail item: like Ghost, it lives under
         // Settings → Advanced → Integrations.
         ("settings", "/ghost/settings/", "Settings", "settings", "pink"),
@@ -1014,7 +1252,7 @@ fn rail(active: &str, user: Option<&ghost_core::models::User>, role: Role) -> St
             // Ghost grants the `comment` permission set to Administrator and
             // above only, so moderation is not offered below that.
             "analytics" | "themes" | "design" | "navigation" | "members" | "settings"
-            | "comments" => role.is_admin(),
+            | "comments" | "automations" => role.is_admin(),
             "tags" => role.can_manage_tags(),
             _ => true,
         })
@@ -1106,7 +1344,7 @@ fn page_for(title: &str, active: &str, user: Option<&ghost_core::models::User>, 
 <title>{title} — Ghost Admin</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='%23984059'%3E%3Cpath d='M12 2a8 8 0 0 0-8 8v10.6c0 .7.85 1.05 1.35.55l1.9-1.9 2.2 2.2c.3.3.78.3 1.08 0L12 20l1.47 1.45c.3.3.78.3 1.08 0l2.2-2.2 1.9 1.9c.5.5 1.35.15 1.35-.55V10a8 8 0 0 0-8-8z'/%3E%3C/svg%3E">
 <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700&family=Roboto+Mono:wght@400;500&display=swap">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700&family=Fraunces:opsz,wght@9..144,500..700&family=Roboto+Mono:wght@400;500&display=swap">
 <style>{css}</style></head><body>{shell}<script>{js}</script></body></html>"#,
         title = esc(title),
         css = CSS,
@@ -2475,32 +2713,6 @@ fn members_flash(kind: &str, message: &str) -> Response {
 // posts list / editor
 // ---------------------------------------------------------------------------
 
-fn post_row(p: &ghost_core::models::Post, base: &str) -> String {
-    let is_page = base.contains("/pages/");
-    let (tint, ic) = if is_page { ("green", "pages") } else { ("blue", "posts") };
-    let what = if is_page { "page" } else { "post" };
-    format!(
-        r#"<div class="row" data-filterable>
-<span class="ic tint-{tint}">{ic_svg}</span>
-<a class="body" href="{base}{id}/"><span class="title">{title}</span><span class="detail"><code>/{slug}/</code></span></a>
-<div class="trailing"><span class="muted">{date}</span><span class="chip {status}">{status_label}</span>
-<form method="post" action="{base}{id}/delete/" data-confirm="Delete {what}|&#8220;{title}&#8221; will be permanently deleted.">
-<button class="icon-btn danger" title="Delete" aria-label="Delete">{del_svg}</button></form></div>
-</div>"#,
-        tint = tint,
-        ic_svg = svg(ic),
-        base = base,
-        id = esc(&p.id),
-        title = esc(p.title.as_deref().unwrap_or("Untitled")),
-        slug = esc(p.slug.as_deref().unwrap_or("")),
-        date = esc(&p.published_at.as_deref().map(|d| d[..10].to_string()).unwrap_or_default()),
-        status = esc(&p.status),
-        status_label = esc(&p.status),
-        what = what,
-        del_svg = svg("delete"),
-    )
-}
-
 async fn posts_list_impl(state: &AppState, headers: &HeaderMap, post_type: &str, label: &str, flash: &HashMap<String, String>) -> Response {
     let actor = match require_actor(state, headers).await {
         Ok(a) => a,
@@ -2529,43 +2741,87 @@ async fn posts_list_impl(state: &AppState, headers: &HeaderMap, post_type: &str,
         listing.posts.retain(|p| mine.iter().any(|id| id == &p.id));
         listing.total = listing.posts.len() as i64;
     }
+
     let base = if post_type == "page" { "/ghost/pages/" } else { "/ghost/posts/" };
     let singular = if post_type == "page" { "page" } else { "post" };
-    let rows: String = listing.posts.iter().map(|p| post_row(p, base)).collect();
-    let list = if listing.posts.is_empty() {
+    let plural = if post_type == "page" { "pages" } else { "posts" };
+
+    // The status tabs count the whole list, then the selected one narrows it,
+    // so a tab's number does not change when you click a different tab.
+    let mut counts: HashMap<String, i64> = HashMap::new();
+    for p in &listing.posts {
+        *counts.entry(p.status.clone()).or_insert(0) += 1;
+    }
+    let selected = flash.get("filter").map(String::as_str).unwrap_or("all");
+    let selected = posts::FILTERS
+        .iter()
+        .find(|(key, _, _)| *key == selected)
+        .unwrap_or(&posts::FILTERS[0]);
+    if let Some(status) = selected.2 {
+        listing.posts.retain(|p| p.status == status);
+    }
+    let shown = listing.posts.len() as i64;
+
+    let sort = flash.get("sort").map(String::as_str).unwrap_or("newest");
+    let sort = posts::SORTS
+        .iter()
+        .find(|(key, _)| *key == sort)
+        .map(|(key, _)| *key)
+        .unwrap_or("newest");
+
+    let mut cards = posts::load_cards(state, listing.posts).await;
+    posts::sort_cards(&mut cards, sort);
+    let list = if cards.is_empty() {
+        let (title, detail) = if selected.0 == "all" {
+            ("Nothing here yet", "Everything you write shows up here, newest first.")
+        } else {
+            ("Nothing in this view", "Switch tabs to see the rest.")
+        };
         format!(
-            r#"<div class="card padded rise" style="--i:1;text-align:center"><p class="muted" style="margin:8px 0 16px">No {plural} yet.</p><a class="btn tonal" href="{base}new/">{add} New {singular}</a></div>"#,
-            plural = if post_type == "page" { "pages" } else { "posts" },
+            r#"<div class="card padded rise" style="--i:1;text-align:center;padding:48px 20px">
+<p style="margin:0 0 4px;font-weight:600;font-size:17px">{title}</p>
+<p class="muted" style="margin:0 0 20px">{detail}</p>
+<a class="btn" href="{base}new/">{add} New {singular}</a></div>"#,
+            title = esc(title),
+            detail = esc(detail),
             base = base,
             add = svg("add"),
             singular = singular,
         )
     } else {
         format!(
-            r#"<div class="search rise" style="--i:1">{search}<input data-filter type="search" placeholder="Search {label}" aria-label="Search {label}"></div>
-<div class="card rows rise" style="--i:2">{rows}</div>"#,
+            r#"<div class="list-tools rise" style="--i:0">
+<div class="search">{search}<input data-filter type="search" placeholder="Search {plural} by title, author or excerpt" aria-label="Search {label}"></div>
+{sorter}</div>
+{grid}"#,
             search = svg("search"),
+            plural = plural,
             label = label,
-            rows = rows,
+            sorter = posts::sort_picker(base, selected.0, sort),
+            grid = posts::grid(&cards, base),
         )
     };
+
     page_for(
         label,
-        if post_type == "page" { "pages" } else { "posts" },
+        plural,
         Some(user),
         actor.role,
         &format!(
-            r#"<header class="page-head rise"><div><h1>{label}</h1><p class="sub">{total} {total_word}</p></div>
+            r#"<header class="page-head rise"><div><h1>{label}</h1><p class="sub">{shown} of {total} {total_word}</p></div>
 <div class="actions"><a class="btn" href="{base}new/">{add} New {singular}</a></div></header>
 {banner}
+{filters}
 {list}"#,
             banner = flash_banner(flash),
             label = label,
+            shown = shown,
             total = listing.total,
-            total_word = if post_type == "page" { "pages" } else { "posts" },
+            total_word = plural,
             base = base,
             add = svg("add"),
             singular = singular,
+            filters = posts::filter_bar(base, selected.0, sort, &counts),
             list = list,
         ),
         true,
@@ -2759,6 +3015,43 @@ fn chip_set(name: &str, options: &[(String, String)], selected: &[String], empty
         })
         .collect();
     format!(r#"<div class="chips">{chips}</div>"#)
+}
+
+/// The segmented filter bar the list pages share. Each tab is a `filter=`
+/// value with a label and the bucket it counts — `None` is the "everything"
+/// tab, whose count is the sum of the rest — and `suffix` carries any other
+/// query params that should survive the click (the posts list keeps its sort
+/// this way). A tab that would show nothing is not offered, except the one
+/// already selected, which has to stay clickable to be unselectable.
+pub(crate) fn seg_filter_bar(
+    tabs: &[(&str, &str, Option<&str>)],
+    base: &str,
+    active: &str,
+    suffix: &str,
+    counts: &HashMap<String, i64>,
+) -> String {
+    let segs: String = tabs
+        .iter()
+        .map(|(key, label, bucket)| {
+            let count = match bucket {
+                Some(b) => counts.get(*b).copied().unwrap_or(0),
+                None => counts.values().sum(),
+            };
+            if count == 0 && *key != active {
+                return String::new();
+            }
+            format!(
+                r#"<a class="seg{on}" href="{base}?filter={key}{suffix}">{label}<span class="seg-count">{count}</span></a>"#,
+                on = if *key == active { " on" } else { "" },
+                base = esc(base),
+                key = esc(key),
+                suffix = suffix,
+                label = esc(label),
+                count = count,
+            )
+        })
+        .collect();
+    format!(r#"<div class="seg-bar">{segs}</div>"#)
 }
 
 /// `2026-10-19 14:30:00` (how the column is stored) → the `YYYY-MM-DDTHH:MM`
@@ -4311,12 +4604,34 @@ async fn page_delete(State(state): State<AppState>, Path(id): Path<String>, head
 // tags
 // ---------------------------------------------------------------------------
 
-async fn tags_list(State(state): State<AppState>, headers: HeaderMap) -> Response {
+/// The visibility filters along the top. `None` is "everything"; internal
+/// tags are the `#`-prefixed ones Ghost keeps out of the site's tag lists.
+const TAG_FILTERS: &[(&str, &str, Option<&str>)] = &[
+    ("all", "All Tags", None),
+    ("public", "Public Tags", Some("public")),
+    ("internal", "Internal Tags", Some("internal")),
+];
+
+async fn tags_list(State(state): State<AppState>, headers: HeaderMap, Query(q): Query<HashMap<String, String>>) -> Response {
     let (user, actor_role) = match require_role(&state, &headers, Role::Editor).await {
         Ok(a) => (a.user, a.role),
         Err(r) => return r,
     };
-    let (tags, _) = repos::tags::browse(&state.db, None, None, 100, 1, false, true).await.unwrap_or_default();
+    let (mut tags, _) = repos::tags::browse(&state.db, None, None, 100, 1, false, true).await.unwrap_or_default();
+    // The tabs count the whole list, then the selected one narrows it, so a
+    // tab's number does not change when you click a different tab.
+    let mut counts: HashMap<String, i64> = HashMap::new();
+    for t in &tags {
+        *counts.entry(t.visibility.clone()).or_insert(0) += 1;
+    }
+    let selected = q.get("filter").map(String::as_str).unwrap_or("all");
+    let selected = TAG_FILTERS
+        .iter()
+        .find(|(key, _, _)| *key == selected)
+        .unwrap_or(&TAG_FILTERS[0]);
+    if let Some(visibility) = selected.2 {
+        tags.retain(|t| t.visibility == visibility);
+    }
     let rows: String = tags
         .iter()
         .map(|t| {
@@ -4349,12 +4664,15 @@ async fn tags_list(State(state): State<AppState>, headers: HeaderMap) -> Respons
         Some(&user),
         &format!(
             r#"<header class="page-head rise"><div><h1>Tags</h1><p class="sub">{count} {tag_word}</p></div></header>
+{filters}
 <div class="card padded rise" style="--i:1"><form method="post" action="/ghost/tags/" class="inline-form">
 <label class="field" style="flex:1;min-width:220px;margin:0"><input name="name" placeholder=" " required><span>New tag name</span></label>
 <button class="btn tonal" type="submit">{add} Add tag</button></form></div>
-<div class="section">All tags</div>
+<div class="section">{section}</div>
 <div class="search rise" style="--i:2">{search}<input data-filter type="search" placeholder="Search tags" aria-label="Search tags"></div>
 <div class="card rows rise" style="--i:3">{rows}</div>"#,
+            filters = seg_filter_bar(TAG_FILTERS, "/ghost/tags/", selected.0, "", &counts),
+            section = esc(selected.1),
             count = tags.len(),
             tag_word = if tags.len() == 1 { "tag" } else { "tags" },
             add = svg("add"),
@@ -4655,7 +4973,10 @@ async fn themes_page(State(state): State<AppState>, headers: HeaderMap, Query(q)
         _ => String::new(),
     };
 
-    let rows: String = ghost_api::themes::list(&state)
+    let installed = ghost_api::themes::list(&state);
+    let gallery = official_theme_gallery(&installed);
+
+    let rows: String = installed
         .iter()
         .map(|t| {
             let meta = [
@@ -4730,14 +5051,58 @@ async fn themes_page(State(state): State<AppState>, headers: HeaderMap, Query(q)
 <button class="btn tonal" type="submit">{up} Upload theme</button>
 </form><p class="muted" style="margin:10px 0 0">A Ghost theme zip. Uploading a theme that is already installed replaces it.</p></div>
 <div class="section">Installed</div>
-<div class="card rows rise" style="--i:3">{rows}</div>"#,
+<div class="card rows rise" style="--i:3">{rows}</div>
+<div class="section">Official themes</div>
+<p class="muted" style="margin:-6px 0 14px">Free themes built by Ghost. Installing downloads the latest version from GitHub; it does not change the active theme.</p>
+<div class="gallery rise" style="--i:4">{gallery}</div>"#,
             banner = banner,
             up = svg("upload"),
-            rows = rows
+            rows = rows,
+            gallery = gallery
         ),
         true,
     )
     .into_response()
+}
+
+/// Ghost's official theme gallery, as cards: a live preview of the demo site,
+/// and one button whose job depends on whether the theme is already here.
+///
+/// `installed` is the themes already under `content/themes/`, so a gallery
+/// entry that is installed offers Activate (or reads Active) instead of
+/// downloading it a second time.
+fn official_theme_gallery(installed: &[ghost_api::themes::InstalledTheme]) -> String {
+    ghost_api::themes::OFFICIAL_THEMES
+        .iter()
+        .map(|t| {
+            let local = installed.iter().find(|i| i.name == t.slug);
+
+            let action = match local {
+                Some(i) if i.active => r#"<span class="chip published" style="flex:1;justify-content:center">Active</span>"#.to_string(),
+                Some(_) => format!(
+                    r#"<form method="post" action="/ghost/themes/{slug}/activate/"><button class="btn tonal small" type="submit">Activate</button></form>"#,
+                    slug = esc(t.slug)
+                ),
+                None => format!(
+                    r#"<form method="post" action="/ghost/themes/official/{slug}/install/"><button class="btn tonal small" type="submit">Install</button></form>"#,
+                    slug = esc(t.slug)
+                ),
+            };
+
+            format!(
+                r#"<div class="card rise" data-filterable>
+<a class="shot" href="{preview}" target="_blank" rel="noopener noreferrer" tabindex="-1" aria-hidden="true"><img src="/ghost/themes/official/{slug}/thumbnail.png" alt="" width="600" height="750" loading="lazy" decoding="async" onerror="this.remove()"></a>
+<div class="meta"><div class="body"><span class="title">{name}</span><span class="detail">{category}</span></div></div>
+<div class="actions"><a class="btn outlined small" href="{preview}" target="_blank" rel="noopener noreferrer">Preview</a>{action}</div>
+</div>"#,
+                slug = esc(t.slug),
+                preview = esc(t.preview_url),
+                name = esc(t.name),
+                category = esc(t.category),
+                action = action,
+            )
+        })
+        .collect()
 }
 
 /// Turn a multipart error into something an operator can act on.
@@ -4782,6 +5147,50 @@ async fn theme_upload(State(state): State<AppState>, headers: HeaderMap, mut mul
             Ok(name) => themes_flash("ok", &format!("Theme '{name}' uploaded.")),
             Err(e) => themes_flash("error", &e.message()),
         };
+    }
+}
+
+/// A gallery thumbnail, served with a week-long cache window.
+///
+/// The bytes come from Ghost's marketplace and are kept under `content/cache/`
+/// after the first request, so the themes page costs one round trip per theme
+/// ever rather than one per visit. The artwork for a published theme is
+/// fixed, which is what makes `immutable` honest here.
+async fn theme_official_thumbnail(State(state): State<AppState>, Path(slug): Path<String>, headers: HeaderMap) -> Response {
+    if let Err(r) = require_role(&state, &headers, Role::Administrator).await {
+        return r;
+    }
+    match ghost_api::themes::official_thumbnail(&state, &slug).await {
+        Ok(bytes) => (
+            [
+                (header::CONTENT_TYPE, "image/png".to_string()),
+                (
+                    header::CACHE_CONTROL,
+                    format!(
+                        "public, max-age={}, immutable",
+                        ghost_api::themes::THUMBNAIL_MAX_AGE_SECONDS
+                    ),
+                ),
+            ],
+            bytes,
+        )
+            .into_response(),
+        // The gallery drops an image it cannot load, so a miss here just
+        // leaves the card's placeholder panel.
+        Err(e) => (StatusCode::NOT_FOUND, e.message()).into_response(),
+    }
+}
+
+/// One-click install of an official theme: download the archive from GitHub
+/// and unpack it like an upload. The active theme is left alone, so an
+/// operator can install, preview and then activate deliberately.
+async fn theme_install_official(State(state): State<AppState>, Path(slug): Path<String>, headers: HeaderMap) -> Response {
+    if let Err(r) = require_role(&state, &headers, Role::Administrator).await {
+        return r;
+    }
+    match ghost_api::themes::install_official(&state, &slug).await {
+        Ok(name) => themes_flash("ok", &format!("Theme '{name}' installed. Activate it when you're ready.")),
+        Err(e) => themes_flash("error", &format!("Could not install that theme: {}", e.message())),
     }
 }
 
@@ -4981,40 +5390,37 @@ async fn design_page(State(state): State<AppState>, headers: HeaderMap, Query(q)
     let effective = theme.custom_settings(overrides.as_ref());
 
     let fields = custom_fields(&theme.pkg.config.custom);
-    let mut grouped: Vec<(String, Vec<String>)> = vec![(String::new(), vec![])];
+    // Ghost's design page shows a theme's custom settings on three shelves —
+    // Site-wide, Homepage, Post — the convention Casper established with its
+    // `group` declarations. A field's declared group picks its shelf;
+    // anything ungrouped or novel lands on Site-wide rather than inventing a
+    // fourth shelf mid-page.
+    let mut shelves: [(&str, Vec<String>); 3] =
+        [("Site-wide", vec![]), ("Homepage", vec![]), ("Post", vec![])];
     for f in &fields {
-        let group = match grouped.iter_mut().find(|(g, _)| *g == f.group) {
-            Some((_, keys)) => keys,
-            None => {
-                grouped.push((f.group.clone(), vec![]));
-                &mut grouped.last_mut().unwrap().1
-            }
+        let group = f.group.to_lowercase();
+        let shelf = if group.contains("home") {
+            &mut shelves[1]
+        } else if group.contains("post") {
+            &mut shelves[2]
+        } else {
+            &mut shelves[0]
         };
-        group.push(f.key.clone());
+        shelf.1.push(f.key.clone());
     }
     let custom_html: String = if fields.is_empty() {
         format!(
-            r#"<div class="card padded rise" style="--i:2"><div style="display:flex;gap:14px;align-items:center"><span class="ic tint-purple">{ic}</span>
+            r#"<div class="card padded rise" style="--i:3"><div style="display:flex;gap:14px;align-items:center"><span class="ic tint-purple">{ic}</span>
 <p class="muted" style="margin:0">The <b>{name}</b> theme declares no customizable settings.</p></div></div>"#,
             ic = svg("tune"),
             name = esc(&theme.name),
         )
     } else {
-        grouped
+        shelves
             .iter()
-            .filter(|(_, keys)| !keys.is_empty())
             .enumerate()
-            .map(|(i, (group, keys))| {
-                let section = if group.is_empty() {
-                    "Customize".to_string()
-                } else {
-                    let mut s = group.replace('_', " ");
-                    if let Some(first) = s.get_mut(0..1) {
-                        let upper = first.to_uppercase();
-                        s.replace_range(0..1, &upper);
-                    }
-                    s
-                };
+            .filter(|(_, shelf)| !shelf.1.is_empty())
+            .map(|(i, (label, keys))| {
                 let rows: String = keys
                     .iter()
                     .filter_map(|k| {
@@ -5026,8 +5432,8 @@ async fn design_page(State(state): State<AppState>, headers: HeaderMap, Query(q)
                     .collect();
                 format!(
                     r#"<div class="section">{section}</div><div class="card rows rise" style="--i:{i}">{rows}</div>"#,
-                    section = esc(&section),
-                    i = i + 2,
+                    section = esc(label),
+                    i = i + 3,
                     rows = rows,
                 )
             })
@@ -5035,7 +5441,7 @@ async fn design_page(State(state): State<AppState>, headers: HeaderMap, Query(q)
     };
 
     let s = |k: &str| esc(&state.settings.get_str(k).unwrap_or_default());
-    page_for_role(actor_role, 
+    page_for_role(actor_role,
         "Design",
         "design",
         Some(&user),
@@ -5045,19 +5451,25 @@ async fn design_page(State(state): State<AppState>, headers: HeaderMap, Query(q)
 <button class="btn" type="submit" form="design-form">{check} Save</button></div></header>
 {banner}
 <form method="post" action="/ghost/design/" id="design-form">
-<div class="section">Site-wide</div>
+<div class="section">Brand</div>
 <div class="card rows rise" style="--i:2">
-<div class="row" style="align-items:center"><span class="ic tint-pink">{title_ic}</span>
-<div class="body"><label class="field" style="margin:0"><input name="logo" value="{logo}" placeholder=" "><span>Logo · URL</span></label></div></div>
-<div class="row" style="align-items:center"><span class="ic tint-pink">{img}</span>
-<div class="body"><label class="field" style="margin:0"><input name="icon" value="{icon}" placeholder=" "><span>Publication icon · URL</span></label></div></div>
-<div class="row" style="align-items:center"><span class="ic tint-pink">{cover}</span>
-<div class="body"><label class="field" style="margin:0"><input name="cover_image" value="{cover_image}" placeholder=" "><span>Cover image · URL</span></label></div></div>
 <div class="row"><span class="ic tint-pink">{palette}</span>
 <div class="body"><div class="color-field">
 <input type="color" name="accent_color" value="{accent}" aria-label="Accent color">
 <div><span class="title" style="display:block">Accent color</span><span class="detail">{accent}</span></div>
 </div></div></div>
+<div class="row" style="align-items:center"><span class="ic tint-pink">{img}</span>
+<div class="body"><label class="field" style="margin:0"><input name="icon" value="{icon}" placeholder=" "><span>Publication icon · URL</span></label></div></div>
+<div class="row" style="align-items:center"><span class="ic tint-pink">{title_ic}</span>
+<div class="body"><label class="field" style="margin:0"><input name="logo" value="{logo}" placeholder=" "><span>Publication logo · URL</span></label></div></div>
+<div class="row" style="align-items:center"><span class="ic tint-pink">{cover}</span>
+<div class="body"><label class="field" style="margin:0"><input name="cover_image" value="{cover_image}" placeholder=" "><span>Publication cover · URL</span></label></div></div>
+<div class="row" style="align-items:center"><span class="ic tint-pink">{type_ic}</span>
+<div class="body"><span class="title">Typography</span><span class="detail">Fonts used across the site</span></div></div>
+<div class="row" style="align-items:center"><span class="ic tint-pink">{title_ic}</span>
+<div class="body"><label class="field fixed" style="margin:0;max-width:340px"><select name="heading_font">{heading_opts}</select><span>Heading font</span>{car}</label></div></div>
+<div class="row" style="align-items:center"><span class="ic tint-pink">{notes}</span>
+<div class="body"><label class="field fixed" style="margin:0;max-width:340px"><select name="body_font">{body_opts}</select><span>Body font</span>{car}</label></div></div>
 </div>
 {custom_html}
 </form>
@@ -5068,10 +5480,15 @@ async fn design_page(State(state): State<AppState>, headers: HeaderMap, Query(q)
             img = svg("image"),
             cover = svg("pages"),
             palette = svg("themes"),
+            type_ic = svg("tune"),
+            notes = svg("notes"),
+            car = SELECT_CARET,
             logo = s("logo"),
             icon = s("icon"),
             cover_image = s("cover_image"),
             accent = s("accent_color"),
+            heading_opts = select_options(FONT_STACKS, &state.settings.get_str("heading_font").unwrap_or_default()),
+            body_opts = select_options(FONT_STACKS, &state.settings.get_str("body_font").unwrap_or_default()),
             banner = banner,
             custom_html = custom_html,
         ),
@@ -5080,13 +5497,26 @@ async fn design_page(State(state): State<AppState>, headers: HeaderMap, Query(q)
     .into_response()
 }
 
+/// The font choices the Brand card offers, when the theme declares none of
+/// its own. The stored value is the CSS `font-family` stack itself, so a
+/// theme can drop `@site.heading_font` straight into its stylesheet, and the
+/// empty string is Ghost's seeded default — "let the theme decide".
+const FONT_STACKS: &[(&str, &str)] = &[
+    ("", "Theme default"),
+    ("-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif", "Modern sans-serif"),
+    ("'Helvetica Neue', Helvetica, Arial, sans-serif", "Clean sans-serif"),
+    ("Georgia, 'Times New Roman', Times, serif", "Classic serif"),
+    ("'Iowan Old Style', 'Palatino Linotype', 'Book Antiqua', Palatino, serif", "Elegant serif"),
+    ("'SF Mono', 'Cascadia Code', Consolas, 'Courier New', monospace", "Monospace"),
+];
+
 async fn design_save(State(state): State<AppState>, headers: HeaderMap, Form(form): Form<HashMap<String, String>>) -> Response {
     if let Err(r) = require_role(&state, &headers, Role::Administrator).await {
         return r;
     }
     let theme = state.theme.read().await.clone();
 
-    for key in ["logo", "icon", "cover_image", "accent_color"] {
+    for key in ["logo", "icon", "cover_image", "accent_color", "heading_font", "body_font"] {
         let v = form.get(key).cloned().unwrap_or_default();
         let _ = state.settings.set(&state.db, key, &serde_json::json!(v)).await;
     }
@@ -5155,9 +5585,91 @@ const SETTINGS_GROUPS: &[SettingsGroup] = &[
     SettingsGroup { slug: "email", title: "Email", icon: "mail", tint: "blue", items: &["Transactional email", "SMTP server", "Sender identity", "Send a test"] },
     SettingsGroup { slug: "newsletters", title: "Newsletters", icon: "send", tint: "purple", items: &["Mailgun", "Sending domain", "Region"] },
     SettingsGroup { slug: "growth", title: "Growth", icon: "globe", tint: "slate", items: &["Network", "Ghost Explore", "Recommendations", "Signup forms"] },
+    SettingsGroup { slug: "features", title: "Features", icon: "tune", tint: "teal", items: &["Comments", "Automations"] },
     SettingsGroup { slug: "advanced", title: "Advanced", icon: "code", tint: "red", items: &["Integrations", "Import/Export", "Code injection", "Labs"] },
     SettingsGroup { slug: "history", title: "History", icon: "history", tint: "slate", items: &["Site activity"] },
     SettingsGroup { slug: "danger", title: "Danger zone", icon: "delete", tint: "red", items: &["Delete all content", "Delete site"] },
+];
+
+/// The individual settings behind the hub's search: one row per field, with
+/// the section it sits in and the page it lives on. The groups above cover
+/// what Ghost's own navigation names; this covers what a user actually types
+/// — "port", "webhook", "reply-to" — which none of the page titles contain.
+/// The social accounts are folded in from `SOCIAL_ACCOUNTS` at render time
+/// rather than repeated here.
+const SETTINGS_INDEX: &[(&str, &str, &str)] = &[
+    // (page slug, section, field)
+    ("general", "Title & description", "Title"),
+    ("general", "Title & description", "Description"),
+    ("general", "Timezone", "Site timezone"),
+    ("general", "Publication language", "Publication language"),
+    ("metadata", "Metadata", "Meta title"),
+    ("metadata", "Metadata", "Meta description"),
+    ("metadata", "Twitter card", "Twitter title"),
+    ("metadata", "Twitter card", "Twitter description"),
+    ("metadata", "Twitter card", "Twitter image"),
+    ("metadata", "Facebook card", "Facebook title"),
+    ("metadata", "Facebook card", "Facebook description"),
+    ("metadata", "Facebook card", "Facebook image"),
+    ("analytics", "Analytics", "Web analytics"),
+    ("analytics", "Analytics", "Outbound link tagging"),
+    ("site", "Announcement bar", "Announcement"),
+    ("site", "Announcement bar", "Background"),
+    ("email", "Transactional email", "Transport"),
+    ("email", "SMTP server", "Host"),
+    ("email", "SMTP server", "Port"),
+    ("email", "SMTP server", "Encryption"),
+    ("email", "SMTP server", "Username"),
+    ("email", "SMTP server", "Password"),
+    ("email", "Sender identity", "From address"),
+    ("email", "Sender identity", "From name"),
+    ("email", "Sender identity", "Reply-to"),
+    ("email", "Send a test", "Send to"),
+    ("newsletters", "Newsletters", "Newsletter name"),
+    ("newsletters", "Mailgun", "API key"),
+    ("newsletters", "Mailgun", "Sending domain"),
+    ("newsletters", "Mailgun", "Region"),
+    ("newsletters", "Sender", "Sender name"),
+    ("newsletters", "Sender", "Sender email"),
+    ("newsletters", "Header", "Header image URL"),
+    ("membership", "Stripe", "Publishable key"),
+    ("membership", "Stripe", "Secret key"),
+    ("membership", "Stripe", "Webhook signing secret"),
+    ("membership", "Access", "Signup access"),
+    ("membership", "Access", "Default post access"),
+    ("membership", "Access", "Commenting"),
+    ("membership", "Tiers", "Monthly price"),
+    ("membership", "Tiers", "Yearly price"),
+    ("membership", "Tiers", "Currency"),
+    ("membership", "Tiers", "Free trial"),
+    ("membership", "Tiers", "Benefits"),
+    ("membership", "Signup portal", "Portal button signup text"),
+    ("membership", "Signup portal", "Portal button icon"),
+    ("membership", "Signup portal", "Portal button style"),
+    ("membership", "Signup portal", "Signup terms"),
+    ("membership", "Welcome emails", "Welcome page URL"),
+    ("features", "Comments", "New comments"),
+    ("features", "Comments", "Hold for review"),
+    ("features", "Automations", "Automations"),
+    ("advanced", "Code injection", "Head"),
+    ("advanced", "Code injection", "Foot"),
+    ("advanced", "Labs", "Labs flags"),
+];
+
+/// Sub-pages and on-page headings the group rows do not already carry:
+/// things with their own URL nested inside a group (Integrations and the
+/// built-in apps it lists), and headings that are neither the page's own
+/// name nor one of its listed sub-pages. Each row links straight to where
+/// the thing actually lives.
+const SETTINGS_PLACES: &[(&str, &str, &str)] = &[
+    // (path under /ghost/settings/, what you are looking for, parent group slug)
+    ("advanced/integrations/", "Built-in apps", "advanced"),
+    ("advanced/integrations/", "Custom integrations", "advanced"),
+    ("advanced/integrations/zapier/", "Zapier", "advanced"),
+    ("advanced/integrations/slack/", "Slack", "advanced"),
+    ("advanced/integrations/unsplash/", "Unsplash", "advanced"),
+    ("membership/", "Stripe", "membership"),
+    ("growth/", "Coming later", "growth"),
 ];
 
 /// The editable social accounts, in Ghost's order. Keys are Ghost's settings
@@ -5460,14 +5972,81 @@ async fn settings_page(State(state): State<AppState>, headers: HeaderMap) -> Res
             )
         })
         .collect();
-    page_for_role(actor_role, 
+    // The searchable index, four kinds deep: the pages themselves, the
+    // sub-page each group lists, the nested places and headings, and the
+    // fields. A page's row answers to its own name and its sub-pages' names,
+    // but everything below it matches only its own text — so a broad query
+    // ("advanced") lands on the page, and a narrow one ("port", "zapier",
+    // "built-in") lands on the thing itself without flooding the page in.
+    let mut hit_rows: Vec<String> = Vec::new();
+    let mut push_hit = |url: String, title: &str, detail: &str, haystack: &str, group: &SettingsGroup| {
+        hit_rows.push(format!(
+            r#"<a class="row" href="{url}" data-search="{haystack}">
+<span class="ic tint-{tint}">{ic}</span>
+<div class="body"><span class="title">{title}</span><span class="detail">{detail}</span></div>
+<div class="trailing">{chev}</div></a>"#,
+            url = esc(&url),
+            haystack = esc(haystack),
+            tint = group.tint,
+            ic = svg(group.icon),
+            title = esc(title),
+            detail = esc(detail),
+            chev = svg("chevron"),
+        ));
+    };
+    for g in SETTINGS_GROUPS {
+        push_hit(
+            format!("/ghost/settings/{}/", g.slug),
+            g.title,
+            &g.items.join(" · "),
+            &format!("{} {} {}", g.title, g.items.join(" "), g.slug),
+            g,
+        );
+        for item in g.items {
+            // Integrations is the one listed sub-page with a page of its own
+            let url = if *item == "Integrations" {
+                "/ghost/settings/advanced/integrations/".to_string()
+            } else {
+                format!("/ghost/settings/{}/", g.slug)
+            };
+            push_hit(url, item, g.title, item, g);
+        }
+    }
+    for (path, name, parent) in SETTINGS_PLACES {
+        if let Some(g) = SETTINGS_GROUPS.iter().find(|g| g.slug == *parent) {
+            push_hit(format!("/ghost/settings/{path}"), name, g.title, name, g);
+        }
+    }
+    let mut fields: Vec<(&str, &str, &str)> = SETTINGS_INDEX.to_vec();
+    for (_, name) in SOCIAL_ACCOUNTS {
+        fields.push(("social", "Social accounts", name));
+    }
+    for (slug, section, field) in &fields {
+        if let Some(g) = SETTINGS_GROUPS.iter().find(|g| g.slug == *slug) {
+            push_hit(
+                format!("/ghost/settings/{}/", slug),
+                field,
+                &format!("{} · {}", g.title, section),
+                &format!("{section} {field}"),
+                g,
+            );
+        }
+    }
+    let hits = hit_rows.join("\n");
+    page_for_role(actor_role,
         "Settings",
         "settings",
         Some(&user),
         &format!(
             r#"<header class="page-head rise"><div><h1>Settings</h1><p class="sub">Site configuration</p></div></header>
-<div class="card rows rise" style="--i:1">{rows}</div>"#,
+<div class="search rise" style="--i:1">{search}<input id="settings-search" type="search" placeholder="Search all settings" aria-label="Search all settings"></div>
+<div class="card rows rise" style="--i:2" id="settings-groups">{rows}</div>
+<div class="card rows" id="settings-hits" style="display:none">{hits}
+<div class="row" id="settings-empty" style="display:none"><div class="body"><span class="title">Nothing matches</span><span class="detail">Try another word, or clear the search to browse the pages.</span></div></div>
+</div>"#,
+            search = svg("search"),
             rows = rows,
+            hits = hits,
         ),
         true,
     )
@@ -6791,6 +7370,85 @@ async fn analytics_settings_save(State(state): State<AppState>, headers: HeaderM
     }
 }
 
+// --- features: the system switches for Comments and Automations ---
+
+async fn features_page(State(state): State<AppState>, headers: HeaderMap, Query(q): Query<HashMap<String, String>>) -> Response {
+    let (user, actor_role) = match require_role(&state, &headers, Role::Administrator).await {
+        Ok(a) => (a.user, a.role),
+        Err(r) => return r,
+    };
+    let group = SETTINGS_GROUPS.iter().find(|g| g.slug == "features").unwrap();
+    let moderation = state.settings.get_str("comments_moderation").unwrap_or_else(|| "immediate".into());
+    // get_str + "false" rather than get_bool: a missing row must read as on,
+    // and get_bool calls missing false
+    let automations_on = state.settings.get_str("automations_enabled").as_deref() != Some("false");
+    page_for_role(actor_role,
+        "Features",
+        "settings",
+        Some(&user),
+        &format!(
+            r#"{head}{banner}
+<form method="post" action="/ghost/settings/features/" id="features-form">
+<div class="section">Comments</div>
+<div class="card rows rise" style="--i:1">
+<div class="row"><span class="ic tint-purple">{comment}</span>
+<div class="body"><label class="field fixed" style="margin:0;max-width:340px">
+<select name="comments_moderation">{mod_opts}</select><span>New comments</span>{car}</label>
+<p class="muted" style="margin:6px 0 0">Held comments arrive hidden and wait in the moderation screen's Hidden filter — restoring one publishes it.</p></div></div>
+</div>
+<div class="section">Automations</div>
+<div class="card rows rise" style="--i:2">
+{automations_toggle}
+</div>
+</form>"#,
+            head = group_head(group, Some("features-form")),
+            banner = flash_banner(&q),
+            comment = svg("comment"),
+            car = SELECT_CARET,
+            mod_opts = crate::select_options(
+                &[("immediate", "Publish immediately"), ("review", "Hold for review")],
+                &moderation,
+            ),
+            automations_toggle = toggle_row(
+                "automations_enabled",
+                "Automations",
+                "Runs the email sequences that start when members join. Stopping the system pauses every automation — nothing is enrolled, nothing is sent, and runs in flight wait exactly where they are.",
+                automations_on,
+            ),
+        ),
+        true,
+    )
+    .into_response()
+}
+
+async fn features_save(State(state): State<AppState>, headers: HeaderMap, Form(form): Form<HashMap<String, String>>) -> Response {
+    if let Err(r) = require_role(&state, &headers, Role::Administrator).await {
+        return r;
+    }
+    let moderation = form.get("comments_moderation").map(String::as_str).unwrap_or("immediate");
+    if !matches!(moderation, "immediate" | "review") {
+        return settings_flash("features", "error", "New comments must publish immediately or be held for review.");
+    }
+    let automations_on = form.get("automations_enabled").map(|v| v == "1").unwrap_or(false);
+    let saved_moderation = state
+        .settings
+        .set(&state.db, "comments_moderation", &serde_json::json!(moderation))
+        .await;
+    let saved_automations = state
+        .settings
+        .set(&state.db, "automations_enabled", &serde_json::Value::Bool(automations_on))
+        .await;
+    // Turning the system back on should not wait for the next tick to notice
+    if automations_on {
+        ghost_api::automations_engine::request_poll();
+    }
+    if saved_moderation.is_ok() && saved_automations.is_ok() {
+        settings_flash("features", "ok", "Feature settings saved.")
+    } else {
+        settings_flash("features", "error", "Saving failed — check the logs.")
+    }
+}
+
 // --- site: theme (the existing design page) + announcement bar ---
 
 /// Ghost's announcement visibility audiences (AnnouncementVisibilityValues).
@@ -7975,6 +8633,22 @@ async fn advanced_page(State(state): State<AppState>, headers: HeaderMap, Query(
 <label class="field" style="margin:0"><textarea name="labs" class="code" rows="4" placeholder=" " form="labs-form">{labs}</textarea><span>Labs flags · JSON object</span></label>
 <form method="post" action="/ghost/settings/advanced/labs/" id="labs-form"></form>
 <p class="muted" style="margin:8px 0 0">Ghost stores labs flags as a JSON object, e.g. <code>{{"flags":{{}}}}</code>. Invalid JSON is rejected.</p></div></div>
+<div class="row" style="align-items:flex-start"><span class="ic tint-red">{redirects_ic}</span>
+<div class="body" style="width:100%"><span class="title" style="display:block;margin-bottom:8px">Redirects</span>
+<div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap">
+<a class="btn tonal small" href="/ghost/settings/advanced/redirects/">Download</a>
+<form method="post" action="/ghost/settings/advanced/redirects/" enctype="multipart/form-data" style="display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin:0">
+<input type="file" name="file" accept=".yaml,.yml,.json" required class="filefield">
+<button class="btn tonal small" type="submit">Upload redirects</button></form></div>
+<p class="muted" style="margin:10px 0 0">Ghost-format redirects, YAML or JSON — <code>301: /old/ -> /new/</code>. The file is validated before anything takes effect.</p></div></div>
+<div class="row" style="align-items:flex-start"><span class="ic tint-red">{routes_ic}</span>
+<div class="body" style="width:100%"><span class="title" style="display:block;margin-bottom:8px">Routes</span>
+<div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap">
+<a class="btn tonal small" href="/ghost/settings/advanced/routes/">Download</a>
+<form method="post" action="/ghost/settings/advanced/routes/" enctype="multipart/form-data" style="display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin:0">
+<input type="file" name="file" accept=".yaml,.yml" required class="filefield">
+<button class="btn tonal small" type="submit">Upload routes</button></form></div>
+<p class="muted" style="margin:10px 0 0">routes.yaml defines the site's URL structure — collections, channels and custom templates. Uploading rebuilds routing and the active theme immediately.</p></div></div>
 </div>"#,
             head = group_head(group, Some("advanced-form")),
             banner = flash_banner(&q),
@@ -7984,6 +8658,8 @@ async fn advanced_page(State(state): State<AppState>, headers: HeaderMap, Query(
             open = svg("open"),
             code = svg("code"),
             labs_ic = svg("star"),
+            redirects_ic = svg("link"),
+            routes_ic = svg("layout"),
             cih = s("codeinjection_head"),
             cif = s("codeinjection_foot"),
             labs = s("labs"),
@@ -8296,6 +8972,120 @@ async fn advanced_import(State(state): State<AppState>, headers: HeaderMap, mut 
             },
             None => settings_flash("advanced", "error", "That file doesn't look like a Ghost export (no db[0].data)."),
         };
+    }
+    settings_flash("advanced", "error", "No file was uploaded.")
+}
+
+// --- labs: the redirects and routes files, uploadable and downloadable ---
+
+/// The current redirects.yaml, as Ghost's Labs screen offers it. A site that
+/// has never uploaded any gets the neutral document rather than an error.
+async fn redirects_download(State(state): State<AppState>, headers: HeaderMap) -> Response {
+    if let Err(r) = require_role(&state, &headers, Role::Administrator).await {
+        return r;
+    }
+    let body = tokio::fs::read_to_string(state.config.content_path().join("redirects.yaml"))
+        .await
+        .unwrap_or_else(|_| "# No redirects configured yet.\n".to_string());
+    (
+        StatusCode::OK,
+        [
+            (header::CONTENT_TYPE, "text/yaml; charset=utf-8"),
+            (header::CONTENT_DISPOSITION, "attachment; filename=\"redirects.yaml\""),
+        ],
+        body,
+    )
+        .into_response()
+}
+
+async fn redirects_upload(State(state): State<AppState>, headers: HeaderMap, mut multipart: Multipart) -> Response {
+    if let Err(r) = require_role(&state, &headers, Role::Administrator).await {
+        return r;
+    }
+    while let Ok(Some(field)) = multipart.next_field().await {
+        if field.name() != Some("file") {
+            continue;
+        }
+        let text = match field.text().await {
+            Ok(t) => t,
+            Err(e) => return settings_flash("advanced", "error", &format!("Upload failed: {e}")),
+        };
+        // Parse before writing anything: a malformed file never reaches the
+        // disk, let alone the live redirect table.
+        let parsed = match ghost_routing::redirects::parse_redirects_yaml(&text) {
+            Ok(r) => r,
+            Err(e) => return settings_flash("advanced", "error", &format!("Not a valid redirects file: {e}")),
+        };
+        let path = state.config.content_path().join("redirects.yaml");
+        if let Err(e) = tokio::fs::write(&path, &text).await {
+            return settings_flash("advanced", "error", &format!("Could not write redirects.yaml: {e}"));
+        }
+        let count = ghost_routing::redirects::rules_map(&parsed).len();
+        *state.redirects.write().await = Arc::new(parsed);
+        return settings_flash("advanced", "ok", &format!("Redirects uploaded — {count} rule{s} in force.", s = if count == 1 { "" } else { "s" }));
+    }
+    settings_flash("advanced", "error", "No file was uploaded.")
+}
+
+async fn routes_download(State(state): State<AppState>, headers: HeaderMap) -> Response {
+    if let Err(r) = require_role(&state, &headers, Role::Administrator).await {
+        return r;
+    }
+    let body = tokio::fs::read_to_string(state.config.content_path().join("routes.yaml"))
+        .await
+        .unwrap_or_else(|_| ghost_routing::DEFAULT_ROUTES_YAML.to_string());
+    (
+        StatusCode::OK,
+        [
+            (header::CONTENT_TYPE, "text/yaml; charset=utf-8"),
+            (header::CONTENT_DISPOSITION, "attachment; filename=\"routes.yaml\""),
+        ],
+        body,
+    )
+        .into_response()
+}
+
+/// Upload a routes.yaml. Routing is live configuration, so the file is
+/// parsed *and* built into a router tree before anything is written — then
+/// the tree is swapped in and the active theme is recompiled against it,
+/// because a theme's resolvers and template choices are derived from routes.
+async fn routes_upload(State(state): State<AppState>, headers: HeaderMap, mut multipart: Multipart) -> Response {
+    if let Err(r) = require_role(&state, &headers, Role::Administrator).await {
+        return r;
+    }
+    while let Ok(Some(field)) = multipart.next_field().await {
+        if field.name() != Some("file") {
+            continue;
+        }
+        let text = match field.text().await {
+            Ok(t) => t,
+            Err(e) => return settings_flash("advanced", "error", &format!("Upload failed: {e}")),
+        };
+        let settings = match ghost_routing::routes_yaml::parse_routes_yaml(&text) {
+            Ok(s) => s,
+            Err(e) => return settings_flash("advanced", "error", &format!("Not a valid routes file: {e}")),
+        };
+        let tree = match ghost_routing::RouterTree::build(&settings) {
+            Ok(t) => t,
+            Err(e) => return settings_flash("advanced", "error", &format!("These routes cannot be routed: {e}")),
+        };
+        let path = state.config.content_path().join("routes.yaml");
+        if let Err(e) = tokio::fs::write(&path, &text).await {
+            return settings_flash("advanced", "error", &format!("Could not write routes.yaml: {e}"));
+        }
+        *state.router.write().await = Arc::new(tree);
+        // The theme was compiled against the old routes; recompile it against
+        // the new ones. A failure here leaves routing updated but the old
+        // theme in place — said out loud rather than half-reported.
+        let theme = ghost_api::themes::active_theme_name(&state);
+        if let Err(e) = ghost_api::themes::activate(&state, &theme).await {
+            return settings_flash(
+                "advanced",
+                "error",
+                &format!("Routes are in force, but the theme could not be rebuilt against them: {}", e.message()),
+            );
+        }
+        return settings_flash("advanced", "ok", "Routes uploaded — routing and the theme have been rebuilt.");
     }
     settings_flash("advanced", "error", "No file was uploaded.")
 }
@@ -10533,15 +11323,35 @@ mod tests {
         // Ghost's settings sidebar, in order. Email and Bulk email sit after
         // Membership: Ghost keeps both in config.json, this port exposes them
         // in the UI, and they belong next to the membership features that
-        // send the mail.
+        // send the mail. Features is this port's own group — the Comments
+        // and Automations system switches have no Ghost page to mirror.
         let titles: Vec<&str> = SETTINGS_GROUPS.iter().map(|g| g.title).collect();
         assert_eq!(
             titles,
             ["General settings", "Staff", "Meta data", "Social accounts", "Analytics", "Site",
-             "Membership", "Email", "Newsletters", "Growth", "Advanced", "History", "Danger zone"]
+             "Membership", "Email", "Newsletters", "Growth", "Features", "Advanced", "History", "Danger zone"]
         );
         // every group has a working page at its slug
         assert!(SETTINGS_GROUPS.iter().all(|g| !g.slug.is_empty() && !g.items.is_empty()));
+    }
+
+    #[test]
+    fn every_searchable_setting_lands_on_a_real_page() {
+        // a typo'd slug in the index would render nowhere — the row is
+        // silently dropped — so the index is checked against the groups
+        for (slug, section, field) in SETTINGS_INDEX {
+            assert!(
+                SETTINGS_GROUPS.iter().any(|g| g.slug == *slug),
+                "SETTINGS_INDEX points at unknown settings page: {slug}"
+            );
+            assert!(!section.is_empty() && !field.is_empty(), "empty section or field for {slug}");
+        }
+        for (_, name, parent) in SETTINGS_PLACES {
+            assert!(
+                SETTINGS_GROUPS.iter().any(|g| g.slug == *parent),
+                "SETTINGS_PLACES points at unknown settings page: {parent} ({name})"
+            );
+        }
     }
 
     #[test]

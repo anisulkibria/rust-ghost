@@ -125,6 +125,15 @@ pub async fn comments_page(
         String::new()
     };
 
+    let review_notice = if state.settings.get_str("comments_moderation").as_deref() == Some("review") {
+        format!(
+            r#"<div class="banner ok rise" style="--i:1">{eye}New comments are held for review: they arrive hidden and wait in the <a href="/ghost/comments/?filter=hidden">Hidden filter</a>. <a href="/ghost/settings/features/">Change this in Features</a>.</div>"#,
+            eye = svg("eye"),
+        )
+    } else {
+        String::new()
+    };
+
     let focus_notice = focus
         .map(|id| {
             format!(
@@ -152,7 +161,7 @@ pub async fn comments_page(
         Some(&user),
         &format!(
             r#"<header class="page-head rise"><div><h1>Comments</h1><p class="sub">{visible} visible · {hidden} hidden · {reported} reported</p></div></header>
-{banner}{off_notice}{focus_notice}{member_notice}
+{banner}{off_notice}{review_notice}{focus_notice}{member_notice}
 <div class="card rows rise" style="--i:2">
 <div class="row"><span class="ic tint-purple">{comment_ic}</span>
 <div class="body"><label class="field fixed" style="margin:0;max-width:260px">
@@ -165,6 +174,7 @@ pub async fn comments_page(
             reported = reported,
             banner = flash_banner(&q),
             off_notice = off_notice,
+            review_notice = review_notice,
             focus_notice = focus_notice,
             member_notice = member_notice,
             comment_ic = svg("comment"),
@@ -230,6 +240,17 @@ fn comment_row(c: &repo::CommentWithRelations, focus: Option<&str>) -> String {
         _ => String::new(),
     };
 
+    // Delete is offered on every row, including an author-retracted husk —
+    // removing one of those is cleanup, and the cascade takes replies too.
+    let del_form = format!(
+        r#"<form method="post" action="/ghost/comments/{id}/delete/" data-confirm="Delete comment|The comment and any replies to it will be removed. This cannot be undone.">
+<button class="icon-btn danger" title="Delete" aria-label="Delete">{del}</button></form>
+<a class="icon-btn" href="/ghost/comments/{id}/" title="Details">{open}</a>"#,
+        id = esc(&c.comment.id),
+        del = svg("delete"),
+        open = svg("chevron"),
+    );
+
     let reports = if c.counts.reports > 0 {
         format!(
             r#"<span class="chip draft" title="Reported by {n} {word}">{flag} {n}</span>"#,
@@ -285,13 +306,14 @@ fn comment_row(c: &repo::CommentWithRelations, focus: Option<&str>) -> String {
         r#"<div class="row" style="align-items:flex-start"{highlight}>
 <span class="avatar">{initial}</span>
 <div class="body" style="width:100%">
-<span class="title">{member_name}</span>
+<a class="title" style="color:inherit;text-decoration:none" href="/ghost/comments/{id}/">{member_name}</a>
 <span class="detail">{date} · on {post_link}{member_link}</span>
 <p style="margin:8px 0 0">{body}</p>
 {context}
 </div>
-<div class="trailing" style="align-items:flex-start">{suspended}{reports}<span class="chip {chip_class}">{chip}</span>{action}</div>
+<div class="trailing" style="align-items:flex-start">{suspended}{reports}<span class="chip {chip_class}">{chip}</span>{action}{del_form}</div>
 </div>"#,
+        id = esc(&c.comment.id),
         // the deep-linked comment is marked so it is findable in a long list
         highlight = if focus == Some(c.comment.id.as_str()) {
             r#" style="align-items:flex-start;background:var(--secondary-container)""#
@@ -310,6 +332,7 @@ fn comment_row(c: &repo::CommentWithRelations, focus: Option<&str>) -> String {
         chip_class = chip_class,
         chip = chip,
         action = action,
+        del_form = del_form,
     )
 }
 
@@ -356,6 +379,184 @@ pub async fn comment_show(
     headers: HeaderMap,
 ) -> Response {
     set_status(state, headers, &id, "published", "Comment is visible again.").await
+}
+
+/// One comment in full: the whole text, who wrote it and where, and every
+/// action. The list clips bodies to a snippet because a moderator scans it;
+/// judging a reported comment needs the whole thing.
+pub async fn comment_page(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+    headers: HeaderMap,
+    Query(q): Query<HashMap<String, String>>,
+) -> Response {
+    let (user, actor_role) = match require_role(&state, &headers, Role::Administrator).await {
+        Ok(a) => (a.user, a.role),
+        Err(r) => return r,
+    };
+    let Ok(Some(c)) = repo::find_with_relations(&state.db, &id, true, None, true).await else {
+        return crate::not_found_page(&user, "That comment could not be found.");
+    };
+
+    let member_name = c
+        .member
+        .as_ref()
+        .and_then(|m| m.name.clone())
+        .filter(|n| !n.trim().is_empty())
+        .or_else(|| c.member.as_ref().map(|m| m.email.clone()))
+        .unwrap_or_else(|| "Deleted member".into());
+    let initial = member_name.chars().next().unwrap_or('?').to_uppercase().to_string();
+
+    // Same withholding rule as the list: the author retracted it, so nobody
+    // reads it back — not even to confirm a report about it.
+    let body = match c.comment.status.as_str() {
+        "deleted" => r#"<em class="muted">Deleted by its author — the text is gone.</em>"#.to_string(),
+        _ => c.comment.html.clone().unwrap_or_default(),
+    };
+    let edited = c
+        .comment
+        .edited_at
+        .as_deref()
+        .map(|at| format!(r#"<span class="chip tonal">edited {at}</span>"#, at = esc(at)))
+        .unwrap_or_default();
+
+    let (chip_class, chip) = match c.comment.status.as_str() {
+        "published" => ("published", "visible"),
+        "hidden" => ("draft", "hidden"),
+        _ => ("draft", "deleted"),
+    };
+    let action = match c.comment.status.as_str() {
+        "published" => format!(
+            r#"<form method="post" action="/ghost/comments/{id}/hide/">
+<button class="btn tonal small" type="submit">{ic} Hide from readers</button></form>"#,
+            id = esc(&c.comment.id),
+            ic = svg("hide"),
+        ),
+        "hidden" => format!(
+            r#"<form method="post" action="/ghost/comments/{id}/show/">
+<button class="btn tonal small" type="submit">{ic} Publish again</button></form>"#,
+            id = esc(&c.comment.id),
+            ic = svg("check"),
+        ),
+        _ => String::new(),
+    };
+
+    let post_row = match &c.post {
+        Some(p) => format!(
+            r#"<div class="row"><span class="ic tint-purple">{comment_ic}</span>
+<div class="body"><span class="title">On</span><span class="detail"><a href="/{slug}/#ghost-comments-{id}" target="_blank" rel="noopener">{title}</a> · open the thread</span></div></div>"#,
+            slug = esc(p.slug.as_deref().unwrap_or_default()),
+            id = esc(&c.comment.id),
+            title = esc(p.title.as_deref().unwrap_or("(untitled)")),
+            comment_ic = svg("comment"),
+        ),
+        None => r#"<div class="row"><span class="ic tint-purple"></span><div class="body"><span class="title">On</span><span class="detail">The post has been deleted</span></div></div>"#.to_string(),
+    };
+    let member_row = match &c.member {
+        Some(m) => format!(
+            r#"<div class="row"><span class="avatar">{initial}</span>
+<div class="body"><span class="title">{name}</span><span class="detail">{email} · <a href="/ghost/members/{id}/">profile</a> · <a href="/ghost/comments/?member={id}">their comments</a></span></div></div>"#,
+            initial = esc(&initial),
+            name = esc(&member_name),
+            email = esc(&m.email),
+            id = esc(&m.id),
+        ),
+        None => r#"<div class="row"><span class="avatar">?</span><div class="body"><span class="title">Deleted member</span><span class="detail">The account is gone; the comment remains</span></div></div>"#.to_string(),
+    };
+    let reports_row = if c.counts.reports > 0 {
+        format!(
+            r#"<div class="row"><span class="ic tint-red">{flag}</span>
+<div class="body"><span class="title">Reported</span><span class="detail">By {n} {word}</span></div></div>"#,
+            n = c.counts.reports,
+            word = if c.counts.reports == 1 { "reader" } else { "readers" },
+            flag = svg("flag"),
+        )
+    } else {
+        String::new()
+    };
+    let reply_row = match (&c.comment.parent_id, &c.in_reply_to) {
+        (Some(_), Some(target)) => format!(
+            r#"<div class="row"><span class="ic tint-slate">{reply_ic}</span>
+<div class="body"><span class="title">Reply to</span><span class="detail">“{}”</span></div></div>"#,
+            esc(&truncate(&ghost_core::comments::snippet(target.html.as_deref().unwrap_or_default()), 120)),
+            reply_ic = svg("share"),
+        ),
+        (Some(_), _) => r#"<div class="row"><span class="ic tint-slate"></span><div class="body"><span class="title">Reply</span><span class="detail">Its parent is gone</span></div></div>"#.to_string(),
+        _ => String::new(),
+    };
+
+    page_for_role(
+        actor_role,
+        "Comment",
+        "comments",
+        Some(&user),
+        &format!(
+            r#"<header class="page-head rise">
+<a class="icon-btn" style="transform:rotate(180deg)" href="/ghost/comments/" title="Back to comments">{back}</a>
+<div><h1>{name}</h1><p class="sub">{chip_label} · posted {created}</p></div></header>
+{banner}
+<div class="section">The comment</div>
+<div class="card padded rise" style="--i:1">
+<div style="display:flex;gap:8px;align-items:center;margin-bottom:10px"><span class="chip {chip_class}">{chip}</span>{edited}</div>
+<div class="comment-body" style="line-height:1.55">{body}</div>
+<div style="display:flex;gap:10px;align-items:center;margin-top:16px;flex-wrap:wrap">
+{action}
+<form method="post" action="/ghost/comments/{id}/delete/" data-confirm="Delete comment|The comment and any replies to it will be removed. This cannot be undone.">
+<button class="btn tonal small danger" type="submit">{del} Delete comment</button></form>
+</div></div>
+<div class="section">Context</div>
+<div class="card rows rise" style="--i:2">
+{post_row}
+{member_row}
+{reply_row}
+{reports_row}
+<div class="row"><span class="ic tint-slate">{cal}</span>
+<div class="body"><span class="title">Posted</span><span class="detail">{created} · id {id}</span></div></div>
+</div>"#,
+            back = svg("chevron"),
+            name = esc(&member_name),
+            chip_label = esc(chip),
+            created = esc(&c.comment.created_at),
+            banner = flash_banner(&q),
+            chip_class = chip_class,
+            chip = chip,
+            edited = edited,
+            body = body,
+            action = action,
+            id = esc(&c.comment.id),
+            del = svg("delete"),
+            post_row = post_row,
+            member_row = member_row,
+            reply_row = reply_row,
+            reports_row = reports_row,
+            cal = svg("calendar"),
+        ),
+        true,
+    )
+    .into_response()
+}
+
+/// Remove a comment for good. Hiding is the reversible action; this is the
+/// permanent one, which is why it confirms — and says that replies go too,
+/// because the database cascades them.
+pub async fn comment_delete(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+    headers: HeaderMap,
+) -> Response {
+    if let Err(r) = require_role(&state, &headers, Role::Administrator).await {
+        return r;
+    }
+    match repo::find_raw(&state.db, &id).await {
+        Ok(Some(_)) => {}
+        Ok(None) => return flash("error", "That comment no longer exists."),
+        Err(e) => return flash("error", &e.message()),
+    }
+    match repo::delete(&state.db, &id).await {
+        Ok(true) => flash("ok", "Comment deleted."),
+        Ok(false) => flash("error", "That comment no longer exists."),
+        Err(e) => flash("error", &e.message()),
+    }
 }
 
 async fn set_status(
