@@ -414,10 +414,16 @@ fn unknown(key: &str) -> GhostError {
 
 /// Known keys per resource (virtual keys expanded). Unknown keys → 422.
 pub fn column_for(resource: &str, key: &str) -> Result<Col> {
-    // Virtual key expansion (Ghost filterExpansions)
+    // Virtual key expansion, mirroring Post.filterExpansions in Ghost's
+    // core/server/models/post.js. `primary_tag` and `primary_author` carry an
+    // extra condition there — `posts_tags.sort_order:0+tags.visibility:public`
+    // — so they are NOT the same as a plain `tag`/`author` membership test and
+    // must not collapse onto one.
     let expanded: &str = match key {
-        "primary_tag" | "tag" | "tags" => "tags.slug",
-        "primary_author" | "author" | "authors" => "authors.slug",
+        "primary_tag" => "primary_tag.slug",
+        "primary_author" => "primary_author.slug",
+        "tag" | "tags" => "tags.slug",
+        "author" | "authors" => "authors.slug",
         other => other,
     };
 
@@ -455,8 +461,10 @@ pub fn column_for(resource: &str, key: &str) -> Result<Col> {
                 "tags.visibility" => exists("EXISTS (SELECT 1 FROM posts_tags pt JOIN tags t ON t.id = pt.tag_id WHERE pt.post_id = posts.id AND t.visibility {op} {v})"),
                 "authors.slug" => exists("EXISTS (SELECT 1 FROM posts_authors pa JOIN users u ON u.id = pa.author_id WHERE pa.post_id = posts.id AND u.slug {op} {v})"),
                 "authors.name" => exists("EXISTS (SELECT 1 FROM posts_authors pa JOIN users u ON u.id = pa.author_id WHERE pa.post_id = posts.id AND u.name {op} {v})"),
-                "primary_tag.slug" => exists("EXISTS (SELECT 1 FROM posts_tags pt JOIN tags t ON t.id = pt.tag_id WHERE pt.post_id = posts.id AND pt.sort_order = 0 AND t.slug {op} {v})"),
-                "primary_author.slug" => exists("EXISTS (SELECT 1 FROM posts_authors pa JOIN users u ON u.id = pa.author_id WHERE pa.post_id = posts.id AND pa.sort_order = 0 AND u.slug {op} {v})"),
+                // `+tags.visibility:public` is part of Ghost's expansion: an
+                // internal tag (`#hash`) never counts as a post's primary one
+                "primary_tag.slug" => exists("EXISTS (SELECT 1 FROM posts_tags pt JOIN tags t ON t.id = pt.tag_id WHERE pt.post_id = posts.id AND pt.sort_order = 0 AND t.visibility = 'public' AND t.slug {op} {v})"),
+                "primary_author.slug" => exists("EXISTS (SELECT 1 FROM posts_authors pa JOIN users u ON u.id = pa.author_id WHERE pa.post_id = posts.id AND pa.sort_order = 0 AND u.visibility = 'public' AND u.slug {op} {v})"),
                 _ => Err(unknown(key)),
             }
         }
@@ -625,10 +633,19 @@ fn compile_null(c: &Cond, resource: &str) -> Result<String> {
     let negate = |frag: &str| if not { format!("NOT ({frag})") } else { frag.to_string() };
 
     match (resource, c.key.as_str()) {
-        (_, k) if matches!(k, "primary_tag" | "tag" | "tags" | "tags.slug" | "primary_tag.slug") => Ok(negate(
+        // `primary_tag:null` asks whether the post has a *primary* tag, which
+        // carries the same sort_order/visibility conditions as the comparison
+        // form above
+        (_, "primary_tag" | "primary_tag.slug") => Ok(negate(
+            "EXISTS (SELECT 1 FROM posts_tags pt JOIN tags t ON t.id = pt.tag_id WHERE pt.post_id = posts.id AND pt.sort_order = 0 AND t.visibility = 'public')",
+        )),
+        (_, "primary_author" | "primary_author.slug") => Ok(negate(
+            "EXISTS (SELECT 1 FROM posts_authors pa JOIN users u ON u.id = pa.author_id WHERE pa.post_id = posts.id AND pa.sort_order = 0 AND u.visibility = 'public')",
+        )),
+        (_, "tag" | "tags" | "tags.slug") => Ok(negate(
             "EXISTS (SELECT 1 FROM posts_tags pt WHERE pt.post_id = posts.id)",
         )),
-        (_, k) if matches!(k, "primary_author" | "author" | "authors" | "authors.slug" | "primary_author.slug") => Ok(negate(
+        (_, "author" | "authors" | "authors.slug") => Ok(negate(
             "EXISTS (SELECT 1 FROM posts_authors pa WHERE pa.post_id = posts.id)",
         )),
         ("tags", "posts") => Ok(negate(
@@ -820,6 +837,25 @@ mod tests {
         assert!(sql.clause.contains("posts.slug = ?"));
         assert!(!sql.clause.contains("DROP"));
         assert_eq!(sql.binds[0], serde_json::json!("x; DROP TABLE posts;--"));
+    }
+
+    /// `primary_tag` is not a synonym for `tag`. Ghost expands it with
+    /// `posts_tags.sort_order:0+tags.visibility:public`
+    /// (core/server/models/post.js), so a post merely carrying the tag must
+    /// not match — which is what `{{#get filter="primary_tag:x"}}` and
+    /// `{{#prev_post in="primary_tag"}}` both depend on.
+    #[test]
+    fn primary_tag_is_not_plain_tag_membership() {
+        let primary = compile(&parse("primary_tag:design").unwrap(), "posts").unwrap();
+        assert!(primary.clause.contains("pt.sort_order = 0"), "{}", primary.clause);
+        assert!(primary.clause.contains("t.visibility = 'public'"), "{}", primary.clause);
+
+        let any = compile(&parse("tag:design").unwrap(), "posts").unwrap();
+        assert!(!any.clause.contains("sort_order"), "{}", any.clause);
+
+        let author = compile(&parse("primary_author:jane").unwrap(), "posts").unwrap();
+        assert!(author.clause.contains("pa.sort_order = 0"), "{}", author.clause);
+        assert!(author.clause.contains("u.visibility = 'public'"), "{}", author.clause);
     }
 
     #[test]

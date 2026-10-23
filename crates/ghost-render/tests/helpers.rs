@@ -40,6 +40,7 @@ fn registry() -> Handlebars<'static> {
     hb.register_helper("body_class", Box::new(BodyClass));
     hb.register_helper("post_class", Box::new(PostClass));
     hb.register_helper("concat", Box::new(Concat));
+    hb.register_helper("length", Box::new(Length));
     hb.register_helper("split", Box::new(SplitHelper));
     hb.register_helper("encode", Box::new(Encode));
     hb.register_helper("json", Box::new(JsonHelper));
@@ -1142,4 +1143,114 @@ fn the_comments_flag_answers_the_themes_guard() {
 
     root["comments"] = json!(false);
     assert_eq!(render("{{#if comments}}YES{{else}}NO{{/if}}", &root), "NO");
+}
+
+// ---------------------------------------------------------------------------
+// handlebars.js semantics a theme from outside the official set relies on
+// ---------------------------------------------------------------------------
+
+/// A block opened on a list iterates it, the way handlebars.js routes a block
+/// opened on an array through `each`. Rendering it once with the array as the
+/// context instead would silently produce one garbled item.
+///
+/// The name has to be one no helper claims — a registered helper wins an
+/// ambiguous reference, which is why `{{#tags}}` reaches the tags helper
+/// rather than this path.
+#[test]
+fn a_block_opened_on_an_array_iterates_it() {
+    let data = json!({"items": [{"name": "Design"}, {"name": "Tutorials"}]});
+    assert_eq!(render("{{#items}}[{{name}}]{{/items}}", &data), "[Design][Tutorials]");
+    assert_eq!(render("{{#items}}{{@index}}{{/items}}", &data), "01");
+    // an empty list is falsy and takes the inverse
+    assert_eq!(render("{{#items}}x{{else}}none{{/items}}", &json!({"items": []})), "none");
+}
+
+/// A block opened on an object enters it; one opened on a missing path takes
+/// the inverse.
+#[test]
+fn a_block_opened_on_a_value_enters_or_inverts() {
+    let data = json!({"post": {"title": "T"}});
+    assert_eq!(render("{{#post}}{{title}}{{/post}}", &data), "T");
+    assert_eq!(render("{{#missing}}x{{else}}none{{/missing}}", &data), "none");
+}
+
+/// `{{#../primary_tag}}` — Lyra and Fizzy reach past a loop like this.
+/// handlebars-rust will not parse a path as a block name, so the preprocessor
+/// turns it into an explicit `blockHelperMissing` call.
+#[test]
+fn a_block_can_be_opened_on_a_parent_scope_path() {
+    let data = json!({"primary_tag": {"name": "Design"}, "posts": [{"title": "A"}]});
+    assert_eq!(
+        render("{{#foreach posts}}{{#../primary_tag}}{{name}}{{/../primary_tag}}{{/foreach}}", &data),
+        "Design"
+    );
+}
+
+/// `{{^helper}}…{{else}}…{{/helper}}` inverts the test and nothing else, so
+/// the branches have to swap when it is rewritten to a `#` block. Journal and
+/// Wave both write this shape in their layout.
+#[test]
+fn an_inverted_block_with_an_else_picks_the_right_branch() {
+    let paged = json!({"context": ["index", "paged"]});
+    let not_paged = json!({"context": ["index"]});
+    assert_eq!(render(r#"{{^is "paged"}}A{{else}}B{{/is}}"#, &paged), "B");
+    assert_eq!(render(r#"{{^is "paged"}}A{{else}}B{{/is}}"#, &not_paged), "A");
+    // and without an else the body is still the negative branch
+    assert_eq!(render(r#"{{^is "paged"}}A{{/is}}"#, &not_paged), "A");
+    assert_eq!(render(r#"{{^is "paged"}}A{{/is}}"#, &paged), "");
+}
+
+/// `posts.length` is a JavaScript array member that JSON has no equivalent
+/// for; Headline and Taste open their home page with one.
+#[test]
+fn length_reads_as_a_count() {
+    let data = json!({"posts": [1, 2, 3], "context": ["index"]});
+    assert_eq!(render("{{posts.length}}", &data), "3");
+    assert_eq!(render(r#"{{#match posts.length ">" 1}}many{{/match}}"#, &data), "many");
+    assert_eq!(render(r#"{{#match posts.length ">" 5}}many{{/match}}"#, &data), "");
+    // a collection that is not there counts as empty rather than failing
+    assert_eq!(render("{{missing.length}}", &data), "0");
+}
+
+/// `{{meta_title}}` is called from `default.hbs`, where `this` is the layout's
+/// root rather than the post — it has to resolve the routed resource the same
+/// way `{{ghost_head}}` does, or every post page gets the bare site name.
+#[test]
+fn meta_title_resolves_the_routed_post_from_the_layout() {
+    let data = json!({
+        "site": {"title": "Site"},
+        "context": ["post"],
+        "post": {"id": "1", "title": "A Post"},
+    });
+    assert_eq!(render("{{meta_title}}", &data), "A Post - Site");
+
+    // the page suffix only applies once past page one
+    let mut paged = data.clone();
+    paged["context"] = json!(["index", "paged"]);
+    paged["pagination"] = json!({"page": 2});
+    assert_eq!(render(r#"{{meta_title page=" (Page %)"}}"#, &paged), "A Post - Site (Page 2)");
+    assert_eq!(render(r#"{{meta_title page=" (Page %)"}}"#, &data), "A Post - Site");
+}
+
+/// `{{price}}` goes through `Intl.NumberFormat` in Ghost, which groups
+/// thousands — a yearly plan printed without grouping reads as `$1200`.
+/// Ported from core/frontend/helpers/price.js.
+#[test]
+fn price_formats_the_way_intl_does() {
+    let data = json!({});
+    // minor units, and a whole amount drops its decimals
+    assert_eq!(render(r#"{{price 2100 currency="USD"}}"#, &data), "$21");
+    assert_eq!(render(r#"{{price 2150 currency="USD"}}"#, &data), "$21.50");
+    assert_eq!(render(r#"{{price 120000 currency="USD"}}"#, &data), "$1,200");
+    assert_eq!(render(r#"{{price 123456789 currency="EUR"}}"#, &data), "€1,234,567.89");
+    // numberFormat="long" keeps the decimals on a whole amount
+    assert_eq!(render(r#"{{price 2100 currency="USD" numberFormat="long"}}"#, &data), "$21.00");
+    // currencyFormat swaps the symbol for the code or the name
+    assert_eq!(render(r#"{{price 2100 currency="USD" currencyFormat="code"}}"#, &data), "USD 21");
+    assert_eq!(render(r#"{{price 2100 currency="USD" currencyFormat="name"}}"#, &data), "US dollars 21");
+    // no amount at all is how a theme asks for just the unit
+    assert_eq!(render(r#"{{price currency="USD"}}"#, &data), "$");
+    // a tier carries its own amount and currency
+    let tier = json!({"tier": {"amount": 500, "currency": "GBP"}});
+    assert_eq!(render("{{price tier}}", &tier), "£5");
 }

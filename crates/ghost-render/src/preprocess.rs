@@ -7,6 +7,10 @@
 //!    its grammar accepts arbitrary `@foo` but cannot seed them via the
 //!    public render API. Loop vars (`@index`, `@first`, …) are untouched.
 //! 3. Quoted partial names (`{{> "icons/facebook"}}`) are unquoted.
+//! 4. `{{^helper}}` inverted sections become `#` blocks with their branches
+//!    arranged to match, and `posts.length` paths become `length` helper
+//!    calls — both are things handlebars.js inherits from JavaScript that
+//!    handlebars-rust rejects outright.
 use once_cell::sync::Lazy;
 use regex::Regex;
 
@@ -19,6 +23,10 @@ static QUOTED_PARTIAL: Lazy<Regex> =
 pub fn prepare(src: &str) -> String {
     let src = rewrite_partial_names(src);
     let src = rewrite_dynamic_partial_blocks(&src);
+    // before the inverted-section pass, so a `{{^../x}}` arrives there as an
+    // ordinary named block
+    let src = rewrite_path_blocks(&src);
+    let src = rewrite_length_paths(&src);
     rewrite_at_vars(&rewrite_inverted_sections(&src))
 }
 
@@ -114,80 +122,294 @@ pub fn extract_layout(src: &str) -> (Option<String>, String) {
     }
 }
 
-/// Rewrite `{{^helper args}}` inverted sections into
-/// `{{#helper args}}{{else}}` — handlebars.js supports `^` on any block
-/// helper; handlebars-rust only supports `{{else}}`/`{{^}}` inside blocks.
+/// What a `{{…}}` tag does to block nesting.
+#[derive(PartialEq)]
+enum Kind {
+    /// `{{#x}}`, `{{#> x}}` or `{{^x}}` — opens a block.
+    Open,
+    /// `{{/x}}` — closes one.
+    Close,
+    /// `{{else}}` or `{{^}}` — splits the block it sits in.
+    Else,
+    Other,
+}
+
+fn classify(inner: &str) -> Kind {
+    let t = inner.trim_matches('~').trim();
+    if t.starts_with('#') {
+        return Kind::Open;
+    }
+    if t.starts_with('/') {
+        return Kind::Close;
+    }
+    if t == "^" || t == "else" {
+        return Kind::Else;
+    }
+    if inverted_open(inner).is_some() {
+        return Kind::Open;
+    }
+    Kind::Other
+}
+
+/// Byte offset of the `^` in an `{{^name …}}` inverted-section open, or `None`
+/// for anything else — including the bare `{{^}}`, which is an else.
+fn inverted_open(inner: &str) -> Option<usize> {
+    let caret = inner.find('^')?;
+    if inner[..caret].chars().any(|c| c != '~' && !c.is_whitespace()) {
+        return None;
+    }
+    let named = inner[caret + 1..]
+        .chars()
+        .next()
+        .is_some_and(|c| c.is_alphanumeric() || c == '_' || c == '-');
+    named.then_some(caret)
+}
+
+/// Rewrite `{{^helper args}}` inverted sections into the `{{#helper args}}`
+/// form with the branches arranged to match — handlebars.js supports `^` on
+/// any block helper; handlebars-rust only supports `{{else}}`/`{{^}}` inside
+/// a `#` block.
+///
+/// Without an else, the body is simply the else branch:
+///
+/// ```text
+/// {{^is "paged"}}A{{/is}}   →  {{#is "paged"}}{{else}}A{{/is}}
+/// ```
+///
+/// With one, the two branches **swap**, because `^` inverts the test and
+/// nothing else:
+///
+/// ```text
+/// {{^is "paged"}}A{{else}}B{{/is}}  →  {{#is "paged"}}B{{else}}A{{/is}}
+/// ```
+///
+/// Stacking an extra `{{else}}` in front of a branch that already has one
+/// would leave the block with two, which is a parse error — the shape that
+/// stopped Journal and Wave compiling at all.
 pub fn rewrite_inverted_sections(src: &str) -> String {
-    let mut out = String::with_capacity(src.len());
-    let bytes = src.as_bytes();
-    let mut i = 0;
-    while i < src.len() {
-        // match "{{^" followed by an identifier char
-        if bytes[i..].starts_with(b"{{^") {
-            let rest = &src[i + 3..];
-            let name_len = rest
-                .chars()
-                .take_while(|c| c.is_alphanumeric() || *c == '_' || *c == '-')
-                .count();
-            if name_len > 0 {
-                // find end of the opening tag
-                if let Some(end) = src[i..].find("}}") {
-                    let tag_end = i + end + 2;
-                    let inner = &src[i + 3..i + end]; // name + args
-                    // find matching {{/name}} — track nested same-name opens
-                    let close = format!("{{{{/{}}}", &inner.split_whitespace().next().unwrap_or(""));
-                    let open_name = &inner.split_whitespace().next().unwrap_or("").to_string();
-                    let nested_open = format!("{{{{#{}}}", open_name);
-                    let mut depth = 1;
-                    let mut j = tag_end;
-                    let mut close_pos = None;
-                    // scan over bytes, not `src[j..]`: this advances one byte
-                    // at a time, so `j` lands inside multi-byte characters
-                    // and str slicing there would panic
-                    while j < bytes.len() {
-                        if bytes[j..].starts_with(nested_open.as_bytes()) {
-                            depth += 1;
-                            j += nested_open.len();
-                        } else if bytes[j..].starts_with(close.as_bytes()) {
-                            depth -= 1;
-                            if depth == 0 {
-                                close_pos = Some(j);
-                                break;
-                            }
-                            j += close.len();
-                        } else {
-                            j += 1;
-                        }
-                    }
-                    if close_pos.is_some() {
-                        // {{^name args}} → {{#name args}}{{else}}
-                        out.push_str("{{#");
-                        out.push_str(inner);
-                        out.push_str("}}{{else}}");
-                        i = tag_end;
-                        continue;
-                    }
+    let tags = tags(src);
+    let Some(idx) = tags.iter().position(|(_, _, inner)| inverted_open(inner).is_some()) else {
+        return src.to_string();
+    };
+    let (open_start, open_end, open_inner) = tags[idx];
+    let caret = inverted_open(open_inner).expect("position matched on this tag");
+
+    // Walk to the matching close, noting the block's own `{{else}}` on the way.
+    let mut depth = 1usize;
+    let mut else_span: Option<(usize, usize)> = None;
+    let mut close_span: Option<(usize, usize)> = None;
+    for &(start, end, inner) in &tags[idx + 1..] {
+        match classify(inner) {
+            Kind::Open => depth += 1,
+            Kind::Close => {
+                depth -= 1;
+                if depth == 0 {
+                    close_span = Some((start, end));
+                    break;
                 }
             }
-        }
-        // copy up to next {{
-        match src[i..].find("{{") {
-            Some(next) if next > 0 => {
-                out.push_str(&src[i..i + next]);
-                i += next;
-            }
-            Some(_) => {
-                out.push_str("{{");
-                i += 2;
-            }
-            None => {
-                out.push_str(&src[i..]);
-                break;
-            }
+            Kind::Else if depth == 1 && else_span.is_none() => else_span = Some((start, end)),
+            _ => {}
         }
     }
+
+    // An unbalanced tag is left exactly as it was, so one malformed block
+    // cannot stop the rest of the template being rewritten. The compiler
+    // reports it far better than we could.
+    let Some((close_start, close_end)) = close_span else {
+        let mut out = src[..open_end].to_string();
+        out.push_str(&rewrite_inverted_sections(&src[open_end..]));
+        return out;
+    };
+
+    let mut out = String::with_capacity(src.len() + 16);
+    out.push_str(&src[..open_start]);
+    // `^` → `#`, keeping any whitespace-control tilde and the arguments as they
+    // were written
+    out.push_str("{{");
+    out.push_str(&open_inner[..caret]);
+    out.push('#');
+    out.push_str(&open_inner[caret + 1..]);
+    out.push_str("}}");
+    match else_span {
+        Some((else_start, else_end)) => {
+            out.push_str(&rewrite_inverted_sections(&src[else_end..close_start]));
+            out.push_str("{{else}}");
+            out.push_str(&rewrite_inverted_sections(&src[open_end..else_start]));
+        }
+        None => {
+            out.push_str("{{else}}");
+            out.push_str(&rewrite_inverted_sections(&src[open_end..close_start]));
+        }
+    }
+    out.push_str(&src[close_start..close_end]);
+    out.push_str(&rewrite_inverted_sections(&src[close_end..]));
     out
 }
+/// Rewrite a block opened on a path handlebars-rust will not parse as a block
+/// name into an explicit `blockHelperMissing` call.
+///
+/// handlebars.js lets any path open a block — `{{#../primary_tag}}` is how
+/// Lyra reaches past a `{{#foreach}}` to the post it is iterating from — and
+/// routes it to `blockHelperMissing`. handlebars-rust's grammar wants an
+/// identifier there and rejects the whole template otherwise.
+///
+/// ```text
+/// {{#../primary_tag}}A{{/../primary_tag}}
+///   →  {{#blockHelperMissing ../primary_tag}}A{{/blockHelperMissing}}
+/// ```
+///
+/// The close has to be renamed to match: handlebars-rust accepts the nameless
+/// `{{/}}` for a partial block but insists a helper block closes on its own
+/// name.
+pub fn rewrite_path_blocks(src: &str) -> String {
+    let tags = tags(src);
+    let Some(idx) = tags.iter().position(|(_, _, inner)| path_block_open(inner).is_some()) else {
+        return src.to_string();
+    };
+    let (open_start, open_end, open_inner) = tags[idx];
+    let (sigil, path) = path_block_open(open_inner).expect("position matched on this tag");
+
+    let mut depth = 1usize;
+    let mut close_span = None;
+    for &(start, end, inner) in &tags[idx + 1..] {
+        match classify(inner) {
+            Kind::Open => depth += 1,
+            Kind::Close => {
+                depth -= 1;
+                if depth == 0 {
+                    close_span = Some((start, end));
+                    break;
+                }
+            }
+            _ => {}
+        }
+    }
+
+    let Some((close_start, close_end)) = close_span else {
+        let mut out = src[..open_end].to_string();
+        out.push_str(&rewrite_path_blocks(&src[open_end..]));
+        return out;
+    };
+
+    let mut out = String::with_capacity(src.len() + 24);
+    out.push_str(&src[..open_start]);
+    out.push_str(&format!("{{{{{sigil}blockHelperMissing {path}}}}}"));
+    out.push_str(&rewrite_path_blocks(&src[open_end..close_start]));
+    out.push_str("{{/blockHelperMissing}}");
+    out.push_str(&rewrite_path_blocks(&src[close_end..]));
+    out
+}
+
+/// Split `{{#../tag.name}}` into its sigil and the path it opens on, or `None`
+/// when the tag opens on a plain helper name (or is not a block open at all).
+fn path_block_open(inner: &str) -> Option<(char, &str)> {
+    let body = inner.trim_matches('~').trim();
+    let sigil = body.chars().next().filter(|c| *c == '#' || *c == '^')?;
+    let rest = body[sigil.len_utf8()..].trim_start();
+    // `{{#> partial}}` and sub-expressions are somebody else's business
+    if rest.starts_with('>') || rest.starts_with('(') {
+        return None;
+    }
+    // only a lone path: arguments mean it really is a helper call
+    let path = rest.split_whitespace().next()?;
+    if path != rest || path.is_empty() {
+        return None;
+    }
+    // a bare identifier parses fine as a block name; a path does not
+    let is_identifier = path
+        .chars()
+        .all(|c| c.is_alphanumeric() || c == '_' || c == '-')
+        && path.chars().next().is_some_and(|c| c.is_alphabetic() || c == '_');
+    (!is_identifier).then_some((sigil, path))
+}
+
+/// Rewrite `posts.length` and friends into calls to the `length` helper.
+///
+/// In handlebars.js `{{#match posts.length ">" 1}}` works because `posts` is a
+/// JavaScript array and `.length` is a real member of it. handlebars-rust
+/// resolves paths against JSON, where indexing an array by name is an error —
+/// not a miss — so the whole template fails to render. Headline and Taste both
+/// open their home page with one.
+///
+/// In argument position the path becomes a sub-expression; on its own it
+/// becomes the call itself:
+///
+/// ```text
+/// {{#match posts.length ">" 1}}  →  {{#match (length posts) ">" 1}}
+/// {{posts.length}}               →  {{length posts}}
+/// ```
+pub fn rewrite_length_paths(src: &str) -> String {
+    let mut out = String::with_capacity(src.len());
+    let mut last = 0;
+    for (start, end, inner) in tags(src) {
+        // comments, partials and close tags carry no resolvable paths
+        let sigil = inner.trim_start_matches('~').trim_start();
+        if sigil.starts_with('!') || sigil.starts_with('>') || sigil.starts_with('/') || !inner.contains(".length") {
+            continue;
+        }
+        let Some(rewritten) = rewrite_length_in_tag(inner) else {
+            continue;
+        };
+        out.push_str(&src[last..start]);
+        out.push_str("{{");
+        out.push_str(&rewritten);
+        out.push_str("}}");
+        last = end;
+    }
+    if last == 0 {
+        return src.to_string();
+    }
+    out.push_str(&src[last..]);
+    out
+}
+
+/// Rewrite every `….length` path inside one tag's body, or `None` when it has
+/// none to rewrite.
+fn rewrite_length_in_tag(inner: &str) -> Option<String> {
+    let is_path_char = |c: char| c.is_alphanumeric() || "_-./@[]".contains(c);
+
+    let mut out = String::with_capacity(inner.len() + 8);
+    let mut rest = inner;
+    // The first bare word is the helper name; a path there is the whole
+    // expression rather than an argument to one.
+    let mut seen_word = false;
+    let mut changed = false;
+
+    while !rest.is_empty() {
+        // string literals are opaque: `{{t "4.length"}}` is just text
+        if let Some(quote) = rest.chars().next().filter(|c| *c == '"' || *c == '\'') {
+            let end = rest[1..].find(quote).map_or(rest.len(), |i| i + 2);
+            out.push_str(&rest[..end]);
+            rest = &rest[end..];
+            seen_word = true;
+            continue;
+        }
+        let word_len = rest.chars().take_while(|c| is_path_char(*c)).map(char::len_utf8).sum::<usize>();
+        if word_len == 0 {
+            let ch = rest.chars().next().expect("rest is non-empty");
+            out.push(ch);
+            rest = &rest[ch.len_utf8()..];
+            continue;
+        }
+        let word = &rest[..word_len];
+        rest = &rest[word_len..];
+        match word.strip_suffix(".length").filter(|path| !path.is_empty()) {
+            Some(path) if seen_word => {
+                out.push_str(&format!("(length {path})"));
+                changed = true;
+            }
+            Some(path) => {
+                out.push_str(&format!("length {path}"));
+                changed = true;
+            }
+            None => out.push_str(word),
+        }
+        seen_word = true;
+    }
+    changed.then_some(out)
+}
+
 pub fn rewrite_at_vars(src: &str) -> String {
     let mut out = String::with_capacity(src.len());
     let mut i = 0;
@@ -366,6 +588,107 @@ mod tests {
         let src = "{{^if featured}}<span>✦ é 日本</span>{{/if}}";
         let out = rewrite_inverted_sections(src);
         assert_eq!(out, "{{#if featured}}{{else}}<span>✦ é 日本</span>{{/if}}");
+    }
+
+    #[test]
+    fn inverted_section_without_else_becomes_the_else_branch() {
+        assert_eq!(
+            rewrite_inverted_sections(r#"{{^is "paged"}}A{{/is}}"#),
+            r#"{{#is "paged"}}{{else}}A{{/is}}"#
+        );
+    }
+
+    #[test]
+    fn inverted_section_with_else_swaps_its_branches() {
+        // Journal and Wave both write this; stacking an else in front of the
+        // first branch left the block with two and it would not parse
+        let out = rewrite_inverted_sections(r#"{{^is "paged"}}A{{else}}B{{/is}}"#);
+        assert_eq!(out, r#"{{#is "paged"}}B{{else}}A{{/is}}"#);
+        assert_eq!(out.matches("{{else}}").count(), 1);
+    }
+
+    #[test]
+    fn inverted_section_ignores_a_nested_blocks_else() {
+        // the inner {{else}} belongs to {{#if}}, so the outer block has none
+        let out = rewrite_inverted_sections("{{^is \"paged\"}}{{#if x}}A{{else}}B{{/if}}{{/is}}");
+        assert_eq!(out, "{{#is \"paged\"}}{{else}}{{#if x}}A{{else}}B{{/if}}{{/is}}");
+    }
+
+    #[test]
+    fn rewrites_nested_and_sequential_inverted_sections() {
+        let out = rewrite_inverted_sections("{{^is \"a\"}}{{^is \"b\"}}X{{/is}}{{/is}}{{^if y}}Z{{/if}}");
+        assert_eq!(
+            out,
+            "{{#is \"a\"}}{{else}}{{#is \"b\"}}{{else}}X{{/is}}{{/is}}{{#if y}}{{else}}Z{{/if}}"
+        );
+    }
+
+    #[test]
+    fn unbalanced_inverted_section_is_left_alone() {
+        let src = "{{^is \"paged\"}}A";
+        assert_eq!(rewrite_inverted_sections(src), src);
+    }
+
+    #[test]
+    fn rewrites_parent_scope_block_sections() {
+        // Lyra's read-next card reaches past a {{#foreach}} like this
+        assert_eq!(
+            rewrite_path_blocks("{{#../primary_tag}}<a>{{name}}</a>{{/../primary_tag}}"),
+            "{{#blockHelperMissing ../primary_tag}}<a>{{name}}</a>{{/blockHelperMissing}}"
+        );
+        assert_eq!(
+            rewrite_path_blocks("{{^../primary_tag}}none{{/../primary_tag}}"),
+            "{{^blockHelperMissing ../primary_tag}}none{{/blockHelperMissing}}"
+        );
+    }
+
+    #[test]
+    fn leaves_helper_blocks_and_partials_alone() {
+        for src in [
+            "{{#if x}}a{{/if}}",
+            "{{#foreach posts}}a{{/foreach}}",
+            "{{#primary_tag}}a{{/primary_tag}}",
+            "{{#get \"posts\" limit=\"3\"}}a{{/get}}",
+            "{{#> layout}}a{{/layout}}",
+            r#"{{#> (concat "icons/" type)}}a{{/}}"#,
+            "{{#match posts.length \">\" 1}}a{{/match}}",
+        ] {
+            assert_eq!(rewrite_path_blocks(src), src, "{src}");
+        }
+    }
+
+    #[test]
+    fn parent_scope_block_survives_the_full_pipeline() {
+        // the inverted pass runs after and must see a well-formed named block
+        let out = prepare("{{^../primary_tag}}none{{/../primary_tag}}");
+        assert_eq!(out, "{{#blockHelperMissing ../primary_tag}}{{else}}none{{/blockHelperMissing}}");
+    }
+
+    #[test]
+    fn rewrites_length_paths_to_helper_calls() {
+        // the exact shapes Headline, Taste and Journal open their pages with
+        assert_eq!(
+            rewrite_length_paths(r#"{{#match posts.length ">" 1}}"#),
+            r#"{{#match (length posts) ">" 1}}"#
+        );
+        assert_eq!(rewrite_length_paths("{{posts.length}}"), "{{length posts}}");
+        assert_eq!(rewrite_length_paths("{{#if tags.length}}"), "{{#if (length tags)}}");
+        assert_eq!(rewrite_length_paths("{{plural n empty=posts.length}}"), "{{plural n empty=(length posts)}}");
+    }
+
+    #[test]
+    fn leaves_length_alone_where_it_is_not_a_path() {
+        for src in [
+            "<p>the length of it</p>",
+            r#"{{t "the .length of it"}}"#,
+            "{{!-- posts.length --}}",
+            "{{> partials/x.length}}",
+            "{{length posts}}",
+            // a bare `length` is a member name, not the `.length` idiom
+            "{{post.lengthy}}",
+        ] {
+            assert_eq!(rewrite_length_paths(src), src, "{src}");
+        }
     }
 
     #[test]

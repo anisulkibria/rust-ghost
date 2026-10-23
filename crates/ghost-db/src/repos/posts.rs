@@ -811,27 +811,3 @@ pub async fn all_published(pool: &SqlitePool) -> Result<Vec<Post>> {
     Ok(rows.into_iter().map(Into::into).collect())
 }
 
-/// Published neighbours for prev_post/next_post helpers.
-pub async fn neighbours(pool: &SqlitePool, post: &Post) -> Result<(Option<Post>, Option<Post>)> {
-    let prev = sqlx::query_as::<_, PostRow>(&format!(
-        "SELECT {POST_COLS} FROM posts WHERE status = 'published' AND type = ? AND published_at < ? ORDER BY published_at DESC LIMIT 1"
-    ))
-    .bind(&post.post_type)
-    .bind(post.published_at.clone().unwrap_or_default())
-    .fetch_optional(pool)
-    .await
-    .map_err(dberr)?
-    .map(Into::into);
-
-    let next = sqlx::query_as::<_, PostRow>(&format!(
-        "SELECT {POST_COLS} FROM posts WHERE status = 'published' AND type = ? AND published_at > ? ORDER BY published_at ASC LIMIT 1"
-    ))
-    .bind(&post.post_type)
-    .bind(post.published_at.clone().unwrap_or_default())
-    .fetch_optional(pool)
-    .await
-    .map_err(dberr)?
-    .map(Into::into);
-
-    Ok((prev, next))
-}

@@ -236,6 +236,48 @@ async fn run_get(
 // prev_post / next_post
 // ---------------------------------------------------------------------------
 
+/// The NQL filter Ghost's `prev_post`/`next_post` browse with.
+///
+/// Ported from `core/frontend/helpers/prev_post.js`, including its asymmetry:
+/// the previous post is looked for at `published_at:<=` and the next at `>`,
+/// with the current post kept out by slug either way. That is what makes two
+/// posts sharing a timestamp still resolve to each other instead of to
+/// nothing.
+///
+/// `in` scopes the search the way Ghost does — `primary_tag`, `primary_author`
+/// or `author` — and is ignored when the post has no such relation.
+fn neighbour_filter(post: &Value, is_prev: bool, scope: Option<&str>) -> Option<String> {
+    let slug = post.get("slug")?.as_str()?;
+    let published = post.get("published_at")?.as_str()?;
+    // Serialized as `2026-10-24T09:30:58.000Z`, stored as `2026-10-24 09:30:58`
+    // — NQL compares them as text, so the two have to be written the same way.
+    let published = published.replace('T', " ");
+    let published = published.split('.').next().unwrap_or(&published).trim_end_matches('Z');
+    let op = if is_prev { "<=" } else { ">" };
+    let mut filter = format!("slug:-{slug}+published_at:{op}'{published}'");
+
+    let related = |key: &str| post.get(key).and_then(|v| v.get("slug")).and_then(Value::as_str);
+    match scope {
+        Some("primary_tag") => {
+            if let Some(tag) = related("primary_tag") {
+                filter.push_str(&format!("+primary_tag:{tag}"));
+            }
+        }
+        Some("primary_author") => {
+            if let Some(author) = related("primary_author") {
+                filter.push_str(&format!("+primary_author:{author}"));
+            }
+        }
+        Some("author") => {
+            if let Some(author) = related("author") {
+                filter.push_str(&format!("+author:{author}"));
+            }
+        }
+        _ => {}
+    }
+    Some(filter)
+}
+
 pub struct PrevNextPost {
     deps: HelperDeps,
     is_prev: bool,
@@ -257,30 +299,30 @@ impl HelperDef for PrevNextPost {
         out: &mut dyn Output,
     ) -> HelperResult {
         let this = current_value(rc, ctx);
-        let Some(post_id) = this.get("id").and_then(|v| v.as_str()).map(str::to_string) else {
-            return Ok(());
-        };
-        let deps = self.deps.clone();
-        let is_prev = self.is_prev;
+        let scope = h.hash_get("in").and_then(|v| v.value().as_str()).map(str::to_string);
 
-        let found: Option<Value> = deps.runtime.block_on(async move {
-            use ghost_db::repos;
-            let Ok(Some(post)) = repos::posts::find_by_id(&deps.pool, &post_id).await else {
-                return None;
-            };
-            let (prev, next) = repos::posts::neighbours(&deps.pool, &post).await.ok()?;
-            let target = if is_prev { prev } else { next };
-            let p = target?;
-            let rel = repos::posts::load_relations(&deps.pool, std::slice::from_ref(&p)).await.ok()?;
-            let authors = rel.authors_for(&p.id);
-            let tags = rel.tags_for(&p.id);
-            let mut j = ghost_core::models::post_to_json(&p, &authors, &tags, "");
-            let url = (deps.url_resolver)(&j);
-            if let Value::Object(m) = &mut j {
-                m.insert("url".into(), json!(url));
+        // Ghost renders the inverse for anything that is not a published post
+        // — a page, a preview, the home page — rather than nothing at all.
+        let is_post = this.get("id").and_then(|v| v.as_str()).is_some()
+            && this.get("title").is_some()
+            && this.get("page").and_then(Value::as_bool) != Some(true);
+        let filter = match (is_post, neighbour_filter(&this, self.is_prev, scope.as_deref())) {
+            (true, Some(f)) => f,
+            _ => {
+                if let Some(t) = h.inverse() {
+                    t.render(r, ctx, rc, out)?;
+                }
+                return Ok(());
             }
-            crate::util::resolve_nested_urls(&mut j, &*deps.url_resolver);
-            Some(j)
+        };
+
+        let deps = self.deps.clone();
+        let runtime = deps.runtime.clone();
+        let order = if self.is_prev { "published_at desc" } else { "published_at asc" };
+        let found: Option<Value> = runtime.block_on(async move {
+            let (items, _) =
+                run_get(&deps, "posts", &Some(filter), "1", 1, Some(order), Some("authors,tags")).await.ok()?;
+            items.as_array().and_then(|a| a.first().cloned())
         });
 
         if let Some(post) = found {

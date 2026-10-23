@@ -1694,41 +1694,39 @@ impl HelperDef for Translate {
 // meta helpers (title/description) + class helpers
 // ---------------------------------------------------------------------------
 
+/// `{{meta_title}}` — the page title a theme puts in `<title>`.
+///
+/// Shares [`meta_title_text`] with `{{ghost_head}}`, which matters because
+/// themes call this from `default.hbs`, where `this` is the layout's root and
+/// not the post. Resolving it here against the block context instead left
+/// every post page titled with the bare site name while `{{ghost_head}}` a few
+/// lines below got it right.
+///
+/// `{{meta_title page=" (Page %)"}}` appends the suffix on paged routes, with
+/// `%` standing in for the page number — Source, Wave and Journal all pass it.
 pub struct MetaTitle;
 impl HelperDef for MetaTitle {
     fn call<'reg: 'rc, 'rc>(
         &self,
-        _h: &Helper<'rc>,
+        h: &Helper<'rc>,
         _r: &'reg Handlebars<'reg>,
         ctx: &'rc Context,
         rc: &mut RenderContext<'reg, 'rc>,
         out: &mut dyn Output,
     ) -> HelperResult {
-        let this = current_value(rc, ctx);
-        let site_title = root_get(rc, ctx, "site.title").as_str().unwrap_or_default().to_string();
-        let ctx_list = root_get(rc, ctx, "context");
-        let is_home = ctx_list.as_array().map(|a| a.iter().any(|c| c.as_str() == Some("home"))).unwrap_or(false);
-        let t = if is_home {
-            let desc = root_get(rc, ctx, "site.description").as_str().unwrap_or_default().to_string();
-            let site_meta = root_get(rc, ctx, "site.meta_title").as_str().unwrap_or_default().to_string();
-            if !site_meta.is_empty() { site_meta.to_string() } else if !desc.is_empty() { format!("{site_title} - {desc}") } else { site_title.clone() }
-        } else {
-            let own = this
-                .get("meta_title")
-                .and_then(|v| v.as_str())
-                .filter(|s| !s.is_empty())
-                .map(str::to_string)
-                .or_else(|| this.get("name").and_then(|v| v.as_str()).map(str::to_string))
-                .or_else(|| this.get("title").and_then(|v| v.as_str()).map(str::to_string));
-            match own {
-                Some(o) => format!("{o} - {site_title}"),
-                None => site_title,
+        let mut t = meta_title_text(rc, ctx);
+        if let Some(suffix) = hash_str(h, "page") {
+            if let Some(page) = root_get(rc, ctx, "pagination.page").as_u64().filter(|p| *p > 1) {
+                t.push_str(&suffix.replace('%', &page.to_string()));
             }
-        };
+        }
         write_out(rc, out, &t, true)
     }
 }
 
+/// `{{meta_description}}` — the counterpart to [`MetaTitle`], and resolved the
+/// same way so a theme's own `<meta name="description">` matches the one
+/// `{{ghost_head}}` emits.
 pub struct MetaDescription;
 impl HelperDef for MetaDescription {
     fn call<'reg: 'rc, 'rc>(
@@ -1739,28 +1737,7 @@ impl HelperDef for MetaDescription {
         rc: &mut RenderContext<'reg, 'rc>,
         out: &mut dyn Output,
     ) -> HelperResult {
-        let this = current_value(rc, ctx);
-        let ctx_list = root_get(rc, ctx, "context");
-        let is_home = ctx_list.as_array().map(|a| a.iter().any(|c| c.as_str() == Some("home"))).unwrap_or(false);
-        let d = if is_home {
-            let meta = root_get(rc, ctx, "site.meta_description");
-            let desc = root_get(rc, ctx, "site.description");
-            meta.as_str()
-                .filter(|s| !s.is_empty())
-                .or_else(|| desc.as_str().filter(|s| !s.is_empty()))
-                .unwrap_or_default()
-                .to_string()
-        } else {
-            this.get("meta_description")
-                .and_then(|v| v.as_str())
-                .filter(|s| !s.is_empty())
-                .or_else(|| this.get("custom_excerpt").and_then(|v| v.as_str()))
-                .or_else(|| this.get("description").and_then(|v| v.as_str()))
-                .or_else(|| this.get("excerpt").and_then(|v| v.as_str()))
-                .or_else(|| this.get("bio").and_then(|v| v.as_str()))
-                .unwrap_or_default()
-                .to_string()
-        };
+        let d = meta_description_text(rc, ctx);
         write_out(rc, out, &d, true)
     }
 }
@@ -2241,6 +2218,38 @@ fn escape_expression(s: &str) -> String {
 // ---------------------------------------------------------------------------
 // misc small helpers / stubs
 // ---------------------------------------------------------------------------
+
+/// `{{length posts}}` — the count handlebars.js gets for free from JavaScript's
+/// `array.length`.
+///
+/// Themes reach for it directly (`{{#match posts.length ">" 1}}`), but
+/// handlebars-rust resolves paths against JSON, where an array has no `length`
+/// member and indexing one with a name is an error rather than a miss. The
+/// preprocessor turns those paths into calls to this helper; see
+/// [`crate::preprocess::rewrite_length_paths`].
+///
+/// Objects are measured by their member count and strings by their characters,
+/// which is what `.length` means for them in JavaScript too. Anything else —
+/// including a path that resolved to nothing — is zero, so a `.length` test on
+/// a missing collection reads as empty rather than blowing up.
+pub struct Length;
+impl HelperDef for Length {
+    fn call_inner<'reg: 'rc, 'rc>(
+        &self,
+        h: &Helper<'rc>,
+        _r: &'reg Handlebars<'reg>,
+        _ctx: &'rc Context,
+        _rc: &mut RenderContext<'reg, 'rc>,
+    ) -> Result<handlebars::ScopedJson<'rc>, handlebars::RenderError> {
+        let count = match h.param(0).map(|p| p.value()) {
+            Some(Value::Array(a)) => a.len(),
+            Some(Value::String(s)) => s.chars().count(),
+            Some(Value::Object(m)) => m.len(),
+            _ => 0,
+        };
+        Ok(handlebars::ScopedJson::Derived(Value::from(count)))
+    }
+}
 
 /// `{{concat a b separator="-"}}`. Array arguments are flattened, so
 /// `(concat "icons/" type)` and `(concat tag_names separator=", ")` both work.
@@ -2977,19 +2986,104 @@ impl HelperDef for PriceHelper {
             ),
             _ => (None, hash_str(h, "currency")),
         };
+        let unit = match hash_str(h, "currencyFormat").as_deref() {
+            Some("code") => currency.clone().unwrap_or_default(),
+            Some("name") => currency
+                .as_deref()
+                .map(|c| {
+                    let name = currency_name(c);
+                    if name.is_empty() { c.to_string() } else { name.to_string() }
+                })
+                .unwrap_or_default(),
+            // Intl's default is the symbol
+            _ => currency.as_deref().map(currency_symbol).unwrap_or_default().to_string(),
+        };
+
         let Some(amount) = amount else {
+            // `{{price currency="USD"}}` with no amount is how a theme asks
+            // for just the unit; Ghost formats zero and strips the digits out.
+            if currency.is_some() {
+                return Ok(handlebars::ScopedJson::Derived(json!(unit.trim().to_string())));
+            }
             tracing::warn!("attribute is required e.g. {{{{price plan.amount}}}}");
             return Ok(handlebars::ScopedJson::Derived(json!("")));
         };
+
         // amounts are stored in the currency's minor unit
         let major = amount / 100.0;
-        let symbol = currency.as_deref().map(currency_symbol).unwrap_or_default();
-        let formatted = if (major.fract()).abs() < f64::EPSILON {
-            format!("{}{}", symbol, major as i64)
+        // `numberFormat="long"` is Intl's default precision; "short" drops the
+        // decimals from a whole amount
+        let decimals = if hash_str(h, "numberFormat").as_deref() == Some("long") {
+            2
+        } else if major.fract().abs() < f64::EPSILON {
+            0
         } else {
-            format!("{symbol}{major:.2}")
+            2
+        };
+        let number = group_digits(major, decimals);
+        // a symbol sits against the number, a code or name reads as a word
+        let formatted = match unit.as_str() {
+            "" => number,
+            u if u.chars().next().is_some_and(char::is_alphabetic) => format!("{} {number}", u.trim()),
+            u => format!("{u}{number}"),
         };
         Ok(handlebars::ScopedJson::Derived(json!(formatted)))
+    }
+}
+
+/// Render a number the way `Intl.NumberFormat` does for an English locale:
+/// comma-grouped thousands and a dot before the decimals.
+///
+/// Ghost formats prices through `Intl`, which groups; without this a yearly
+/// plan of 120000 minor units printed as `$1200` instead of `$1,200`.
+fn group_digits(value: f64, decimals: usize) -> String {
+    let rendered = format!("{:.*}", decimals, value.abs());
+    let (whole, fraction) = match rendered.split_once('.') {
+        Some((w, f)) => (w, Some(f)),
+        None => (rendered.as_str(), None),
+    };
+    let mut grouped = String::with_capacity(whole.len() + whole.len() / 3 + 4);
+    for (i, ch) in whole.chars().enumerate() {
+        if i > 0 && (whole.len() - i) % 3 == 0 {
+            grouped.push(',');
+        }
+        grouped.push(ch);
+    }
+    if let Some(f) = fraction {
+        grouped.push('.');
+        grouped.push_str(f);
+    }
+    if value.is_sign_negative() && value != 0.0 {
+        grouped.insert(0, '-');
+    }
+    grouped
+}
+
+/// Currency names for `{{price plan currencyFormat="name"}}`, covering the
+/// currencies Stripe settles in that Ghost sites actually price with.
+/// Anything else falls back to its code, which is what a reader needs anyway.
+fn currency_name(code: &str) -> &str {
+    match code.to_ascii_uppercase().as_str() {
+        "USD" => "US dollars",
+        "EUR" => "euros",
+        "GBP" => "British pounds",
+        "AUD" => "Australian dollars",
+        "CAD" => "Canadian dollars",
+        "NZD" => "New Zealand dollars",
+        "SGD" => "Singapore dollars",
+        "HKD" => "Hong Kong dollars",
+        "JPY" => "Japanese yen",
+        "CNY" => "Chinese yuan",
+        "INR" => "Indian rupees",
+        "BRL" => "Brazilian reais",
+        "MXN" => "Mexican pesos",
+        "KRW" => "South Korean won",
+        "RUB" => "Russian rubles",
+        "SEK" => "Swedish kronor",
+        "NOK" => "Norwegian kroner",
+        "DKK" => "Danish kroner",
+        "CHF" => "Swiss francs",
+        _ => "",
     }
 }
 
@@ -3217,6 +3311,18 @@ impl HelperDef for BlockHelper {
 // value of `post` as context when truthy, else the inverse branch.
 // ---------------------------------------------------------------------------
 
+/// `{{#primary_tag}}…{{/primary_tag}}` — a block opened on a value rather than
+/// a helper, which handlebars.js routes here.
+///
+/// It follows handlebars.js's own `blockHelperMissing`: an array iterates like
+/// `{{#each}}`, any other truthy value becomes the block's context, and
+/// anything falsy — including an empty array — renders the inverse.
+///
+/// The value normally comes from the block's name, but an explicit parameter
+/// wins when there is one. That is what lets the preprocessor express
+/// `{{#../primary_tag}}`, whose name is a path handlebars-rust's grammar will
+/// not accept in that position; see
+/// [`crate::preprocess::rewrite_path_blocks`].
 pub struct BlockHelperMissing;
 impl HelperDef for BlockHelperMissing {
     fn call<'reg: 'rc, 'rc>(
@@ -3227,27 +3333,51 @@ impl HelperDef for BlockHelperMissing {
         rc: &mut RenderContext<'reg, 'rc>,
         out: &mut dyn Output,
     ) -> HelperResult {
-        let name = h.name().to_string();
-        let val = rc
-            .evaluate(ctx, &name)
-            .map(|v| v.as_json().clone())
-            .unwrap_or(Value::Null);
+        let val = match h.param(0) {
+            Some(p) => p.value().clone(),
+            None => rc.evaluate(ctx, h.name()).map(|v| v.as_json().clone()).unwrap_or(Value::Null),
+        };
         let truthy = match &val {
             Value::Null | Value::Bool(false) => false,
             Value::String(s) => !s.is_empty() && s != "0",
             Value::Array(a) => !a.is_empty(),
             _ => true,
         };
-        if truthy {
-            let mut block = handlebars::BlockContext::new();
-            block.set_base_value(val);
-            rc.push_block(block);
-            if let Some(t) = h.template() {
+        if !truthy {
+            if let Some(t) = h.inverse() {
                 t.render(r, ctx, rc, out)?;
             }
-            rc.pop_block();
-        } else if let Some(t) = h.inverse() {
-            t.render(r, ctx, rc, out)?;
+            return Ok(());
+        }
+
+        let Some(t) = h.template() else { return Ok(()) };
+        match val {
+            // `{{#posts}}` over a list is `{{#each posts}}`, down to the loop
+            // variables the body can read
+            Value::Array(items) => {
+                rc.push_block(handlebars::BlockContext::new());
+                let last = items.len() - 1;
+                for (i, item) in items.into_iter().enumerate() {
+                    if let Some(block) = rc.block_mut() {
+                        block.set_base_value(item);
+                        block.set_local_var("index", i.into());
+                        block.set_local_var("number", (i + 1).into());
+                        block.set_local_var("first", (i == 0).into());
+                        block.set_local_var("last", (i == last).into());
+                        block.set_local_var("even", (i % 2 == 1).into());
+                        block.set_local_var("odd", (i % 2 == 0).into());
+                    }
+                    t.render(r, ctx, rc, out)?;
+                }
+                rc.pop_block();
+            }
+            other => {
+                let mut block = handlebars::BlockContext::new();
+                block.set_base_value(other);
+                rc.push_block(block);
+                t.render(r, ctx, rc, out)?;
+                rc.pop_block();
+            }
         }
         Ok(())
     }
@@ -3325,6 +3455,7 @@ pub fn register_all(
     hb.register_helper("ghost_head", Box::new(GhostHead));
     hb.register_helper("ghost_foot", Box::new(GhostFoot));
     hb.register_helper("concat", Box::new(Concat));
+    hb.register_helper("length", Box::new(Length));
     hb.register_helper("split", Box::new(SplitHelper));
     hb.register_helper("encode", Box::new(Encode));
     hb.register_helper("json", Box::new(JsonHelper));
