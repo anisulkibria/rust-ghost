@@ -44,6 +44,29 @@ pub fn random_hex(n: usize) -> String {
     hex::encode(buf)
 }
 
+/// A zero-padded random decimal code — the shape of an emailed sign-in code.
+///
+/// Rejection sampling rather than a bare modulus: `random % 1_000_000` over a
+/// `u32` quietly makes the low codes more likely than the high ones, which is
+/// not a property a second authentication factor should have. `digits` has to
+/// be 9 or fewer, so the range still fits a `u32`.
+pub fn random_code(digits: u32) -> String {
+    assert!((1..=9).contains(&digits), "a code of {digits} digits does not fit a u32");
+    let bound = 10u32.pow(digits);
+    // the largest multiple of `bound` that fits, so everything below it maps
+    // onto the range evenly
+    let limit = u32::MAX - (u32::MAX % bound);
+    let mut rng = rand::rng();
+    loop {
+        let mut buf = [0u8; 4];
+        rng.fill_bytes(&mut buf);
+        let n = u32::from_le_bytes(buf);
+        if n < limit {
+            return format!("{:0width$}", n % bound, width = digits as usize);
+        }
+    }
+}
+
 /// An RFC 4122 version-4 UUID. Ghost gives members and newsletters a `uuid`
 /// alongside their ObjectId, and it is the public handle in unsubscribe and
 /// feedback links, so it has to be well-formed for other tools to parse.
@@ -58,6 +81,20 @@ pub fn uuid_v4() -> String {
 
 #[cfg(test)]
 mod tests {
+    /// The first cut of the sign-in code built this out of `random_hex(8)`,
+    /// whose 16 hex chars overflow a `u32` — every parse failed, every code
+    /// came out `000000`. Pin both the shape and the spread.
+    #[test]
+    fn random_code_is_padded_and_varied() {
+        use std::collections::HashSet;
+        let codes: HashSet<String> = (0..200).map(|_| super::random_code(6)).collect();
+        for code in &codes {
+            assert_eq!(code.len(), 6, "{code}");
+            assert!(code.chars().all(|c| c.is_ascii_digit()), "{code}");
+        }
+        assert!(codes.len() > 150, "only {} distinct codes in 200 draws", codes.len());
+    }
+
     use super::*;
 
     #[test]

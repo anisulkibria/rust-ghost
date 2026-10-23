@@ -31,6 +31,10 @@ pub fn admin_ui_router() -> Router<AppState> {
         .route("/", get(index))
         .route("/setup/", get(setup_page).post(setup_submit))
         .route("/signin/", get(login_page).post(login_submit))
+        // Static ahead of nothing in particular, but kept together: the code
+        // screen a login lands on when email 2FA is required.
+        .route("/signin/verify/", get(verify_page).post(verify_submit))
+        .route("/signin/resend/", post(verify_resend))
         .route("/signout/", get(logout))
         .route("/analytics/", get(analytics_page))
         .route("/members/", get(members_page).post(member_create))
@@ -123,6 +127,7 @@ pub fn admin_ui_router() -> Router<AppState> {
             get(routes_download).post(routes_upload).layer(axum::extract::DefaultBodyLimit::max(ONE_MB_BYTES)),
         )
         .route("/settings/staff/", get(staff_page))
+        .route("/settings/staff/security/", post(staff_security_save))
         .route("/settings/staff/invite/", post(staff_invite))
         .route("/settings/staff/invite/{id}/resend/", post(staff_invite_resend))
         .route("/settings/staff/invite/{id}/revoke/", post(staff_invite_revoke))
@@ -692,6 +697,46 @@ code { font-family: var(--mono); }
 .range-tabs a.active { background: var(--secondary-container); color: var(--on-secondary-container); }
 @media (max-width: 919px) { .tiles { grid-template-columns: 1fr 1fr; } }
 
+/* ---- meta data: search and social card previews ----
+   Mirrors what Ghost shows above each group of fields: a mock search result,
+   and a mock post carrying the card. The shapes are Ghost's; the surfaces and
+   type are this admin's own. */
+.seo-prev { background: var(--sc); border-radius: 20px; padding: 18px 20px 20px; margin-bottom: 12px; }
+.seo-prev .cap { display: block; font-size: 11.5px; font-weight: 600; letter-spacing: .6px;
+  text-transform: uppercase; color: var(--on-surface-variant); margin-bottom: 12px; }
+/* Both sheets are held to roughly the width the real thing gets, so the
+   1.91:1 card image reads as a thumbnail rather than filling the page. */
+.seo-prev .sheet { background: var(--sc-lowest); border-radius: 14px; padding: 16px;
+  box-shadow: var(--shadow-1); max-width: 620px; margin: 0 auto; }
+.seo-prev.social .sheet { max-width: 480px; }
+/* search result */
+.seo-prev .site { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
+.seo-prev .favicon { width: 28px; height: 28px; border-radius: 999px; flex: none;
+  background: var(--secondary-container) center/contain no-repeat; }
+.seo-prev .host { font-size: 13.5px; line-height: 1.25; }
+.seo-prev .addr { font-size: 12px; color: var(--on-surface-variant); word-break: break-all; }
+.seo-prev .g-title { display: block; font-size: 19px; line-height: 1.3; color: #1a0dab; margin-bottom: 2px; }
+.seo-prev .g-desc { font-size: 13.5px; color: var(--on-surface-variant); }
+/* social post */
+.seo-prev .who { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
+.seo-prev .who .avatar { width: 40px; height: 40px; border-radius: 999px; flex: none;
+  background: var(--secondary-container) center/cover no-repeat; }
+.seo-prev .who .name { font-weight: 600; font-size: 14.5px; line-height: 1.2; }
+.seo-prev .who .when { font-size: 13px; color: var(--on-surface-variant); }
+.seo-prev .bar { height: 11px; border-radius: 999px; background: var(--outline-variant); margin-bottom: 8px; }
+.seo-prev .bar.short { width: 60%; margin-bottom: 14px; }
+.seo-prev .card-mock { border: 1px solid var(--outline-variant); border-radius: 14px; overflow: hidden; }
+.seo-prev .card-mock .shot { display: block; aspect-ratio: 1.91 / 1; background: var(--sc); }
+.seo-prev .card-mock .shot img { display: block; width: 100%; height: 100%; object-fit: cover; }
+.seo-prev .card-mock .shot.empty { display: grid; place-items: center;
+  font-size: 13px; color: var(--on-surface-variant); }
+.seo-prev .card-mock .body { padding: 12px 14px; border-top: 1px solid var(--outline-variant); }
+.seo-prev .card-mock .body .t { display: block; font-weight: 600; font-size: 14.5px; line-height: 1.35; }
+.seo-prev .card-mock .body .d { display: block; font-size: 13px; color: var(--on-surface-variant);
+  margin-top: 3px; line-height: 1.4; }
+.seo-prev .card-mock .body .u { display: block; font-size: 12px; color: var(--on-surface-variant);
+  margin-top: 6px; text-transform: lowercase; }
+
 /* ---- themes: the official theme gallery ---- */
 .gallery { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; margin-bottom: 12px; }
 /* The thumbnails are Ghost's own marketplace screenshots, 600x750, served
@@ -1146,6 +1191,50 @@ const JS: &str = r#"
     dlg.showModal();
   });
 
+  // Meta data previews follow the fields as they are typed into. Each
+  // preview element is tagged data-prev="<field>", and empty fields fall back
+  // the way the front end does: the specific tag, then the meta tag, then the
+  // site's own title/description.
+  var form = document.getElementById('metadata-form');
+  if (form && document.querySelector('[data-prev]')) {
+    var val = function (name) {
+      var el = form.elements[name];
+      return el ? el.value.trim() : '';
+    };
+    var site = { title: form.dataset.siteTitle || '', description: form.dataset.siteDescription || '' };
+    var put = function (key, text) {
+      var el = document.querySelector('[data-prev="' + key + '"]');
+      if (el) { el.textContent = text; }
+    };
+    var refresh = function () {
+      var metaTitle = val('meta_title') || site.title;
+      var metaDesc = val('meta_description') || site.description;
+      put('search-title', metaTitle);
+      put('search-description', metaDesc);
+      put('twitter-title', val('twitter_title') || metaTitle);
+      put('twitter-description', val('twitter_description') || metaDesc);
+      put('og-title', val('og_title') || metaTitle);
+      put('og-description', val('og_description') || metaDesc);
+      [['twitter_image', 'twitter-shot'], ['og_image', 'og-shot']].forEach(function (pair) {
+        var slot = document.querySelector('[data-prev="' + pair[1] + '"]');
+        if (!slot) return;
+        var url = val(pair[0]);
+        if (url) {
+          slot.className = 'shot';
+          slot.innerHTML = '';
+          var img = document.createElement('img');
+          img.alt = '';
+          img.src = url;
+          slot.appendChild(img);
+        } else {
+          slot.className = 'shot empty';
+          slot.textContent = 'No image set';
+        }
+      });
+    };
+    form.addEventListener('input', refresh);
+  }
+
   // client-side list filtering
   var q = document.querySelector('[data-filter]');
   if (q) {
@@ -1237,8 +1326,6 @@ fn rail(active: &str, user: Option<&ghost_core::models::User>, role: Role) -> St
         ("pages", "/ghost/pages/", "Pages", "pages", "green"),
         ("tags", "/ghost/tags/", "Tags", "tags", "amber"),
         ("themes", "/ghost/themes/", "Themes", "themes", "slate"),
-        ("design", "/ghost/design/", "Design", "tune", "purple"),
-        ("navigation", "/ghost/navigation/", "Navigation", "menu", "red"),
         ("members", "/ghost/members/", "Members", "ghost", "blue"),
         ("comments", "/ghost/comments/", "Comments", "comment", "purple"),
         ("automations", "/ghost/automations/", "Automations", "flow", "green"),
@@ -1649,23 +1736,201 @@ struct LoginForm {
     password: String,
 }
 
+/// Attach a freshly minted session cookie to a response.
+fn set_session_cookie(resp: &mut Response, sid: &str) {
+    resp.headers_mut().insert(
+        header::SET_COOKIE,
+        format!(
+            "ghost-admin-api-session={sid}; Path={}/ghost; HttpOnly; SameSite=Lax; Max-Age={}",
+            ghost_core::url::subdir(),
+            60 * 60 * 24 * 7
+        )
+        .parse()
+        .unwrap(),
+    );
+}
+
 async fn login_submit(State(state): State<AppState>, Form(form): Form<LoginForm>) -> Response {
-    match repos::users::verify_password(&state.db, &form.email, &form.password).await {
-        Ok(Some(user)) => match repos::sessions::create(&state.db, &user.id).await {
+    let Ok(Some(user)) = repos::users::verify_password(&state.db, &form.email, &form.password).await
+    else {
+        return Redirect::to("/ghost/signin/?invalid=1").into_response();
+    };
+
+    // With 2FA off the password is the whole login, as before. A first-ever
+    // sign-in also goes straight through: the person only has a password
+    // because they followed an emailed invite or setup link, which is the
+    // same proof a code would ask for. Ghost's session endpoint takes this
+    // shortcut too (`skipVerification` when `!user.hasLoggedIn()`).
+    if !state.settings.get_bool("require_email_mfa") || user.last_seen.is_none() {
+        return match repos::sessions::create(&state.db, &user.id).await {
             Ok(sid) => {
                 let mut resp = Redirect::to("/ghost/posts/").into_response();
-                resp.headers_mut().insert(
-                    header::SET_COOKIE,
-                    format!("ghost-admin-api-session={sid}; Path={}/ghost; HttpOnly; SameSite=Lax; Max-Age={}", ghost_core::url::subdir(), 60 * 60 * 24 * 7)
-                        .parse()
-                        .unwrap(),
-                );
+                set_session_cookie(&mut resp, &sid);
                 resp
             }
             Err(_) => Redirect::to("/ghost/signin/?invalid=1").into_response(),
-        },
-        _ => Redirect::to("/ghost/signin/?invalid=1").into_response(),
+        };
     }
+
+    // With it on, the password only names the user: the session is created
+    // unverified, so none of the admin guards will resolve it until the code
+    // that just went out by email comes back.
+    let Ok(sid) = repos::sessions::create_unverified(&state.db, &user.id).await else {
+        return Redirect::to("/ghost/signin/?invalid=1").into_response();
+    };
+    let sent = issue_signin_code(&state, &sid, &user).await;
+    let mut resp = Redirect::to(if sent { "/ghost/signin/verify/" } else { "/ghost/signin/verify/?send=failed" })
+        .into_response();
+    set_session_cookie(&mut resp, &sid);
+    resp
+}
+
+/// Generate a sign-in code, store its digest on the session and email it.
+/// Returns whether the mail actually went out.
+async fn issue_signin_code(state: &AppState, sid: &str, user: &ghost_core::models::User) -> bool {
+    let Some(email) = user.email.clone() else {
+        tracing::error!("user {} has no email address to send a sign-in code to", user.id);
+        return false;
+    };
+    // Six digits, zero-padded, off the same CSPRNG that mints session ids —
+    // the shape of code Ghost emails.
+    let code = ghost_core::ids::random_code(6);
+    if repos::sessions::set_auth_code(&state.db, sid, &code).await.is_err() {
+        return false;
+    }
+
+    let title = state.settings.get_str("title").unwrap_or_else(|| "Ghost".into());
+    let site_url = state.site_url();
+    let cfg = ghost_mail::MailConfig::from_settings(&state.settings, &title, &site_url);
+    let msg = ghost_mail::Message {
+        to: email.clone(),
+        subject: format!("{code} is your sign-in verification code"),
+        html: format!(
+            r#"<div style="font-family:-apple-system,Segoe UI,sans-serif;font-size:16px;line-height:1.6;color:#15171a">
+<p>Hey{name},</p>
+<p>Here is the verification code you need to sign in to <strong>{title}</strong>:</p>
+<p style="font-size:30px;font-weight:700;letter-spacing:6px;margin:28px 0">{code}</p>
+<p style="color:#626d79;font-size:14px">The code is good for five minutes. If you didn't try to sign in, you can ignore this email — someone knows your password, so it is worth changing it.</p>
+</div>"#,
+            name = user.name.as_deref().filter(|n| !n.is_empty()).map(|n| format!(" {}", esc(n))).unwrap_or_default(),
+            title = esc(&title),
+            code = code,
+        ),
+        text: format!(
+            "Your verification code for {title} is {code}.\n\nIt is good for five minutes. \
+             If you didn't try to sign in, someone knows your password and it is worth changing."
+        ),
+    };
+    match ghost_mail::send(&cfg, &msg).await {
+        Ok(()) => true,
+        Err(e) => {
+            tracing::error!("could not send the sign-in code to {}: {}", email, e.message());
+            false
+        }
+    }
+}
+
+/// The session id on the request, verified or not.
+fn session_id_from(headers: &HeaderMap) -> Option<String> {
+    headers
+        .get(header::COOKIE)
+        .and_then(|c| c.to_str().ok())?
+        .split(';')
+        .find_map(|c| c.trim().strip_prefix("ghost-admin-api-session="))
+        .map(str::to_string)
+}
+
+/// The code-entry screen, shown between password and session when email 2FA
+/// is on. Reached with an unverified session cookie already set.
+async fn verify_page(State(state): State<AppState>, headers: HeaderMap, Query(q): Query<HashMap<String, String>>) -> Response {
+    let Some(sid) = session_id_from(&headers) else {
+        return Redirect::to("/ghost/signin/").into_response();
+    };
+    // A verified session has nothing to do here; an unknown one has to start over.
+    match repos::sessions::is_unverified(&state.db, &sid).await {
+        Ok(true) => {}
+        Ok(false) => return Redirect::to("/ghost/posts/").into_response(),
+        Err(_) => return Redirect::to("/ghost/signin/").into_response(),
+    }
+
+    let banner = match q.get("send").map(String::as_str) {
+        Some("failed") => r#"<div class="banner error">Could not send the code — check the mail settings, or ask another administrator.</div>"#,
+        Some("resent") => r#"<div class="banner ok">A new code is on its way.</div>"#,
+        _ => match q.get("error").map(String::as_str) {
+            Some("incorrect") => r#"<div class="banner error">That code is not right. Check the email and try again.</div>"#,
+            Some("expired") => r#"<div class="banner error">That code has expired. Send yourself a new one.</div>"#,
+            _ => "",
+        },
+    };
+
+    page_u(
+        "Verify sign-in",
+        "",
+        None,
+        &format!(
+            r#"<div class="auth"><div class="blob b1"></div><div class="blob b2"></div><div class="blob b3"></div>
+<div class="auth-box">
+<div class="auth-logo">{logo}</div>
+<h1>Check your email</h1>
+<p class="sub">We sent a six-digit code to your inbox. Enter it to finish signing in.</p>
+<div class="card"><form method="post" action="/ghost/signin/verify/">{banner}
+<label class="field"><input name="code" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]*" maxlength="6" placeholder=" " required autofocus><span>Verification code</span></label>
+<button class="btn" type="submit">Verify</button>
+</form>
+<form method="post" action="/ghost/signin/resend/" style="margin-top:10px">
+<button class="btn text" type="submit">Send a new code</button>
+</form>
+<form method="post" action="/ghost/signout/" style="margin-top:2px">
+<button class="btn text" type="submit">Sign in as someone else</button>
+</form></div>
+</div></div>"#,
+            logo = svg("ghost"),
+            banner = banner,
+        ),
+        false,
+    )
+    .into_response()
+}
+
+#[derive(Deserialize)]
+struct VerifyForm {
+    code: String,
+}
+
+async fn verify_submit(State(state): State<AppState>, headers: HeaderMap, Form(form): Form<VerifyForm>) -> Response {
+    use ghost_db::repos::sessions::CodeCheck;
+    let Some(sid) = session_id_from(&headers) else {
+        return Redirect::to("/ghost/signin/").into_response();
+    };
+    match repos::sessions::verify_auth_code(&state.db, &sid, &form.code).await {
+        Ok(CodeCheck::Verified) => {
+            if let Ok(Some(user_id)) = repos::sessions::get_user(&state.db, &sid).await {
+                let _ = repos::users::update_last_seen(&state.db, &user_id).await;
+            }
+            Redirect::to("/ghost/posts/").into_response()
+        }
+        Ok(CodeCheck::Incorrect) => Redirect::to("/ghost/signin/verify/?error=incorrect").into_response(),
+        _ => Redirect::to("/ghost/signin/verify/?error=expired").into_response(),
+    }
+}
+
+/// Issue a replacement code for a session still waiting on one.
+async fn verify_resend(State(state): State<AppState>, headers: HeaderMap) -> Response {
+    let Some(sid) = session_id_from(&headers) else {
+        return Redirect::to("/ghost/signin/").into_response();
+    };
+    if !repos::sessions::is_unverified(&state.db, &sid).await.unwrap_or(false) {
+        return Redirect::to("/ghost/signin/").into_response();
+    }
+    let Ok(Some(user_id)) = repos::sessions::get_pending_user(&state.db, &sid).await else {
+        return Redirect::to("/ghost/signin/").into_response();
+    };
+    let Ok(Some(user)) = repos::users::find_by_id(&state.db, &user_id).await else {
+        return Redirect::to("/ghost/signin/").into_response();
+    };
+    let sent = issue_signin_code(&state, &sid, &user).await;
+    Redirect::to(if sent { "/ghost/signin/verify/?send=resent" } else { "/ghost/signin/verify/?send=failed" })
+        .into_response()
 }
 
 async fn logout(State(state): State<AppState>, headers: HeaderMap) -> Response {
@@ -1808,31 +2073,561 @@ fn views_chart(days: &[DayViews]) -> String {
     )
 }
 
-async fn analytics_page(State(state): State<AppState>, headers: HeaderMap, Query(q): Query<HashMap<String, String>>) -> Response {
-    let (user, actor_role) = match require_role(&state, &headers, Role::Administrator).await {
-        Ok(a) => (a.user, a.role),
-        Err(r) => return r,
-    };
-    let days_n: i64 = if q.get("range").map(String::as_str) == Some("30") { 30 } else { 7 };
-    let window = format!("-{days_n} days");
+// ---------------------------------------------------------------------------
+// analytics — Ghost's native analytics, split into the same tabs
+// ---------------------------------------------------------------------------
 
-    // daily buckets for the chart
+/// The reporting windows Ghost offers, as (query value, label, days back).
+/// `None` days means all time.
+const ANALYTICS_RANGES: &[(&str, &str, Option<i64>)] = &[
+    ("today", "Today", Some(0)),
+    ("7", "7 days", Some(7)),
+    ("30", "30 days", Some(30)),
+    ("90", "3 months", Some(90)),
+    ("365", "12 months", Some(365)),
+    ("all", "All time", None),
+];
+
+/// The tabs the Analytics page is split into, mirroring Ghost's.
+const ANALYTICS_TABS: &[(&str, &str)] = &[
+    ("overview", "Overview"),
+    ("web", "Web traffic"),
+    ("growth", "Growth"),
+    ("newsletters", "Newsletters"),
+];
+
+/// Ghost's posts/pages split on the Top content table.
+const ANALYTICS_CONTENT_KINDS: &[(&str, &str)] =
+    &[("all", "Posts & pages"), ("posts", "Posts"), ("pages", "Pages")];
+
+/// Audience segments for the web traffic breakdown. The values match the
+/// `audience` column written by the page-view middleware.
+const ANALYTICS_AUDIENCES: &[(&str, &str)] = &[
+    ("all", "All traffic"),
+    ("public", "Public visitors"),
+    ("free", "Free members"),
+    ("paid", "Paid members"),
+];
+
+/// A reporting window resolved into something the queries can use.
+struct AnalyticsRange {
+    slug: String,
+    days: Option<i64>,
+    /// SQLite modifier for `datetime('now', ?)`, or `None` for all time.
+    cutoff: String,
+    label: String,
+}
+
+impl AnalyticsRange {
+    fn from_query(q: &HashMap<String, String>) -> Self {
+        let slug = q.get("range").map(String::as_str).unwrap_or("30");
+        let (slug, label, days) = ANALYTICS_RANGES
+            .iter()
+            .find(|(s, _, _)| *s == slug)
+            .copied()
+            .unwrap_or(("30", "30 days", Some(30)));
+        // A cutoff far enough back to include everything stands in for "all
+        // time", so every query keeps the same shape and the same index.
+        let cutoff = match days {
+            Some(0) => "start of day".to_string(),
+            Some(n) => format!("-{n} days"),
+            None => "-100 years".to_string(),
+        };
+        Self { slug: slug.to_string(), days, cutoff, label: label.to_string() }
+    }
+
+    /// How many daily buckets the chart should show.
+    async fn chart_days(&self, db: &sqlx::SqlitePool) -> i64 {
+        match self.days {
+            Some(0) => 1,
+            Some(n) => n,
+            // All time: back to the first view there is, capped so the chart
+            // stays readable.
+            None => {
+                let first: Option<String> =
+                    sqlx::query_scalar("SELECT MIN(substr(created_at, 1, 10)) FROM page_views")
+                        .fetch_one(db)
+                        .await
+                        .unwrap_or(None);
+                match first {
+                    Some(day) => sqlx::query_scalar::<_, i64>(
+                        "SELECT MIN(365, MAX(1, CAST(julianday('now') - julianday(?) AS INTEGER) + 1))",
+                    )
+                    .bind(day)
+                    .fetch_one(db)
+                    .await
+                    .unwrap_or(30),
+                    None => 30,
+                }
+            }
+        }
+    }
+}
+
+/// Daily unique-visitor buckets across the window, with gaps filled in as
+/// zero.
+///
+/// Counted as distinct viewers per day rather than raw hits, so the chart and
+/// the "unique visitors" figure above it are measuring the same thing — a
+/// reader who opens five posts is one visitor on both.
+async fn analytics_daily_views(
+    db: &sqlx::SqlitePool,
+    range: &AnalyticsRange,
+    audience: &str,
+) -> Vec<DayViews> {
+    let span = range.chart_days(db).await;
     let mut day_map: std::collections::BTreeMap<String, i64> = std::collections::BTreeMap::new();
-    if let Ok(rows) = sqlx::query_as::<_, (String, i64)>(
-        "SELECT substr(created_at, 1, 10) AS day, COUNT(*) FROM page_views \
-         WHERE created_at >= datetime('now', ?) GROUP BY day",
-    )
-    .bind(&window)
-    .fetch_all(&state.db)
-    .await
+    let sql = format!(
+        "SELECT substr(created_at, 1, 10) AS day, COUNT(DISTINCT viewer) FROM page_views \
+         WHERE created_at >= datetime('now', ?){} GROUP BY day",
+        audience_clause(audience)
+    );
+    if let Ok(rows) = sqlx::query_as::<_, (String, i64)>(&sql)
+        .bind(&range.cutoff)
+        .fetch_all(db)
+        .await
     {
         for (day, views) in rows {
             day_map.insert(day, views);
         }
     }
-    // fill the whole window so gaps read as zero
-    let mut days: Vec<DayViews> = Vec::new();
-    for back in (0..days_n).rev() {
+    let mut days = Vec::new();
+    for back in (0..span).rev() {
+        let day: String = sqlx::query_scalar("SELECT date('now', ?)")
+            .bind(format!("-{back} days"))
+            .fetch_one(db)
+            .await
+            .unwrap_or_default();
+        days.push(DayViews { views: day_map.get(&day).copied().unwrap_or(0), day });
+    }
+    days
+}
+
+/// `AND audience = '…'` for a chosen segment, or nothing for all traffic.
+///
+/// Inlined rather than bound because it is chosen from a fixed list, never
+/// from the query string directly.
+fn audience_clause(audience: &str) -> &'static str {
+    match audience {
+        "public" => " AND audience = 'public'",
+        "free" => " AND audience = 'free'",
+        "paid" => " AND audience = 'paid'",
+        _ => "",
+    }
+}
+
+/// Unique visitors and total views over the window.
+async fn analytics_traffic(
+    db: &sqlx::SqlitePool,
+    range: &AnalyticsRange,
+    audience: &str,
+) -> (i64, i64) {
+    let sql = format!(
+        "SELECT COUNT(DISTINCT viewer), COUNT(*) FROM page_views \
+         WHERE created_at >= datetime('now', ?){}",
+        audience_clause(audience)
+    );
+    sqlx::query_as(&sql).bind(&range.cutoff).fetch_one(db).await.unwrap_or((0, 0))
+}
+
+/// Most-viewed posts and pages over the window.
+///
+/// `kind` filters to `post`, `page`, or everything. A view counts for a piece
+/// when the path is its own, which is how the front end serves it.
+async fn analytics_top_content(
+    db: &sqlx::SqlitePool,
+    range: &AnalyticsRange,
+    audience: &str,
+    kind: &str,
+    limit: i64,
+) -> Vec<(String, String, String, i64)> {
+    let type_clause = match kind {
+        "posts" => " AND p.type = 'post'",
+        "pages" => " AND p.type = 'page'",
+        _ => "",
+    };
+    let sql = format!(
+        "SELECT COALESCE(p.title, p.slug), p.slug, p.type, COUNT(*) AS views FROM page_views v \
+         JOIN posts p ON v.path = '/' || p.slug || '/' OR v.path LIKE '/' || p.slug || '/%' \
+         WHERE v.created_at >= datetime('now', ?) AND p.status = 'published'{}{} \
+         GROUP BY p.id ORDER BY views DESC LIMIT ?",
+        type_clause,
+        audience_clause(audience)
+    );
+    sqlx::query_as(&sql).bind(&range.cutoff).bind(limit).fetch_all(db).await.unwrap_or_default()
+}
+
+/// Where the window's traffic came from. A view with no referrer is Direct,
+/// which is how Ghost labels it.
+async fn analytics_top_sources(
+    db: &sqlx::SqlitePool,
+    range: &AnalyticsRange,
+    audience: &str,
+    limit: i64,
+) -> Vec<(String, i64)> {
+    let sql = format!(
+        "SELECT COALESCE(NULLIF(referrer, ''), 'Direct') AS source, COUNT(DISTINCT viewer) AS visitors \
+         FROM page_views WHERE created_at >= datetime('now', ?){} \
+         GROUP BY source ORDER BY visitors DESC LIMIT ?",
+        audience_clause(audience)
+    );
+    sqlx::query_as(&sql).bind(&range.cutoff).bind(limit).fetch_all(db).await.unwrap_or_default()
+}
+
+/// Members, split the way the Growth tab reports them, plus monthly recurring
+/// revenue in minor units.
+async fn analytics_members(db: &sqlx::SqlitePool) -> (i64, i64, i64, i64) {
+    let (total, paid): (i64, i64) = sqlx::query_as(
+        "SELECT COUNT(*), COALESCE(SUM(CASE WHEN status = 'paid' THEN 1 ELSE 0 END), 0) FROM members",
+    )
+    .fetch_one(db)
+    .await
+    .unwrap_or((0, 0));
+    // MRR comes off the live subscriptions, the same forward-looking figure
+    // Ghost reports: cancelled ones stop counting the moment they lapse.
+    let mrr: f64 = sqlx::query_scalar(
+        "SELECT COALESCE(SUM(mrr), 0) FROM subscriptions WHERE status IN ('active', 'trialing')",
+    )
+    .fetch_one(db)
+    .await
+    .unwrap_or(0.0);
+    (total, total - paid, paid, mrr.round() as i64)
+}
+
+/// Minor units (what Stripe and the `subscriptions.mrr` column hold) rendered
+/// as an amount, grouped and without trailing zeroes on a whole figure.
+fn money_minor(minor: i64) -> String {
+    let major = minor as f64 / 100.0;
+    let whole = major.trunc() as i64;
+    let mut grouped = String::new();
+    let digits = whole.abs().to_string();
+    for (i, ch) in digits.chars().enumerate() {
+        if i > 0 && (digits.len() - i).is_multiple_of(3) {
+            grouped.push(',');
+        }
+        grouped.push(ch);
+    }
+    let cents = minor.abs() % 100;
+    let sign = if minor < 0 { "-" } else { "" };
+    if cents == 0 {
+        format!("{sign}{grouped}")
+    } else {
+        format!("{sign}{grouped}.{cents:02}")
+    }
+}
+
+/// `3 visitors` / `1 visitor` — a count with its noun agreeing.
+fn countable(n: i64, singular: &str) -> String {
+    if n == 1 {
+        format!("1 {singular}")
+    } else {
+        format!("{} {singular}s", compact(n))
+    }
+}
+
+/// A simple rows card, or a muted note when there is nothing to show.
+fn analytics_rows(rows: String, empty: &str) -> String {
+    if rows.is_empty() {
+        format!(
+            r#"<div class="row"><div class="body"><span class="muted">{}</span></div></div>"#,
+            esc(empty)
+        )
+    } else {
+        rows
+    }
+}
+
+/// One `title · detail · figure` row.
+fn analytics_row(icon: &str, tint: &str, title: &str, detail: &str, figure: &str, href: Option<&str>) -> String {
+    let body = match href {
+        Some(h) => format!(
+            r#"<a class="body" href="{h}" target="_blank" rel="noopener"><span class="title">{title}</span><span class="detail">{detail}</span></a>"#,
+            h = esc(h),
+            title = esc(title),
+            detail = detail,
+        ),
+        None => format!(
+            r#"<div class="body"><span class="title">{title}</span><span class="detail">{detail}</span></div>"#,
+            title = esc(title),
+            detail = detail,
+        ),
+    };
+    format!(
+        r#"<div class="row"><span class="ic tint-{tint}">{icon}</span>{body}
+<div class="trailing"><span class="chip tonal">{figure}</span></div></div>"#,
+        tint = tint,
+        icon = icon,
+        body = body,
+        figure = esc(figure),
+    )
+}
+
+async fn analytics_page(State(state): State<AppState>, headers: HeaderMap, Query(q): Query<HashMap<String, String>>) -> Response {
+    let (user, actor_role) = match require_role(&state, &headers, Role::Administrator).await {
+        Ok(a) => (a.user, a.role),
+        Err(r) => return r,
+    };
+    let range = AnalyticsRange::from_query(&q);
+    let tab = q.get("tab").map(String::as_str).unwrap_or("overview");
+    let tab = ANALYTICS_TABS.iter().find(|(s, _)| *s == tab).map(|(s, _)| *s).unwrap_or("overview");
+    let audience = q.get("audience").map(String::as_str).unwrap_or("all");
+    let audience = ANALYTICS_AUDIENCES.iter().find(|(s, _)| *s == audience).map(|(s, _)| *s).unwrap_or("all");
+    let content = q.get("content").map(String::as_str).unwrap_or("all");
+    let content = ANALYTICS_CONTENT_KINDS.iter().find(|(s, _)| *s == content).map(|(s, _)| *s).unwrap_or("all");
+
+    // Collection is a setting, and a page of zeroes is confusing without
+    // saying why — Ghost surfaces the same thing on its traffic tab.
+    let tracking_off = !state.settings.get_bool("web_analytics");
+    let notice = if tracking_off && matches!(tab, "overview" | "web") {
+        format!(
+            r#"<div class="banner info rise" style="--i:1">{ic}<span class="msg">Web analytics is switched off, so no new visits are being recorded. Turn it on in <a href="/ghost/settings/analytics/">Settings &rsaquo; Analytics</a>.</span></div>"#,
+            ic = svg("chart"),
+        )
+    } else {
+        String::new()
+    };
+
+    let link = |tab: &str, range_slug: &str, audience: &str| {
+        let mut url = format!("/ghost/analytics/?tab={tab}&range={range_slug}");
+        if audience != "all" {
+            url.push_str(&format!("&audience={audience}"));
+        }
+        url
+    };
+
+    let tabs: String = ANALYTICS_TABS
+        .iter()
+        .map(|(slug, label)| {
+            format!(
+                r#"<a class="seg{on}" href="{href}">{label}</a>"#,
+                on = if *slug == tab { " on" } else { "" },
+                href = esc(&link(slug, &range.slug, audience)),
+                label = esc(label),
+            )
+        })
+        .collect();
+
+    let ranges: String = ANALYTICS_RANGES
+        .iter()
+        .map(|(slug, label, _)| {
+            format!(
+                r#"<a class="{on}" href="{href}">{label}</a>"#,
+                on = if *slug == range.slug { "active" } else { "" },
+                href = esc(&link(tab, slug, audience)),
+                label = esc(label),
+            )
+        })
+        .collect();
+
+    let body = match tab {
+        "web" => {
+            let segs: String = ANALYTICS_AUDIENCES
+                .iter()
+                .map(|(slug, label)| {
+                    format!(
+                        r#"<a class="seg{on}" href="{href}">{label}</a>"#,
+                        on = if *slug == audience { " on" } else { "" },
+                        href = esc(&format!("{}&content={content}", link("web", &range.slug, slug))),
+                        label = esc(label),
+                    )
+                })
+                .collect();
+            let kind_segs: String = ANALYTICS_CONTENT_KINDS
+                .iter()
+                .map(|(slug, label)| {
+                    format!(
+                        r#"<a class="seg{on}" href="{href}">{label}</a>"#,
+                        on = if *slug == content { " on" } else { "" },
+                        href = esc(&format!("{}&content={slug}", link("web", &range.slug, audience))),
+                        label = esc(label),
+                    )
+                })
+                .collect();
+            analytics_web_tab(&state, &range, audience, content, segs, kind_segs).await
+        }
+        "growth" => analytics_growth_tab(&state, &range).await,
+        "newsletters" => analytics_newsletters_tab(&state, &range).await,
+        _ => analytics_overview_tab(&state, &range).await,
+    };
+
+    page_for_role(actor_role,
+        "Analytics",
+        "analytics",
+        Some(&user),
+        &format!(
+            r#"<header class="page-head rise"><div><h1>Analytics</h1><p class="sub">{sub}</p></div>
+<div class="actions"><div class="range-tabs">{ranges}</div></div></header>
+<div class="seg-bar">{tabs}</div>
+{notice}{body}"#,
+            sub = esc(&range.label),
+            ranges = ranges,
+            tabs = tabs,
+            notice = notice,
+            body = body,
+        ),
+        true,
+    )
+    .into_response()
+}
+
+/// Overview: the headline figures, the traffic shape, and what did best.
+async fn analytics_overview_tab(state: &AppState, range: &AnalyticsRange) -> String {
+    let (visitors, views) = analytics_traffic(&state.db, range, "all").await;
+    let (members, _free, paid, mrr) = analytics_members(&state.db).await;
+    let days = analytics_daily_views(&state.db, range, "all").await;
+
+    // "Right now" is the live counter Ghost puts at the top of the overview.
+    let live: i64 = sqlx::query_scalar(
+        "SELECT COUNT(DISTINCT viewer) FROM page_views WHERE created_at >= datetime('now', '-5 minutes')",
+    )
+    .fetch_one(&state.db)
+    .await
+    .unwrap_or(0);
+
+    let top: String = analytics_top_content(&state.db, range, "all", "all", 5)
+        .await
+        .into_iter()
+        .map(|(title, slug, kind, views)| {
+            analytics_row(
+                &svg(if kind == "page" { "pages" } else { "posts" }),
+                "green",
+                &title,
+                &format!("<code>/{}/</code>", esc(&slug)),
+                &countable(views, "view"),
+                Some(&format!("/{slug}/")),
+            )
+        })
+        .collect();
+
+    let sources: String = analytics_top_sources(&state.db, range, "all", 5)
+        .await
+        .into_iter()
+        .map(|(source, visitors)| {
+            analytics_row(
+                &svg(if source == "Direct" { "link" } else { "globe" }),
+                "blue",
+                &source,
+                if source == "Direct" { "Typed, bookmarked or untracked" } else { "Referral" },
+                &countable(visitors, "visitor"),
+                None,
+            )
+        })
+        .collect();
+
+    format!(
+        r#"<div class="tiles rise" style="--i:1">
+<div class="tile"><div class="label">Unique visitors</div><div class="value">{visitors}</div><div class="delta">{live} in the last 5 minutes</div></div>
+<div class="tile"><div class="label">Total views</div><div class="value">{views}</div><div class="delta">page views, repeats included</div></div>
+<div class="tile"><div class="label">Members</div><div class="value">{members}</div><div class="delta">{paid} paid · <a href="/ghost/members/">manage</a></div></div>
+<div class="tile"><div class="label">MRR</div><div class="value">{mrr}</div><div class="delta">from active subscriptions</div></div>
+</div>
+<div class="section">Unique visitors per day</div>
+<div class="card padded rise" style="--i:2">{chart}</div>
+<div class="section">Top content</div>
+<div class="card rows rise" style="--i:3">{top}</div>
+<div class="section">Top sources</div>
+<div class="card rows rise" style="--i:4">{sources}</div>"#,
+        visitors = compact(visitors),
+        live = live,
+        views = compact(views),
+        members = compact(members),
+        paid = paid,
+        mrr = money_minor(mrr),
+        chart = views_chart(&days),
+        top = analytics_rows(top, "No content views in this range yet."),
+        sources = analytics_rows(sources, "No traffic recorded in this range yet."),
+    )
+}
+
+/// Web traffic: the same figures broken down by audience, with the content
+/// table filterable by posts or pages the way Ghost's is.
+async fn analytics_web_tab(
+    state: &AppState,
+    range: &AnalyticsRange,
+    audience: &str,
+    kind: &str,
+    segs: String,
+    kind_segs: String,
+) -> String {
+    let (visitors, views) = analytics_traffic(&state.db, range, audience).await;
+    let days = analytics_daily_views(&state.db, range, audience).await;
+
+    let top: String = analytics_top_content(&state.db, range, audience, kind, 10)
+        .await
+        .into_iter()
+        .map(|(title, slug, kind, views)| {
+            analytics_row(
+                &svg(if kind == "page" { "pages" } else { "posts" }),
+                "green",
+                &title,
+                &format!("<code>/{}/</code> · {}", esc(&slug), if kind == "page" { "Page" } else { "Post" }),
+                &countable(views, "view"),
+                Some(&format!("/{slug}/")),
+            )
+        })
+        .collect();
+
+    let sources: String = analytics_top_sources(&state.db, range, audience, 10)
+        .await
+        .into_iter()
+        .map(|(source, visitors)| {
+            analytics_row(
+                &svg(if source == "Direct" { "link" } else { "globe" }),
+                "blue",
+                &source,
+                if source == "Direct" { "Typed, bookmarked or untracked" } else { "Referral" },
+                &countable(visitors, "visitor"),
+                None,
+            )
+        })
+        .collect();
+
+    format!(
+        r#"<div class="tiles rise" style="--i:1" data-cols="2">
+<div class="tile"><div class="label">Unique visitors</div><div class="value">{visitors}</div><div class="delta">distinct people in this range</div></div>
+<div class="tile"><div class="label">Total views</div><div class="value">{views}</div><div class="delta">page views, repeats included</div></div>
+</div>
+<div class="section">Audience</div>
+<div class="seg-bar">{segs}</div>
+<div class="card padded rise" style="--i:2">{chart}</div>
+<div class="section">Top content</div>
+<div class="seg-bar">{kind_segs}</div>
+<div class="card rows rise" style="--i:3">{top}</div>
+<div class="section">Top sources</div>
+<div class="card rows rise" style="--i:4">{sources}</div>"#,
+        visitors = compact(visitors),
+        views = compact(views),
+        segs = segs,
+        kind_segs = kind_segs,
+        chart = views_chart(&days),
+        top = analytics_rows(top, "No content views in this range yet."),
+        sources = analytics_rows(sources, "No traffic recorded in this range yet."),
+    )
+}
+
+/// Growth: members over time, the free/paid split, MRR, and where signups
+/// came from.
+async fn analytics_growth_tab(state: &AppState, range: &AnalyticsRange) -> String {
+    let (total, free, paid, mrr) = analytics_members(&state.db).await;
+
+    // New members per day across the window, which is the shape the chart
+    // shows; the tiles carry the running totals.
+    let span = range.chart_days(&state.db).await;
+    let mut day_map: std::collections::BTreeMap<String, i64> = std::collections::BTreeMap::new();
+    if let Ok(rows) = sqlx::query_as::<_, (String, i64)>(
+        "SELECT substr(created_at, 1, 10) AS day, COUNT(*) FROM members \
+         WHERE created_at >= datetime('now', ?) GROUP BY day",
+    )
+    .bind(&range.cutoff)
+    .fetch_all(&state.db)
+    .await
+    {
+        for (day, n) in rows {
+            day_map.insert(day, n);
+        }
+    }
+    let mut days = Vec::new();
+    for back in (0..span).rev() {
         let day: String = sqlx::query_scalar("SELECT date('now', ?)")
             .bind(format!("-{back} days"))
             .fetch_one(&state.db)
@@ -1840,123 +2635,158 @@ async fn analytics_page(State(state): State<AppState>, headers: HeaderMap, Query
             .unwrap_or_default();
         days.push(DayViews { views: day_map.get(&day).copied().unwrap_or(0), day });
     }
+    let new_members: i64 = days.iter().map(|d| d.views).sum();
 
-    let total_views: i64 = days.iter().map(|d| d.views).sum();
-    let visitors: i64 = sqlx::query_scalar(
-        "SELECT COUNT(DISTINCT viewer) FROM page_views WHERE created_at >= datetime('now', ?)",
+    // Ghost attributes signups to the post or source that brought them in;
+    // this port records the signup source, which is the part it has.
+    let sources: String = sqlx::query_as::<_, (String, i64)>(
+        "SELECT source, COUNT(*) AS n FROM members_created_events \
+         WHERE created_at >= datetime('now', ?) GROUP BY source ORDER BY n DESC LIMIT 10",
     )
-    .bind(&window)
+    .bind(&range.cutoff)
+    .fetch_all(&state.db)
+    .await
+    .unwrap_or_default()
+    .into_iter()
+    .map(|(source, n)| {
+        analytics_row(
+            &svg("person"),
+            "teal",
+            &analytics_source_label(&source),
+            "Signup source",
+            &countable(n, "member"),
+            None,
+        )
+    })
+    .collect();
+
+    let recent: String = sqlx::query_as::<_, (Option<String>, String, String, String)>(
+        "SELECT name, email, status, substr(created_at, 1, 10) FROM members ORDER BY created_at DESC LIMIT 8",
+    )
+    .fetch_all(&state.db)
+    .await
+    .unwrap_or_default()
+    .into_iter()
+    .map(|(name, email, status, created)| {
+        let display = name.clone().unwrap_or_else(|| email.clone());
+        let initial = display.chars().next().unwrap_or('?').to_uppercase().to_string();
+        format!(
+            r#"<div class="row"><span class="avatar">{initial}</span>
+<div class="body"><span class="title">{name}</span><span class="detail">{email} · joined {created}</span></div>
+<div class="trailing"><span class="chip {chip}">{status}</span></div></div>"#,
+            initial = esc(&initial),
+            name = esc(&display),
+            email = esc(&email),
+            created = esc(&created),
+            chip = if status == "paid" { "published" } else { "draft" },
+            status = esc(&status),
+        )
+    })
+    .collect();
+
+    format!(
+        r#"<div class="tiles rise" style="--i:1">
+<div class="tile"><div class="label">Total members</div><div class="value">{total}</div><div class="delta">+{new} in this range</div></div>
+<div class="tile"><div class="label">Free members</div><div class="value">{free}</div><div class="delta">no active subscription</div></div>
+<div class="tile"><div class="label">Paid members</div><div class="value">{paid}</div><div class="delta">subscribed</div></div>
+<div class="tile"><div class="label">MRR</div><div class="value">{mrr}</div><div class="delta">from active subscriptions</div></div>
+</div>
+<div class="section">New members per day</div>
+<div class="card padded rise" style="--i:2">{chart}</div>
+<div class="section">Signup sources</div>
+<div class="card rows rise" style="--i:3">{sources}</div>
+<div class="section">Recent members</div>
+<div class="card rows rise" style="--i:4">{recent}</div>"#,
+        total = compact(total),
+        new = new_members,
+        free = compact(free),
+        paid = compact(paid),
+        mrr = money_minor(mrr),
+        chart = views_chart(&days),
+        sources = analytics_rows(sources, "No signups in this range yet."),
+        recent = analytics_rows(recent, "No members yet."),
+    )
+}
+
+/// Ghost's signup sources read as words rather than the stored key.
+fn analytics_source_label(source: &str) -> String {
+    match source {
+        "member" => "Signup form".to_string(),
+        "api" => "API".to_string(),
+        "admin" => "Added in admin".to_string(),
+        "import" => "Imported".to_string(),
+        "system" => "System".to_string(),
+        other => other.to_string(),
+    }
+}
+
+/// Newsletters: subscribers, what went out, and how it was opened.
+async fn analytics_newsletters_tab(state: &AppState, range: &AnalyticsRange) -> String {
+    let subscribers: i64 = sqlx::query_scalar(
+        "SELECT COUNT(DISTINCT member_id) FROM members_newsletters",
+    )
     .fetch_one(&state.db)
     .await
     .unwrap_or(0);
-    let (members_total, members_paid): (i64, i64) = sqlx::query_as(
-        "SELECT COUNT(*), COALESCE(SUM(CASE WHEN status = 'paid' THEN 1 ELSE 0 END), 0) FROM members",
+
+    let (sent, opened): (i64, i64) = sqlx::query_as(
+        "SELECT COUNT(*), COALESCE(SUM(CASE WHEN r.opened_at IS NOT NULL THEN 1 ELSE 0 END), 0) \
+         FROM email_recipients r JOIN emails e ON e.id = r.email_id \
+         WHERE r.created_at >= datetime('now', ?) AND r.status = 'sent'",
     )
+    .bind(&range.cutoff)
     .fetch_one(&state.db)
     .await
     .unwrap_or((0, 0));
-    let published: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM posts WHERE status = 'published'")
-        .fetch_one(&state.db)
-        .await
-        .unwrap_or(0);
+    let open_rate = if sent > 0 { (opened as f64 / sent as f64) * 100.0 } else { 0.0 };
 
-    // top content in the window — a view counts for a post when the path is
-    // the post's /slug/ (or paginated under it)
-    let mut top_rows = String::new();
-    if let Ok(rows) = sqlx::query_as::<_, (String, String, i64)>(
-        "SELECT COALESCE(p.title, p.slug), p.slug, COUNT(*) AS views FROM page_views v \
-         JOIN posts p ON v.path = '/' || p.slug || '/' OR v.path LIKE '/' || p.slug || '/%' \
-         WHERE v.created_at >= datetime('now', ?) AND p.status = 'published' \
-         GROUP BY p.id ORDER BY views DESC LIMIT 5",
+    // One row per email sent in the window, with its own open rate — Ghost's
+    // sortable top-newsletters table, ordered by what was opened most.
+    let rows: String = sqlx::query_as::<_, (String, String, i64, i64)>(
+        "SELECT COALESCE(p.title, e.subject), substr(e.created_at, 1, 10), \
+                COUNT(r.id), COALESCE(SUM(CASE WHEN r.opened_at IS NOT NULL THEN 1 ELSE 0 END), 0) \
+         FROM emails e LEFT JOIN posts p ON p.id = e.post_id \
+         LEFT JOIN email_recipients r ON r.email_id = e.id AND r.status = 'sent' \
+         WHERE e.created_at >= datetime('now', ?) \
+         GROUP BY e.id ORDER BY e.created_at DESC LIMIT 15",
     )
-    .bind(&window)
+    .bind(&range.cutoff)
     .fetch_all(&state.db)
     .await
-    {
-        let empty = rows.is_empty();
-        for (title, slug, views) in rows {
-            top_rows.push_str(&format!(
-                r#"<div class="row"><span class="ic tint-green">{chart}</span>
-<a class="body" href="/{slug}/" target="_blank" rel="noopener"><span class="title">{title}</span><span class="detail"><code>/{slug}/</code></span></a>
-<div class="trailing"><span class="chip tonal">{views} views</span></div></div>"#,
-                chart = svg("posts"),
-                slug = esc(&slug),
-                title = esc(&title),
-                views = views,
-            ));
-        }
-        if empty {
-            top_rows = r#"<div class="row"><div class="body"><span class="muted">No post views in this range yet.</span></div></div>"#.into();
-        }
-    }
-
-    // latest signups
-    let mut member_rows = String::new();
-    if let Ok(rows) = sqlx::query_as::<_, (Option<String>, String, String)>(
-        "SELECT name, email, substr(created_at, 1, 10) FROM members ORDER BY created_at DESC LIMIT 5",
-    )
-    .fetch_all(&state.db)
-    .await
-    {
-        let empty = rows.is_empty();
-        for (name, email, created) in rows {
-            let initial = name.as_deref().unwrap_or(&email).chars().next().unwrap_or('?').to_uppercase().to_string();
-            member_rows.push_str(&format!(
-                r#"<div class="row"><span class="avatar">{initial}</span>
-<div class="body"><span class="title">{name}</span><span class="detail">{email} · {created}</span></div></div>"#,
-                initial = esc(&initial),
-                name = esc(name.as_deref().unwrap_or(&email)),
-                email = esc(&email),
-                created = esc(&created),
-            ));
-        }
-        if empty {
-            member_rows = r#"<div class="row"><div class="body"><span class="muted">No members yet.</span></div></div>"#.into();
-        }
-    }
-
-    let range_link = |label: &str, n: i64| {
-        format!(
-            r#"<a class="{}" href="/ghost/analytics/?range={n}">{label}</a>"#,
-            if n == days_n { "active" } else { "" },
-            n = n,
-            label = label,
+    .unwrap_or_default()
+    .into_iter()
+    .map(|(title, sent_on, delivered, opens)| {
+        let rate = if delivered > 0 { (opens as f64 / delivered as f64) * 100.0 } else { 0.0 };
+        analytics_row(
+            &svg("send"),
+            "purple",
+            &title,
+            &format!("Sent {} · {} delivered", esc(&sent_on), delivered),
+            &format!("{rate:.0}% opened"),
+            None,
         )
-    };
-    page_for_role(actor_role, 
-        "Analytics",
-        "analytics",
-        Some(&user),
-        &format!(
-            r#"<header class="page-head rise"><div><h1>Analytics</h1><p class="sub">Site activity</p></div>
-<div class="actions"><div class="range-tabs">{r7}{r30}</div></div></header>
-<div class="tiles rise" style="--i:1">
-<div class="tile"><div class="label">Views</div><div class="value">{views}</div><div class="delta">last {days_n} days</div></div>
-<div class="tile"><div class="label">Visitors</div><div class="value">{visitors}</div><div class="delta">unique viewers</div></div>
-<div class="tile"><div class="label">Members</div><div class="value">{members}</div><div class="delta">{paid} paid · <a href="/ghost/members/">manage</a></div></div>
-<div class="tile"><div class="label">Published posts</div><div class="value">{published}</div><div class="delta">posts &amp; pages</div></div>
+    })
+    .collect();
+
+    format!(
+        r#"<div class="tiles rise" style="--i:1">
+<div class="tile"><div class="label">Subscribers</div><div class="value">{subscribers}</div><div class="delta">across all newsletters</div></div>
+<div class="tile"><div class="label">Emails delivered</div><div class="value">{sent}</div><div class="delta">in this range</div></div>
+<div class="tile"><div class="label">Average open rate</div><div class="value">{open_rate:.0}%</div><div class="delta">{opened} opened</div></div>
 </div>
-<div class="section">Views per day</div>
-<div class="card padded rise" style="--i:2">{chart}</div>
-<div class="section">Top content</div>
-<div class="card rows rise" style="--i:3">{top_rows}</div>
-<div class="section">Recent members</div>
-<div class="card rows rise" style="--i:4">{member_rows}</div>"#,
-            r7 = range_link("7 days", 7),
-            r30 = range_link("30 days", 30),
-            views = compact(total_views),
-            visitors = compact(visitors),
-            members = compact(members_total),
-            paid = members_paid,
-            published = compact(published),
-            chart = views_chart(&days),
-            top_rows = top_rows,
-            member_rows = member_rows,
-        ),
-        true,
+<div class="section">Newsletters sent</div>
+<div class="card rows rise" style="--i:2">{rows}</div>
+<p class="muted" style="margin:10px 2px 0">Open rates need <strong>Email opens</strong> switched on in
+<a href="/ghost/settings/analytics/">Settings &rsaquo; Analytics</a>. Click rates are not tracked yet —
+that needs link redirection this port does not do, so no click figure is shown rather than a misleading zero.</p>"#,
+        subscribers = compact(subscribers),
+        sent = compact(sent),
+        open_rate = open_rate,
+        opened = opened,
+        rows = analytics_rows(rows, "No newsletters sent in this range."),
     )
-    .into_response()
 }
+
 
 // ---------------------------------------------------------------------------
 // members (Ghost's Members list: everyone subscribed to the site)
@@ -5442,11 +6272,12 @@ async fn design_page(State(state): State<AppState>, headers: HeaderMap, Query(q)
 
     let s = |k: &str| esc(&state.settings.get_str(k).unwrap_or_default());
     page_for_role(actor_role,
-        "Design",
-        "design",
+        "Design & branding",
+        "settings",
         Some(&user),
         &format!(
-            r#"<header class="page-head rise"><div><h1>Design</h1><p class="sub">{name} theme</p></div>
+            r#"<header class="page-head rise"><a class="icon-btn" style="transform:rotate(180deg)" href="/ghost/settings/" title="Back to settings">{back}</a>
+<div><h1>Design &amp; branding</h1><p class="sub">{name} theme</p></div>
 <div class="actions"><button class="btn text danger" type="submit" form="reset-form">Reset to defaults</button>
 <button class="btn" type="submit" form="design-form">{check} Save</button></div></header>
 {banner}
@@ -5475,6 +6306,7 @@ async fn design_page(State(state): State<AppState>, headers: HeaderMap, Query(q)
 </form>
 <form method="post" action="/ghost/design/reset/" id="reset-form" data-confirm="Reset theme settings|Custom settings for {name} go back to the theme's defaults."></form>"#,
             name = esc(&theme.name),
+            back = svg("chevron"),
             check = svg("check"),
             title_ic = svg("title"),
             img = svg("image"),
@@ -5574,13 +6406,31 @@ struct SettingsGroup {
     items: &'static [&'static str],
 }
 
+impl SettingsGroup {
+    /// Where this group's row points.
+    ///
+    /// Most groups are a page under `/ghost/settings/`. Design and Navigation
+    /// keep the top-level pages they already had and are linked from the hub
+    /// rather than copied under it, so their URLs — and any bookmark or link
+    /// into them — keep working.
+    fn path(&self) -> String {
+        match self.slug {
+            "design" => "/ghost/design/".to_string(),
+            "navigation" => "/ghost/navigation/".to_string(),
+            other => format!("/ghost/settings/{other}/"),
+        }
+    }
+}
+
 const SETTINGS_GROUPS: &[SettingsGroup] = &[
     SettingsGroup { slug: "general", title: "General settings", icon: "settings", tint: "pink", items: &["Title & description", "Timezone", "Publication language"] },
     SettingsGroup { slug: "staff", title: "Staff", icon: "ghost", tint: "teal", items: &["People", "Roles", "Invitations"] },
-    SettingsGroup { slug: "metadata", title: "Meta data", icon: "notes", tint: "purple", items: &["Metadata", "Twitter card", "Facebook card"] },
+    SettingsGroup { slug: "metadata", title: "Meta data", icon: "notes", tint: "purple", items: &["Search", "X card", "Facebook card"] },
     SettingsGroup { slug: "social", title: "Social accounts", icon: "link", tint: "blue", items: &["Facebook", "X (Twitter)", "Threads", "Bluesky", "Mastodon", "TikTok", "YouTube", "Instagram", "LinkedIn"] },
-    SettingsGroup { slug: "analytics", title: "Analytics", icon: "chart", tint: "green", items: &["Web analytics", "Outbound link tagging"] },
-    SettingsGroup { slug: "site", title: "Site", icon: "themes", tint: "amber", items: &["Theme", "Announcement bar"] },
+    SettingsGroup { slug: "analytics", title: "Analytics", icon: "chart", tint: "green", items: &["Web analytics", "Email opens", "Email clicks", "Member sources", "Outbound link tagging"] },
+    SettingsGroup { slug: "design", title: "Design & branding", icon: "tune", tint: "purple", items: &["Brand", "Site-wide colors", "Theme settings"] },
+    SettingsGroup { slug: "navigation", title: "Navigation", icon: "menu", tint: "red", items: &["Primary menu", "Secondary menu"] },
+    SettingsGroup { slug: "site", title: "Announcement", icon: "flag", tint: "amber", items: &["Announcement bar", "Background", "Visibility"] },
     SettingsGroup { slug: "membership", title: "Membership", icon: "ghost", tint: "teal", items: &["Access", "Tiers", "Signup portal", "Welcome emails", "Newsletters"] },
     SettingsGroup { slug: "email", title: "Email", icon: "mail", tint: "blue", items: &["Transactional email", "SMTP server", "Sender identity", "Send a test"] },
     SettingsGroup { slug: "newsletters", title: "Newsletters", icon: "send", tint: "purple", items: &["Mailgun", "Sending domain", "Region"] },
@@ -5603,18 +6453,28 @@ const SETTINGS_INDEX: &[(&str, &str, &str)] = &[
     ("general", "Title & description", "Description"),
     ("general", "Timezone", "Site timezone"),
     ("general", "Publication language", "Publication language"),
-    ("metadata", "Metadata", "Meta title"),
-    ("metadata", "Metadata", "Meta description"),
-    ("metadata", "Twitter card", "Twitter title"),
-    ("metadata", "Twitter card", "Twitter description"),
-    ("metadata", "Twitter card", "Twitter image"),
+    ("metadata", "Search", "Meta title"),
+    ("metadata", "Search", "Meta description"),
+    ("metadata", "X card", "X title"),
+    ("metadata", "X card", "X description"),
+    ("metadata", "X card", "X image"),
     ("metadata", "Facebook card", "Facebook title"),
     ("metadata", "Facebook card", "Facebook description"),
     ("metadata", "Facebook card", "Facebook image"),
     ("analytics", "Analytics", "Web analytics"),
+    ("analytics", "Analytics", "Email opens"),
+    ("analytics", "Analytics", "Email clicks"),
+    ("analytics", "Analytics", "Member sources"),
     ("analytics", "Analytics", "Outbound link tagging"),
     ("site", "Announcement bar", "Announcement"),
     ("site", "Announcement bar", "Background"),
+    ("site", "Announcement bar", "Visibility"),
+    ("design", "Brand", "Accent color"),
+    ("design", "Brand", "Publication icon"),
+    ("design", "Brand", "Publication logo"),
+    ("design", "Brand", "Publication cover"),
+    ("navigation", "Primary menu", "Primary navigation"),
+    ("navigation", "Secondary menu", "Secondary navigation"),
     ("email", "Transactional email", "Transport"),
     ("email", "SMTP server", "Host"),
     ("email", "SMTP server", "Port"),
@@ -5760,43 +6620,77 @@ const TIMEZONES: &[(&str, &str)] = &[
 
 /// Ghost's publication language picker: the setting stores the `locale`
 /// code (Ghost has no separate `lang` setting).
+///
+/// Codes and coverage come from Ghost's own list, which matters beyond the
+/// label: a theme's translations live in `<theme>/locales/<code>.json`, so a
+/// locale saved under a code Ghost does not use (`zh-cn` rather than `zh`)
+/// silently finds no translation file. Labels lead with the language's own
+/// name, because that is what someone scans for when picking their own.
 const LOCALES: &[(&str, &str)] = &[
-    ("en", "English"),
+    ("af", "Afrikaans"),
+    ("ar", "العربية (Arabic)"),
+    ("az", "Azərbaycan (Azerbaijani)"),
+    ("bg", "Български (Bulgarian)"),
     ("bn", "বাংলা (Bengali)"),
+    ("bs", "Bosanski (Bosnian)"),
+    ("ca", "Català (Catalan)"),
     ("cs", "Čeština (Czech)"),
     ("da", "Dansk (Danish)"),
     ("de", "Deutsch (German)"),
+    ("de-CH", "Schweizerdeutsch (Swiss German)"),
     ("el", "Ελληνικά (Greek)"),
+    ("en", "English"),
+    ("eo", "Esperanto"),
     ("es", "Español (Spanish)"),
-    ("fa", "فارسی (Persian)"),
+    ("et", "Eesti (Estonian)"),
+    ("eu", "Euskara (Basque)"),
+    ("fa", "فارسی (Persian/Farsi)"),
     ("fi", "Suomi (Finnish)"),
     ("fr", "Français (French)"),
+    ("gd", "Gàidhlig (Gaelic (Scottish))"),
     ("he", "עברית (Hebrew)"),
     ("hi", "हिन्दी (Hindi)"),
     ("hr", "Hrvatski (Croatian)"),
     ("hu", "Magyar (Hungarian)"),
     ("id", "Bahasa Indonesia (Indonesian)"),
+    ("is", "Íslenska (Icelandic)"),
     ("it", "Italiano (Italian)"),
     ("ja", "日本語 (Japanese)"),
     ("ko", "한국어 (Korean)"),
+    ("kz", "Қазақша (Kazakh)"),
+    ("lt", "Lietuvių (Lithuanian)"),
+    ("lv", "Latviešu (Latvian)"),
+    ("mk", "Македонски (Macedonian)"),
+    ("mn", "Монгол (Mongolian)"),
+    ("ms", "Bahasa Melayu (Malay)"),
+    ("nb", "Norsk bokmål (Norwegian Bokmål)"),
+    ("ne", "नेपाली (Nepali)"),
     ("nl", "Nederlands (Dutch)"),
-    ("no", "Norsk (Norwegian)"),
+    ("nn", "Norsk nynorsk (Norwegian Nynorsk)"),
+    ("pa", "ਪੰਜਾਬੀ (Punjabi)"),
     ("pl", "Polski (Polish)"),
     ("pt", "Português (Portuguese)"),
-    ("pt-br", "Português (Brasil)"),
+    ("pt-BR", "Português (Brasil) (Portuguese (Brazil))"),
     ("ro", "Română (Romanian)"),
     ("ru", "Русский (Russian)"),
+    ("si", "සිංහල (Sinhala)"),
     ("sk", "Slovenčina (Slovak)"),
+    ("sl", "Slovenščina (Slovenian)"),
+    ("sq", "Shqip (Albanian)"),
+    ("sr", "Srpski (Serbian)"),
+    ("sr-Cyrl", "Српски (Serbian (Cyrillic))"),
     ("sv", "Svenska (Swedish)"),
+    ("sw", "Kiswahili (Swahili)"),
     ("ta", "தமிழ் (Tamil)"),
+    ("th", "ไทย (Thai)"),
     ("tr", "Türkçe (Turkish)"),
     ("uk", "Українська (Ukrainian)"),
     ("ur", "اردو (Urdu)"),
+    ("uz", "Oʻzbekcha (Uzbek)"),
     ("vi", "Tiếng Việt (Vietnamese)"),
-    ("zh-cn", "中文(简体)"),
-    ("zh-tw", "中文(繁體)"),
+    ("zh", "中文(简体) (Chinese)"),
+    ("zh-Hant", "中文(繁體) (Traditional Chinese)"),
 ];
-
 /// `<option>` list for a picker, marking `current`; a stored value outside
 /// the list (e.g. a locale this list doesn't cover) still shows up raw.
 fn select_options(list: &[(&str, &str)], current: &str) -> String {
@@ -5964,9 +6858,9 @@ async fn settings_page(State(state): State<AppState>, headers: HeaderMap) -> Res
                 detail = esc(&g.items.join(" · ")),
             );
             format!(
-                r#"<a class="row" href="/ghost/settings/{slug}/">{head}
+                r#"<a class="row" href="{path}">{head}
 <div class="trailing">{chev}</div></a>"#,
-                slug = g.slug,
+                path = g.path(),
                 head = head,
                 chev = svg("chevron"),
             )
@@ -5996,7 +6890,7 @@ async fn settings_page(State(state): State<AppState>, headers: HeaderMap) -> Res
     };
     for g in SETTINGS_GROUPS {
         push_hit(
-            format!("/ghost/settings/{}/", g.slug),
+            g.path(),
             g.title,
             &g.items.join(" · "),
             &format!("{} {} {}", g.title, g.items.join(" "), g.slug),
@@ -6007,7 +6901,7 @@ async fn settings_page(State(state): State<AppState>, headers: HeaderMap) -> Res
             let url = if *item == "Integrations" {
                 "/ghost/settings/advanced/integrations/".to_string()
             } else {
-                format!("/ghost/settings/{}/", g.slug)
+                g.path()
             };
             push_hit(url, item, g.title, item, g);
         }
@@ -6024,7 +6918,7 @@ async fn settings_page(State(state): State<AppState>, headers: HeaderMap) -> Res
     for (slug, section, field) in &fields {
         if let Some(g) = SETTINGS_GROUPS.iter().find(|g| g.slug == *slug) {
             push_hit(
-                format!("/ghost/settings/{}/", slug),
+                g.path(),
                 field,
                 &format!("{} · {}", g.title, section),
                 &format!("{section} {field}"),
@@ -6148,6 +7042,85 @@ fn meta_field_row(icon_svg: &str, tint: &str, key: &str, label: &str, value: &st
     )
 }
 
+/// The mock search result Ghost shows above the metadata fields.
+///
+/// `title` and `description` carry the saved values already resolved against
+/// their site-level fallbacks, so the preview reads the way a result actually
+/// would. The elements are tagged with `data-prev` so the page script can
+/// retitle them as the fields are typed into.
+fn search_preview(site_url: &str, icon: &str, title: &str, description: &str) -> String {
+    let trimmed = site_url.trim_end_matches('/');
+    let host = trimmed.split("://").nth(1).unwrap_or(trimmed);
+    let favicon = if icon.is_empty() {
+        String::new()
+    } else {
+        format!(r#" style="background-image:url('{}')""#, esc(icon))
+    };
+    format!(
+        r#"<div class="seo-prev rise" style="--i:1"><span class="cap">Preview</span>
+<div class="sheet">
+<div class="site"><span class="favicon"{favicon}></span>
+<div><div class="host">{host}</div><div class="addr">{url}</div></div></div>
+<span class="g-title" data-prev="search-title">{title}</span>
+<span class="g-desc" data-prev="search-description">{description}</span>
+</div></div>"#,
+        favicon = favicon,
+        host = esc(host),
+        url = esc(trimmed),
+        title = esc(title),
+        description = esc(description),
+    )
+}
+
+/// The mock social post Ghost shows above the X and Facebook card fields.
+///
+/// `network` is the field-name stem (`twitter` or `og`), which is also what
+/// the page script keys its live updates off.
+fn social_card_preview(
+    network: &str,
+    site_url: &str,
+    site_title: &str,
+    icon: &str,
+    image: &str,
+    title: &str,
+    description: &str,
+) -> String {
+    let trimmed = site_url.trim_end_matches('/');
+    let host = trimmed.split("://").nth(1).unwrap_or(trimmed);
+    let avatar = if icon.is_empty() {
+        String::new()
+    } else {
+        format!(r#" style="background-image:url('{}')""#, esc(icon))
+    };
+    let shot = if image.is_empty() {
+        format!(r#"<span class="shot empty" data-prev="{network}-shot">No image set</span>"#)
+    } else {
+        format!(
+            r#"<span class="shot" data-prev="{network}-shot"><img src="{src}" alt=""></span>"#,
+            src = esc(image)
+        )
+    };
+    format!(
+        r#"<div class="seo-prev social rise" style="--i:1"><span class="cap">Preview</span>
+<div class="sheet">
+<div class="who"><span class="avatar"{avatar}></span>
+<div><div class="name">{site_title}</div><div class="when">2h</div></div></div>
+<div class="bar"></div><div class="bar short"></div>
+<div class="card-mock">{shot}
+<div class="body"><span class="t" data-prev="{network}-title">{title}</span>
+<span class="d" data-prev="{network}-description">{description}</span>
+<span class="u">{host}</span></div></div>
+</div></div>"#,
+        avatar = avatar,
+        site_title = esc(site_title),
+        network = esc(network),
+        shot = shot,
+        title = esc(title),
+        description = esc(description),
+        host = esc(host),
+    )
+}
+
 /// One meta-data image row: preview + URL input (like the design page).
 fn meta_image_row(key: &str, label: &str, value: &str) -> String {
     let preview = if value.is_empty() {
@@ -6177,34 +7150,83 @@ async fn metadata_page(State(state): State<AppState>, headers: HeaderMap, Query(
         Err(r) => return r,
     };
     let s = |k: &str| esc(&state.settings.get_str(k).unwrap_or_default());
+    let raw = |k: &str| state.settings.get_str(k).unwrap_or_default();
     let group = SETTINGS_GROUPS.iter().find(|g| g.slug == "metadata").unwrap();
-    page_for_role(actor_role, 
+
+    // Every card falls back the way the front end does — the site title and
+    // description, then the meta overrides — so the previews show what a
+    // crawler would actually read rather than an empty box.
+    let site_title = raw("title");
+    let site_description = raw("description");
+    let icon = raw("icon");
+    let site_url = state.site_url();
+    let fallback = |specific: &str, meta: &str, site: &str| {
+        let specific = raw(specific);
+        if !specific.is_empty() {
+            return specific;
+        }
+        let meta = raw(meta);
+        if !meta.is_empty() { meta } else { site.to_string() }
+    };
+
+    page_for_role(actor_role,
         "Meta data",
         "settings",
         Some(&user),
         &format!(
             r#"{head}{banner}
-<form method="post" action="/ghost/settings/metadata/" id="metadata-form">
-<div class="section">Metadata</div>
-<div class="card rows rise" style="--i:1">
+<form method="post" action="/ghost/settings/metadata/" id="metadata-form" data-site-title="{site_title_attr}" data-site-description="{site_description_attr}">
+<div class="section">Search</div>
+{search_preview}
+<div class="card rows rise" style="--i:2">
 {meta_title}{meta_description}
 </div>
-<div class="section">Twitter card</div>
+<div class="section">X card</div>
+{x_preview}
 <div class="card rows rise" style="--i:2">
 {twitter_title}{twitter_description}{twitter_image}
 </div>
 <div class="section">Facebook card</div>
-<div class="card rows rise" style="--i:3">
+{fb_preview}
+<div class="card rows rise" style="--i:2">
 {og_title}{og_description}{og_image}
 </div>
 </form>"#,
             head = group_head(group, Some("metadata-form")),
             banner = flash_banner(&q),
+            site_title_attr = esc(&site_title),
+            site_description_attr = esc(&site_description),
+            search_preview = search_preview(
+                &site_url,
+                &icon,
+                &fallback("meta_title", "title", &site_title),
+                &fallback("meta_description", "description", &site_description),
+            ),
+            x_preview = social_card_preview(
+                "twitter",
+                &site_url,
+                &site_title,
+                &icon,
+                &raw("twitter_image"),
+                &fallback("twitter_title", "meta_title", &site_title),
+                &fallback("twitter_description", "meta_description", &site_description),
+            ),
+            fb_preview = social_card_preview(
+                "og",
+                &site_url,
+                &site_title,
+                &icon,
+                &raw("og_image"),
+                &fallback("og_title", "meta_title", &site_title),
+                &fallback("og_description", "meta_description", &site_description),
+            ),
             meta_title = meta_field_row(&svg("title"), "purple", "meta_title", "Meta title", &s("meta_title"), "Recommended: under 70 characters. Falls back to the site title."),
             meta_description = meta_field_row(&svg("notes"), "purple", "meta_description", "Meta description", &s("meta_description"), "Recommended: under 156 characters. Falls back to the site description."),
-            twitter_title = meta_field_row(&svg("title"), "purple", "twitter_title", "Twitter title", &s("twitter_title"), "Recommended: under 70 characters."),
-            twitter_description = meta_field_row(&svg("notes"), "purple", "twitter_description", "Twitter description", &s("twitter_description"), "Recommended: under 200 characters."),
-            twitter_image = meta_image_row("twitter_image", "Twitter image", &s("twitter_image")),
+            // The settings keys stay `twitter_*`: Ghost renamed the label to X
+            // but kept the keys, and they are what `twitter:` meta tags read.
+            twitter_title = meta_field_row(&svg("title"), "purple", "twitter_title", "X title", &s("twitter_title"), "Recommended: under 70 characters."),
+            twitter_description = meta_field_row(&svg("notes"), "purple", "twitter_description", "X description", &s("twitter_description"), "Recommended: under 200 characters."),
+            twitter_image = meta_image_row("twitter_image", "X image", &s("twitter_image")),
             og_title = meta_field_row(&svg("title"), "purple", "og_title", "Facebook title", &s("og_title"), "Recommended: under 70 characters."),
             og_description = meta_field_row(&svg("notes"), "purple", "og_description", "Facebook description", &s("og_description"), "Recommended: under 200 characters."),
             og_image = meta_image_row("og_image", "Facebook image", &s("og_image")),
@@ -7332,7 +8354,7 @@ async fn analytics_settings_page(State(state): State<AppState>, headers: HeaderM
         )
     };
     let group = SETTINGS_GROUPS.iter().find(|g| g.slug == "analytics").unwrap();
-    page_for_role(actor_role, 
+    page_for_role(actor_role,
         "Analytics",
         "settings",
         Some(&user),
@@ -7341,13 +8363,19 @@ async fn analytics_settings_page(State(state): State<AppState>, headers: HeaderM
 <form method="post" action="/ghost/settings/analytics/" id="analytics-form">
 <div class="section">Analytics</div>
 <div class="card rows rise" style="--i:1">
-{web}{outbound}
+{web}{opens}{clicks}{sources}{outbound}
 </div>
+<p class="muted" style="margin:10px 2px 0">Email tracking needs clicks and opens to be recorded before a post's
+analytics can attribute them. Turning opens off also stops click tracking.</p>
 </form>"#,
             head = group_head(group, Some("analytics-form")),
             banner = flash_banner(&q),
-            web = toggle("web_analytics", "Web analytics", "Collect anonymous visit analytics for this site"),
-            outbound = toggle("outbound_link_tagging", "Outbound link tagging", "Automatically add utm_source parameters to outbound links"),
+            // Same switches, wording and order as Ghost's Analytics panel.
+            web = toggle("web_analytics", "Web analytics", "Cookie-free, first party traffic analytics for your site"),
+            opens = toggle("email_track_opens", "Email opens", "Record when a member opens an email"),
+            clicks = toggle("email_track_clicks", "Email clicks", "Record when a member clicks on any link in an email"),
+            sources = toggle("members_track_sources", "Member sources", "Track the traffic sources and posts that drive the most member growth"),
+            outbound = toggle("outbound_link_tagging", "Outbound link tagging", "Make it easier for other sites to track the traffic you send them in their analytics"),
         ),
         true,
     )
@@ -7358,10 +8386,19 @@ async fn analytics_settings_save(State(state): State<AppState>, headers: HeaderM
     if let Err(r) = require_role(&state, &headers, Role::Administrator).await {
         return r;
     }
+    let on = |key: &str| form.get(key).map(|v| v == "1").unwrap_or(false);
+    // Ghost disables the clicks switch while opens are off, because a click is
+    // only attributable to a member whose open was recorded.
+    let track_opens = on("email_track_opens");
     let mut ok = true;
-    for key in ["web_analytics", "outbound_link_tagging"] {
-        let on = form.get(key).map(|v| v == "1").unwrap_or(false);
-        ok &= state.settings.set(&state.db, key, &serde_json::Value::Bool(on)).await.is_ok();
+    for (key, value) in [
+        ("web_analytics", on("web_analytics")),
+        ("email_track_opens", track_opens),
+        ("email_track_clicks", track_opens && on("email_track_clicks")),
+        ("members_track_sources", on("members_track_sources")),
+        ("outbound_link_tagging", on("outbound_link_tagging")),
+    ] {
+        ok &= state.settings.set(&state.db, key, &serde_json::Value::Bool(value)).await.is_ok();
     }
     if ok {
         settings_flash("analytics", "ok", "Analytics settings saved.")
@@ -7493,21 +8530,15 @@ async fn site_page(State(state): State<AppState>, headers: HeaderMap, Query(q): 
         })
         .collect();
     let group = SETTINGS_GROUPS.iter().find(|g| g.slug == "site").unwrap();
-    page_for_role(actor_role, 
-        "Site",
+    page_for_role(actor_role,
+        "Announcement",
         "settings",
         Some(&user),
         &format!(
             r#"{head}{banner}
-<div class="section">Site</div>
-<div class="card rows rise" style="--i:1">
-<a class="row" href="/ghost/design/"><span class="ic tint-amber">{themes}</span>
-<div class="body"><span class="title">Theme</span><span class="detail">Branding, colors &amp; the active theme</span></div>
-<div class="trailing">{chev}</div></a>
-</div>
 <form method="post" action="/ghost/settings/site/" id="site-form">
 <div class="section">Announcement bar</div>
-<div class="card rows rise" style="--i:2">
+<div class="card rows rise" style="--i:1">
 <div class="row" style="align-items:flex-start"><span class="ic tint-amber">{megaphone}</span>
 <div class="body" style="width:100%"><label class="field" style="margin:0"><textarea name="announcement_content" rows="3" placeholder=" ">{content}</textarea><span>Announcement · Markdown supported</span></label>
 <p class="muted" style="margin:8px 0 0">Leave empty to hide the bar. Shown at the top of every page.</p></div></div>
@@ -7521,8 +8552,6 @@ async fn site_page(State(state): State<AppState>, headers: HeaderMap, Query(q): 
 </form>"#,
             head = group_head(group, Some("site-form")),
             banner = flash_banner(&q),
-            themes = svg("themes"),
-            chev = svg("chevron"),
             megaphone = svg("flag"),
             palette = svg("themes"),
             visibility = svg("globe"),
@@ -9449,7 +10478,8 @@ fn nav_list_html(items: &[NavItem], kind: &str, tint: &str) -> String {
 
 fn navigation_html(primary: &[NavItem], secondary: &[NavItem], banner: &str) -> String {
     format!(
-        r#"<header class="page-head rise"><div><h1>Navigation</h1><p class="sub">Menus shown on your site</p></div>
+        r#"<header class="page-head rise"><a class="icon-btn" style="transform:rotate(180deg)" href="/ghost/settings/" title="Back to settings">{back}</a>
+<div><h1>Navigation</h1><p class="sub">Menus shown on your site</p></div>
 <div class="actions"><button class="btn" type="submit" form="nav-form" name="action" value="save">{check} Save</button></div></header>
 {banner}
 <form method="post" action="/ghost/navigation/" id="nav-form">
@@ -9461,6 +10491,7 @@ fn navigation_html(primary: &[NavItem], secondary: &[NavItem], banner: &str) -> 
 <p class="muted" style="margin:0 0 8px 16px">A second menu — usually footer links — via <code>{{{{navigation type="secondary"}}}}</code>.</p>
 {secondary}
 </form>"#,
+        back = svg("chevron"),
         check = svg("check"),
         banner = banner,
         primary = nav_list_html(primary, "primary", "red"),
@@ -9482,7 +10513,7 @@ async fn navigation_page(State(state): State<AppState>, headers: HeaderMap, Quer
     let secondary = nav_items_from_setting(state.settings.get("secondary_navigation"));
     page_for_role(actor_role, 
         "Navigation",
-        "navigation",
+        "settings",
         Some(&user),
         &navigation_html(&primary, &secondary, &banner),
         true,
@@ -9699,6 +10730,26 @@ async fn staff_page(State(state): State<AppState>, headers: HeaderMap, Query(q):
         )
     };
 
+    // Only the owner and administrators can change how everyone else signs in.
+    let security_card = if manage {
+        format!(
+            r#"<div class="section">Security settings</div>
+<div class="card rows rise" style="--i:4">
+<form method="post" action="/ghost/settings/staff/security/" id="staff-security">
+<div class="row"><span class="ic tint-amber">{lock}</span>
+<div class="body"><span class="title">Require email 2FA codes on staff logins</span>
+<span class="detail">Require email 2FA codes to be used on all staff logins</span></div>
+<div class="trailing"><label class="switch"><input type="checkbox" name="require_email_mfa" value="1" {checked} onchange="this.form.requestSubmit()"><span class="track"><span class="thumb"></span></span></label></div></div>
+</form></div>
+<p class="muted" style="margin:10px 2px 0">With this on, a correct password is not enough: everyone gets a six-digit
+code by email and has five minutes to enter it. Sessions already signed in stay signed in.</p>"#,
+            lock = svg("lock"),
+            checked = if state.settings.get_bool("require_email_mfa") { "checked" } else { "" },
+        )
+    } else {
+        String::new()
+    };
+
     page_for(
         "Staff",
         "settings",
@@ -9710,13 +10761,15 @@ async fn staff_page(State(state): State<AppState>, headers: HeaderMap, Query(q):
 {banner}
 <div class="section">Active people</div>
 <div class="card rows rise" style="--i:1">{rows}</div>
-{invite_card}"#,
+{invite_card}
+{security_card}"#,
             back = svg("chevron"),
             banner = flash_banner(&q),
             count = staff.len(),
             word = if staff.len() == 1 { "person" } else { "people" },
             rows = rows,
             invite_card = invite_card,
+            security_card = security_card,
         ),
         true,
     )
@@ -9756,6 +10809,30 @@ async fn send_invite_email(
         }
         Err(e) => (link, Some(e.message())),
     }
+}
+
+/// Turn the email-2FA requirement on or off.
+///
+/// Administrators only, like the rest of the staff page's controls — this
+/// decides how every other person on the site signs in.
+async fn staff_security_save(State(state): State<AppState>, headers: HeaderMap, Form(form): Form<HashMap<String, String>>) -> Response {
+    if let Err(r) = require_role(&state, &headers, Role::Administrator).await {
+        return r;
+    }
+    let on = form.get("require_email_mfa").map(|v| v == "1").unwrap_or(false);
+    let saved = state
+        .settings
+        .set(&state.db, "require_email_mfa", &serde_json::Value::Bool(on))
+        .await
+        .is_ok();
+    let message = match (saved, on) {
+        (false, _) => "Saving failed — check the logs.",
+        (true, true) => "Staff logins now require an emailed 2FA code.",
+        (true, false) => "Staff logins no longer require a 2FA code.",
+    };
+    let kind = if saved { "ok" } else { "error" };
+    let encoded: String = form_urlencoded::Serializer::new(String::new()).append_pair(kind, message).finish();
+    Redirect::to(&format!("/ghost/settings/staff/?{encoded}")).into_response()
 }
 
 async fn staff_invite(State(state): State<AppState>, headers: HeaderMap, Form(form): Form<InviteForm>) -> Response {
@@ -11319,20 +12396,81 @@ mod tests {
     }
 
     #[test]
+    fn money_minor_groups_and_drops_whole_cents() {
+        // the subscriptions.mrr column is in minor units, like Stripe's
+        assert_eq!(money_minor(0), "0");
+        assert_eq!(money_minor(500), "5");
+        assert_eq!(money_minor(1250), "12.50");
+        assert_eq!(money_minor(123456), "1,234.56");
+        assert_eq!(money_minor(100000000), "1,000,000");
+        assert_eq!(money_minor(-2550), "-25.50");
+    }
+
+    #[test]
+    fn countable_agrees_with_its_noun() {
+        assert_eq!(countable(1, "visitor"), "1 visitor");
+        assert_eq!(countable(0, "visitor"), "0 visitors");
+        assert_eq!(countable(2, "view"), "2 views");
+        assert_eq!(countable(2500, "member"), "2.5K members");
+    }
+
+    #[test]
+    fn audience_clause_only_ever_emits_known_segments() {
+        // the value reaches here from the query string, so it must never be
+        // interpolated — it is matched against a fixed set instead
+        assert_eq!(audience_clause("paid"), " AND audience = 'paid'");
+        assert_eq!(audience_clause("all"), "");
+        assert_eq!(audience_clause("'; DROP TABLE page_views;--"), "");
+    }
+
+    #[test]
+    fn analytics_range_falls_back_to_thirty_days() {
+        let any = |v: &str| {
+            let mut q = HashMap::new();
+            q.insert("range".to_string(), v.to_string());
+            AnalyticsRange::from_query(&q)
+        };
+        assert_eq!(any("7").cutoff, "-7 days");
+        assert_eq!(any("today").cutoff, "start of day");
+        assert_eq!(any("all").days, None);
+        // an unknown range is the default rather than an error page
+        assert_eq!(any("bogus").slug, "30");
+        assert_eq!(AnalyticsRange::from_query(&HashMap::new()).slug, "30");
+    }
+
+    #[test]
     fn settings_groups_match_ghosts_navigation() {
         // Ghost's settings sidebar, in order. Email and Bulk email sit after
         // Membership: Ghost keeps both in config.json, this port exposes them
         // in the UI, and they belong next to the membership features that
         // send the mail. Features is this port's own group — the Comments
         // and Automations system switches have no Ghost page to mirror.
+        //
+        // Design & branding and Navigation moved here out of the left rail,
+        // which is also where Ghost keeps them; Announcement is what is left
+        // of the old Site group once its Theme row — a second door onto
+        // Design — was taken away.
         let titles: Vec<&str> = SETTINGS_GROUPS.iter().map(|g| g.title).collect();
         assert_eq!(
             titles,
-            ["General settings", "Staff", "Meta data", "Social accounts", "Analytics", "Site",
+            ["General settings", "Staff", "Meta data", "Social accounts", "Analytics",
+             "Design & branding", "Navigation", "Announcement",
              "Membership", "Email", "Newsletters", "Growth", "Features", "Advanced", "History", "Danger zone"]
         );
         // every group has a working page at its slug
         assert!(SETTINGS_GROUPS.iter().all(|g| !g.slug.is_empty() && !g.items.is_empty()));
+        // the two groups that keep their own top-level page are the only ones
+        // that do not live under /ghost/settings/
+        for g in SETTINGS_GROUPS {
+            let expected_top_level = matches!(g.slug, "design" | "navigation");
+            assert_eq!(
+                !g.path().starts_with("/ghost/settings/"),
+                expected_top_level,
+                "{} points at {}",
+                g.title,
+                g.path()
+            );
+        }
     }
 
     #[test]

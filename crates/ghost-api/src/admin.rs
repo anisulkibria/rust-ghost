@@ -351,14 +351,23 @@ async fn admin_edit_newsletter(
 
 const SESSION_COOKIE: &str = "ghost-admin-api-session";
 
-/// Resolve the acting user from the session cookie. None = unauthenticated.
-pub(crate) async fn current_user(state: &AppState, headers: &HeaderMap) -> Option<ghost_core::models::User> {
-    let cookie = headers.get(header::COOKIE)?.to_str().ok()?;
-    let sid = cookie
+/// The session id carried on a request, verified or not.
+fn session_id_from(headers: &HeaderMap) -> Option<String> {
+    headers
+        .get(header::COOKIE)?
+        .to_str()
+        .ok()?
         .split(';')
-        .filter_map(|c| c.trim().strip_prefix(&format!("{SESSION_COOKIE}=")))
-        .next()?
-        .to_string();
+        .find_map(|c| c.trim().strip_prefix(&format!("{SESSION_COOKIE}=")))
+        .map(str::to_string)
+}
+
+/// Resolve the acting user from the session cookie. None = unauthenticated.
+///
+/// Goes through [`repos::sessions::get_user`], which only resolves a verified
+/// session — so a login still waiting on its 2FA code authenticates nothing.
+pub(crate) async fn current_user(state: &AppState, headers: &HeaderMap) -> Option<ghost_core::models::User> {
+    let sid = session_id_from(headers)?;
     let user_id = repos::sessions::get_user(&state.db, &sid).await.ok()??;
     repos::users::find_by_id(&state.db, &user_id).await.ok()?
 }
@@ -466,6 +475,48 @@ async fn login(State(state): State<AppState>, headers: HeaderMap, Json(body): Js
         Ok(Some(u)) => u,
         _ => return err(StatusCode::UNAUTHORIZED, "Invalid email or password", "UnauthorizedError"),
     };
+
+    // When email 2FA is required the password alone cannot mint a session.
+    // A caller that already holds an unverified session sends the code back
+    // as `token`, which is the shape Ghost's own admin client uses.
+    // A first-ever sign-in skips the code, the way Ghost's own session
+    // endpoint does — the password came from an emailed link already.
+    if state.settings.get_bool("require_email_mfa") && user.last_seen.is_some() {
+        let token = body.get("token").and_then(|v| v.as_str()).unwrap_or("");
+        let pending = session_id_from(&headers);
+        match (pending, token) {
+            (Some(sid), token) if !token.is_empty() => {
+                use ghost_db::repos::sessions::CodeCheck;
+                match repos::sessions::verify_auth_code(&state.db, &sid, token).await {
+                    Ok(CodeCheck::Verified) => {
+                        let _ = repos::users::update_last_seen(&state.db, &user.id).await;
+                        let mut resp = (StatusCode::CREATED, Json(json!({ "users": [admin_user_json(&user)] }))).into_response();
+                        resp.headers_mut().insert(
+                            header::SET_COOKIE,
+                            session_cookie_header(&sid, 60 * 60 * 24 * 7).parse().unwrap(),
+                        );
+                        return resp;
+                    }
+                    _ => return err(StatusCode::UNAUTHORIZED, "That verification code is not valid", "UnauthorizedError"),
+                }
+            }
+            _ => {
+                // No code yet: hand back an unverified session so the caller
+                // has something to carry the code against. The code itself is
+                // emailed by the admin UI's sign-in screen, which is where a
+                // human completes this flow.
+                let Ok(sid) = repos::sessions::create_unverified(&state.db, &user.id).await else {
+                    return err(StatusCode::INTERNAL_SERVER_ERROR, "Could not start a session", "InternalServerError");
+                };
+                let mut resp = err(StatusCode::FORBIDDEN, "A verification code is required to sign in", "Needs2FAError");
+                resp.headers_mut().insert(
+                    header::SET_COOKIE,
+                    session_cookie_header(&sid, 60 * 60 * 24 * 7).parse().unwrap(),
+                );
+                return resp;
+            }
+        }
+    }
 
     let sid = match repos::sessions::create(&state.db, &user.id).await {
         Ok(s) => s,
