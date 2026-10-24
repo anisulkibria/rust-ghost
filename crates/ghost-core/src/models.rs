@@ -94,6 +94,17 @@ pub struct User {
     pub last_seen: Option<String>,
     pub created_at: Option<String>,
     pub updated_at: Option<String>,
+    // Staff email-notification opt-outs, the switches on the staff user's
+    // "Email notifications" tab. Defaults mirror Ghost's users table.
+    pub comment_notifications: bool,
+    pub free_member_signup_notification: bool,
+    pub paid_subscription_started_notification: bool,
+    pub paid_subscription_canceled_notification: bool,
+    pub mention_notifications: bool,
+    pub recommendation_notifications: bool,
+    pub milestone_notifications: bool,
+    pub donation_notifications: bool,
+    pub gift_subscription_notifications: bool,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]

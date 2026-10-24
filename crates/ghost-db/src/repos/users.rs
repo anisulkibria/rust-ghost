@@ -175,18 +175,41 @@ pub struct UserChanges {
     pub meta_description: Option<String>,
     pub twitter: Option<String>,
     pub facebook: Option<String>,
+    pub threads: Option<String>,
+    pub bluesky: Option<String>,
+    pub mastodon: Option<String>,
+    pub tiktok: Option<String>,
+    pub youtube: Option<String>,
+    pub instagram: Option<String>,
+    pub linkedin: Option<String>,
+    /// An explicitly edited slug. Ghost lets staff hand-edit the author URL;
+    /// when absent (or unchanged) a rename re-slugs from the new name instead.
+    pub slug: Option<String>,
+    // Notification opt-outs; `None` leaves the flag as it is.
+    pub comment_notifications: Option<bool>,
+    pub free_member_signup_notification: Option<bool>,
+    pub paid_subscription_started_notification: Option<bool>,
+    pub paid_subscription_canceled_notification: Option<bool>,
+    pub mention_notifications: Option<bool>,
+    pub recommendation_notifications: Option<bool>,
+    pub milestone_notifications: Option<bool>,
+    pub donation_notifications: Option<bool>,
+    pub gift_subscription_notifications: Option<bool>,
 }
 
 pub async fn update(pool: &SqlitePool, id: &str, changes: &UserChanges) -> Result<User> {
     let existing = find_by_id(pool, id).await?.ok_or(ghost_core::GhostError::NotFoundError { message: "not found".into(), context: None })?;
     let now = dates::now_db();
     let name = changes.name.clone().unwrap_or(existing.name.clone().unwrap_or_default());
-    let slug_ = if name != existing.name.clone().unwrap_or_default() {
-        unique_slug(pool, &name, Some(id)).await?
-    } else {
-        existing.slug.clone().unwrap_or_default()
+    let existing_slug = existing.slug.clone().unwrap_or_default();
+    let slug_ = match changes.slug.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
+        Some(s) if slug::safe_string(s) != existing_slug => unique_slug(pool, s, Some(id)).await?,
+        _ if name != existing.name.clone().unwrap_or_default() => {
+            unique_slug(pool, &name, Some(id)).await?
+        }
+        _ => existing_slug,
     };
-    sqlx::query("UPDATE users SET name = ?, slug = ?, email = ?, password = ?, bio = ?, website = ?, location = ?, profile_image = ?, cover_image = ?, status = ?, meta_title = ?, meta_description = ?, twitter = ?, facebook = ?, updated_at = ? WHERE id = ?")
+    sqlx::query("UPDATE users SET name = ?, slug = ?, email = ?, password = ?, bio = ?, website = ?, location = ?, profile_image = ?, cover_image = ?, status = ?, meta_title = ?, meta_description = ?, twitter = ?, facebook = ?, threads = ?, bluesky = ?, mastodon = ?, tiktok = ?, youtube = ?, instagram = ?, linkedin = ?, comment_notifications = ?, free_member_signup_notification = ?, paid_subscription_started_notification = ?, paid_subscription_canceled_notification = ?, mention_notifications = ?, recommendation_notifications = ?, milestone_notifications = ?, donation_notifications = ?, gift_subscription_notifications = ?, updated_at = ? WHERE id = ?")
         .bind(&name)
         .bind(&slug_)
         .bind(changes.email.clone().or(existing.email.clone()))
@@ -201,12 +224,36 @@ pub async fn update(pool: &SqlitePool, id: &str, changes: &UserChanges) -> Resul
         .bind(changes.meta_description.clone().or(existing.meta_description.clone()))
         .bind(changes.twitter.clone().or(existing.twitter.clone()))
         .bind(changes.facebook.clone().or(existing.facebook.clone()))
+        .bind(changes.threads.clone().or(existing.threads.clone()))
+        .bind(changes.bluesky.clone().or(existing.bluesky.clone()))
+        .bind(changes.mastodon.clone().or(existing.mastodon.clone()))
+        .bind(changes.tiktok.clone().or(existing.tiktok.clone()))
+        .bind(changes.youtube.clone().or(existing.youtube.clone()))
+        .bind(changes.instagram.clone().or(existing.instagram.clone()))
+        .bind(changes.linkedin.clone().or(existing.linkedin.clone()))
+        .bind(changes.comment_notifications.unwrap_or(existing.comment_notifications))
+        .bind(changes.free_member_signup_notification.unwrap_or(existing.free_member_signup_notification))
+        .bind(changes.paid_subscription_started_notification.unwrap_or(existing.paid_subscription_started_notification))
+        .bind(changes.paid_subscription_canceled_notification.unwrap_or(existing.paid_subscription_canceled_notification))
+        .bind(changes.mention_notifications.unwrap_or(existing.mention_notifications))
+        .bind(changes.recommendation_notifications.unwrap_or(existing.recommendation_notifications))
+        .bind(changes.milestone_notifications.unwrap_or(existing.milestone_notifications))
+        .bind(changes.donation_notifications.unwrap_or(existing.donation_notifications))
+        .bind(changes.gift_subscription_notifications.unwrap_or(existing.gift_subscription_notifications))
         .bind(&now)
         .bind(id)
         .execute(pool)
         .await
         .map_err(dberr)?;
     find_by_id(pool, id).await?.ok_or_else(|| GhostError::Internal("user vanished".into()))
+}
+
+/// Update by slug — the staff profile routes address users that way.
+pub async fn update_by_slug(pool: &SqlitePool, slug_: &str, changes: &UserChanges) -> Result<User> {
+    let user = find_by_slug(pool, slug_)
+        .await?
+        .ok_or(ghost_core::GhostError::NotFoundError { message: "not found".into(), context: None })?;
+    update(pool, &user.id, changes).await
 }
 
 /// Create an additional staff user.

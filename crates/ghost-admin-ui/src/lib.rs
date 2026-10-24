@@ -132,6 +132,8 @@ pub fn admin_ui_router() -> Router<AppState> {
         .route("/settings/staff/invite/{id}/resend/", post(staff_invite_resend))
         .route("/settings/staff/invite/{id}/revoke/", post(staff_invite_revoke))
         .route("/settings/staff/{slug}/", get(profile_page).post(profile_save))
+        .route("/settings/staff/{slug}/social/", post(profile_social_save))
+        .route("/settings/staff/{slug}/notifications/", post(profile_notifications))
         .route("/settings/staff/{slug}/password/", post(profile_password))
         .route("/settings/staff/{slug}/role/", post(staff_set_role))
         .route("/settings/staff/{slug}/status/", post(staff_set_status))
@@ -11118,16 +11120,31 @@ async fn invite_accept_submit(
 #[serde(default)]
 struct ProfileForm {
     name: String,
+    slug: String,
     email: String,
     location: String,
-    website: String,
     bio: String,
     profile_image: String,
     cover_image: String,
-    facebook: String,
-    twitter: String,
     meta_title: String,
     meta_description: String,
+}
+
+/// The Social Links tab posts the website plus every social handle. All inputs
+/// always render, so an empty field means "cleared", never "untouched".
+#[derive(Debug, Deserialize, Default)]
+#[serde(default)]
+struct SocialForm {
+    website: String,
+    twitter: String,
+    facebook: String,
+    linkedin: String,
+    bluesky: String,
+    threads: String,
+    mastodon: String,
+    tiktok: String,
+    youtube: String,
+    instagram: String,
 }
 
 #[derive(Debug, Deserialize, Default)]
@@ -11138,11 +11155,33 @@ struct PasswordForm {
     confirm_password: String,
 }
 
+/// The staff user page's tabs, keyed by the `?tab=` the seg-bar carries.
+/// Ghost's own user screen splits Profile / Social Links / Email Notifications
+/// the same way.
+const PROFILE_TABS: &[(&str, &str)] = &[
+    ("profile", "Profile"),
+    ("social-links", "Social Links"),
+    ("email-notifications", "Email Notifications"),
+];
+
+fn profile_tab(q: &HashMap<String, String>) -> &'static str {
+    let tab = q.get("tab").map(String::as_str).unwrap_or("profile");
+    PROFILE_TABS
+        .iter()
+        .find(|(key, _)| *key == tab)
+        .map(|(key, _)| *key)
+        .unwrap_or("profile")
+}
+
 fn profile_flash(slug: &str, kind: &str, message: &str) -> Response {
+    profile_flash_tab(slug, "profile", kind, message)
+}
+
+fn profile_flash_tab(slug: &str, tab: &str, kind: &str, message: &str) -> Response {
     let encoded: String = form_urlencoded::Serializer::new(String::new())
         .append_pair(kind, message)
         .finish();
-    Redirect::to(&format!("/ghost/settings/staff/{slug}/?{encoded}")).into_response()
+    Redirect::to(&format!("/ghost/settings/staff/{slug}/?tab={tab}&{encoded}")).into_response()
 }
 
 /// Ghost lets an owner/admin open any staff member's profile, and everyone
@@ -11192,6 +11231,11 @@ async fn profile_page(
     // owner is exempt from all three.
     let viewer_role = role_of(&state, &user).await;
     let manage = may_act_on(viewer_role, Role::from_name(&role));
+    let tab = profile_tab(&q);
+    // Ghost's Email notifications tab gates the growth toggles on the edited
+    // user being an administrator, and half of them on Stripe being set up.
+    let target_is_admin = Role::from_name(&role).is_admin();
+    let stripe_on = ghost_stripe::StripeConfig::from_settings(&state.settings).is_some();
     let admin_card = if manage && role != "Owner" {
         let suspended = target.status.as_deref() == Some("inactive");
         let self_note = if is_self {
@@ -11262,24 +11306,271 @@ async fn profile_page(
         String::new()
     };
 
-    // Changing your own password needs the current one; an owner resetting
-    // somebody else's does not (they already hold the keys to the site).
-    let password_card = if is_self {
+    // Changing your own password needs the current one; an owner or admin
+    // resetting somebody else's does not — Ghost only asks the old password
+    // of the account it belongs to.
+    let password_card = if is_self || manage {
         format!(
             r#"<div class="section">Password</div>
 <div class="card rows rise" style="--i:4">
 <div class="row" style="align-items:flex-start"><span class="ic tint-red">{lock}</span>
 <div class="body" style="width:100%">
 <form method="post" action="/ghost/settings/staff/{slug}/password/" class="grid2" style="gap:12px">
-<label class="field" style="margin:0"><input type="password" name="current_password" placeholder=" " autocomplete="current-password" required><span>Current password</span></label>
-<span></span>
+{current_row}
 <label class="field" style="margin:0"><input type="password" name="new_password" placeholder=" " autocomplete="new-password" minlength="10" required><span>New password · min 10 characters</span></label>
 <label class="field" style="margin:0"><input type="password" name="confirm_password" placeholder=" " autocomplete="new-password" minlength="10" required><span>Confirm new password</span></label>
-<div><button class="btn tonal small" type="submit">Change password</button></div>
-</form></div></div>
+<div><button class="btn tonal small" type="submit">{label}</button></div>
+</form>
+<p class="muted" style="margin:10px 0 0">{note}</p>
+</div></div>
 </div>"#,
             lock = svg("logout"),
             slug = esc(&slug),
+            current_row = if is_self {
+                r#"<label class="field" style="margin:0"><input type="password" name="current_password" placeholder=" " autocomplete="current-password" required><span>Current password</span></label>
+<span></span>"#
+            } else {
+                r#"<span></span><span></span>"#
+            },
+            label = if is_self { "Change password" } else { "Set new password" },
+            note = if is_self {
+                "Changing it signs this account out of every other session."
+            } else {
+                "Their sessions are all ended and they sign in with the new password."
+            },
+        )
+    } else {
+        String::new()
+    };
+
+    // --- the tab bar (Ghost splits this screen the same three ways) -------
+    let tab_bar = format!(
+        r#"<div class="seg-bar">{}</div>"#,
+        PROFILE_TABS
+            .iter()
+            .map(|(key, label)| {
+                format!(
+                    r#"<a class="seg{on}" href="/ghost/settings/staff/{slug}/?tab={key}">{label}</a>"#,
+                    on = if *key == tab { " on" } else { "" },
+                    slug = esc(&slug),
+                    key = key,
+                    label = label,
+                )
+            })
+            .collect::<String>()
+    );
+    let save_form = match tab {
+        "social-links" => "social-form",
+        "email-notifications" => "notify-form",
+        _ => "profile-form",
+    };
+
+    // --- Profile: Ghost's field order (name, slug, email, location, bio) --
+    let profile_body = if tab == "profile" {
+        format!(
+            r#"<form method="post" action="/ghost/settings/staff/{slug}/" id="profile-form">
+<div class="section">Details</div>
+<div class="card rows rise" style="--i:2">
+<div class="row" style="align-items:flex-start"><span class="ic tint-pink">{person}</span>
+<div class="body" style="width:100%">
+<div class="grid2" style="gap:12px">
+<label class="field" style="margin:0"><input name="name" value="{name_v}" placeholder=" " maxlength="191" required><span>Full name</span></label>
+<label class="field" style="margin:0"><input name="slug" value="{slug_v}" placeholder=" " maxlength="191"><span>Slug</span></label>
+<label class="field" style="margin:0"><input name="email" type="email" value="{email_v}" placeholder=" " maxlength="191" required><span>Email · used for notifications</span></label>
+<label class="field" style="margin:0"><input name="location" value="{location}" placeholder=" " maxlength="150"><span>Location</span></label>
+</div>
+<label class="field" style="margin:12px 0 0"><textarea name="bio" rows="4" placeholder=" " maxlength="2000">{bio}</textarea><span>Bio</span></label>
+<p class="muted" style="margin:6px 0 0">Recommended: 250 characters. You&rsquo;ve used {bio_len}. Themes read these as <code>{{{{author.bio}}}}</code> and friends.</p>
+</div></div>
+<div class="row" style="align-items:flex-start"><span class="ic tint-purple">{image}</span>
+<div class="body" style="width:100%"><div class="grid2" style="gap:12px">
+<label class="field" style="margin:0"><input name="profile_image" value="{profile_image}" placeholder=" "><span>Profile image URL</span></label>
+<label class="field" style="margin:0"><input name="cover_image" value="{cover_image}" placeholder=" "><span>Cover image URL</span></label>
+</div></div></div>
+<div class="row" style="align-items:flex-start"><span class="ic tint-slate">{seo}</span>
+<div class="body" style="width:100%"><div class="grid2" style="gap:12px">
+<label class="field" style="margin:0"><input name="meta_title" value="{meta_title}" placeholder=" " maxlength="300"><span>Meta title</span></label>
+<label class="field" style="margin:0"><input name="meta_description" value="{meta_description}" placeholder=" " maxlength="500"><span>Meta description</span></label>
+</div></div></div>
+</div>
+</form>
+<p class="muted" style="margin:14px 0 0 16px">Public author page: <a href="{author_url}" target="_blank" rel="noopener">{author_url}</a></p>
+{password_card}
+{admin_card}"#,
+            slug = esc(&slug),
+            name_v = v(target.name.as_deref()),
+            slug_v = v(target.slug.as_deref()),
+            email_v = v(target.email.as_deref()),
+            location = v(target.location.as_deref()),
+            bio = v(target.bio.as_deref()),
+            bio_len = target.bio.as_deref().map(|b| b.chars().count()).unwrap_or(0),
+            profile_image = v(target.profile_image.as_deref()),
+            cover_image = v(target.cover_image.as_deref()),
+            meta_title = v(target.meta_title.as_deref()),
+            meta_description = v(target.meta_description.as_deref()),
+            person = svg("ghost"),
+            image = svg("image"),
+            seo = svg("history"),
+            author_url = esc(&author_archive_url(&state, &target).await),
+            password_card = password_card,
+            admin_card = admin_card,
+        )
+    } else {
+        String::new()
+    };
+
+    // --- Social Links: Website plus the platforms Ghost offers, in its order
+    let social_body = if tab == "social-links" {
+        let social = |name: &str, label: &str, placeholder: &str, value: &str| {
+            format!(
+                r#"<label class="field" style="margin:0"><input name="{name}" value="{value}" placeholder="{placeholder}" maxlength="191"><span>{label}</span></label>"#,
+                name = name,
+                value = esc(value),
+                placeholder = esc(placeholder),
+                label = label,
+            )
+        };
+        format!(
+            r#"<form method="post" action="/ghost/settings/staff/{slug}/social/" id="social-form">
+<div class="section">Social links</div>
+<div class="card rows rise" style="--i:2">
+<div class="row" style="align-items:flex-start"><span class="ic tint-blue">{link}</span>
+<div class="body" style="width:100%">
+<label class="field" style="margin:0"><input name="website" value="{website}" placeholder="https://example.com" maxlength="2000"><span>Website</span></label>
+<div class="grid2" style="gap:12px;margin-top:12px">
+{twitter}
+{facebook}
+{linkedin}
+{bluesky}
+{threads}
+{mastodon}
+{tiktok}
+{youtube}
+{instagram}
+</div>
+<p class="muted" style="margin:12px 0 0">Shown on your public author page. Full profile URLs, or just the username.</p>
+</div></div>
+</div>
+</form>"#,
+            slug = esc(&slug),
+            link = svg("link"),
+            website = v(target.website.as_deref()),
+            twitter = social("twitter", "X", "https://x.com/username", target.twitter.as_deref().unwrap_or("")),
+            facebook = social("facebook", "Facebook", "https://www.facebook.com/username", target.facebook.as_deref().unwrap_or("")),
+            linkedin = social("linkedin", "LinkedIn", "https://www.linkedin.com/in/username", target.linkedin.as_deref().unwrap_or("")),
+            bluesky = social("bluesky", "Bluesky", "https://bsky.app/profile/username", target.bluesky.as_deref().unwrap_or("")),
+            threads = social("threads", "Threads", "https://threads.net/@username", target.threads.as_deref().unwrap_or("")),
+            mastodon = social("mastodon", "Mastodon", "https://mastodon.social/@username", target.mastodon.as_deref().unwrap_or("")),
+            tiktok = social("tiktok", "TikTok", "https://www.tiktok.com/@username", target.tiktok.as_deref().unwrap_or("")),
+            youtube = social("youtube", "YouTube", "https://www.youtube.com/@channel", target.youtube.as_deref().unwrap_or("")),
+            instagram = social("instagram", "Instagram", "https://www.instagram.com/username", target.instagram.as_deref().unwrap_or("")),
+        )
+    } else {
+        String::new()
+    };
+
+    // --- Email Notifications: the same groups and wordings as Ghost's screen.
+    // `shown` markers tell the save handler which switches were actually
+    // offered, so a toggle hidden by role or Stripe stays untouched.
+    let notifications_body = if tab == "email-notifications" {
+        let toggle = |key: &str, title: &str, detail: &str, on: bool| {
+            format!(
+                r#"{row}<input type="hidden" name="shown" value="{key}">"#,
+                row = toggle_row(key, title, detail, on),
+                key = key,
+            )
+        };
+        let engagement = format!(
+            r#"<div class="section">Engagement</div>
+<div class="card rows rise" style="--i:2">{comments}{recommendations}</div>"#,
+            comments = toggle(
+                "comment_notifications",
+                "Comments",
+                "Every time a member comments on one of your posts",
+                target.comment_notifications,
+            ),
+            recommendations = if target_is_admin {
+                toggle(
+                    "recommendation_notifications",
+                    "Recommendations",
+                    "Every time another publisher recommends you to their audience",
+                    target.recommendation_notifications,
+                )
+            } else {
+                String::new()
+            },
+        );
+        let growth = if target_is_admin {
+            format!(
+                r#"<div class="section">Members</div>
+<div class="card rows rise" style="--i:3">{signups}{paid_started}{paid_canceled}</div>
+<div class="section">Revenue</div>
+<div class="card rows rise" style="--i:4">{milestones}{donations}{gifts}</div>"#,
+                signups = toggle(
+                    "free_member_signup_notification",
+                    "New signups",
+                    "Every time a new free member signs up",
+                    target.free_member_signup_notification,
+                ),
+                paid_started = if stripe_on {
+                    toggle(
+                        "paid_subscription_started_notification",
+                        "New paid members",
+                        "Every time a member starts a new paid subscription",
+                        target.paid_subscription_started_notification,
+                    )
+                } else {
+                    String::new()
+                },
+                paid_canceled = if stripe_on {
+                    toggle(
+                        "paid_subscription_canceled_notification",
+                        "Paid member cancellations",
+                        "Every time a member cancels their paid subscription",
+                        target.paid_subscription_canceled_notification,
+                    )
+                } else {
+                    String::new()
+                },
+                milestones = toggle(
+                    "milestone_notifications",
+                    "Milestones",
+                    if stripe_on {
+                        "Occasional summaries of your audience & revenue growth"
+                    } else {
+                        "Occasional summaries of your audience growth"
+                    },
+                    target.milestone_notifications,
+                ),
+                donations = if stripe_on {
+                    toggle(
+                        "donation_notifications",
+                        "Tips & donations",
+                        "Every time you receive a one-time payment",
+                        target.donation_notifications,
+                    )
+                } else {
+                    String::new()
+                },
+                gifts = if stripe_on {
+                    toggle(
+                        "gift_subscription_notifications",
+                        "Gift subscriptions",
+                        "Every time someone purchases or redeems a gift subscription",
+                        target.gift_subscription_notifications,
+                    )
+                } else {
+                    String::new()
+                },
+            )
+        } else {
+            String::new()
+        };
+        format!(
+            r#"<form method="post" action="/ghost/settings/staff/{slug}/notifications/" id="notify-form">{engagement}{growth}</form>"#,
+            slug = esc(&slug),
+            engagement = engagement,
+            growth = growth,
         )
     } else {
         String::new()
@@ -11293,7 +11584,7 @@ async fn profile_page(
         &format!(
             r#"<header class="page-head rise"><a class="icon-btn" style="transform:rotate(180deg)" href="/ghost/settings/staff/" title="Back to staff">{back}</a>
 <div><h1>{name}</h1><p class="sub">{role_label}</p></div>
-<div class="actions"><button class="btn" type="submit" form="profile-form" name="action" value="save">{check} Save</button></div></header>
+<div class="actions"><button class="btn" type="submit" form="{save_form}">{check} Save</button></div></header>
 {banner}
 <div class="card padded rise" style="--i:1;display:flex;align-items:center;gap:16px;flex-wrap:wrap">
 {avatar}
@@ -11301,65 +11592,22 @@ async fn profile_page(
 <span class="muted">{email}</span></div>
 <div class="trailing"><span class="chip tonal">{role_label}</span></div>
 </div>
-<form method="post" action="/ghost/settings/staff/{slug}/" id="profile-form">
-<div class="section">Details</div>
-<div class="card rows rise" style="--i:2">
-<div class="row" style="align-items:flex-start"><span class="ic tint-pink">{person}</span>
-<div class="body" style="width:100%">
-<div class="grid2" style="gap:12px">
-<label class="field" style="margin:0"><input name="name" value="{name_v}" placeholder=" " required><span>Full name</span></label>
-<label class="field" style="margin:0"><input name="email" type="email" value="{email_v}" placeholder=" " required><span>Email</span></label>
-<label class="field" style="margin:0"><input name="location" value="{location}" placeholder=" "><span>Location</span></label>
-<label class="field" style="margin:0"><input name="website" value="{website}" placeholder=" "><span>Website</span></label>
-</div>
-<label class="field" style="margin:12px 0 0"><textarea name="bio" rows="3" placeholder=" " maxlength="200">{bio}</textarea><span>Bio · max 200 characters</span></label>
-<p class="muted" style="margin:6px 0 0">Themes read these as <code>{{{{author.bio}}}}</code>, <code>{{{{author.website}}}}</code> and friends.</p>
-</div></div>
-<div class="row" style="align-items:flex-start"><span class="ic tint-purple">{image}</span>
-<div class="body" style="width:100%"><div class="grid2" style="gap:12px">
-<label class="field" style="margin:0"><input name="profile_image" value="{profile_image}" placeholder=" "><span>Profile image URL</span></label>
-<label class="field" style="margin:0"><input name="cover_image" value="{cover_image}" placeholder=" "><span>Cover image URL</span></label>
-</div></div></div>
-</div>
-<div class="section">Social &amp; meta</div>
-<div class="card rows rise" style="--i:3">
-<div class="row" style="align-items:flex-start"><span class="ic tint-blue">{link}</span>
-<div class="body" style="width:100%"><div class="grid2" style="gap:12px">
-<label class="field" style="margin:0"><input name="facebook" value="{facebook}" placeholder=" "><span>Facebook profile</span></label>
-<label class="field" style="margin:0"><input name="twitter" value="{twitter}" placeholder=" "><span>X (Twitter) profile</span></label>
-<label class="field" style="margin:0"><input name="meta_title" value="{meta_title}" placeholder=" "><span>Meta title</span></label>
-<label class="field" style="margin:0"><input name="meta_description" value="{meta_description}" placeholder=" "><span>Meta description</span></label>
-</div></div></div>
-</div>
-</form>
-{password_card}
-{admin_card}
-<p class="muted" style="margin:14px 0 0 16px">Public author page: <a href="{author_url}" target="_blank" rel="noopener">{author_url}</a></p>"#,
+{tab_bar}
+{profile_body}
+{social_body}
+{notifications_body}"#,
             back = svg("chevron"),
             check = svg("check"),
+            save_form = save_form,
             banner = flash_banner(&q),
             avatar = avatar,
-            slug = esc(&slug),
             name = v(target.name.as_deref()),
-            name_v = v(target.name.as_deref()),
             email = v(target.email.as_deref()),
-            email_v = v(target.email.as_deref()),
             role_label = esc(&role),
-            location = v(target.location.as_deref()),
-            website = v(target.website.as_deref()),
-            bio = v(target.bio.as_deref()),
-            profile_image = v(target.profile_image.as_deref()),
-            cover_image = v(target.cover_image.as_deref()),
-            facebook = v(target.facebook.as_deref()),
-            twitter = v(target.twitter.as_deref()),
-            meta_title = v(target.meta_title.as_deref()),
-            meta_description = v(target.meta_description.as_deref()),
-            person = svg("ghost"),
-            image = svg("image"),
-            link = svg("link"),
-            password_card = password_card,
-            admin_card = admin_card,
-            author_url = esc(&author_archive_url(&state, &target).await),
+            tab_bar = tab_bar,
+            profile_body = profile_body,
+            social_body = social_body,
+            notifications_body = notifications_body,
         ),
         true,
     )
@@ -11399,25 +11647,96 @@ async fn profile_save(
         name: Some(name.to_string()),
         email: Some(email),
         bio: Some(form.bio.trim().to_string()),
-        website: Some(form.website.trim().to_string()),
         location: Some(form.location.trim().to_string()),
         profile_image: Some(form.profile_image.trim().to_string()),
         cover_image: Some(form.cover_image.trim().to_string()),
         meta_title: Some(form.meta_title.trim().to_string()),
         meta_description: Some(form.meta_description.trim().to_string()),
-        facebook: Some(form.facebook.trim().to_string()),
-        twitter: Some(form.twitter.trim().to_string()),
+        slug: Some(form.slug.trim().to_string()),
         ..Default::default()
     };
     match repos::users::update(&state.db, &target.id, &changes).await {
-        // Renaming re-slugs the user, so redirect to wherever they now live
-        // rather than to a URL that no longer resolves.
-        Ok(updated) => profile_flash(
+        // Renaming (or editing the slug) can move the user, so redirect to
+        // wherever they now live rather than to a URL that no longer resolves.
+        Ok(updated) => profile_flash_tab(
             updated.slug.as_deref().unwrap_or(&slug),
+            "profile",
             "ok",
             "Profile saved.",
         ),
         Err(e) => profile_flash(&slug, "error", &e.message()),
+    }
+}
+
+/// The Social Links tab — every field always renders there, so each one that
+/// posts is meant, and an empty value clears it.
+async fn profile_social_save(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(slug): Path<String>,
+    Form(form): Form<SocialForm>,
+) -> Response {
+    let user = match require_session(&state, &headers).await {
+        Ok(u) => u,
+        Err(r) => return r.into_response(),
+    };
+    if profile_target(&state, &user, &slug).await.is_none() {
+        return not_found_page(&user, "That staff member could not be found.");
+    }
+    let t = |s: &str| Some(s.trim().to_string());
+    let changes = repos::users::UserChanges {
+        website: t(&form.website),
+        twitter: t(&form.twitter),
+        facebook: t(&form.facebook),
+        linkedin: t(&form.linkedin),
+        bluesky: t(&form.bluesky),
+        threads: t(&form.threads),
+        mastodon: t(&form.mastodon),
+        tiktok: t(&form.tiktok),
+        youtube: t(&form.youtube),
+        instagram: t(&form.instagram),
+        ..Default::default()
+    };
+    match repos::users::update_by_slug(&state.db, &slug, &changes).await {
+        Ok(_) => profile_flash_tab(&slug, "social-links", "ok", "Social links saved."),
+        Err(e) => profile_flash_tab(&slug, "social-links", "error", &e.message()),
+    }
+}
+
+/// The Email Notifications tab. Unchecked switches post nothing, so each
+/// rendered toggle carries a `shown` marker and only those are written back —
+/// the ones a role or a missing Stripe setup hid keep their value.
+async fn profile_notifications(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(slug): Path<String>,
+    Form(form): Form<Vec<(String, String)>>,
+) -> Response {
+    let user = match require_session(&state, &headers).await {
+        Ok(u) => u,
+        Err(r) => return r.into_response(),
+    };
+    if profile_target(&state, &user, &slug).await.is_none() {
+        return not_found_page(&user, "That staff member could not be found.");
+    }
+    let shown: Vec<&str> =
+        form.iter().filter(|(k, _)| k == "shown").map(|(_, v)| v.as_str()).collect();
+    let on = |key: &str| form.iter().any(|(k, v)| k == key && v == "1");
+    let flag = |key: &str| shown.contains(&key).then(|| on(key));
+    let changes = repos::users::UserChanges {
+        comment_notifications: flag("comment_notifications"),
+        free_member_signup_notification: flag("free_member_signup_notification"),
+        paid_subscription_started_notification: flag("paid_subscription_started_notification"),
+        paid_subscription_canceled_notification: flag("paid_subscription_canceled_notification"),
+        recommendation_notifications: flag("recommendation_notifications"),
+        milestone_notifications: flag("milestone_notifications"),
+        donation_notifications: flag("donation_notifications"),
+        gift_subscription_notifications: flag("gift_subscription_notifications"),
+        ..Default::default()
+    };
+    match repos::users::update_by_slug(&state.db, &slug, &changes).await {
+        Ok(_) => profile_flash_tab(&slug, "email-notifications", "ok", "Email notifications saved."),
+        Err(e) => profile_flash_tab(&slug, "email-notifications", "error", &e.message()),
     }
 }
 
@@ -11431,11 +11750,15 @@ async fn profile_password(
         Ok(u) => u,
         Err(r) => return r.into_response(),
     };
-    // Only ever your own password on this route — an owner changing someone
-    // else's would be a session-stealing primitive, and Ghost does it through
-    // an invite/reset flow instead.
-    if user.slug.as_deref() != Some(slug.as_str()) {
-        return profile_flash(&slug, "error", "You can only change your own password.");
+    let Some(target) = profile_target(&state, &user, &slug).await else {
+        return not_found_page(&user, "That staff member could not be found.");
+    };
+    let is_self = target.id == user.id;
+    // Ghost's password endpoint asks the old password only of the account it
+    // belongs to; an administrator resetting someone else's just needs edit
+    // rights — which profile_target has already checked.
+    if !is_self && !role_of(&state, &user).await.is_admin() {
+        return profile_flash(&slug, "error", "Only you can change your own password.");
     }
     if form.new_password != form.confirm_password {
         return profile_flash(&slug, "error", "The new passwords do not match.");
@@ -11443,10 +11766,12 @@ async fn profile_password(
     if form.new_password.chars().count() < 10 {
         return profile_flash(&slug, "error", "Password must be at least 10 characters.");
     }
-    let email = user.email.clone().unwrap_or_default();
-    match repos::users::verify_password(&state.db, &email, &form.current_password).await {
-        Ok(Some(_)) => {}
-        _ => return profile_flash(&slug, "error", "Current password is incorrect."),
+    if is_self {
+        let email = user.email.clone().unwrap_or_default();
+        match repos::users::verify_password(&state.db, &email, &form.current_password).await {
+            Ok(Some(_)) => {}
+            _ => return profile_flash(&slug, "error", "Current password is incorrect."),
+        }
     }
     let pw = form.new_password.clone();
     let hash = match tokio::task::spawn_blocking(move || bcrypt::hash(pw.as_str(), 12)).await {
@@ -11454,8 +11779,19 @@ async fn profile_password(
         _ => return profile_flash(&slug, "error", "Could not set that password."),
     };
     let changes = repos::users::UserChanges { password_hash: Some(hash), ..Default::default() };
-    match repos::users::update(&state.db, &user.id, &changes).await {
-        Ok(_) => profile_flash(&slug, "ok", "Password changed."),
+    match repos::users::update(&state.db, &target.id, &changes).await {
+        Ok(_) => {
+            // A password change invalidates every session the account holds —
+            // a cookie cloned before the change stops working. This session
+            // survives its own change; nothing else does.
+            let keep = is_self.then(|| session_id_from(&headers)).flatten();
+            let _ = repos::sessions::destroy_for_user(&state.db, &target.id, keep.as_deref()).await;
+            profile_flash(
+                &slug,
+                "ok",
+                if is_self { "Password changed." } else { "Password set — their other sessions are signed out." },
+            )
+        }
         Err(e) => profile_flash(&slug, "error", &e.message()),
     }
 }

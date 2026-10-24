@@ -166,3 +166,28 @@ pub async fn destroy(pool: &SqlitePool, session_id: &str) -> Result<()> {
         .map_err(super::dberr)?;
     Ok(())
 }
+
+/// Kill every session a user holds — what Ghost does the moment a password
+/// changes, so a cookie cloned before the change stops working. `keep` (the
+/// current session id) survives, for the person who just changed their own
+/// password and is handed a replacement.
+pub async fn destroy_for_user(pool: &SqlitePool, user_id: &str, keep: Option<&str>) -> Result<()> {
+    match keep {
+        Some(sid) => {
+            sqlx::query("DELETE FROM sessions WHERE user_id = ? AND session_id != ?")
+                .bind(user_id)
+                .bind(sid)
+                .execute(pool)
+                .await
+                .map_err(super::dberr)?;
+        }
+        None => {
+            sqlx::query("DELETE FROM sessions WHERE user_id = ?")
+                .bind(user_id)
+                .execute(pool)
+                .await
+                .map_err(super::dberr)?;
+        }
+    }
+    Ok(())
+}

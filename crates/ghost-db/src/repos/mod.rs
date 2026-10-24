@@ -214,9 +214,18 @@ pub(crate) struct UserRow {
     pub last_seen: Option<String>,
     pub created_at: Option<String>,
     pub updated_at: Option<String>,
+    pub comment_notifications: bool,
+    pub free_member_signup_notification: bool,
+    pub paid_subscription_started_notification: bool,
+    pub paid_subscription_canceled_notification: bool,
+    pub mention_notifications: bool,
+    pub recommendation_notifications: bool,
+    pub milestone_notifications: bool,
+    pub donation_notifications: bool,
+    pub gift_subscription_notifications: bool,
 }
 
-pub(crate) const USER_COLS: &str = "id, name, slug, password, email, profile_image, cover_image, bio, website, location, facebook, twitter, threads, bluesky, mastodon, tiktok, youtube, instagram, linkedin, status, visibility, meta_title, meta_description, last_seen, created_at, updated_at";
+pub(crate) const USER_COLS: &str = "id, name, slug, password, email, profile_image, cover_image, bio, website, location, facebook, twitter, threads, bluesky, mastodon, tiktok, youtube, instagram, linkedin, status, visibility, meta_title, meta_description, last_seen, created_at, updated_at, comment_notifications, free_member_signup_notification, paid_subscription_started_notification, paid_subscription_canceled_notification, mention_notifications, recommendation_notifications, milestone_notifications, donation_notifications, gift_subscription_notifications";
 
 impl From<UserRow> for User {
     fn from(r: UserRow) -> Self {
@@ -250,6 +259,15 @@ impl From<UserRow> for User {
             created_at: r.created_at,
             updated_at: r.updated_at,
             accessibility: None,
+            comment_notifications: r.comment_notifications,
+            free_member_signup_notification: r.free_member_signup_notification,
+            paid_subscription_started_notification: r.paid_subscription_started_notification,
+            paid_subscription_canceled_notification: r.paid_subscription_canceled_notification,
+            mention_notifications: r.mention_notifications,
+            recommendation_notifications: r.recommendation_notifications,
+            milestone_notifications: r.milestone_notifications,
+            donation_notifications: r.donation_notifications,
+            gift_subscription_notifications: r.gift_subscription_notifications,
         }
     }
 }
