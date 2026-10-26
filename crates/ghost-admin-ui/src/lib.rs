@@ -161,6 +161,9 @@ pub fn admin_ui_router() -> Router<AppState> {
         .route("/settings/advanced/integrations/slack/", get(slack_page).post(slack_save))
         .route("/settings/advanced/integrations/slack/test/", post(slack_test))
         .route("/settings/advanced/integrations/unsplash/", get(unsplash_page).post(unsplash_save))
+        .route("/settings/advanced/integrations/firstpromoter/", get(firstpromoter_page).post(firstpromoter_save))
+        .route("/settings/advanced/integrations/pintura/", get(pintura_page).post(pintura_save))
+        .route("/settings/advanced/integrations/transistor/", get(transistor_page).post(transistor_save))
         .route(
             "/settings/advanced/integrations/custom/{id}/",
             get(custom_integration_page).post(custom_integration_save),
@@ -13752,6 +13755,9 @@ const BUILTIN_APPS: &[(&str, &str, &str, &str, &str)] = &[
     ("zapier", "Zapier", "Automate Ghost with 6,000+ apps", "share", "amber"),
     ("slack", "Slack", "Post to a channel when you publish", "send", "purple"),
     ("unsplash", "Unsplash", "Free photography inside the editor", "image", "green"),
+    ("firstpromoter", "FirstPromoter", "Referral and affiliate tracking for members", "share", "blue"),
+    ("pintura", "Pintura", "Edit images without leaving the editor", "image", "pink"),
+    ("transistor", "Transistor.fm", "Private podcast feeds for your members", "send", "teal"),
 ];
 
 fn integrations_flash(sub: &str, kind: &str, message: &str) -> Response {
@@ -13792,6 +13798,8 @@ async fn integrations_page(
             "slack" if slack_on => r#"<span class="chip ok">Connected</span>"#,
             "unsplash" if unsplash_on => r#"<span class="chip ok">On</span>"#,
             "unsplash" => r#"<span class="chip tonal">Off</span>"#,
+            s if state.settings.get_bool(s) => r#"<span class="chip ok">On</span>"#,
+            "firstpromoter" | "pintura" | "transistor" => r#"<span class="chip tonal">Off</span>"#,
             "zapier" => r#"<span class="chip tonal">API key ready</span>"#,
             _ => r#"<span class="chip tonal">Not set up</span>"#,
         };
@@ -14381,6 +14389,196 @@ struct UnsplashForm {
     unsplash: Option<String>,
     #[serde(default)]
     unsplash_access_key: String,
+}
+
+/// FirstPromoter: referral tracking. Ghost injects their script with the
+/// account id, so the id is what makes the toggle do anything.
+async fn firstpromoter_page(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Query(q): Query<HashMap<String, String>>,
+) -> Response {
+    let (user, actor_role) = match require_role(&state, &headers, Role::Administrator).await {
+        Ok(a) => (a.user, a.role),
+        Err(r) => return r,
+    };
+    let on = state.settings.get_bool("firstpromoter");
+    let id = state.settings.get_str("firstpromoter_id").unwrap_or_default();
+    page_for_role(
+        actor_role,
+        "FirstPromoter",
+        "settings",
+        Some(&user),
+        &format!(
+            r#"<header class="page-head rise"><a class="icon-btn" style="transform:rotate(180deg)" href="/ghost/settings/advanced/integrations/" title="Back to integrations">{back}</a>
+<div><h1>FirstPromoter</h1><p class="sub">Referral and affiliate tracking for members</p></div></header>
+{banner}
+<div class="card padded rise" style="--i:1"><form method="post" action="/ghost/settings/advanced/integrations/firstpromoter/">
+{toggle}
+<div style="margin-top:14px">{id_field}</div>
+<p class="muted" style="margin:10px 0 0">{note}</p>
+<div style="margin-top:14px"><button class="btn" type="submit">Save</button></div></form></div>"#,
+            back = svg("chevron"),
+            banner = flash_banner(&q),
+            toggle = toggle_row(
+                "firstpromoter",
+                "Enable FirstPromoter",
+                "Adds their tracking script to your public pages",
+                on
+            ),
+            id_field = text_field("firstpromoter_id", "FirstPromoter account ID", &id),
+            note = if id.trim().is_empty() {
+                "The account ID comes from your FirstPromoter dashboard. Without it the script has nothing to report to, so the toggle does nothing."
+            } else {
+                "Your pages carry the FirstPromoter script under this account ID."
+            },
+        ),
+        true,
+    )
+    .into_response()
+}
+
+/// Pintura: an image editor in the admin. Ghost loads it from URLs you host,
+/// since the library is commercial and not bundled.
+async fn pintura_page(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Query(q): Query<HashMap<String, String>>,
+) -> Response {
+    let (user, actor_role) = match require_role(&state, &headers, Role::Administrator).await {
+        Ok(a) => (a.user, a.role),
+        Err(r) => return r,
+    };
+    let on = state.settings.get_bool("pintura");
+    let js = state.settings.get_str("pintura_js_url").unwrap_or_default();
+    let css = state.settings.get_str("pintura_css_url").unwrap_or_default();
+    page_for_role(
+        actor_role,
+        "Pintura",
+        "settings",
+        Some(&user),
+        &format!(
+            r#"<header class="page-head rise"><a class="icon-btn" style="transform:rotate(180deg)" href="/ghost/settings/advanced/integrations/" title="Back to integrations">{back}</a>
+<div><h1>Pintura</h1><p class="sub">Edit images without leaving the editor</p></div></header>
+{banner}
+<div class="card padded rise" style="--i:1"><form method="post" action="/ghost/settings/advanced/integrations/pintura/">
+{toggle}
+<div class="grid2" style="gap:12px;margin-top:14px">{js_field}{css_field}</div>
+<p class="muted" style="margin:10px 0 0">Pintura is a commercial library Ghost does not ship. Buy a licence, host the two files
+yourself, and point these at them.</p>
+<div style="margin-top:14px"><button class="btn" type="submit">Save</button></div></form></div>"#,
+            back = svg("chevron"),
+            banner = flash_banner(&q),
+            toggle = toggle_row("pintura", "Enable Pintura", "Adds an edit button to image cards", on),
+            js_field = text_field("pintura_js_url", "Script URL (pintura.umd.js)", &js),
+            css_field = text_field("pintura_css_url", "Stylesheet URL (pintura.css)", &css),
+        ),
+        true,
+    )
+    .into_response()
+}
+
+/// Transistor.fm: private podcast feeds for members. The URL template carries
+/// `{uuid}`, which Ghost swaps for the member's own so each gets a feed only
+/// they can use.
+async fn transistor_page(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Query(q): Query<HashMap<String, String>>,
+) -> Response {
+    let (user, actor_role) = match require_role(&state, &headers, Role::Administrator).await {
+        Ok(a) => (a.user, a.role),
+        Err(r) => return r,
+    };
+    let on = state.settings.get_bool("transistor");
+    let g = |k: &str| esc(&state.settings.get_str(k).unwrap_or_default());
+    page_for_role(
+        actor_role,
+        "Transistor.fm",
+        "settings",
+        Some(&user),
+        &format!(
+            r#"<header class="page-head rise"><a class="icon-btn" style="transform:rotate(180deg)" href="/ghost/settings/advanced/integrations/" title="Back to integrations">{back}</a>
+<div><h1>Transistor.fm</h1><p class="sub">Private podcast feeds for your members</p></div></header>
+{banner}
+<div class="card padded rise" style="--i:1"><form method="post" action="/ghost/settings/advanced/integrations/transistor/">
+{toggle}
+<label class="field" style="margin:14px 0 0"><input name="transistor_portal_url_template" value="{url_template}" placeholder="https://partner.transistor.fm/ghost/{{uuid}}"><span>Private feed URL template</span></label>
+<p class="muted" style="margin:6px 0 0">Use <code>{{uuid}}</code> where the member's own identifier goes — that is what makes each feed private to them.</p>
+<div class="grid2" style="gap:12px;margin-top:14px">
+<label class="field" style="margin:0"><input name="transistor_portal_heading" value="{heading}" placeholder=" "><span>Heading in the account page</span></label>
+<label class="field" style="margin:0"><input name="transistor_portal_button_text" value="{button}" placeholder=" "><span>Button text</span></label>
+</div>
+<label class="field" style="margin:12px 0 0"><textarea name="transistor_portal_description" rows="2" placeholder=" ">{description}</textarea><span>Description</span></label>
+<div style="margin-top:14px"><button class="btn" type="submit">Save</button></div></form></div>"#,
+            back = svg("chevron"),
+            banner = flash_banner(&q),
+            toggle = toggle_row(
+                "transistor",
+                "Enable Transistor integration",
+                "Offer members their private podcast feed from the account page",
+                on
+            ),
+            url_template = g("transistor_portal_url_template"),
+            heading = g("transistor_portal_heading"),
+            button = g("transistor_portal_button_text"),
+            description = g("transistor_portal_description"),
+        ),
+        true,
+    )
+    .into_response()
+}
+
+/// One save for all three: a toggle plus its text settings.
+///
+/// The app is named by the caller rather than taken from the path — these are
+/// three fixed routes, so there is no segment to extract.
+async fn builtin_app_save(
+    state: &AppState,
+    headers: &HeaderMap,
+    app: &str,
+    form: &HashMap<String, String>,
+) -> Response {
+    if let Err(r) = require_role(state, headers, Role::Administrator).await {
+        return r;
+    }
+    let fields: &[&str] = match app {
+        "firstpromoter" => &["firstpromoter_id"],
+        "pintura" => &["pintura_js_url", "pintura_css_url"],
+        "transistor" => &[
+            "transistor_portal_url_template",
+            "transistor_portal_heading",
+            "transistor_portal_button_text",
+            "transistor_portal_description",
+        ],
+        _ => return integrations_flash("", "error", "Unknown app."),
+    };
+    let mut ok = state
+        .settings
+        .set(&state.db, app, &serde_json::Value::Bool(form.get(app).map(|v| v == "1").unwrap_or(false)))
+        .await
+        .is_ok();
+    for key in fields {
+        let value = form.get(*key).cloned().unwrap_or_default().trim().to_string();
+        ok &= state.settings.set(&state.db, key, &serde_json::json!(value)).await.is_ok();
+    }
+    if ok {
+        integrations_flash(&format!("{app}/"), "ok", "Saved.")
+    } else {
+        integrations_flash(&format!("{app}/"), "error", "Saving failed — check the logs.")
+    }
+}
+
+async fn firstpromoter_save(State(state): State<AppState>, headers: HeaderMap, Form(form): Form<HashMap<String, String>>) -> Response {
+    builtin_app_save(&state, &headers, "firstpromoter", &form).await
+}
+
+async fn pintura_save(State(state): State<AppState>, headers: HeaderMap, Form(form): Form<HashMap<String, String>>) -> Response {
+    builtin_app_save(&state, &headers, "pintura", &form).await
+}
+
+async fn transistor_save(State(state): State<AppState>, headers: HeaderMap, Form(form): Form<HashMap<String, String>>) -> Response {
+    builtin_app_save(&state, &headers, "transistor", &form).await
 }
 
 async fn unsplash_page(
