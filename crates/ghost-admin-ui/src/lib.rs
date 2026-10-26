@@ -40,6 +40,7 @@ pub fn admin_ui_router() -> Router<AppState> {
         .route("/members/", get(members_page).post(member_create))
         .route("/members/export/", get(members_export))
         .route("/members/import/", post(members_import).layer(axum::extract::DefaultBodyLimit::max(MAX_UPLOAD_BYTES)))
+        .route("/members/import/run/", post(members_import_run))
         .route("/members/{id}/", get(member_edit_page).post(member_edit_save))
         .route("/members/{id}/delete/", post(member_delete))
         .route("/members/{id}/commenting/disable/", post(comments::member_commenting_disable))
@@ -3023,6 +3024,35 @@ struct ImportTally {
 /// already exists updates that member rather than creating a duplicate.
 /// Unknown columns are ignored, so a file exported from Ghost — which carries
 /// more columns than this port uses — imports cleanly.
+/// Where a stashed upload waits between the mapping screen and the import.
+///
+/// The browser cannot hold the file across two posts, and re-uploading it to
+/// confirm a mapping would be worse, so it is parked on disk under a random
+/// name and removed as soon as it has been read.
+fn import_stash_path(state: &AppState, token: &str) -> Option<std::path::PathBuf> {
+    if token.is_empty() || !token.chars().all(|c| c.is_ascii_hexdigit()) {
+        return None;
+    }
+    let dir = state.config.content_path().join("data").join("imports");
+    let _ = std::fs::create_dir_all(&dir);
+    Some(dir.join(format!("{token}.csv")))
+}
+
+/// The member fields an uploaded column can be pointed at.
+const IMPORT_FIELDS: &[(&str, &str)] = &[
+    ("email", "Email"),
+    ("name", "Name"),
+    ("note", "Note"),
+    ("subscribed_to_emails", "Subscribed to emails"),
+    ("complimentary_plan", "Complimentary plan"),
+    ("labels", "Labels"),
+    ("stripe_customer_id", "Stripe customer ID"),
+];
+
+/// Step one: read the upload, park it, and ask which column is which.
+///
+/// Ghost guesses by name and lets you correct it, which is the whole point —
+/// before this, a column called `Email Address` simply did not import.
 async fn members_import(State(state): State<AppState>, headers: HeaderMap, mut multipart: Multipart) -> Response {
     if let Err(r) = require_role(&state, &headers, Role::Administrator).await {
         return r;
@@ -3047,15 +3077,186 @@ async fn members_import(State(state): State<AppState>, headers: HeaderMap, mut m
         Ok(h) => h.clone(),
         Err(e) => return members_flash("error", &format!("That file is not valid CSV: {e}")),
     };
-    let col = |name: &str| headers_row.iter().position(|h| h.trim().eq_ignore_ascii_case(name));
+    let columns: Vec<String> = headers_row.iter().map(|h| h.trim().to_string()).collect();
+    if columns.is_empty() {
+        return members_flash("error", "That CSV has no header row.");
+    }
+    // A sample row makes the mapping checkable at a glance.
+    let sample: Vec<String> = reader
+        .records()
+        .next()
+        .and_then(|r| r.ok())
+        .map(|r| r.iter().map(|v| v.trim().to_string()).collect())
+        .unwrap_or_default();
+
+    let token = ghost_core::ids::random_hex(16);
+    let Some(path) = import_stash_path(&state, &token) else {
+        return members_flash("error", "Could not stage the upload.");
+    };
+    if std::fs::write(&path, &data).is_err() {
+        return members_flash("error", "Could not stage the upload.");
+    }
+
+    // Ghost's guess: an exact-ish name match, so a tidy CSV needs no edits.
+    let guess = |field: &str| -> Option<usize> {
+        let norm = |s: &str| s.trim().to_lowercase().replace([' ', '-'], "_");
+        let target = norm(field);
+        columns
+            .iter()
+            .position(|c| norm(c) == target)
+            .or_else(|| match field {
+                "email" => columns.iter().position(|c| norm(c).contains("email")),
+                "subscribed_to_emails" => columns.iter().position(|c| norm(c) == "subscribed"),
+                _ => None,
+            })
+    };
+
+    let options = |selected: Option<usize>| -> String {
+        let mut out = format!(
+            r#"<option value="">{}</option>"#,
+            if selected.is_none() { "— not imported —" } else { "— not imported —" }
+        );
+        for (i, c) in columns.iter().enumerate() {
+            out.push_str(&format!(
+                r#"<option value="{i}"{sel}>{name}</option>"#,
+                i = i,
+                sel = if selected == Some(i) { " selected" } else { "" },
+                name = esc(c),
+            ));
+        }
+        out
+    };
+
+    let field_rows: String = IMPORT_FIELDS
+        .iter()
+        .map(|(key, label)| {
+            let picked = guess(key);
+            format!(
+                r#"<div class="row"><span class="ic tint-blue">{ic}</span>
+<div class="body"><label class="field fixed" style="margin:0;max-width:320px"><select name="map_{key}">{opts}</select><span>{label}{req}</span>{car}</label>
+<p class="muted" style="margin:6px 0 0">{preview}</p></div></div>"#,
+                ic = svg("members"),
+                key = esc(key),
+                opts = options(picked),
+                label = esc(label),
+                req = if *key == "email" { " · required" } else { "" },
+                car = SELECT_CARET,
+                preview = match picked.and_then(|i| sample.get(i)) {
+                    Some(v) if !v.is_empty() => format!("First row: <code>{}</code>", esc(v)),
+                    _ => String::new(),
+                },
+            )
+        })
+        .collect();
+
+    // Custom fields are importable too, which is most of why mapping matters:
+    // a column nobody anticipated can still land somewhere useful.
+    let metafields = repos::metafields::list_definitions(&state.db).await.unwrap_or_default();
+    let metafield_rows: String = metafields
+        .iter()
+        .filter(|m| m.is_active() && m.parts().is_none())
+        .map(|m| {
+            let picked = columns
+                .iter()
+                .position(|c| c.trim().to_lowercase().replace(' ', "_") == m.key);
+            format!(
+                r#"<div class="row"><span class="ic tint-purple">{ic}</span>
+<div class="body"><label class="field fixed" style="margin:0;max-width:320px"><select name="mf_{key}">{opts}</select><span>{label}</span>{car}</label></div></div>"#,
+                ic = svg("notes"),
+                key = esc(&m.key),
+                opts = options(picked),
+                label = esc(&m.name),
+                car = SELECT_CARET,
+            )
+        })
+        .collect();
+
+    let (user, actor_role) = match require_role(&state, &headers, Role::Administrator).await {
+        Ok(a) => (a.user, a.role),
+        Err(r) => return r,
+    };
+    page_for_role(actor_role,
+        "Import members",
+        "members",
+        Some(&user),
+        &format!(
+            r#"<header class="page-head rise"><a class="icon-btn" style="transform:rotate(180deg)" href="/ghost/members/" title="Back to members">{back}</a>
+<div><h1>Import members</h1><p class="sub">{count} column{plural} found — check where each one goes</p></div>
+<div class="actions"><button class="btn" type="submit" form="import-form">{check} Import</button></div></header>
+<form method="post" action="/ghost/members/import/run/" id="import-form">
+<input type="hidden" name="token" value="{token}">
+<div class="section">Member fields</div>
+<div class="card rows rise" style="--i:1">{field_rows}</div>
+{metafield_section}
+<p class="muted" style="margin:14px 0 0 16px">Rows without a valid email are skipped. An email that already exists is updated rather than duplicated.</p>
+</form>"#,
+            back = svg("chevron"),
+            check = svg("check"),
+            count = columns.len(),
+            plural = if columns.len() == 1 { "" } else { "s" },
+            token = esc(&token),
+            field_rows = field_rows,
+            metafield_section = if metafield_rows.is_empty() {
+                String::new()
+            } else {
+                format!(
+                    r#"<div class="section">Custom fields</div><div class="card rows rise" style="--i:2">{metafield_rows}</div>"#
+                )
+            },
+        ),
+        true,
+    )
+    .into_response()
+}
+
+/// Step two: apply the mapping and import.
+async fn members_import_run(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Form(form): Form<HashMap<String, String>>,
+) -> Response {
+    if let Err(r) = require_role(&state, &headers, Role::Administrator).await {
+        return r;
+    }
+    let token = form.get("token").cloned().unwrap_or_default();
+    let Some(path) = import_stash_path(&state, &token) else {
+        return members_flash("error", "That upload has expired — please upload the file again.");
+    };
+    let Ok(data) = std::fs::read(&path) else {
+        return members_flash("error", "That upload has expired — please upload the file again.");
+    };
+    // Read once: the file is gone whether the import succeeds or not, so a
+    // stash cannot be replayed or left lying around.
+    let _ = std::fs::remove_file(&path);
+
+    let mut reader = csv::ReaderBuilder::new().flexible(true).from_reader(data.as_slice());
+    if reader.headers().is_err() {
+        return members_flash("error", "That file is not valid CSV.");
+    }
+    let mapped = |field: &str| -> Option<usize> {
+        form.get(&format!("map_{field}")).and_then(|v| v.parse::<usize>().ok())
+    };
     let (c_email, c_name, c_note, c_sub, c_comp, c_labels, c_stripe) = (
-        col("email"), col("name"), col("note"),
-        col("subscribed_to_emails").or_else(|| col("subscribed")),
-        col("complimentary_plan"), col("labels"), col("stripe_customer_id"),
+        mapped("email"),
+        mapped("name"),
+        mapped("note"),
+        mapped("subscribed_to_emails"),
+        mapped("complimentary_plan"),
+        mapped("labels"),
+        mapped("stripe_customer_id"),
     );
     let Some(c_email) = c_email else {
-        return members_flash("error", "The CSV needs an \"email\" column.");
+        return members_flash("error", "Choose which column holds the email address.");
     };
+
+    // Custom-field columns, by key.
+    let metafield_cols: Vec<(String, usize)> = form
+        .iter()
+        .filter_map(|(k, v)| {
+            k.strip_prefix("mf_")
+                .and_then(|key| v.parse::<usize>().ok().map(|i| (key.to_string(), i)))
+        })
+        .collect();
 
     // Default newsletters, for rows that ask to be subscribed.
     let default_newsletters: Vec<String> = sqlx::query_scalar(
@@ -3134,6 +3335,27 @@ async fn members_import(State(state): State<AppState>, headers: HeaderMap, mut m
         let labels = get(c_labels);
         if !labels.is_empty() {
             sync_member_labels(&state, &member_id, &labels).await;
+        }
+
+        // Custom fields, where a column was pointed at one. Written through
+        // the same path the admin uses, so the same validation applies and a
+        // bad cell is skipped rather than stored.
+        if !metafield_cols.is_empty() {
+            let mut writes: HashMap<String, HashMap<String, String>> = HashMap::new();
+            for (key, idx) in &metafield_cols {
+                let value = get(Some(*idx));
+                if !value.is_empty() {
+                    writes.entry(key.clone()).or_default().insert(String::new(), value);
+                }
+            }
+            if !writes.is_empty() {
+                let writer = repos::metafields::Writer {
+                    writer_type: "import".into(),
+                    writer_id: None,
+                    source: "import".into(),
+                };
+                let _ = repos::metafields::write_values(&state.db, &member_id, &writes, &writer).await;
+            }
         }
         if subscribe {
             for nid in &default_newsletters {
