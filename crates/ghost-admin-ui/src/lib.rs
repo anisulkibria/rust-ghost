@@ -9871,6 +9871,77 @@ Changing it — including regenerating — signs out everyone who had the old on
         String::new()
     };
 
+    // --- welcome emails -----------------------------------------------------
+    //
+    // These are the two built-in welcome automations, seeded on every install.
+    // Ghost surfaces them here as well as under Automations, because this is
+    // where a publisher looks for them.
+    let welcome_rows = {
+        let flows = sqlx::query_as::<_, (String, String, String, Option<String>)>(
+            "SELECT id, name, status, slug FROM automations WHERE slug IN (?, ?) ORDER BY slug",
+        )
+        .bind("member-welcome-email-free")
+        .bind("member-welcome-email-paid")
+        .fetch_all(&state.db)
+        .await
+        .unwrap_or_default();
+
+        let mut rows = String::new();
+        for (id, name, status, slug) in &flows {
+            let active = status == "active";
+            let is_free = slug.as_deref() == Some("member-welcome-email-free");
+            // An empty flow cannot be turned on — the automation engine
+            // refuses it — so offer the editor instead of a switch that is
+            // guaranteed to bounce.
+            let written: i64 =
+                sqlx::query_scalar("SELECT COUNT(*) FROM automation_actions WHERE automation_id = ?")
+                    .bind(id)
+                    .fetch_one(&state.db)
+                    .await
+                    .unwrap_or(0);
+            let trailing = if written == 0 {
+                format!(
+                    r#"<span class="chip draft">not written</span><a class="btn tonal small" href="/ghost/automations/{id}/">Write it</a>"#,
+                    id = esc(id),
+                )
+            } else {
+                format!(
+                    r#"<span class="chip {chip}">{state_label}</span>
+<form method="post" action="/ghost/automations/{id}/status/">
+<input type="hidden" name="status" value="{next}">
+<button class="btn tonal small" type="submit">{button}</button></form>"#,
+                    id = esc(id),
+                    chip = if active { "published" } else { "draft" },
+                    state_label = if active { "on" } else { "off" },
+                    next = if active { "inactive" } else { "active" },
+                    button = if active { "Turn off" } else { "Turn on" },
+                )
+            };
+            rows.push_str(&format!(
+                r#"<div class="row"><span class="ic tint-teal">{ic}</span>
+<div class="body"><a class="title" href="/ghost/automations/{id}/">{title}</a><span class="detail">{detail}</span></div>
+<div class="trailing">{trailing}</div></div>"#,
+                ic = svg("mail"),
+                id = esc(id),
+                title = esc(name),
+                detail = if is_free {
+                    "Sent when someone signs up for a free account"
+                } else {
+                    "Sent when someone starts a paid subscription"
+                },
+                trailing = trailing,
+            ));
+        }
+        if rows.is_empty() {
+            rows = r#"<div class="row"><div class="body"><span class="muted">The welcome flows are seeded at startup and will appear here.</span></div></div>"#.into();
+        }
+        format!(
+            r#"<div class="card rows rise" style="--i:4">{rows}</div>
+<p class="muted" style="margin:10px 0 0 16px">Open one to write it. Signup and signin magic links are separate — they always send, using the
+transport in <a href="/ghost/settings/email/">Settings → Email</a>.</p>"#
+        )
+    };
+
     // --- custom fields: Ghost's Membership → Custom fields ------------------
     //
     // Each row is its own form: a field's key and type are fixed once it
@@ -10181,11 +10252,7 @@ engines and asks every visitor for one shared access code.</p>
             icon = s("portal_button_icon"),
             style_opts = select_options(&[("icon-and-text", "Icon and text"), ("icon", "Icon only"), ("text", "Text only")], &get("portal_button_style", "icon-and-text")),
             terms = s("portal_signup_terms_html"),
-            welcome_deferred = format!(
-                r#"<div class="card padded rise" style="--i:4"><div style="display:flex;gap:14px;align-items:center"><span class="ic tint-slate">{soon}</span>
-<p class="muted" style="margin:0">Signup and signin magic links are sent using the transport in <a href="/ghost/settings/email/">Settings → Email</a>. A dedicated welcome email per tier is not built yet.</p></div></div>"#,
-                soon = svg("history"),
-            ),
+            welcome_deferred = welcome_rows,
             newsletter_rows = newsletter_rows,
             newsletter_edit = newsletter_edit
                 .map(|(id, name, description, sender_name, sender_email)| {
