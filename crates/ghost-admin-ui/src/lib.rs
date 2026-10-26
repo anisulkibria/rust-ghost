@@ -118,6 +118,7 @@ pub fn admin_ui_router() -> Router<AppState> {
         // the page was called "Bulk email" before it took Ghost's name
         .route("/settings/bulkemail/", get(|| async { Redirect::permanent("/ghost/settings/newsletters/") }))
         .route("/settings/growth/", get(growth_page).post(growth_save))
+        .route("/settings/growth/explore/", post(growth_explore_save))
         .route("/settings/growth/recommendations/new/", post(recommendation_new))
         .route("/settings/growth/recommendations/{id}/", post(recommendation_save))
         .route("/settings/growth/recommendations/{id}/delete/", post(recommendation_delete))
@@ -11251,9 +11252,16 @@ async fn growth_page(State(state): State<AppState>, headers: HeaderMap, Query(q)
 <div class="section">Signup forms</div>
 {signup_builder}
 {offers_card}
+<div class="section">Ghost Explore</div>
+<form method="post" action="/ghost/settings/growth/explore/" id="explore-form">
+<div class="card rows rise" style="--i:5">{explore_rows}</div>
+<div style="padding:10px 4px 0"><button class="btn tonal small" type="submit">Save</button></div>
+</form>
+<p class="muted" style="margin:10px 2px 0">Ghost Explore is a directory of publications at <a href="https://ghost.org/explore/" target="_blank" rel="noopener">ghost.org/explore</a>.
+This port stores your choice but does not yet announce the site to it, so nothing leaves your server either way.</p>
 <div class="section">Coming later</div>
-<div class="card rows rise" style="--i:4">
-{network}{explore}
+<div class="card rows rise" style="--i:6">
+{network}
 </div>"#,
             head = group_head(group, Some("growth-form")),
             banner = flash_banner(&q),
@@ -11263,8 +11271,25 @@ async fn growth_page(State(state): State<AppState>, headers: HeaderMap, Query(q)
             rec_rows = rec_rows,
             rec_add = rec_add,
             signup_builder = signup_builder,
-            network = planned_row("Network", "Multi-site federation across Ghost publications"),
-            explore = planned_row("Ghost Explore", "List this site in the Ghost Explore directory"),
+            network = planned_row(
+                "Network",
+                "Federation between Ghost sites over ActivityPub — needs a service this port does not run yet",
+            ),
+            explore_rows = format!(
+                "{}{}",
+                toggle_row(
+                    "explore_ping",
+                    "List this site on Ghost Explore",
+                    "Announce the site to Ghost's public directory of publications",
+                    state.settings.get_bool("explore_ping"),
+                ),
+                toggle_row(
+                    "explore_ping_growth",
+                    "Share growth data to rank higher?",
+                    "Uses your revenue and member growth to rank the site more highly. Total member count is shown publicly; the rest is not.",
+                    state.settings.get_bool("explore_ping_growth"),
+                ),
+            ),
         ),
         true,
     )
@@ -11279,6 +11304,28 @@ async fn growth_save(State(state): State<AppState>, headers: HeaderMap, Form(for
     match state.settings.set(&state.db, "recommendations_enabled", &serde_json::Value::Bool(on)).await {
         Ok(()) => settings_flash("growth", "ok", "Growth settings saved."),
         Err(e) => settings_flash("growth", "error", &e.message()),
+    }
+}
+
+/// Ghost Explore's two opt-ins, saved on their own so they cannot clear the
+/// recommendations switch that lives in a different form on the same page.
+async fn growth_explore_save(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Form(form): Form<HashMap<String, String>>,
+) -> Response {
+    if let Err(r) = require_role(&state, &headers, Role::Administrator).await {
+        return r;
+    }
+    let mut ok = true;
+    for key in ["explore_ping", "explore_ping_growth"] {
+        let on = form.get(key).map(|v| v == "1").unwrap_or(false);
+        ok &= state.settings.set(&state.db, key, &serde_json::Value::Bool(on)).await.is_ok();
+    }
+    if ok {
+        settings_flash("growth", "ok", "Ghost Explore settings saved.")
+    } else {
+        settings_flash("growth", "error", "Saving failed — check the logs.")
     }
 }
 
