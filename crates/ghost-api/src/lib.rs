@@ -12,5 +12,6 @@ pub mod oembed;
 pub mod slack;
 pub mod state;
 pub mod themes;
+pub mod webhooks;
 
 pub use state::AppState;

@@ -15,6 +15,7 @@ pub mod integrations;
 pub mod metafields;
 pub mod newsletters;
 pub mod offers;
+pub mod webhooks;
 
 use ghost_core::models::{Post, PostMeta, Tag, User};
 

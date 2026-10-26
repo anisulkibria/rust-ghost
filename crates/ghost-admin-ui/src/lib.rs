@@ -166,6 +166,14 @@ pub fn admin_ui_router() -> Router<AppState> {
             get(custom_integration_page).post(custom_integration_save),
         )
         .route(
+            "/settings/advanced/integrations/custom/{id}/webhooks/new/",
+            post(webhook_new),
+        )
+        .route(
+            "/settings/advanced/integrations/custom/{id}/webhooks/{wid}/delete/",
+            post(webhook_delete),
+        )
+        .route(
             "/settings/advanced/integrations/custom/{id}/delete/",
             post(custom_integration_delete),
         )
@@ -3643,6 +3651,7 @@ async fn member_create(State(state): State<AppState>, headers: HeaderMap, Form(f
     match res {
         Ok(_) => {
             let _ = repos::actions::record(&state.db, "members", &id, &user.id, "added").await;
+            fire_member_webhook(&state, "member.added", &id, &email, form.name.as_deref().unwrap_or("").trim());
             members_flash("ok", format!("Member {email} added.").as_str())
         }
         Err(e) if e.to_string().contains("UNIQUE") => members_flash("error", "A member with that email already exists."),
@@ -4920,6 +4929,7 @@ async fn editor_create_impl(state: &AppState, headers: &HeaderMap, mut form: Edi
     match repos::posts::insert(&state.db, &new, &user.id).await {
         Ok(post) => {
             let _ = repos::actions::record(&state.db, post_type, &post.id, &user.id, "added").await;
+            fire_post_webhooks(state, post_type, &post, "added", false);
             if post.status == "published" {
                 notify_slack_published(state, &post).await;
             }
@@ -5512,6 +5522,7 @@ async fn editor_save(State(state): State<AppState>, Path(id): Path<String>, head
     match repos::posts::update(&state.db, &id, &changes).await {
         Ok(post) => {
             let _ = repos::actions::record(&state.db, &post_type, &post.id, &user.id, "edited").await;
+            fire_post_webhooks(&state, &post_type, &post, "edited", was_published);
             if !was_published && post.status == "published" {
                 notify_slack_published(&state, &post).await;
             }
@@ -5553,8 +5564,14 @@ async fn delete_impl(state: &AppState, headers: &HeaderMap, id: &str, post_type:
         return forbidden_page(&actor, Role::Editor);
     }
     let user = actor.user;
+    // Read it before it goes: a delivery that cannot name what was deleted is
+    // not much use to a listener.
+    let doomed = repos::posts::find_by_id(&state.db, id).await.ok().flatten();
     let _ = repos::posts::destroy(&state.db, id).await;
     let _ = repos::actions::record(&state.db, post_type, id, &user.id, "deleted").await;
+    if let Some(p) = doomed {
+        fire_post_webhooks(state, post_type, &p, "deleted", p.status == "published");
+    }
     Redirect::to(if post_type == "page" { "/ghost/pages/" } else { "/ghost/posts/" }).into_response()
 }
 
@@ -13922,6 +13939,51 @@ async fn custom_integration_page(
         }
     }
 
+    // Each webhook row reports its last delivery, which is the only way to
+    // tell a listener that is working from one quietly failing.
+    let hooks = repos::webhooks::list_for_integration(&state.db, &i.id).await.unwrap_or_default();
+    let mut webhook_rows = String::new();
+    for h in &hooks {
+        let last = match (&h.last_triggered_at, &h.last_triggered_status) {
+            (Some(at), Some(status)) => {
+                let ok = status.starts_with('2');
+                format!(
+                    r#"<span class="chip {chip}">{status}</span><span class="detail" style="margin-left:8px">{at}{err}</span>"#,
+                    chip = if ok { "published" } else { "draft" },
+                    status = esc(status),
+                    at = esc(&at[..16.min(at.len())]),
+                    err = match h.last_triggered_error.as_deref().filter(|e| !e.is_empty()) {
+                        Some(e) => format!(" · {}", esc(e)),
+                        None => String::new(),
+                    },
+                )
+            }
+            _ => r#"<span class="detail">never fired</span>"#.to_string(),
+        };
+        webhook_rows.push_str(&format!(
+            r#"<div class="row"><span class="ic tint-blue">{ic}</span>
+<div class="body"><span class="title">{label}{name}</span><span class="detail">{url}</span>
+<div style="margin-top:6px">{last}</div></div>
+<div class="trailing">
+<form method="post" action="/ghost/settings/advanced/integrations/custom/{iid}/webhooks/{wid}/delete/" data-confirm="Delete webhook|Nothing will be sent to {url} when this event fires.">
+<button class="icon-btn danger" title="Delete" aria-label="Delete">{del}</button></form></div></div>"#,
+            ic = svg("share"),
+            label = esc(ghost_api::webhooks::event_label(&h.event)),
+            name = match h.name.as_deref().filter(|n| !n.is_empty()) {
+                Some(n) => format!(" · {}", esc(n)),
+                None => String::new(),
+            },
+            url = esc(&h.target_url),
+            last = last,
+            iid = esc(&i.id),
+            wid = esc(&h.id),
+            del = svg("delete"),
+        ));
+    }
+    if webhook_rows.is_empty() {
+        webhook_rows = r#"<div class="row"><div class="body"><span class="muted">No webhooks yet — add one below to be told when something changes.</span></div></div>"#.into();
+    }
+
     page_for_role(
         actor_role,
         &i.name,
@@ -13938,6 +14000,20 @@ async fn custom_integration_page(
 <div class="card rows rise" style="--i:2">{keys}</div>
 <div class="card rows rise" style="--i:3"><div class="row" style="align-items:flex-start;flex-wrap:wrap"><span class="ic tint-blue">{globe}</span>
 <div class="body"><span class="title">API URL</span><div style="margin-top:6px">{api_chip}</div></div></div></div>
+<div class="section">Webhooks</div>
+<div class="card rows rise" style="--i:4">{webhook_rows}</div>
+<div class="card padded rise" style="--i:4">
+<form method="post" action="/ghost/settings/advanced/integrations/custom/{id}/webhooks/new/" class="inline-form">
+<label class="field" style="min-width:160px;margin:0"><input name="name" placeholder=" " maxlength="191"><span>Name · optional</span></label>
+<label class="field fixed" style="min-width:230px;margin:0"><select name="event" required>{event_opts}</select><span>Event</span>{car}</label>
+<label class="field" style="flex:1;min-width:220px;margin:0"><input name="target_url" type="url" placeholder="https://example.com/hook" maxlength="2000" required><span>Target URL</span></label>
+<label class="field" style="min-width:150px;margin:0"><input name="secret" placeholder=" " maxlength="191"><span>Secret · optional</span></label>
+<button class="btn tonal" type="submit">{add} Add webhook</button>
+</form>
+<p class="muted" style="margin:12px 0 0">Ghost POSTs the changed resource as JSON when the event fires. Give a secret and each
+delivery carries an <code>X-Ghost-Signature</code> header — HMAC-SHA256 of the body — so your endpoint can tell a real
+delivery from anyone who learned the URL.</p>
+</div>
 <div class="section">Danger zone</div>
 <div class="card padded rise" style="--i:4">
 <form method="post" action="/ghost/settings/advanced/integrations/custom/{id}/delete/" data-confirm="Delete integration|&#8220;{name}&#8221; and its API keys will be removed. Anything using them will stop working.">
@@ -13951,11 +14027,164 @@ async fn custom_integration_page(
             keys = keys,
             globe = svg("globe"),
             api_chip = key_chip("url", &format!("{}/ghost/api", state.site_url())),
+            webhook_rows = webhook_rows,
+            event_opts = ghost_api::webhooks::EVENT_GROUPS
+                .iter()
+                .map(|(group, events)| format!(
+                    r#"<optgroup label="{g}">{opts}</optgroup>"#,
+                    g = esc(group),
+                    opts = events
+                        .iter()
+                        .map(|(v, l)| format!(
+                            r#"<option value="{v}">{l}</option>"#,
+                            v = esc(v),
+                            l = esc(l)
+                        ))
+                        .collect::<String>(),
+                ))
+                .collect::<String>(),
+            car = SELECT_CARET,
+            add = svg("add"),
             del = svg("delete"),
         ),
         true,
     )
     .into_response()
+}
+
+/// Fire the webhooks a post or page change should raise.
+///
+/// Ghost sends the resource under `{post: {current, previous}}`, and raises
+/// both the generic `edited` and whichever publish transition happened — a
+/// listener for "post published" should hear about it without also having to
+/// subscribe to every edit and diff the status itself.
+fn fire_post_webhooks(
+    state: &AppState,
+    post_type: &str,
+    post: &ghost_core::models::Post,
+    change: &str,
+    was_published: bool,
+) {
+    let is_page = post_type == "page";
+    let now_published = post.status == "published";
+    let body = |p: &ghost_core::models::Post| {
+        serde_json::json!({
+            "id": p.id,
+            "uuid": p.uuid,
+            "title": p.title,
+            "slug": p.slug,
+            "status": p.status,
+            "visibility": p.visibility,
+            "published_at": p.published_at,
+            "updated_at": p.updated_at,
+            "excerpt": p.custom_excerpt,
+            "url": format!("{}/{}/", state.site_url().trim_end_matches('/'), p.slug.clone().unwrap_or_default()),
+        })
+    };
+    let key = if is_page { "page" } else { "post" };
+    let payload = serde_json::json!({ key: { "current": body(post), "previous": {} } });
+
+    let mut events: Vec<&'static str> = Vec::new();
+    match change {
+        "added" => events.push(if is_page { "page.added" } else { "post.added" }),
+        "deleted" => events.push(if is_page { "page.deleted" } else { "post.deleted" }),
+        _ => events.push(if is_page { "page.edited" } else { "post.edited" }),
+    }
+    if change != "deleted" {
+        match (was_published, now_published) {
+            (false, true) => events.push(if is_page { "page.published" } else { "post.published" }),
+            (true, true) if change == "edited" => {
+                events.push(if is_page { "page.published.edited" } else { "post.published.edited" })
+            }
+            (true, false) => {
+                events.push(if is_page { "page.unpublished" } else { "post.unpublished" })
+            }
+            _ => {}
+        }
+        if post.status == "scheduled" && change != "added" {
+            events.push("post.scheduled");
+        }
+    }
+    for event in events {
+        ghost_api::webhooks::fire(state, event, payload.clone());
+    }
+}
+
+/// The members' equivalent. Ghost's shape is the same, under `member`.
+fn fire_member_webhook(state: &AppState, event: &'static str, id: &str, email: &str, name: &str) {
+    ghost_api::webhooks::fire(
+        state,
+        event,
+        serde_json::json!({
+            "member": {
+                "current": { "id": id, "email": email, "name": name },
+                "previous": {}
+            }
+        }),
+    );
+}
+
+#[derive(Debug, Deserialize, Default)]
+#[serde(default)]
+struct WebhookForm {
+    name: String,
+    event: String,
+    target_url: String,
+    secret: String,
+}
+
+fn integration_flash(id: &str, kind: &str, message: &str) -> Response {
+    let encoded: String =
+        form_urlencoded::Serializer::new(String::new()).append_pair(kind, message).finish();
+    Redirect::to(&format!("/ghost/settings/advanced/integrations/custom/{id}/?{encoded}"))
+        .into_response()
+}
+
+async fn webhook_new(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+    Form(form): Form<WebhookForm>,
+) -> Response {
+    if let Err(r) = require_role(&state, &headers, Role::Administrator).await {
+        return r;
+    }
+    // An event this build cannot fire would be registered and never heard
+    // from, which is worse than refusing it.
+    if !ghost_api::webhooks::is_known_event(form.event.trim()) {
+        return integration_flash(&id, "error", "Choose an event from the list.");
+    }
+    let url = form.target_url.trim();
+    if !(url.starts_with("http://") || url.starts_with("https://")) {
+        return integration_flash(&id, "error", "The target URL must start with http:// or https://.");
+    }
+    match repos::webhooks::create(
+        &state.db,
+        &id,
+        form.event.trim(),
+        url,
+        form.name.trim(),
+        form.secret.trim(),
+    )
+    .await
+    {
+        Ok(_) => integration_flash(&id, "ok", "Webhook added."),
+        Err(e) => integration_flash(&id, "error", &e.message()),
+    }
+}
+
+async fn webhook_delete(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path((id, wid)): Path<(String, String)>,
+) -> Response {
+    if let Err(r) = require_role(&state, &headers, Role::Administrator).await {
+        return r;
+    }
+    match repos::webhooks::delete(&state.db, &wid).await {
+        Ok(()) => integration_flash(&id, "ok", "Webhook deleted."),
+        Err(e) => integration_flash(&id, "error", &e.message()),
+    }
 }
 
 async fn custom_integration_save(
