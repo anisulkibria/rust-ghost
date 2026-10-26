@@ -169,6 +169,16 @@ pub async fn archive_price(cfg: &StripeConfig, price_id: &str) -> Result<()> {
     Ok(())
 }
 
+/// The offer a checkout is running under: its Stripe coupon, or the trial it
+/// grants instead, plus the id to stamp on the session so the webhook can
+/// record the redemption.
+#[derive(Debug, Clone, Copy)]
+pub struct CheckoutOffer<'a> {
+    pub offer_id: &'a str,
+    pub coupon_id: Option<&'a str>,
+    pub trial_days: Option<u32>,
+}
+
 /// Start a subscription checkout. Returns the URL to send the visitor to.
 #[allow(clippy::too_many_arguments)]
 pub async fn create_checkout_session(
@@ -179,6 +189,7 @@ pub async fn create_checkout_session(
     cancel_url: &str,
     member_uuid: &str,
     trial_days: u32,
+    offer: Option<&CheckoutOffer<'_>>,
 ) -> Result<String> {
     let mut form = vec![
         ("mode".to_string(), "subscription".to_string()),
@@ -194,8 +205,20 @@ pub async fn create_checkout_session(
     if let Some(email) = customer_email.filter(|e| !e.is_empty()) {
         form.push(("customer_email".to_string(), email.to_string()));
     }
+    // An offer's own trial replaces the tier's, the way Ghost lets a trial
+    // offer override the tier default rather than stacking on top of it.
+    let trial_days = offer.and_then(|o| o.trial_days).unwrap_or(trial_days);
     if trial_days > 0 {
         form.push(("subscription_data[trial_period_days]".to_string(), trial_days.to_string()));
+    }
+    if let Some(o) = offer {
+        if let Some(coupon) = o.coupon_id.filter(|c| !c.is_empty()) {
+            form.push(("discounts[0][coupon]".to_string(), coupon.to_string()));
+        }
+        // Recorded on both so the webhook can credit the redemption whichever
+        // object it reads.
+        form.push(("metadata[offer_id]".to_string(), o.offer_id.to_string()));
+        form.push(("subscription_data[metadata][offer_id]".to_string(), o.offer_id.to_string()));
     }
     let v = post(cfg, "/checkout/sessions", &form).await?;
     v.get("url")
@@ -258,6 +281,68 @@ pub async fn delete_webhook(cfg: &StripeConfig, id: &str) -> Result<()> {
 
 pub async fn get_subscription(cfg: &StripeConfig, id: &str) -> Result<serde_json::Value> {
     get(cfg, &format!("/subscriptions/{id}")).await
+}
+
+/// The discount an offer applies, in Stripe's vocabulary.
+#[derive(Debug, Clone, Copy)]
+pub enum Discount<'a> {
+    /// A share off the price, 1–100.
+    Percent(i64),
+    /// A flat amount off, in the currency's minor unit.
+    Fixed { amount_cents: i64, currency: &'a str },
+}
+
+/// Create the coupon behind an offer.
+///
+/// Stripe coupons are immutable in the ways that matter (the discount itself
+/// cannot change), so Ghost mints a fresh one whenever an offer's terms are
+/// edited rather than trying to update the old one.
+///
+/// `duration` is Stripe's own `once` / `repeating` / `forever`;
+/// `duration_in_months` only applies to `repeating`. A trial offer has no
+/// coupon at all — it rides on the subscription's trial period instead.
+pub async fn create_coupon(
+    cfg: &StripeConfig,
+    name: &str,
+    discount: Discount<'_>,
+    duration: &str,
+    duration_in_months: Option<i64>,
+) -> Result<String> {
+    let mut form = vec![
+        ("name".to_string(), name.to_string()),
+        ("duration".to_string(), duration.to_string()),
+    ];
+    match discount {
+        Discount::Percent(p) => form.push(("percent_off".to_string(), p.to_string())),
+        Discount::Fixed { amount_cents, currency } => {
+            form.push(("amount_off".to_string(), amount_cents.to_string()));
+            form.push(("currency".to_string(), currency.to_lowercase()));
+        }
+    }
+    if duration == "repeating" {
+        // Stripe rejects a repeating coupon without this, so fall back to a
+        // single month rather than sending an invalid request.
+        form.push((
+            "duration_in_months".to_string(),
+            duration_in_months.filter(|m| *m > 0).unwrap_or(1).to_string(),
+        ));
+    }
+    let v = post(cfg, "/coupons", &form).await?;
+    Ok(v.get("id").and_then(|x| x.as_str()).unwrap_or_default().to_string())
+}
+
+/// Delete a coupon that is no longer offered. Existing subscriptions already
+/// carrying the discount keep it — Stripe applies it from the subscription,
+/// not the coupon record.
+pub async fn delete_coupon(cfg: &StripeConfig, id: &str) -> Result<()> {
+    let resp = client()
+        .delete(format!("{API}/coupons/{id}"))
+        .basic_auth(&cfg.secret_key, None::<&str>)
+        .send()
+        .await
+        .map_err(|e| GhostError::BadRequest(format!("Stripe request failed: {e}")))?;
+    parse(resp).await?;
+    Ok(())
 }
 
 // ---------------------------------------------------------------------------

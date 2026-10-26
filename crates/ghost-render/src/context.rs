@@ -22,6 +22,9 @@ const PUBLIC_KEYS: &[&str] = &[
     "comments_enabled", "recommendations_enabled", "outbound_link_tagging",
     "default_email_address", "support_email_address",
     "editor_default_email_recipients", "labs", "site_uuid",
+    // `ghost_head` decides whether to advertise the Markdown source from
+    // these two, so both have to reach the render root.
+    "llms_enabled", "is_private",
 ];
 
 /// Build the `site` object placed at the render root.

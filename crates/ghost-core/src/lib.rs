@@ -5,6 +5,7 @@ pub mod config;
 pub mod dates;
 pub mod error;
 pub mod ids;
+pub mod metafields;
 pub mod models;
 pub mod slug;
 pub mod url;

@@ -1957,6 +1957,26 @@ impl HelperDef for GhostHead {
             .unwrap_or_else(|| format!("{}{}", origin.trim_end_matches('/'), relative));
         tags.push(format!(r#"<link rel="canonical" href="{}" />"#, html_escape(&canonical)));
 
+        // The Markdown source of this entry, for AI tooling that prefers it to
+        // parsing the page. Only on a post or page, only when Settings → Meta
+        // data has the LLM switch on, and never on a private site — the same
+        // three conditions that decide whether the `.md` URL resolves at all.
+        let ctx_list = root_get(rc, ctx, "context");
+        let is_entry = ctx_list
+            .as_array()
+            .map(|c| c.iter().any(|v| matches!(v.as_str(), Some("post") | Some("page"))))
+            .unwrap_or(false);
+        let llms_on = !matches!(site.get("llms_enabled"), Some(Value::Bool(false)))
+            && site.get("llms_enabled").and_then(|v| v.as_str()) != Some("false");
+        let private = matches!(site.get("is_private"), Some(Value::Bool(true)))
+            || site.get("is_private").and_then(|v| v.as_str()) == Some("true");
+        if is_entry && llms_on && !private {
+            tags.push(format!(
+                r#"<link rel="alternate" type="text/markdown" href="{}.md" />"#,
+                html_escape(canonical.trim_end_matches('/'))
+            ));
+        }
+
         // generator
         tags.push(r#"<meta name="generator" content="Ghost 1.0" />"#.into());
 

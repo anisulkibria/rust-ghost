@@ -16,7 +16,7 @@
 //! rather than a silent failure. Free membership — signup, signin, account,
 //! newsletter preferences, signout — works end to end.
 
-use axum::extract::{Query, State};
+use axum::extract::{Path, Query, State};
 use axum::http::{header, HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Redirect, Response};
 use axum::routing::{delete, get, post, put};
@@ -52,6 +52,10 @@ pub fn members_router() -> Router<AppState> {
         .route("/members/api/site/", get(read_site))
         .route("/members/api/integrity-token", get(integrity_token))
         .route("/members/api/integrity-token/", get(integrity_token))
+        .route("/members/api/offers/{id}", get(read_offer))
+        .route("/members/api/offers/{id}/", get(read_offer))
+        .route("/members/api/member/metafields", get(get_metafields).put(put_metafields))
+        .route("/members/api/member/metafields/", get(get_metafields).put(put_metafields))
         .route("/members/api/send-magic-link", post(send_magic_link))
         .route("/members/api/send-magic-link/", post(send_magic_link))
         .route("/members/api/session", get(get_identity).delete(delete_session))
@@ -129,6 +133,9 @@ struct CheckoutRequest {
     #[serde(rename = "cancelUrl")]
     cancel_url: Option<String>,
     metadata: Option<Value>,
+    /// Portal sends the offer's id when a visitor arrives on an offer URL.
+    #[serde(rename = "offerId")]
+    offer_id: Option<String>,
 }
 
 /// Start a paid signup. Portal posts the tier and cadence it wants and
@@ -211,6 +218,29 @@ async fn create_checkout_session(
     let _ = &req.identity;
     let _ = &req.metadata;
 
+    // An offer, if the visitor came in on one. Only an active offer for the
+    // tier being bought applies — a code for another tier must not quietly
+    // discount this one.
+    let offer = match req.offer_id.as_deref().filter(|o| !o.is_empty()) {
+        Some(id) => match ghost_db::repos::offers::find_by_id(&state.db, id).await.ok().flatten() {
+            Some(o) if o.active => Some(o),
+            _ => None,
+        },
+        None => None,
+    };
+    let offer = offer.filter(|o| match &req.tier_id {
+        Some(t) => o.product_id == *t,
+        // No tier named means the default paid tier, which is the one the
+        // price was resolved from above.
+        None => true,
+    });
+    let checkout_offer = offer.as_ref().map(|o| ghost_stripe::CheckoutOffer {
+        offer_id: &o.id,
+        coupon_id: o.stripe_coupon_id.as_deref(),
+        trial_days: (o.discount_type.as_deref() == Some("trial"))
+            .then(|| o.discount_amount.unwrap_or(0).max(0) as u32),
+    });
+
     match ghost_stripe::create_checkout_session(
         &cfg,
         &price_id,
@@ -219,6 +249,7 @@ async fn create_checkout_session(
         &cancel,
         &uuid,
         trial.max(0) as u32,
+        checkout_offer.as_ref(),
     )
     .await
     {
@@ -334,6 +365,21 @@ async fn handle_checkout_completed(state: &AppState, cfg: &ghost_stripe::StripeC
             .bind(&customer_id)
             .bind(&now)
             .bind(&now)
+            .execute(&state.db)
+            .await;
+        }
+    }
+
+    // Credit the offer the checkout ran under. Only the first one sticks:
+    // Settings → Growth → Offers counts the offer a member *arrived* on, so a
+    // later purchase must not rewrite that history.
+    if let Some(offer_id) = obj.pointer("/metadata/offer_id").and_then(|o| o.as_str()) {
+        if !offer_id.is_empty() {
+            let _ = sqlx::query(
+                "UPDATE members SET offer_id = ? WHERE id = ? AND (offer_id IS NULL OR offer_id = '')",
+            )
+            .bind(offer_id)
+            .bind(&member.id)
             .execute(&state.db)
             .await;
         }
@@ -765,6 +811,140 @@ async fn read_site(State(state): State<AppState>) -> Response {
 /// Portal fetches one immediately before posting a magic-link request; it
 /// makes scripted signup noticeably more effort than a bare POST, since the
 /// token is short-lived and must be server-issued.
+/// The custom fields a signed-in member may see, with their current values.
+///
+/// Gated on each field's `member_access`: a `none` field is staff-only and is
+/// not merely read-only here but absent, so Portal never shows a member a
+/// field the publisher keeps to themselves.
+async fn get_metafields(State(state): State<AppState>, headers: HeaderMap) -> Response {
+    let Some(member) = current_member(&state, &headers).await else {
+        return api_error(StatusCode::UNAUTHORIZED, "You must be signed in.", "UnauthorizedError");
+    };
+    let defs = ghost_db::repos::metafields::readable_definitions(&state.db, true)
+        .await
+        .unwrap_or_default();
+    let values =
+        ghost_db::repos::metafields::values_for_member(&state.db, &member.id).await.unwrap_or_default();
+
+    let fields: Vec<Value> = defs
+        .iter()
+        .map(|d| {
+            let held = values.get(&d.key);
+            // A record reports its parts; a scalar reports one value.
+            let value = match d.parts() {
+                Some(parts) => {
+                    let mut m = serde_json::Map::new();
+                    for (path, _, _) in parts {
+                        if let Some(v) = held.and_then(|h| h.get(*path)) {
+                            m.insert((*path).to_string(), json!(v));
+                        }
+                    }
+                    Value::Object(m)
+                }
+                None => json!(held.and_then(|h| h.get("")).cloned().unwrap_or_default()),
+            };
+            json!({
+                "key": d.key,
+                "name": d.name,
+                "type": d.field_type,
+                "identity": d.identity(),
+                "editable": ghost_core::metafields::member_can_write(&d.member_access),
+                "value": value,
+            })
+        })
+        .collect();
+    private_json(StatusCode::OK, json!({ "metafields": fields }))
+}
+
+/// A member setting their own values from their account page.
+///
+/// Only fields at `write` are accepted. A `read` field posted here is refused
+/// rather than ignored — a client sending one is wrong about what it may do,
+/// and silently dropping it would look like a successful save.
+async fn put_metafields(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    axum::Json(body): axum::Json<Value>,
+) -> Response {
+    let Some(member) = current_member(&state, &headers).await else {
+        return api_error(StatusCode::UNAUTHORIZED, "You must be signed in.", "UnauthorizedError");
+    };
+    let Some(incoming) = body.get("metafields").and_then(|m| m.as_object()) else {
+        return api_error(StatusCode::BAD_REQUEST, "No fields given.", "BadRequestError");
+    };
+
+    let defs = ghost_db::repos::metafields::list_definitions(&state.db).await.unwrap_or_default();
+    let mut writes: HashMap<String, HashMap<String, String>> = HashMap::new();
+    for (key, value) in incoming {
+        let Some(def) = defs.iter().find(|d| d.key == *key) else {
+            return api_error(
+                StatusCode::BAD_REQUEST,
+                &format!("No such field: {key}"),
+                "BadRequestError",
+            );
+        };
+        if !def.is_active() || !ghost_core::metafields::member_can_write(&def.member_access) {
+            return api_error(
+                StatusCode::FORBIDDEN,
+                &format!("You cannot change {}.", def.name),
+                "NoPermissionError",
+            );
+        }
+        let leaves = writes.entry(key.clone()).or_default();
+        match (def.parts(), value) {
+            // A record is given as an object of its parts.
+            (Some(_), Value::Object(parts)) => {
+                for (path, v) in parts {
+                    leaves.insert(path.clone(), v.as_str().unwrap_or_default().to_string());
+                }
+            }
+            (None, v) => {
+                leaves.insert(String::new(), v.as_str().unwrap_or_default().to_string());
+            }
+            _ => {
+                return api_error(
+                    StatusCode::BAD_REQUEST,
+                    &format!("{} expects an object of its parts.", def.name),
+                    "BadRequestError",
+                )
+            }
+        }
+    }
+
+    let writer = ghost_db::repos::metafields::Writer::member(&member.id);
+    match ghost_db::repos::metafields::write_values(&state.db, &member.id, &writes, &writer).await {
+        Ok(_) => get_metafields(State(state), headers).await,
+        Err(e) => api_error(StatusCode::BAD_REQUEST, &e.message(), "BadRequestError"),
+    }
+}
+
+/// The public view of an offer, which Portal reads to show the discounted
+/// price. Ghost's `offers-public` endpoint: only what a buyer needs, and only
+/// for an offer still being redeemed — an archived code must not resolve.
+async fn read_offer(State(state): State<AppState>, Path(id): Path<String>) -> Response {
+    let offer = ghost_db::repos::offers::find_by_id(&state.db, &id).await.ok().flatten();
+    let Some(offer) = offer.filter(|o| o.active) else {
+        return api_error(StatusCode::NOT_FOUND, "Offer not found.", "NotFoundError");
+    };
+    private_json(
+        StatusCode::OK,
+        json!({ "offers": [{
+            "id": offer.id,
+            "display_title": offer.portal_title.clone().unwrap_or_default(),
+            "display_description": offer.portal_description.clone().unwrap_or_default(),
+            "type": offer.discount_type.clone().unwrap_or_default(),
+            "cadence": offer.interval.clone().unwrap_or_default(),
+            "amount": offer.discount_amount.unwrap_or(0),
+            "duration": offer.duration.clone().unwrap_or_default(),
+            "duration_in_months": offer.duration_in_months,
+            "currency": offer.currency,
+            "status": offer.status(),
+            "redemption_type": offer.redemption_type.clone().unwrap_or_else(|| "signup".into()),
+            "tier": { "id": offer.product_id },
+        }] }),
+    )
+}
+
 async fn integrity_token(State(state): State<AppState>) -> Response {
     let expiry = chrono::Utc::now().timestamp_millis() + INTEGRITY_TOKEN_MS;
     let nonce = ids::random_hex(16);
@@ -852,6 +1032,17 @@ async fn send_magic_link(
         return api_error(
             StatusCode::BAD_REQUEST,
             "This site is invite-only, contact the owner for access.",
+            "BadRequestError",
+        );
+    }
+
+    // Settings → Membership → Spam filters. Only signups are checked: a member
+    // who already has an account keeps it (and their ability to sign in) if
+    // their domain is blocked later, which is how Ghost treats the list.
+    if action == "signup" && state.settings.email_domain_is_blocked(&email) {
+        return api_error(
+            StatusCode::BAD_REQUEST,
+            "Signups from that email domain are not allowed.",
             "BadRequestError",
         );
     }

@@ -27,8 +27,12 @@ pub async fn entrypoint(State(state): State<AppState>, uri: Uri, headers: Header
     let path = uri.path().to_string();
     let query = uri.query().map(str::to_string);
 
-    // 0. .md content negotiation: /my-post.md → markdown source
-    if let Some(md_path) = path.strip_suffix(".md") {
+    // 0. .md content negotiation: /my-post.md → markdown source.
+    //
+    // Part of what Settings → Meta data's LLM switch controls, so it is off
+    // with that switch — otherwise turning the setting off would still leave
+    // every post readable as plain Markdown.
+    if let Some(md_path) = path.strip_suffix(".md").filter(|_| crate::llms::enabled(&state)) {
         let md_path = format!("{md_path}/");
         let router = state.router.read().await.clone();
         if let Some(ghost_routing::tree::RouteMatch::CollectionEntry { slug, .. } | ghost_routing::tree::RouteMatch::StaticPage { slug }) =
@@ -287,6 +291,20 @@ async fn render_entry(state: AppState, slug: String, path: &str, headers: Header
         _ => match repos::posts::find_by_slug(&state.db, &slug, "page", true).await {
             Ok(Some(p)) => (p, "page"),
             _ => {
+                // Last chance before a 404: an offer code. Ghost hands these
+                // out as plain `site.com/<code>` links and sends the visitor
+                // to the homepage with Portal opened on the offer. A post or
+                // page of the same slug wins, which is why this is checked
+                // only once both have missed.
+                if let Ok(Some(offer)) =
+                    repos::offers::find_redeemable_by_code(&state.db, &slug).await
+                {
+                    return Redirect::to(&ghost_core::url::base(&format!(
+                        "/#/portal/offers/{}",
+                        offer.id
+                    )))
+                    .into_response();
+                }
                 return crate::render::error_page(&state, StatusCode::NOT_FOUND, path, headers).await;
             }
         },

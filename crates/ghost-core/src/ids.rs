@@ -44,15 +44,13 @@ pub fn random_hex(n: usize) -> String {
     hex::encode(buf)
 }
 
-/// A zero-padded random decimal code — the shape of an emailed sign-in code.
+/// A uniform random number below `bound`.
 ///
-/// Rejection sampling rather than a bare modulus: `random % 1_000_000` over a
-/// `u32` quietly makes the low codes more likely than the high ones, which is
-/// not a property a second authentication factor should have. `digits` has to
-/// be 9 or fewer, so the range still fits a `u32`.
-pub fn random_code(digits: u32) -> String {
-    assert!((1..=9).contains(&digits), "a code of {digits} digits does not fit a u32");
-    let bound = 10u32.pow(digits);
+/// Rejection sampling rather than a bare modulus: `random % bound` over a
+/// `u32` quietly makes the low values more likely than the high ones, which is
+/// not a property a sign-in code or an access code should have.
+pub fn random_below(bound: u32) -> u32 {
+    assert!(bound > 0, "bound must be positive");
     // the largest multiple of `bound` that fits, so everything below it maps
     // onto the range evenly
     let limit = u32::MAX - (u32::MAX % bound);
@@ -62,9 +60,18 @@ pub fn random_code(digits: u32) -> String {
         rng.fill_bytes(&mut buf);
         let n = u32::from_le_bytes(buf);
         if n < limit {
-            return format!("{:0width$}", n % bound, width = digits as usize);
+            return n % bound;
         }
     }
+}
+
+/// A zero-padded random decimal code — the shape of an emailed sign-in code.
+///
+/// `digits` has to be 9 or fewer, so the range still fits a `u32`.
+pub fn random_code(digits: u32) -> String {
+    assert!((1..=9).contains(&digits), "a code of {digits} digits does not fit a u32");
+    let bound = 10u32.pow(digits);
+    format!("{:0width$}", random_below(bound), width = digits as usize)
 }
 
 /// An RFC 4122 version-4 UUID. Ghost gives members and newsletters a `uuid`

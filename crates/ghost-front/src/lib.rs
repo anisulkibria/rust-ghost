@@ -2,6 +2,8 @@
 mod analytics;
 pub mod cards;
 pub mod comment_counts;
+mod llms;
+mod private;
 mod render;
 mod routes;
 mod sitemap;
@@ -27,11 +29,23 @@ pub fn site_router(state: AppState) -> Router {
         .route("/public/{*path}", get(routes::public_file))
         .route("/favicon.ico", get(routes::favicon))
         .route("/sitemap.xml", get(sitemap::sitemap_index))
+        // the LLM index, gated on Settings → Meta data
+        .route("/llms.txt", get(llms::llms_txt))
+        // the access-code screen for a private site; a no-op redirect home
+        // while `is_private` is off
+        .route("/private/", get(private::private_page).post(private::private_login))
+        .route("/private", get(private::private_page).post(private::private_login))
         .route("/", get(routes::entrypoint))
         .route("/{*path}", get(routes::entrypoint))
         .layer(axum::middleware::from_fn_with_state(
             state.clone(),
             analytics::track_views,
+        ))
+        // Outermost, so a private site answers before anything is rendered or
+        // a view is counted.
+        .layer(axum::middleware::from_fn_with_state(
+            state.clone(),
+            private::guard,
         ))
         .with_state(state)
 }

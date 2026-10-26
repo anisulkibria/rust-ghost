@@ -99,6 +99,10 @@ pub fn admin_ui_router() -> Router<AppState> {
         .route("/settings/membership/stripe/webhook/deactivate/", post(stripe_deactivate_webhook))
         .route("/settings/membership/tiers/{id}/", get(tier_edit_page).post(tier_edit_save))
         .route("/settings/membership/tiers/new/", post(tier_create))
+        .route("/settings/membership/fields/new/", post(metafield_new))
+        .route("/settings/membership/fields/{id}/", post(metafield_save))
+        .route("/settings/membership/fields/{id}/delete/", post(metafield_delete))
+        .route("/settings/membership/fields/{id}/move/", post(metafield_move))
         .route("/settings/email/", get(email_page).post(email_save))
         .route("/settings/email/test/", post(email_test))
         .route("/settings/newsletters/", get(newsletters_settings_page).post(newsletters_settings_save))
@@ -110,10 +114,16 @@ pub fn admin_ui_router() -> Router<AppState> {
         // the page was called "Bulk email" before it took Ghost's name
         .route("/settings/bulkemail/", get(|| async { Redirect::permanent("/ghost/settings/newsletters/") }))
         .route("/settings/growth/", get(growth_page).post(growth_save))
+        .route("/settings/growth/offers/new/", post(offer_new))
+        .route("/settings/growth/offers/{id}/", get(offer_edit_page).post(offer_save))
+        .route("/settings/growth/offers/{id}/status/", post(offer_set_status))
         .route("/settings/history/", get(history_page))
         .route("/settings/danger/", get(danger_page))
         .route("/settings/danger/content/", post(danger_delete_content))
         .route("/settings/danger/site/", post(danger_delete_site))
+        .route("/settings/danger/auth/", post(danger_reset_auth))
+        .route("/settings/danger/gifts/", post(danger_reset_gifts))
+        .route("/settings/about/", get(about_page))
         .route("/settings/advanced/", get(advanced_page).post(advanced_save))
         .route("/settings/advanced/labs/", post(labs_save))
         .route("/settings/advanced/export/", get(advanced_export))
@@ -3159,6 +3169,9 @@ struct MemberEditForm {
     labels: String,
     status: String,
     newsletters: Vec<String>,
+    /// Custom field values, as `key` → (`path` → value). The inputs are named
+    /// `mf:<key>:<path>`, with an empty path for a scalar.
+    metafields: HashMap<String, HashMap<String, String>>,
 }
 
 impl MemberEditForm {
@@ -3172,7 +3185,18 @@ impl MemberEditForm {
                 "labels" => f.labels = v.into_owned(),
                 "status" => f.status = v.into_owned(),
                 "newsletters" => f.newsletters.push(v.into_owned()),
-                _ => {}
+                other => {
+                    // `mf:<key>:<path>` — split on the first two colons only,
+                    // so a path is free to contain one.
+                    if let Some(rest) = other.strip_prefix("mf:") {
+                        if let Some((key, path)) = rest.split_once(':') {
+                            f.metafields
+                                .entry(key.to_string())
+                                .or_default()
+                                .insert(path.to_string(), v.into_owned());
+                        }
+                    }
+                }
             }
         }
         f
@@ -3275,8 +3299,93 @@ async fn member_edit_page(
             .collect()
     };
 
+    // --- the member's custom fields -----------------------------------------
+    //
+    // Staff see every field whatever its member access, which is what that
+    // setting is for: `none` means the member cannot see it, not that nobody
+    // can. Archived fields show only when this member still holds a value, so
+    // a retired field's data stays visible without inviting new entries.
+    let definitions = repos::metafields::list_definitions(&state.db).await.unwrap_or_default();
+    let held = repos::metafields::values_for_member(&state.db, &mid).await.unwrap_or_default();
+    let mut metafield_rows = String::new();
+    for def in &definitions {
+        let values = held.get(&def.key);
+        if !def.is_active() && values.map(|v| v.is_empty()).unwrap_or(true) {
+            continue;
+        }
+        let at = |path: &str| {
+            values.and_then(|v| v.get(path)).map(String::as_str).unwrap_or_default().to_string()
+        };
+        // Inputs are named `mf:<key>:<path>` so one flat form carries every
+        // field and part without the names colliding with the member's own.
+        let body = match def.parts() {
+            Some(parts) => {
+                let inputs: String = parts
+                    .iter()
+                    .map(|(path, label, part_type)| {
+                        let max = match *part_type {
+                            "postal_code" => ghost_core::metafields::MAX_POSTAL_CODE_CHARS,
+                            "country_code" => 2,
+                            _ => ghost_core::metafields::MAX_SHORT_TEXT_CHARS,
+                        };
+                        format!(
+                            r#"<label class="field" style="margin:0"><input name="mf:{key}:{path}" value="{v}" placeholder=" " maxlength="{max}"><span>{label}</span></label>"#,
+                            key = esc(&def.key),
+                            path = esc(path),
+                            v = esc(&at(path)),
+                            max = max,
+                            label = esc(label),
+                        )
+                    })
+                    .collect();
+                format!(r#"<div class="grid2" style="gap:12px">{inputs}</div>"#)
+            }
+            None if def.field_type == "long_text" => format!(
+                r#"<label class="field" style="margin:0"><textarea name="mf:{key}:" rows="3" placeholder=" ">{v}</textarea><span>{name}</span></label>"#,
+                key = esc(&def.key),
+                v = esc(&at("")),
+                name = esc(&def.name),
+            ),
+            None => format!(
+                r#"<label class="field" style="margin:0"><input name="mf:{key}:" value="{v}" placeholder=" " maxlength="{max}"><span>{name}</span></label>"#,
+                key = esc(&def.key),
+                v = esc(&at("")),
+                max = ghost_core::metafields::MAX_SHORT_TEXT_CHARS,
+                name = esc(&def.name),
+            ),
+        };
+        metafield_rows.push_str(&format!(
+            r#"<div class="row" style="align-items:flex-start"><span class="ic tint-purple">{ic}</span>
+<div class="body" style="width:100%">{heading}{body}</div></div>"#,
+            ic = svg("notes"),
+            // The inputs below float their own label into their top border, so
+            // a heading needs clearance or the two overlap.
+            heading = if def.parts().is_some() {
+                format!(
+                    r#"<span class="title" style="display:block;margin:0 0 14px">{}{}</span>"#,
+                    esc(&def.name),
+                    if def.is_active() { "" } else { " · archived" }
+                )
+            } else if def.is_active() {
+                String::new()
+            } else {
+                r#"<span class="detail" style="display:block;margin:0 0 14px">archived</span>"#
+                    .to_string()
+            },
+            body = body,
+        ));
+    }
+    let metafields_card = if metafield_rows.is_empty() {
+        String::new()
+    } else {
+        format!(
+            r#"<div class="section">Custom fields</div>
+<div class="card rows rise" style="--i:3">{metafield_rows}</div>"#
+        )
+    };
+
     let initial = name.as_deref().unwrap_or(&email).chars().next().unwrap_or('?').to_uppercase().to_string();
-    page_for_role(actor_role, 
+    page_for_role(actor_role,
         "Member",
         "members",
         Some(&user),
@@ -3310,6 +3419,7 @@ async fn member_edit_page(
 <p class="muted" style="margin:10px 0 0">Unticking every newsletter unsubscribes the member from email entirely.</p>
 </div></div>
 </div>
+{metafields_card}
 <div class="section">Access</div>
 <div class="card rows rise" style="--i:4">
 <div class="row" style="align-items:center"><span class="ic tint-amber">{tags_ic}</span>
@@ -3346,6 +3456,7 @@ async fn member_edit_page(
             del = svg("delete"),
             car = SELECT_CARET,
             newsletter_rows = newsletter_rows,
+            metafields_card = metafields_card,
             commenting_card = comments::member_commenting_card(&mid, &commenting, comment_count),
             status_opts = select_options(
                 &[("free", "Free"), ("comped", "Complimentary — paid access, no charge")],
@@ -3427,6 +3538,26 @@ async fn member_edit_save(
     }
 
     sync_member_labels(&state, &id, &form.labels).await;
+
+    // Custom fields. A rejected value is reported rather than swallowed: the
+    // rest of the member has already saved, so the message says what did not.
+    if !form.metafields.is_empty() {
+        let actor = match require_session(&state, &headers).await {
+            Ok(u) => u.id,
+            Err(_) => String::new(),
+        };
+        let writer = repos::metafields::Writer::staff(&actor);
+        if let Err(e) =
+            repos::metafields::write_values(&state.db, &id, &form.metafields, &writer).await
+        {
+            return member_edit_flash(
+                &id,
+                "error",
+                &format!("Member saved, but a custom field was not — {}", e.message()),
+            );
+        }
+    }
+
     member_edit_flash(&id, "ok", "Member saved.")
 }
 
@@ -6433,12 +6564,12 @@ const SETTINGS_GROUPS: &[SettingsGroup] = &[
     SettingsGroup { slug: "design", title: "Design & branding", icon: "tune", tint: "purple", items: &["Brand", "Site-wide colors", "Theme settings"] },
     SettingsGroup { slug: "navigation", title: "Navigation", icon: "menu", tint: "red", items: &["Primary menu", "Secondary menu"] },
     SettingsGroup { slug: "site", title: "Announcement", icon: "flag", tint: "amber", items: &["Announcement bar", "Background", "Visibility"] },
-    SettingsGroup { slug: "membership", title: "Membership", icon: "ghost", tint: "teal", items: &["Access", "Tiers", "Signup portal", "Welcome emails", "Newsletters"] },
+    SettingsGroup { slug: "membership", title: "Membership", icon: "ghost", tint: "teal", items: &["Access", "Spam filters", "Tiers", "Signup portal", "Gift subscriptions", "Tips & donations", "Custom fields"] },
     SettingsGroup { slug: "email", title: "Email", icon: "mail", tint: "blue", items: &["Transactional email", "SMTP server", "Sender identity", "Send a test"] },
-    SettingsGroup { slug: "newsletters", title: "Newsletters", icon: "send", tint: "purple", items: &["Mailgun", "Sending domain", "Region"] },
-    SettingsGroup { slug: "growth", title: "Growth", icon: "globe", tint: "slate", items: &["Network", "Ghost Explore", "Recommendations", "Signup forms"] },
+    SettingsGroup { slug: "newsletters", title: "Newsletters", icon: "send", tint: "purple", items: &["Newsletter sending", "Default recipients", "Mailgun", "Region"] },
+    SettingsGroup { slug: "growth", title: "Growth", icon: "globe", tint: "slate", items: &["Network", "Ghost Explore", "Recommendations", "Signup forms", "Offers"] },
     SettingsGroup { slug: "features", title: "Features", icon: "tune", tint: "teal", items: &["Comments", "Automations"] },
-    SettingsGroup { slug: "advanced", title: "Advanced", icon: "code", tint: "red", items: &["Integrations", "Import/Export", "Code injection", "Labs"] },
+    SettingsGroup { slug: "advanced", title: "Advanced", icon: "code", tint: "red", items: &["Integrations", "Import/Export", "Code injection", "Beta features"] },
     SettingsGroup { slug: "history", title: "History", icon: "history", tint: "slate", items: &["Site activity"] },
     SettingsGroup { slug: "danger", title: "Danger zone", icon: "delete", tint: "red", items: &["Delete all content", "Delete site"] },
 ];
@@ -6510,12 +6641,26 @@ const SETTINGS_INDEX: &[(&str, &str, &str)] = &[
     ("membership", "Signup portal", "Portal button style"),
     ("membership", "Signup portal", "Signup terms"),
     ("membership", "Welcome emails", "Welcome page URL"),
+    ("membership", "Access", "Site access"),
+    ("membership", "Access", "Access code"),
+    ("membership", "Spam filters", "Blocked email domains"),
+    ("membership", "Custom fields", "Field name"),
+    ("membership", "Custom fields", "Member access"),
+    ("growth", "Offers", "Discount code"),
+    ("growth", "Offers", "Free trial"),
+    ("membership", "Gift subscriptions", "Shareable link"),
+    ("membership", "Tips & donations", "Currency"),
+    ("membership", "Tips & donations", "Suggested amount"),
+    ("newsletters", "Newsletter sending", "Newsletter sending"),
+    ("newsletters", "Default recipients", "Who gets a new post by default"),
     ("features", "Comments", "New comments"),
     ("features", "Comments", "Hold for review"),
     ("features", "Automations", "Automations"),
     ("advanced", "Code injection", "Head"),
     ("advanced", "Code injection", "Foot"),
-    ("advanced", "Labs", "Labs flags"),
+    ("advanced", "Beta features", "Feature flags"),
+    ("advanced", "Redirects & routes", "Redirects"),
+    ("advanced", "Redirects & routes", "Routes"),
 ];
 
 /// Sub-pages and on-page headings the group rows do not already carry:
@@ -6546,6 +6691,114 @@ const SOCIAL_ACCOUNTS: &[(&str, &str)] = &[
     ("youtube", "YouTube"),
     ("instagram", "Instagram"),
     ("linkedin", "LinkedIn"),
+];
+
+/// The Ghost release this port tracks. Reported on the About page and
+/// stamped into the export file's meta, so the two cannot drift.
+pub const GHOST_VERSION: &str = "5.98.0";
+
+/// Ghost's beta feature flags, as its Advanced → Labs → Beta features tab
+/// lists them (Ghost 6.72). Flag, title, description.
+///
+/// Stored the way Ghost stores them: keys on the `labs` settings object.
+const BETA_FLAGS: &[(&str, &str, &str)] = &[
+    (
+        "automations",
+        "Automations (beta)",
+        "Build flows that react to what members do.",
+    ),
+    (
+        "superEditors",
+        "Enhanced Editor role (beta)",
+        "Allows newly-assigned editors to manage members and comments in addition to regular roles.",
+    ),
+    (
+        "editorExcerpt",
+        "Show post excerpt inline",
+        "Adds the excerpt input below the post title in the editor.",
+    ),
+    (
+        "additionalPaymentMethods",
+        "Additional payment methods",
+        "Enable support for CashApp, iDEAL, Bancontact, and others.",
+    ),
+    (
+        "navigationIcons",
+        "Navigation icons & visibility",
+        "Add icons and member-visibility controls to navigation menu items. Requires theme support to render icons.",
+    ),
+];
+
+/// Ghost's private feature flags — its Private features tab, which Ghost shows
+/// only when `enableDeveloperExperiments` is configured.
+const PRIVATE_FLAGS: &[(&str, &str, &str)] = &[
+    ("automationsLifecycleTriggers", "Automations lifecycle triggers", "Triggers for upgrades and downgrades."),
+    ("stripeAutomaticTax", "Stripe Automatic Tax (private beta)", "Use Stripe Automatic Tax at Stripe Checkout. Needs to be enabled in Stripe."),
+    ("importMemberTier", "Import Member Tier", "Enables tier to be specified when importing members."),
+    ("csvContentImporter", "CSV Content Importer", "Enables importing posts from CSV files in the Universal Importer."),
+    ("admin7Design", "Admin 7 · Design", "Preview the floating Admin 7 sidebar and its navigation layout."),
+    ("admin7EditorImprovements", "Admin 7 · Editor improvements", "Preview the updated editor chrome."),
+    ("emailUniqueid", "Email Unique ID", "Adds a unique id to each email sent."),
+    ("themeTranslation", "Updated theme translation (beta)", "The newer theme translation pipeline."),
+    ("getHelperDeduplication", "Get helper deduplication", "Deduplicates repeated {{#get}} queries in a render."),
+    ("machinePayments", "Machine payments", "Agent-initiated payments."),
+    ("apps", "Apps", "The apps framework."),
+];
+
+/// Whether structured data for LLMs is published.
+///
+/// Ghost treats this as on unless explicitly `false`, so a site that has never
+/// seen the setting is opted in rather than silently opted out.
+fn llms_enabled(state: &AppState) -> bool {
+    !matches!(state.settings.get("llms_enabled"), Some(serde_json::Value::Bool(false)))
+        && state.settings.get_str("llms_enabled").as_deref() != Some("false")
+}
+
+/// Read the `labs` settings object, which is a flat map of flag → bool.
+fn labs_flags(state: &AppState) -> serde_json::Map<String, serde_json::Value> {
+    match state.settings.get("labs") {
+        Some(serde_json::Value::Object(m)) => m,
+        // Older rows hold the object as a JSON *string*; both shapes read the
+        // same here.
+        Some(serde_json::Value::String(s)) => serde_json::from_str(&s).unwrap_or_default(),
+        _ => serde_json::Map::new(),
+    }
+}
+
+fn labs_flag_on(flags: &serde_json::Map<String, serde_json::Value>, key: &str) -> bool {
+    flags.get(key).and_then(serde_json::Value::as_bool).unwrap_or(false)
+}
+
+/// The words Ghost builds a private-site access code from
+/// (server/services/settings/private-site-access-code.js). Short and
+/// sayable, because this code gets shared by hand.
+const ACCESS_CODE_WORDS: &[&str] = &[
+    "anchor", "aurora", "beacon", "birch", "bright", "cedar", "cloud", "comet", "copper", "coral",
+    "ember", "fern", "field", "forest", "golden", "green", "harbor", "hidden", "horizon",
+    "juniper", "lagoon", "lunar", "maple", "meadow", "midnight", "north", "ocean", "olive",
+    "paper", "pine", "quiet", "river", "sage", "signal", "silver", "solstice", "sparrow", "stone",
+    "studio", "summit", "sunrise", "thistle", "valley", "violet", "willow", "window", "winter",
+    "wild",
+];
+
+/// Ghost's `word###` access code, off the same CSPRNG the rest of the port
+/// mints secrets with.
+fn generate_access_code() -> String {
+    let word = ACCESS_CODE_WORDS
+        [ghost_core::ids::random_below(ACCESS_CODE_WORDS.len() as u32) as usize];
+    format!("{word}{:03}", ghost_core::ids::random_below(1000))
+}
+
+/// Currencies offered for tips and donations. Ghost stores
+/// `donations_currency` as an upper-case ISO code, unlike a tier's price
+/// currency, which it keeps lower-case.
+const CURRENCIES: &[(&str, &str)] = &[
+    ("USD", "USD $"),
+    ("EUR", "EUR €"),
+    ("GBP", "GBP £"),
+    ("AUD", "AUD $"),
+    ("CAD", "CAD $"),
+    ("INR", "INR ₹"),
 ];
 
 /// Ghost's timezone picker (moment-timezone names with GMT offsets), west →
@@ -7182,6 +7435,7 @@ async fn metadata_page(State(state): State<AppState>, headers: HeaderMap, Query(
 {search_preview}
 <div class="card rows rise" style="--i:2">
 {meta_title}{meta_description}
+{llms_row}
 </div>
 <div class="section">X card</div>
 {x_preview}
@@ -7198,6 +7452,16 @@ async fn metadata_page(State(state): State<AppState>, headers: HeaderMap, Query(
             banner = flash_banner(&q),
             site_title_attr = esc(&site_title),
             site_description_attr = esc(&site_description),
+            // Ghost reads this as "on unless explicitly false", so a site that
+            // has never touched it is opted in.
+            llms_row = format!(
+                r#"<div class="row toggle-row"><span class="ic tint-purple">{ic}</span>
+<div class="label"><b>Enable structured data for LLMs and AI search engines</b>
+<span>Publishes <code>/llms.txt</code>, and lets any post or page URL be fetched as Markdown by appending <code>.md</code>.</span></div>
+<label class="switch"><input type="checkbox" name="llms_enabled" value="1"{on} form="metadata-form"><span class="track"><span class="thumb"></span></span></label></div>"#,
+                ic = svg("globe"),
+                on = if llms_enabled(&state) { " checked" } else { "" },
+            ),
             search_preview = search_preview(
                 &site_url,
                 &icon,
@@ -7251,6 +7515,8 @@ async fn metadata_save(State(state): State<AppState>, headers: HeaderMap, Form(f
         let value = form.get(key).cloned().unwrap_or_default();
         ok &= state.settings.set(&state.db, key, &serde_json::json!(value)).await.is_ok();
     }
+    let llms = form.get("llms_enabled").map(|v| v == "1").unwrap_or(false);
+    ok &= state.settings.set(&state.db, "llms_enabled", &serde_json::Value::Bool(llms)).await.is_ok();
     if ok {
         settings_flash("metadata", "ok", "Meta data saved.")
     } else {
@@ -7597,6 +7863,7 @@ async fn newsletter_edit_page(
 <div class="row" style="align-items:flex-start"><span class="ic tint-purple">{title_ic}</span>
 <div class="body" style="width:100%">{name_field}{desc_field}</div></div>
 {subscribe_on_signup}
+{visibility_row}
 {status_row}
 </div>
 
@@ -7690,6 +7957,18 @@ async fn newsletter_edit_page(
             "Subscribe new members",
             "New members are added to this newsletter when they sign up",
             n.subscribe_on_signup
+        ),
+        // Ghost's newsletter `visibility`: who may subscribe to it at all.
+        visibility_row = setting(
+            "purple",
+            "ghost",
+            "Visibility",
+            "Who is offered this newsletter in the signup portal",
+            &segmented(
+                "visibility",
+                &[("members", "All members"), ("paid", "Paid-members only")],
+                &n.visibility,
+            ),
         ),
         status_row = setting(
             "purple",
@@ -7964,6 +8243,7 @@ async fn newsletter_edit_save(
     n.sender_email = keep("sender_email");
     n.sender_reply_to = one_of("sender_reply_to", &["newsletter", "support"], "newsletter");
     n.status = one_of("status", &["active", "archived"], "active");
+    n.visibility = one_of("visibility", &["members", "paid"], "members");
     n.subscribe_on_signup = on("subscribe_on_signup");
 
     n.header_image = keep("header_image");
@@ -8207,12 +8487,109 @@ async fn newsletters_settings_page(State(state): State<AppState>, headers: Heade
         }
     }
 
+    // --- newsletter sending + default recipients (Ghost's Email area) -----
+    //
+    // Ghost encodes both in the same pair of settings:
+    // `editor_default_email_recipients` is `disabled` when sending is off, and
+    // otherwise names the default audience — with `filter` deferring to
+    // `editor_default_email_recipients_filter` for the segment cases.
+    let recipients = state
+        .settings
+        .get_str("editor_default_email_recipients")
+        .unwrap_or_else(|| "visibility".into());
+    let recipients_filter = state.settings.get_str("editor_default_email_recipients_filter");
+    let sending_on = recipients != "disabled";
+    // With nobody able to sign up there is no one to email, so Ghost greys the
+    // switch out and points at the setting that is really in the way.
+    let signup_closed = state.settings.get_str("members_signup_access").as_deref() == Some("none");
+
+    let sending_card = format!(
+        r#"<div class="section">Newsletter sending</div>
+<div class="card rows rise" style="--i:1">
+<div class="row"><span class="ic tint-purple">{mail}</span>
+<div class="body"><span class="title">{title}</span><span class="detail">{detail}</span></div>
+<div class="trailing"><label class="switch"><input type="checkbox" name="newsletter_sending" form="newsletters-form" value="1"{ck}{dis}><span class="track"><span class="thumb"></span></span></label></div></div>
+</div>
+{note}"#,
+        mail = svg("mail"),
+        title = if sending_on && !signup_closed { "Enabled" } else { "Disabled" },
+        detail = if sending_on && !signup_closed {
+            "Newsletter features are active, posts can be sent by email"
+        } else {
+            "Posts cannot be sent by email while this is off"
+        },
+        ck = if sending_on && !signup_closed { " checked" } else { "" },
+        dis = if signup_closed { " disabled" } else { "" },
+        note = if signup_closed {
+            r#"<p class="muted" style="margin:10px 2px 0">Your <a href="/ghost/settings/membership/">subscription access</a> is set to
+&ldquo;Nobody can sign up&rdquo;, so there is no audience to email. Allow signups to turn newsletter sending back on.</p>"#
+        } else {
+            ""
+        },
+    );
+
+    // The five audiences Ghost offers, flattened from the two settings.
+    let recipients_value = match (recipients.as_str(), recipients_filter.as_deref()) {
+        ("filter", Some("status:free,status:-free")) => "all-members",
+        ("filter", Some("status:-free")) => "paid-only",
+        ("filter", None) | ("filter", Some("")) => "none",
+        ("filter", _) => "segment",
+        (other, _) => other,
+    };
+    let recipients_card = if sending_on && !signup_closed {
+        format!(
+            r#"<div class="section">Default recipients</div>
+<div class="card rows rise" style="--i:2">
+<div class="row" style="align-items:flex-start"><span class="ic tint-purple">{people}</span>
+<div class="body" style="width:100%">
+<label class="field fixed" style="margin:0;max-width:360px"><select name="editor_default_email_recipients" form="newsletters-form">{opts}</select><span>Who gets a new post by default</span>{car}</label>
+<p class="muted" style="margin:8px 0 0">Set per post in the editor; this only picks the starting point. {segment_note}</p>
+</div></div>
+</div>"#,
+            people = svg("ghost"),
+            car = SELECT_CARET,
+            opts = select_options(
+                &{
+                    let mut o = vec![
+                        ("visibility", "Whoever has access to the post"),
+                        ("all-members", "All members"),
+                        ("paid-only", "Paid-members only"),
+                        ("none", "Usually nobody"),
+                    ];
+                    // Only offered when it is already in use, so the saved
+                    // segment stays selectable instead of the select falling
+                    // back to its first option.
+                    if recipients_value == "segment" {
+                        o.push(("segment", "Specific people"));
+                    }
+                    o
+                },
+                recipients_value,
+            ),
+            // "Specific people" is a tier/label filter Ghost builds with a
+            // picker this page has no equivalent of, so an existing one is
+            // reported and preserved rather than silently rewritten.
+            segment_note = if recipients_value == "segment" {
+                format!(
+                    "This site currently sends to a saved segment (<code>{}</code>); choosing another option replaces it.",
+                    esc(recipients_filter.as_deref().unwrap_or("")),
+                )
+            } else {
+                String::new()
+            },
+        )
+    } else {
+        String::new()
+    };
+
     page_for_role(actor_role,
         "Newsletters",
         "settings",
         Some(&user),
         &format!(
             r#"{head}{banner}{status}
+{sending_card}
+{recipients_card}
 <div class="section">Newsletters</div>
 <div class="card rows rise" style="--i:2">{newsletter_rows}</div>
 <div class="card padded rise" style="--i:3"><form method="post" action="/ghost/settings/newsletters/new/" class="inline-form">
@@ -8238,6 +8615,8 @@ async fn newsletters_settings_page(State(state): State<AppState>, headers: Heade
             head = group_head(group, Some("newsletters-form")),
             banner = flash_banner(&q),
             status = status,
+            sending_card = sending_card,
+            recipients_card = recipients_card,
             send = svg("send"),
             bulb = svg("mail"),
             car = SELECT_CARET,
@@ -8270,6 +8649,44 @@ async fn newsletters_settings_save(State(state): State<AppState>, headers: Heade
         ok &= state.settings.set(&state.db, key, &serde_json::json!(value)).await.is_ok();
     }
     ok &= save_secret(&state, "mailgun_api_key", form.get("mailgun_api_key")).await;
+
+    // Newsletter sending and the default audience share two settings, the way
+    // Ghost encodes them: `disabled` turns sending off, anything else names
+    // the default audience, and the segment cases defer to the filter.
+    let sending_on = form.get("newsletter_sending").map(|v| v == "1").unwrap_or(false);
+    let (recipients, filter): (&str, Option<&str>) = if !sending_on {
+        ("disabled", None)
+    } else {
+        match form.get("editor_default_email_recipients").map(String::as_str) {
+            Some("all-members") => ("filter", Some("status:free,status:-free")),
+            Some("paid-only") => ("filter", Some("status:-free")),
+            Some("none") => ("filter", None),
+            // An untouched saved segment: leave both settings exactly as they
+            // are rather than flattening it to something this page can name.
+            Some("segment") => ("", None),
+            _ => ("visibility", None),
+        }
+    };
+    if !recipients.is_empty() {
+        ok &= state
+            .settings
+            .set(&state.db, "editor_default_email_recipients", &serde_json::json!(recipients))
+            .await
+            .is_ok();
+        ok &= state
+            .settings
+            .set(
+                &state.db,
+                "editor_default_email_recipients_filter",
+                &match filter {
+                    Some(f) => serde_json::json!(f),
+                    None => serde_json::Value::Null,
+                },
+            )
+            .await
+            .is_ok();
+    }
+
     if ok {
         settings_flash("newsletters", "ok", "Bulk email settings saved.")
     } else {
@@ -9377,6 +9794,222 @@ async fn membership_page(State(state): State<AppState>, headers: HeaderMap, Quer
         )
     };
 
+    // The access code only matters while the site is private, so Ghost only
+    // shows it then. It is deliberately readable rather than masked: it is
+    // shared with readers, not a credential anyone types in private.
+    let private_code = if state.settings.get_bool("is_private") {
+        let site_url = state.site_url();
+        format!(
+            r#"<div style="display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap;margin-top:12px">
+<label class="field" style="margin:0;max-width:320px;flex:1"><input name="password" form="membership-form" value="{code}" placeholder=" " maxlength="191"><span>Access code</span></label>
+<button class="btn tonal small" type="submit" form="membership-form" name="regenerate_code" value="1" title="Generate a new code">{refresh} Regenerate</button>
+</div>
+<p class="muted" style="margin:6px 0 0">Everyone who visits <a href="{url}/private/" target="_blank" rel="noopener">{url}/private/</a> needs this.
+Changing it — including regenerating — signs out everyone who had the old one.</p>"#,
+            code = s("password"),
+            refresh = svg("history"),
+            url = esc(site_url.trim_end_matches('/')),
+        )
+    } else {
+        String::new()
+    };
+
+    // Ghost's fourth default-access option: specific tiers. The chips only
+    // mean anything while that option is chosen, so they are rendered with the
+    // row rather than as a separate setting.
+    let visibility_now = get("default_content_visibility", "public");
+    let tier_options: Vec<(String, String)> = sqlx::query_as::<_, (String, String)>(
+        "SELECT id, name FROM products WHERE active = 1 ORDER BY type DESC, created_at",
+    )
+    .fetch_all(&state.db)
+    .await
+    .unwrap_or_default()
+    .into_iter()
+    .collect();
+    let selected_tiers: Vec<String> = match state.settings.get("default_content_visibility_tiers") {
+        Some(serde_json::Value::Array(a)) => {
+            a.iter().filter_map(|v| v.as_str().map(str::to_string)).collect()
+        }
+        Some(serde_json::Value::String(s)) => serde_json::from_str(&s).unwrap_or_default(),
+        _ => Vec::new(),
+    };
+    let visibility_tiers = if visibility_now == "tiers" {
+        format!(
+            r#"<div style="margin-top:10px">{chips}</div>
+<p class="muted" style="margin:8px 0 0">New posts are visible to members on any of the ticked tiers.</p>"#,
+            chips = chip_set(
+                "default_content_visibility_tiers",
+                &tier_options,
+                &selected_tiers,
+                "No tiers yet — add one under Tiers below.",
+            ),
+        )
+    } else {
+        String::new()
+    };
+
+    // --- custom fields: Ghost's Membership → Custom fields ------------------
+    //
+    // Each row is its own form: a field's key and type are fixed once it
+    // exists (values reference the key and are shaped by the type), so only
+    // the name and the member's access can be edited here.
+    let fields = repos::metafields::list_definitions(&state.db).await.unwrap_or_default();
+    let last = fields.len().saturating_sub(1);
+    let mut field_rows = String::new();
+    for (i, f) in fields.iter().enumerate() {
+        let held = repos::metafields::value_count(&state.db, &f.key).await;
+        let type_label = match f.field_type.as_str() {
+            "short_text" => "Short text",
+            "long_text" => "Long text",
+            "address" => "Address",
+            other => other,
+        };
+        field_rows.push_str(&format!(
+            r#"<div class="row" style="align-items:flex-start"><span class="ic tint-purple">{ic}</span>
+<div class="body" style="width:100%">
+<form method="post" action="/ghost/settings/membership/fields/{id}/" class="inline-form" style="align-items:flex-end">
+<label class="field" style="flex:1;min-width:180px;margin:0"><input name="name" value="{name}" placeholder=" " maxlength="191" required><span>Name</span></label>
+<label class="field fixed" style="min-width:190px;margin:0"><select name="member_access">{access_opts}</select><span>Member access</span>{car}</label>
+<label class="field fixed" style="min-width:150px;margin:0"><select name="status">{status_opts}</select><span>Status</span>{car}</label>
+<button class="btn tonal small" type="submit">Save</button>
+</form>
+<p class="muted" style="margin:8px 0 0"><code>{identity}</code> · {type_label} · {held} member{plural} with a value</p>
+</div>
+<div class="trailing" style="align-items:flex-start">
+<form method="post" action="/ghost/settings/membership/fields/{id}/move/"><input type="hidden" name="dir" value="up">
+<button class="icon-btn" style="transform:rotate(-90deg)" title="Move up" aria-label="Move up"{up_dis}>{up}</button></form>
+<form method="post" action="/ghost/settings/membership/fields/{id}/move/"><input type="hidden" name="dir" value="down">
+<button class="icon-btn" style="transform:rotate(90deg)" title="Move down" aria-label="Move down"{down_dis}>{down}</button></form>
+<form method="post" action="/ghost/settings/membership/fields/{id}/delete/" data-confirm="Delete custom field|&#8220;{name}&#8221; and the values {held} member{plural} hold for it will be deleted.">
+<button class="icon-btn danger" title="Delete" aria-label="Delete">{del}</button></form>
+</div></div>"#,
+            ic = svg("notes"),
+            id = esc(&f.id),
+            name = esc(&f.name),
+            identity = esc(&f.identity()),
+            type_label = type_label,
+            held = held,
+            plural = if held == 1 { "" } else { "s" },
+            car = SELECT_CARET,
+            access_opts = select_options(
+                &[
+                    ("none", "Staff only"),
+                    ("read", "Members can view"),
+                    ("write", "Members can edit"),
+                ],
+                &f.member_access,
+            ),
+            status_opts = select_options(&[("active", "Active"), ("archived", "Archived")], &f.status),
+            up = svg("chevron"),
+            down = svg("chevron"),
+            up_dis = if i == 0 { " disabled" } else { "" },
+            down_dis = if i == last { " disabled" } else { "" },
+            del = svg("delete"),
+        ));
+    }
+    if field_rows.is_empty() {
+        field_rows = r#"<div class="row"><div class="body"><span class="muted">No custom fields yet — add one to collect something extra about your members.</span></div></div>"#.into();
+    }
+    let fields_card = format!(
+        r#"<div class="section">Custom fields</div>
+<div class="card rows rise" style="--i:7">{field_rows}</div>
+<div class="card padded rise" style="--i:7">
+<form method="post" action="/ghost/settings/membership/fields/new/" class="inline-form">
+<label class="field" style="flex:1;min-width:200px;margin:0"><input name="name" placeholder=" " maxlength="191" required><span>Field name</span></label>
+<label class="field fixed" style="min-width:170px;margin:0"><select name="type">{type_opts}</select><span>Type</span>{car}</label>
+<label class="field fixed" style="min-width:190px;margin:0"><select name="member_access">{new_access_opts}</select><span>Member access</span>{car}</label>
+<button class="btn tonal" type="submit">{add} Add field</button>
+</form>
+<p class="muted" style="margin:12px 0 0">The key is taken from the name and cannot change afterwards — values are stored against it.
+An <b>address</b> collects six parts (line 1 and 2, city, state, postal code, country).
+<b>Staff only</b> keeps a field out of the member's own account page entirely.</p>
+</div>"#,
+        field_rows = field_rows,
+        car = SELECT_CARET,
+        add = svg("add"),
+        type_opts = select_options(
+            &[("short_text", "Short text"), ("long_text", "Long text"), ("address", "Address")],
+            "short_text",
+        ),
+        new_access_opts = select_options(
+            &[("none", "Staff only"), ("read", "Members can view"), ("write", "Members can edit")],
+            "none",
+        ),
+    );
+
+    // --- spam filters: Ghost puts this immediately after Access ------------
+    // `blocked_email_domains` is stored as a JSON array; the textarea is the
+    // readable form of it, one domain per line.
+    let blocked_domains = state.settings.blocked_email_domains().join("\n");
+    let spam_card = format!(
+        r#"<div class="section">Spam filters</div>
+<div class="card rows rise" style="--i:1">
+<div class="row" style="align-items:flex-start"><span class="ic tint-amber">{shield}</span>
+<div class="body" style="width:100%">
+<label class="field" style="margin:0"><textarea name="blocked_email_domains" form="membership-form" rows="3" placeholder=" ">{domains}</textarea><span>Blocked email domains</span></label>
+<p class="muted" style="margin:6px 0 0">Protect your member signups from spam. One domain per line, e.g. <code>spam.xyz</code> to block
+addresses like <code>hello@spam.xyz</code>. Members who already signed up are not removed.</p>
+</div></div>
+</div>"#,
+        shield = svg("flag"),
+        domains = esc(&blocked_domains),
+    );
+
+    // Stripe is what unlocks paid members, and gifts and tips both bill
+    // through it — Ghost hides each of these sections until it is connected.
+    let stripe_on = ghost_stripe::StripeConfig::from_settings(&state.settings).is_some();
+    let site_url = state.site_url();
+    let site_url = site_url.trim_end_matches('/');
+
+    let gift_card = if stripe_on {
+        format!(
+            r#"<div class="section">Gift subscriptions</div>
+<div class="card rows rise" style="--i:4">
+<div class="row" style="align-items:flex-start"><span class="ic tint-pink">{gift}</span>
+<div class="body" style="width:100%">
+<span class="title">Shareable link</span>
+<p class="muted" style="margin:6px 0 10px">Allow your readers to share your work by purchasing a gift subscription for a friend or colleague.</p>
+{link}
+</div></div>
+</div>"#,
+            gift = svg("ghost"),
+            link = key_chip("Gift", &format!("{site_url}/#/portal/gift")),
+        )
+    } else {
+        String::new()
+    };
+
+    // Ghost stores the suggested tip in the currency's minor unit (cents), but
+    // asks for it in the major one — so it is divided here and multiplied back
+    // on save.
+    let tips_card = if stripe_on {
+        let cents = state.settings.get_str("donations_suggested_amount").unwrap_or_default();
+        let cents: i64 = cents.trim().parse().unwrap_or(0);
+        format!(
+            r#"<div class="section">Tips &amp; donations</div>
+<div class="card rows rise" style="--i:6">
+<div class="row"><span class="ic tint-green">{coin}</span>
+<div class="body"><div class="grid2" style="gap:12px">
+<label class="field fixed" style="margin:0"><select name="donations_currency" form="membership-form">{currency_opts}</select><span>Currency</span>{car}</label>
+<label class="field" style="margin:0"><input name="donations_suggested_amount" form="membership-form" type="number" min="0" max="10000" step="1" value="{amount}" placeholder=" "><span>Suggested amount</span></label>
+</div>
+<p class="muted" style="margin:8px 0 0">One-time payments, no account needed. Stripe caps a preset amount at 10,000.</p></div></div>
+<div class="row" style="align-items:flex-start"><span class="ic tint-green">{linkic}</span>
+<div class="body" style="width:100%"><span class="title">Shareable link</span>
+<p class="muted" style="margin:6px 0 10px">Send readers straight to the tip page, or add it to your navigation.</p>
+{link}</div></div>
+</div>"#,
+            coin = svg("ghost"),
+            linkic = svg("link"),
+            car = SELECT_CARET,
+            currency_opts = select_options(CURRENCIES, &get("donations_currency", "USD")),
+            amount = cents / 100,
+            link = key_chip("Tips", &format!("{site_url}/#/portal/support")),
+        )
+    } else {
+        String::new()
+    };
+
     let group = SETTINGS_GROUPS.iter().find(|g| g.slug == "membership").unwrap();
     page_for_role(actor_role, 
         "Membership",
@@ -9387,16 +10020,22 @@ async fn membership_page(State(state): State<AppState>, headers: HeaderMap, Quer
 <form method="post" action="/ghost/settings/membership/" id="membership-form"></form>
 <div class="section">Access</div>
 <div class="card rows rise" style="--i:1">
+<div class="row"><span class="ic tint-amber">{private_ic}</span>
+<div class="body"><label class="field fixed" style="margin:0;max-width:320px"><select name="is_private" form="membership-form">{private_opts}</select><span>Site access</span>{car}</label>
+<p class="muted" style="margin:6px 0 0">Who is allowed to browse the site at all. A private site is hidden from search
+engines and asks every visitor for one shared access code.</p>
+{private_code}</div></div>
 <div class="row"><span class="ic tint-teal">{key}</span>
 <div class="body"><label class="field fixed" style="margin:0;max-width:320px"><select name="members_signup_access" form="membership-form">{access_opts}</select><span>Signup access</span>{car}</label>
 <p class="muted" style="margin:6px 0 0">Who is allowed to create an account on your site.</p></div></div>
 <div class="row"><span class="ic tint-teal">{lock}</span>
-<div class="body"><label class="field fixed" style="margin:0;max-width:320px"><select name="default_content_visibility" form="membership-form">{visibility_opts}</select><span>Default post access</span>{car}</label>
-<p class="muted" style="margin:6px 0 0">Access used by new posts when none is set in the editor.</p></div></div>
+<div class="body" style="width:100%"><label class="field fixed" style="margin:0;max-width:320px"><select name="default_content_visibility" form="membership-form" onchange="this.form.requestSubmit()">{visibility_opts}</select><span>Default post access</span>{car}</label>
+<p class="muted" style="margin:6px 0 0">Access used by new posts when none is set in the editor.</p>{visibility_tiers}</div></div>
 <div class="row"><span class="ic tint-teal">{comment_ic}</span>
 <div class="body"><label class="field fixed" style="margin:0;max-width:320px"><select name="comments_enabled" form="membership-form">{comment_opts}</select><span>Commenting</span>{car}</label>
 <p class="muted" style="margin:6px 0 0">Who can comment on posts. Readers always need an account to comment. Existing comments stay visible when you turn commenting off — <a href="/ghost/comments/">moderate them here</a>.</p></div></div>
 </div>
+{spam_card}
 {stripe_card}
 <div class="section">Tiers</div>
 <div class="card rows rise" style="--i:2">{tier_rows}</div>
@@ -9416,9 +10055,23 @@ async fn membership_page(State(state): State<AppState>, headers: HeaderMap, Quer
 <div class="row" style="align-items:flex-start"><span class="ic tint-teal">{notes}</span>
 <div class="body" style="width:100%"><label class="field" style="margin:0"><textarea name="portal_signup_terms_html" form="membership-form" rows="3" placeholder=" ">{terms}</textarea><span>Signup terms · HTML shown on signup</span></label></div></div>
 {terms_required}
+<div class="row" style="align-items:flex-start"><span class="ic tint-teal">{plans_ic}</span>
+<div class="body" style="width:100%"><span class="title" style="display:block;margin-bottom:10px">Plans shown at signup</span>
+{plan_chips}
+<div style="max-width:260px;margin-top:12px"><label class="field fixed" style="margin:0"><select name="portal_default_plan" form="membership-form">{default_plan_opts}</select><span>Default price at signup</span>{car}</label></div>
+<p class="muted" style="margin:8px 0 0">Which prices the portal offers, and which one is preselected. A default that is not on offer falls back to one that is.</p>
+</div></div>
+<div class="row" style="align-items:center"><span class="ic tint-teal">{mail_ic}</span>
+<div class="body"><label class="field" style="margin:0;max-width:360px"><input name="members_support_address" form="membership-form" type="email" value="{support_address}" placeholder=" "><span>Support email address</span></label>
+<p class="muted" style="margin:6px 0 0">Shown on the member's account page and used as the reply-to on member emails. Blank uses the sender address from <a href="/ghost/settings/email/">Settings → Email</a>.</p></div></div>
+{gift_signup}
+{gift_account}
 </div>
+{gift_card}
 <div class="section">Welcome emails</div>
 {welcome_deferred}
+{tips_card}
+{fields_card}
 <div class="section">Newsletters</div>
 <div class="card rows rise" style="--i:5">{newsletter_rows}</div>
 {newsletter_edit}
@@ -9426,11 +10079,30 @@ async fn membership_page(State(state): State<AppState>, headers: HeaderMap, Quer
 "#,
             head = group_head(group, Some("membership-form")),
             banner = flash_banner(&q),
+            spam_card = spam_card,
+            gift_card = gift_card,
+            tips_card = tips_card,
+            fields_card = fields_card,
+            private_ic = svg("lock"),
+            private_opts = select_options(
+                &[("false", "Public"), ("true", "Private")],
+                if state.settings.get_bool("is_private") { "true" } else { "false" },
+            ),
+            private_code = private_code,
             key = svg("ghost"),
             lock = svg("flag"),
             car = SELECT_CARET,
             access_opts = select_options(&[("all", "Anybody can sign up"), ("invite", "People can only be invited"), ("none", "Nobody can sign up")], &get("members_signup_access", "all")),
-            visibility_opts = select_options(&[("public", "Public"), ("members", "Members only"), ("paid", "Paid members only")], &get("default_content_visibility", "public")),
+            visibility_opts = select_options(
+                &[
+                    ("public", "Public"),
+                    ("members", "Members only"),
+                    ("paid", "Paid-members only"),
+                    ("tiers", "Specific tiers"),
+                ],
+                &visibility_now,
+            ),
+            visibility_tiers = visibility_tiers,
             comment_ic = svg("comment"),
             // Ghost's three levels, same values: `off`, `all`, `paid`.
             comment_opts = select_options(&[("off", "Nobody"), ("all", "All members"), ("paid", "Paid members only")], &get("comments_enabled", "off")),
@@ -9440,6 +10112,45 @@ async fn membership_page(State(state): State<AppState>, headers: HeaderMap, Quer
             portal_button = toggle("portal_button", "Show portal button", "Display the floating portal button on the site"),
             portal_name = toggle("portal_name", "Show portal name", "Show the site name inside the portal"),
             terms_required = toggle("portal_signup_checkbox_required", "Require signup terms", "Members must tick the terms checkbox to sign up"),
+            plans_ic = svg("tags"),
+            mail_ic = svg("mail"),
+            plan_chips = {
+                // Ghost stores this as a JSON array of plan names.
+                let current: Vec<String> = match state.settings.get("portal_plans") {
+                    Some(serde_json::Value::Array(a)) => {
+                        a.iter().filter_map(|v| v.as_str().map(str::to_string)).collect()
+                    }
+                    Some(serde_json::Value::String(s)) => {
+                        serde_json::from_str(&s).unwrap_or_default()
+                    }
+                    _ => vec!["free".to_string()],
+                };
+                chip_set(
+                    "portal_plans",
+                    &[
+                        ("free".to_string(), "Free".to_string()),
+                        ("monthly".to_string(), "Monthly".to_string()),
+                        ("yearly".to_string(), "Yearly".to_string()),
+                    ],
+                    &current,
+                    "",
+                )
+            },
+            default_plan_opts = select_options(
+                &[("monthly", "Monthly"), ("yearly", "Yearly")],
+                &get("portal_default_plan", "monthly"),
+            ),
+            support_address = s("members_support_address"),
+            gift_signup = toggle(
+                "portal_signup_gift_promotion",
+                "Promote gifts at signup",
+                "Offer a gift subscription on the signup screen",
+            ),
+            gift_account = toggle(
+                "portal_account_gift_promotion",
+                "Promote gifts on the account page",
+                "Offer a gift subscription from a member's own account",
+            ),
             title_ic = svg("title"),
             palette = svg("themes"),
             notes = svg("notes"),
@@ -9480,16 +10191,26 @@ async fn membership_page(State(state): State<AppState>, headers: HeaderMap, Quer
     .into_response()
 }
 
-async fn membership_save(State(state): State<AppState>, headers: HeaderMap, Form(form): Form<HashMap<String, String>>) -> Response {
+async fn membership_save(State(state): State<AppState>, headers: HeaderMap, Form(pairs): Form<Vec<(String, String)>>) -> Response {
     if let Err(r) = require_role(&state, &headers, Role::Administrator).await {
         return r;
     }
+    // Checkbox chips repeat under one name, so the body is read as pairs; the
+    // map is only for the fields that appear once.
+    let many = |k: &str| -> Vec<String> {
+        pairs.iter().filter(|(n, _)| n == k).map(|(_, v)| v.clone()).collect()
+    };
+    let form: HashMap<String, String> = pairs.iter().cloned().collect();
     let get = |k: &str| form.get(k).cloned().unwrap_or_default();
     let one_of = |v: String, allowed: &[&str], fallback: String| {
         if allowed.contains(&v.as_str()) { v } else { fallback }
     };
     let access = one_of(get("members_signup_access"), &["all", "invite", "none"], "all".into());
-    let visibility = one_of(get("default_content_visibility"), &["public", "members", "paid"], "public".into());
+    let visibility = one_of(
+        get("default_content_visibility"),
+        &["public", "members", "paid", "tiers"],
+        "public".into(),
+    );
     let style = one_of(get("portal_button_style"), &["icon-and-text", "icon", "text"], "icon-and-text".into());
     let commenting = one_of(get("comments_enabled"), &["off", "all", "paid"], "off".into());
 
@@ -9501,9 +10222,108 @@ async fn membership_save(State(state): State<AppState>, headers: HeaderMap, Form
     for key in ["portal_button_signup_text", "portal_button_icon", "portal_signup_terms_html"] {
         ok &= state.settings.set(&state.db, key, &serde_json::json!(get(key))).await.is_ok();
     }
-    for key in ["portal_button", "portal_name", "portal_signup_checkbox_required"] {
+    for key in [
+        "portal_button",
+        "portal_name",
+        "portal_signup_checkbox_required",
+        "portal_signup_gift_promotion",
+        "portal_account_gift_promotion",
+    ] {
         let on = form.get(key).map(|v| v == "1").unwrap_or(false);
         ok &= state.settings.set(&state.db, key, &serde_json::Value::Bool(on)).await.is_ok();
+    }
+    ok &= state
+        .settings
+        .set(&state.db, "members_support_address", &serde_json::json!(get("members_support_address").trim()))
+        .await
+        .is_ok();
+
+    // Which tiers a "Specific tiers" default applies to. Only meaningful at
+    // that setting, so it is cleared otherwise rather than left to go stale.
+    let tiers = if visibility == "tiers" { many("default_content_visibility_tiers") } else { vec![] };
+    ok &= state
+        .settings
+        .set(&state.db, "default_content_visibility_tiers", &serde_json::json!(tiers))
+        .await
+        .is_ok();
+
+    // Portal plans. Ghost keeps a JSON array, and guarantees the default is
+    // one of the offered prices — a default nobody can pick would leave the
+    // portal preselecting a price it does not show.
+    let plans: Vec<String> = many("portal_plans")
+        .into_iter()
+        .filter(|p| ["free", "monthly", "yearly"].contains(&p.as_str()))
+        .collect();
+    let default_plan = one_of(get("portal_default_plan"), &["monthly", "yearly"], "monthly".into());
+    let default_plan = if plans.contains(&default_plan) {
+        default_plan
+    } else if plans.iter().any(|p| p == "monthly") {
+        "monthly".to_string()
+    } else if plans.iter().any(|p| p == "yearly") {
+        "yearly".to_string()
+    } else {
+        default_plan
+    };
+    ok &= state.settings.set(&state.db, "portal_plans", &serde_json::json!(plans)).await.is_ok();
+    ok &= state
+        .settings
+        .set(&state.db, "portal_default_plan", &serde_json::json!(default_plan))
+        .await
+        .is_ok();
+
+    // Private site. Turning it on with no code yet generates one, the way
+    // Ghost does — a private site with an empty code would be one nobody,
+    // including its owner, could get into.
+    let private = get("is_private") == "true";
+    ok &= state.settings.set(&state.db, "is_private", &serde_json::Value::Bool(private)).await.is_ok();
+    if private {
+        // "Regenerate" wins over whatever is in the box: the button means
+        // "give me a new one", so a stale typed value must not override it.
+        let regenerate = get("regenerate_code") == "1";
+        let typed = get("password");
+        let code = if regenerate {
+            generate_access_code()
+        } else {
+            match typed.trim() {
+                "" => state
+                    .settings
+                    .get_str("password")
+                    .filter(|c| !c.trim().is_empty())
+                    .unwrap_or_else(generate_access_code),
+                t => t.to_string(),
+            }
+        };
+        ok &= state.settings.set(&state.db, "password", &serde_json::json!(code)).await.is_ok();
+    }
+
+    // Spam filters. Stored as a JSON array, so the textarea is parsed rather
+    // than saved verbatim.
+    let domains = ghost_db::settings_cache::parse_blocked_email_domains(&get("blocked_email_domains"));
+    ok &= state
+        .settings
+        .set(&state.db, "blocked_email_domains", &serde_json::json!(domains))
+        .await
+        .is_ok();
+
+    // Tips & donations. Only written when the section was on screen — it is
+    // hidden until Stripe is connected, and a hidden form posts nothing, which
+    // would otherwise read back as "clear the amount".
+    if form.contains_key("donations_currency") {
+        let currency = one_of(
+            get("donations_currency"),
+            &CURRENCIES.iter().map(|(c, _)| *c).collect::<Vec<_>>(),
+            "USD".into(),
+        );
+        // Shown in the major unit, stored in the minor one, and capped where
+        // Stripe caps a preset amount.
+        let amount = get("donations_suggested_amount").trim().parse::<i64>().unwrap_or(0);
+        let cents = amount.clamp(0, 10_000) * 100;
+        ok &= state.settings.set(&state.db, "donations_currency", &serde_json::json!(currency)).await.is_ok();
+        ok &= state
+            .settings
+            .set(&state.db, "donations_suggested_amount", &serde_json::json!(cents))
+            .await
+            .is_ok();
     }
 
     // the primary newsletter's editable fields
@@ -9528,6 +10348,146 @@ async fn membership_save(State(state): State<AppState>, headers: HeaderMap, Form
         settings_flash("membership", "ok", "Membership settings saved.")
     } else {
         settings_flash("membership", "error", "Saving failed — check the logs.")
+    }
+}
+
+// --- custom fields (Ghost's member metafields) ------------------------------
+
+#[derive(Debug, Deserialize, Default)]
+#[serde(default)]
+struct MetafieldNewForm {
+    name: String,
+    #[serde(rename = "type")]
+    field_type: String,
+    member_access: String,
+}
+
+async fn metafield_new(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Form(form): Form<MetafieldNewForm>,
+) -> Response {
+    if let Err(r) = require_role(&state, &headers, Role::Administrator).await {
+        return r;
+    }
+    let name = form.name.trim().to_string();
+    if name.is_empty() {
+        return settings_flash("membership", "error", "A custom field needs a name.");
+    }
+    // The key is minted from the name and then frozen: values are stored
+    // against it, so it cannot follow a later rename.
+    let key = ghost_core::metafields::key_from_name(&name);
+    if !ghost_core::metafields::is_valid_key(&key) {
+        return settings_flash(
+            "membership",
+            "error",
+            "That name has no letters or digits to build a key from.",
+        );
+    }
+    if !ghost_core::metafields::is_known_type(&form.field_type) {
+        return settings_flash("membership", "error", "Choose a field type.");
+    }
+    let access = if ghost_core::metafields::is_member_access(&form.member_access) {
+        form.member_access.as_str()
+    } else {
+        "none"
+    };
+    match repos::metafields::definition_conflict(&state.db, &key, &name, None).await {
+        Ok(Some("key")) => {
+            return settings_flash(
+                "membership",
+                "error",
+                &format!("Another field already uses the key “{key}” — pick a different name."),
+            )
+        }
+        Ok(Some(_)) => {
+            return settings_flash("membership", "error", "Another field already has that name.")
+        }
+        Err(e) => return settings_flash("membership", "error", &e.message()),
+        Ok(None) => {}
+    }
+    match repos::metafields::create_definition(&state.db, &key, &name, &form.field_type, access)
+        .await
+    {
+        Ok(f) => settings_flash("membership", "ok", &format!("Added “{}”.", f.name)),
+        Err(e) => settings_flash("membership", "error", &e.message()),
+    }
+}
+
+#[derive(Debug, Deserialize, Default)]
+#[serde(default)]
+struct MetafieldSaveForm {
+    name: String,
+    member_access: String,
+    status: String,
+}
+
+async fn metafield_save(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+    Form(form): Form<MetafieldSaveForm>,
+) -> Response {
+    if let Err(r) = require_role(&state, &headers, Role::Administrator).await {
+        return r;
+    }
+    let Ok(Some(_)) = repos::metafields::find_definition(&state.db, &id).await else {
+        return settings_flash("membership", "error", "That custom field no longer exists.");
+    };
+    let name = form.name.trim().to_string();
+    if name.is_empty() {
+        return settings_flash("membership", "error", "A custom field needs a name.");
+    }
+    if let Ok(Some(_)) =
+        repos::metafields::definition_conflict(&state.db, "", &name, Some(&id)).await
+    {
+        return settings_flash("membership", "error", "Another field already has that name.");
+    }
+    let access = if ghost_core::metafields::is_member_access(&form.member_access) {
+        form.member_access.as_str()
+    } else {
+        "none"
+    };
+    let status = if form.status == "archived" { "archived" } else { "active" };
+    match repos::metafields::update_definition(&state.db, &id, &name, access, status).await {
+        Ok(f) => settings_flash("membership", "ok", &format!("Saved “{}”.", f.name)),
+        Err(e) => settings_flash("membership", "error", &e.message()),
+    }
+}
+
+async fn metafield_delete(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+) -> Response {
+    if let Err(r) = require_role(&state, &headers, Role::Administrator).await {
+        return r;
+    }
+    match repos::metafields::delete_definition(&state.db, &id).await {
+        // The values cascade with it, which the confirmation said.
+        Ok(()) => settings_flash("membership", "ok", "Custom field deleted."),
+        Err(e) => settings_flash("membership", "error", &e.message()),
+    }
+}
+
+#[derive(Debug, Deserialize, Default)]
+#[serde(default)]
+struct MetafieldMoveForm {
+    dir: String,
+}
+
+async fn metafield_move(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+    Form(form): Form<MetafieldMoveForm>,
+) -> Response {
+    if let Err(r) = require_role(&state, &headers, Role::Administrator).await {
+        return r;
+    }
+    match repos::metafields::reorder_definition(&state.db, &id, form.dir == "up").await {
+        Ok(()) => settings_flash("membership", "ok", "Order saved."),
+        Err(e) => settings_flash("membership", "error", &e.message()),
     }
 }
 
@@ -9560,6 +10520,49 @@ async fn growth_page(State(state): State<AppState>, headers: HeaderMap, Query(q)
         }
     }
     let origin = state.site_url();
+
+    // --- offers: Ghost only shows these once Stripe is connected, since an
+    // offer is a discount on a paid tier and nothing else ---------------------
+    let offers_card = if ghost_stripe::StripeConfig::from_settings(&state.settings).is_some() {
+        let offers = repos::offers::list(&state.db).await.unwrap_or_default();
+        let mut rows = String::new();
+        for o in &offers {
+            let redemptions = repos::offers::redemption_count(&state.db, &o.id).await;
+            rows.push_str(&format!(
+                r#"<a class="row" href="/ghost/settings/growth/offers/{id}/"><span class="ic tint-green">{tag}</span>
+<div class="body"><span class="title">{name}</span><span class="detail">{summary} · code <code>{code}</code> · {redemptions} redemption{plural}</span></div>
+<div class="trailing">{archived}{chev}</div></a>"#,
+                id = esc(&o.id),
+                tag = svg("tags"),
+                name = esc(&o.name),
+                summary = esc(&o.summary()),
+                code = esc(&o.code),
+                redemptions = redemptions,
+                plural = if redemptions == 1 { "" } else { "s" },
+                archived = if o.active {
+                    String::new()
+                } else {
+                    r#"<span class="chip draft">archived</span>"#.to_string()
+                },
+                chev = svg("chevron"),
+            ));
+        }
+        if rows.is_empty() {
+            rows = r#"<div class="row"><div class="body"><span class="muted">No offers yet — add one to give readers a discount link.</span></div></div>"#.into();
+        }
+        format!(
+            r#"<div class="section">Offers</div>
+<div class="card rows rise" style="--i:3">{rows}</div>
+<div style="padding:2px 4px 8px"><form method="post" action="/ghost/settings/growth/offers/new/">
+<button class="btn tonal small" type="submit">{add} Add offer</button></form></div>
+<p class="muted" style="margin:4px 0 0 16px">An offer is a discount on one paid tier, redeemed through a link you share. Archiving one stops new redemptions; members already on it keep their price.</p>"#,
+            rows = rows,
+            add = svg("add"),
+        )
+    } else {
+        String::new()
+    };
+
     let group = SETTINGS_GROUPS.iter().find(|g| g.slug == "growth").unwrap();
     page_for_role(actor_role, 
         "Growth",
@@ -9583,12 +10586,14 @@ async fn growth_page(State(state): State<AppState>, headers: HeaderMap, Query(q)
 <button type="button" data-copy="{snippet_escaped}" title="Copy" aria-label="Copy snippet">{copy}</button></div>
 <p class="muted" style="margin:12px 0 0">The hosted widget script is part of Ghost(Pro)'s CDN; the snippet above follows the same shape with your site URL.</p>
 </div>
+{offers_card}
 <div class="section">Coming later</div>
 <div class="card rows rise" style="--i:4">
 {network}{explore}
 </div>"#,
             head = group_head(group, Some("growth-form")),
             banner = flash_banner(&q),
+            offers_card = offers_card,
             heart = svg("star"),
             rec_ck = if state.settings.get_bool("recommendations_enabled") { "checked" } else { "" },
             rec_rows = rec_rows,
@@ -9614,6 +10619,441 @@ async fn growth_save(State(state): State<AppState>, headers: HeaderMap, Form(for
     }
 }
 
+// --- offers -----------------------------------------------------------------
+
+fn offer_flash(id: &str, kind: &str, message: &str) -> Response {
+    let encoded: String =
+        form_urlencoded::Serializer::new(String::new()).append_pair(kind, message).finish();
+    Redirect::to(&format!("/ghost/settings/growth/offers/{id}/?{encoded}")).into_response()
+}
+
+/// Ghost's own slugification of an offer code: lower case, spaces to dashes,
+/// nothing else — the code ends up in a URL.
+fn offer_code(raw: &str) -> String {
+    ghost_core::slug::safe_string(raw)
+}
+
+/// Create a blank offer and open it, the way "Add tier" works.
+///
+/// A new offer starts archived so a half-filled code is never live, and
+/// carries no Stripe coupon until its terms are saved.
+async fn offer_new(State(state): State<AppState>, headers: HeaderMap) -> Response {
+    if let Err(r) = require_role(&state, &headers, Role::Administrator).await {
+        return r;
+    }
+    // An offer discounts a tier, so there has to be a paid one to discount.
+    let tier: Option<String> = sqlx::query_scalar(
+        "SELECT id FROM products WHERE type = 'paid' AND active = 1 ORDER BY created_at LIMIT 1",
+    )
+    .fetch_optional(&state.db)
+    .await
+    .ok()
+    .flatten();
+    let Some(tier) = tier else {
+        return settings_flash(
+            "growth",
+            "error",
+            "Add a paid tier first — an offer is a discount on one.",
+        );
+    };
+
+    // Unique by construction: the name and code both carry a short suffix, so
+    // adding several in a row never collides.
+    let suffix = ghost_core::ids::random_below(100_000);
+    let input = repos::offers::OfferInput {
+        name: format!("New offer {suffix}"),
+        code: format!("offer-{suffix}"),
+        product_id: tier,
+        interval: "month".into(),
+        discount_type: "percent".into(),
+        discount_amount: 10,
+        duration: "once".into(),
+        duration_in_months: None,
+        currency: None,
+        portal_title: "Special offer".into(),
+        portal_description: String::new(),
+        stripe_coupon_id: None,
+        active: false,
+    };
+    match repos::offers::create(&state.db, &input).await {
+        Ok(o) => Redirect::to(&format!("/ghost/settings/growth/offers/{}/", o.id)).into_response(),
+        Err(e) => settings_flash("growth", "error", &e.message()),
+    }
+}
+
+async fn offer_edit_page(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+    Query(q): Query<HashMap<String, String>>,
+) -> Response {
+    let (user, actor_role) = match require_role(&state, &headers, Role::Administrator).await {
+        Ok(a) => (a.user, a.role),
+        Err(r) => return r,
+    };
+    let Ok(Some(offer)) = repos::offers::find_by_id(&state.db, &id).await else {
+        return not_found_page(&user, "That offer could not be found.");
+    };
+    let redemptions = repos::offers::redemption_count(&state.db, &id).await;
+    // Terms are frozen once anyone has redeemed: the discount lives in a
+    // Stripe coupon their subscription already carries, so changing it here
+    // would describe something different from what they are being charged.
+    let locked = redemptions > 0;
+
+    let tiers: Vec<(String, String)> = sqlx::query_as::<_, (String, String)>(
+        "SELECT id, name FROM products WHERE type = 'paid' ORDER BY created_at",
+    )
+    .fetch_all(&state.db)
+    .await
+    .unwrap_or_default();
+    let tier_opts: String = tiers
+        .iter()
+        .map(|(tid, name)| {
+            format!(
+                r#"<option value="{v}"{sel}>{n}</option>"#,
+                v = esc(tid),
+                n = esc(name),
+                sel = if *tid == offer.product_id { " selected" } else { "" },
+            )
+        })
+        .collect();
+
+    let site_url = state.site_url();
+    let share = format!("{}/{}", site_url.trim_end_matches('/'), offer.code);
+
+    let dis = if locked { " disabled" } else { "" };
+    let group = SETTINGS_GROUPS.iter().find(|g| g.slug == "growth").unwrap();
+    let _ = group;
+
+    page_for_role(actor_role,
+        "Offer",
+        "settings",
+        Some(&user),
+        &format!(
+            r#"<header class="page-head rise"><a class="icon-btn" style="transform:rotate(180deg)" href="/ghost/settings/growth/" title="Back to growth">{back}</a>
+<div><h1>{name}</h1><p class="sub">{summary} · {status}</p></div>
+<div class="actions"><button class="btn" type="submit" form="offer-form">{check} Save</button></div></header>
+{banner}
+<form method="post" action="/ghost/settings/growth/offers/{id}/" id="offer-form">
+<div class="section">Details</div>
+<div class="card rows rise" style="--i:1">
+<div class="row" style="align-items:flex-start"><span class="ic tint-green">{tag}</span>
+<div class="body" style="width:100%"><div class="grid2" style="gap:12px">
+<label class="field" style="margin:0"><input name="name" value="{name_v}" placeholder=" " maxlength="191" required><span>Internal name · only you see this</span></label>
+<label class="field" style="margin:0"><input name="code" value="{code}" placeholder=" " maxlength="191" required><span>Code · the end of the share link</span></label>
+</div>
+<p class="muted" style="margin:10px 0 0">Share link: <a href="{share}" target="_blank" rel="noopener">{share}</a></p>
+</div></div>
+<div class="row" style="align-items:flex-start"><span class="ic tint-green">{notes}</span>
+<div class="body" style="width:100%">
+<label class="field" style="margin:0"><input name="portal_title" value="{portal_title}" placeholder=" " maxlength="191"><span>Display title · shown in the portal</span></label>
+<label class="field" style="margin:12px 0 0"><textarea name="portal_description" rows="2" placeholder=" " maxlength="2000">{portal_description}</textarea><span>Display description</span></label>
+</div></div>
+</div>
+<div class="section">Discount</div>
+<div class="card rows rise" style="--i:2">
+<div class="row" style="align-items:flex-start"><span class="ic tint-green">{coin}</span>
+<div class="body" style="width:100%"><div class="grid2" style="gap:12px">
+<label class="field fixed" style="margin:0"><select name="product_id"{dis}>{tier_opts}</select><span>Tier</span>{car}</label>
+<label class="field fixed" style="margin:0"><select name="interval"{dis}>{cadence_opts}</select><span>Cadence</span>{car}</label>
+<label class="field fixed" style="margin:0"><select name="discount_type"{dis}>{type_opts}</select><span>Type</span>{car}</label>
+<label class="field" style="margin:0"><input name="discount_amount" type="number" min="1" step="1" value="{amount}" placeholder=" "{dis}><span>{amount_label}</span></label>
+<label class="field fixed" style="margin:0"><select name="duration"{dis}>{duration_opts}</select><span>Duration</span>{car}</label>
+<label class="field" style="margin:0"><input name="duration_in_months" type="number" min="1" step="1" value="{months}" placeholder=" "{dis}><span>Months · repeating only</span></label>
+</div>
+<p class="muted" style="margin:10px 0 0">{terms_note}</p>
+</div></div>
+</div>
+</form>
+<div class="section">Status</div>
+<div class="card rows rise" style="--i:3">
+<div class="row"><span class="ic tint-amber">{flag}</span>
+<div class="body"><span class="title">{status_title}</span><span class="detail">{status_detail}</span></div>
+<div class="trailing"><form method="post" action="/ghost/settings/growth/offers/{id}/status/">
+<input type="hidden" name="active" value="{next}">
+<button class="btn tonal small" type="submit">{status_btn}</button></form></div></div>
+<div class="row"><span class="ic tint-slate">{people}</span>
+<div class="body"><span class="title">Redemptions</span><span class="detail">{redemptions} member{plural} signed up through this offer</span></div></div>
+</div>"#,
+            back = svg("chevron"),
+            check = svg("check"),
+            banner = flash_banner(&q),
+            id = esc(&id),
+            name = esc(&offer.name),
+            name_v = esc(&offer.name),
+            summary = esc(&offer.summary()),
+            status = offer.status(),
+            code = esc(&offer.code),
+            share = esc(&share),
+            tag = svg("tags"),
+            notes = svg("notes"),
+            coin = svg("ghost"),
+            flag = svg("flag"),
+            people = svg("members"),
+            car = SELECT_CARET,
+            dis = dis,
+            tier_opts = tier_opts,
+            cadence_opts = select_options(
+                &[("month", "Monthly"), ("year", "Yearly")],
+                offer.interval.as_deref().unwrap_or("month"),
+            ),
+            type_opts = select_options(
+                &[("percent", "Percentage off"), ("fixed", "Amount off"), ("trial", "Free trial")],
+                offer.discount_type.as_deref().unwrap_or("percent"),
+            ),
+            amount = offer.discount_amount.unwrap_or(0),
+            amount_label = match offer.discount_type.as_deref() {
+                Some("trial") => "Trial days",
+                Some("fixed") => "Amount off · in cents",
+                _ => "Percent off · 1-100",
+            },
+            duration_opts = select_options(
+                &[("once", "Once"), ("repeating", "Repeating"), ("forever", "Forever")],
+                offer.duration.as_deref().unwrap_or("once"),
+            ),
+            months = offer.duration_in_months.map(|m| m.to_string()).unwrap_or_default(),
+            portal_title = esc(offer.portal_title.as_deref().unwrap_or("")),
+            portal_description = esc(offer.portal_description.as_deref().unwrap_or("")),
+            terms_note = if locked {
+                "Someone has already redeemed this offer, so its terms are fixed — their subscription is priced by the Stripe coupon behind it. Create a new offer to change the discount."
+            } else {
+                "A free trial ignores the duration. Saving mints a fresh Stripe coupon for these terms."
+            },
+            status_title = if offer.active { "Active" } else { "Archived" },
+            status_detail = if offer.active {
+                "The share link works and new members can redeem it."
+            } else {
+                "The share link no longer redeems. Members already on it keep their price."
+            },
+            next = if offer.active { "0" } else { "1" },
+            status_btn = if offer.active { "Archive" } else { "Activate" },
+            redemptions = redemptions,
+            plural = if redemptions == 1 { "" } else { "s" },
+        ),
+        true,
+    )
+    .into_response()
+}
+
+#[derive(Debug, Deserialize, Default)]
+#[serde(default)]
+struct OfferForm {
+    name: String,
+    code: String,
+    product_id: String,
+    interval: String,
+    discount_type: String,
+    discount_amount: String,
+    duration: String,
+    duration_in_months: String,
+    portal_title: String,
+    portal_description: String,
+}
+
+async fn offer_save(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+    Form(form): Form<OfferForm>,
+) -> Response {
+    let user = match require_role(&state, &headers, Role::Administrator).await {
+        Ok(a) => a.user,
+        Err(r) => return r,
+    };
+    let Ok(Some(existing)) = repos::offers::find_by_id(&state.db, &id).await else {
+        return not_found_page(&user, "That offer could not be found.");
+    };
+
+    let name = form.name.trim().to_string();
+    if name.is_empty() {
+        return offer_flash(&id, "error", "An offer needs a name.");
+    }
+    let code = offer_code(&form.code);
+    if code.is_empty() {
+        return offer_flash(&id, "error", "An offer needs a code — it becomes the share link.");
+    }
+    // Both are unique in Ghost, and the code is a public URL, so a clash is
+    // reported rather than left to the database constraint.
+    match repos::offers::conflict(&state.db, &name, &code, Some(&id)).await {
+        Ok(Some("name")) => return offer_flash(&id, "error", "Another offer already uses that name."),
+        Ok(Some(_)) => return offer_flash(&id, "error", "Another offer already uses that code."),
+        Err(e) => return offer_flash(&id, "error", &e.message()),
+        Ok(None) => {}
+    }
+
+    let locked = repos::offers::redemption_count(&state.db, &id).await > 0;
+    let mut input = repos::offers::OfferInput {
+        name,
+        code,
+        portal_title: form.portal_title.trim().to_string(),
+        portal_description: form.portal_description.trim().to_string(),
+        active: existing.active,
+        // Carried over; only replaced below when a new coupon is minted.
+        stripe_coupon_id: None,
+        product_id: existing.product_id.clone(),
+        interval: existing.interval.clone().unwrap_or_else(|| "month".into()),
+        discount_type: existing.discount_type.clone().unwrap_or_else(|| "percent".into()),
+        discount_amount: existing.discount_amount.unwrap_or(0),
+        duration: existing.duration.clone().unwrap_or_else(|| "once".into()),
+        duration_in_months: existing.duration_in_months,
+        currency: existing.currency.clone(),
+    };
+
+    if locked {
+        // Presentation only — the terms inputs were disabled on the page.
+        return match repos::offers::update(&state.db, &id, &input).await {
+            Ok(_) => offer_flash(&id, "ok", "Offer saved."),
+            Err(e) => offer_flash(&id, "error", &e.message()),
+        };
+    }
+
+    let one_of = |v: &str, allowed: &[&str], fallback: &str| {
+        if allowed.contains(&v) { v.to_string() } else { fallback.to_string() }
+    };
+    input.product_id = form.product_id.trim().to_string();
+    input.interval = one_of(form.interval.trim(), &["month", "year"], "month");
+    input.discount_type = one_of(form.discount_type.trim(), &["percent", "fixed", "trial"], "percent");
+    input.duration = one_of(form.duration.trim(), &["once", "repeating", "forever"], "once");
+    let amount: i64 = form.discount_amount.trim().parse().unwrap_or(0);
+    input.duration_in_months = form.duration_in_months.trim().parse::<i64>().ok().filter(|m| *m > 0);
+
+    // The tier has to exist and be paid — the select is built from that list,
+    // but the form is a POST like any other.
+    let tier: Option<(String, Option<String>)> = sqlx::query_as(
+        "SELECT id, currency FROM products WHERE id = ? AND type = 'paid' LIMIT 1",
+    )
+    .bind(&input.product_id)
+    .fetch_optional(&state.db)
+    .await
+    .ok()
+    .flatten();
+    let Some((_, tier_currency)) = tier else {
+        return offer_flash(&id, "error", "Choose a paid tier for this offer.");
+    };
+
+    match input.discount_type.as_str() {
+        "percent" if !(1..=100).contains(&amount) => {
+            return offer_flash(&id, "error", "A percentage discount must be between 1 and 100.")
+        }
+        "trial" if amount < 1 => {
+            return offer_flash(&id, "error", "A free trial needs at least one day.")
+        }
+        "fixed" if amount < 1 => {
+            return offer_flash(&id, "error", "An amount discount must be more than zero.")
+        }
+        _ => {}
+    }
+    if input.discount_type == "repeating" && input.duration_in_months.is_none() {
+        return offer_flash(&id, "error", "A repeating offer needs a number of months.");
+    }
+    input.discount_amount = amount;
+
+    // A trial is not a coupon at all: Stripe applies it as the subscription's
+    // trial period, so the duration is its own thing.
+    if input.discount_type == "trial" {
+        input.duration = "trial".into();
+        input.duration_in_months = None;
+        input.currency = None;
+    } else if input.discount_type == "fixed" {
+        // Stripe requires a currency on an amount-off coupon, and it has to be
+        // the one the tier charges in or the discount cannot apply.
+        input.currency = tier_currency.clone().or_else(|| Some("usd".into()));
+    } else {
+        input.currency = None;
+    }
+    if input.duration != "repeating" {
+        input.duration_in_months = None;
+    }
+
+    // Mint a coupon for the new terms. Stripe coupons cannot be edited, so a
+    // changed discount is always a new one; the old is left in place for the
+    // subscriptions already carrying it.
+    if input.discount_type != "trial" {
+        let Some(cfg) = ghost_stripe::StripeConfig::from_settings(&state.settings) else {
+            return offer_flash(&id, "error", "Connect Stripe before saving an offer's discount.");
+        };
+        let discount = if input.discount_type == "fixed" {
+            ghost_stripe::Discount::Fixed {
+                amount_cents: input.discount_amount,
+                currency: input.currency.as_deref().unwrap_or("usd"),
+            }
+        } else {
+            ghost_stripe::Discount::Percent(input.discount_amount)
+        };
+        match ghost_stripe::create_coupon(
+            &cfg,
+            &input.name,
+            discount,
+            &input.duration,
+            input.duration_in_months,
+        )
+        .await
+        {
+            Ok(coupon) => input.stripe_coupon_id = Some(coupon),
+            Err(e) => return offer_flash(&id, "error", &format!("Stripe: {}", e.message())),
+        }
+    }
+
+    // The terms live outside `update`, which only touches presentation, so
+    // they are written here in one statement alongside it.
+    let now = ghost_core::dates::now_db();
+    let wrote = sqlx::query(
+        "UPDATE offers SET product_id = ?, interval = ?, discount_type = ?, discount_amount = ?, \
+         duration = ?, duration_in_months = ?, currency = ?, updated_at = ? WHERE id = ?",
+    )
+    .bind(&input.product_id)
+    .bind(&input.interval)
+    .bind(&input.discount_type)
+    .bind(input.discount_amount)
+    .bind(&input.duration)
+    .bind(input.duration_in_months)
+    .bind(&input.currency)
+    .bind(&now)
+    .bind(&id)
+    .execute(&state.db)
+    .await
+    .is_ok();
+    if !wrote {
+        return offer_flash(&id, "error", "Saving the discount failed — check the logs.");
+    }
+    match repos::offers::update(&state.db, &id, &input).await {
+        Ok(_) => offer_flash(&id, "ok", "Offer saved."),
+        Err(e) => offer_flash(&id, "error", &e.message()),
+    }
+}
+
+#[derive(Debug, Deserialize, Default)]
+#[serde(default)]
+struct OfferStatusForm {
+    active: String,
+}
+
+async fn offer_set_status(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+    Form(form): Form<OfferStatusForm>,
+) -> Response {
+    let user = match require_role(&state, &headers, Role::Administrator).await {
+        Ok(a) => a.user,
+        Err(r) => return r,
+    };
+    let Ok(Some(offer)) = repos::offers::find_by_id(&state.db, &id).await else {
+        return not_found_page(&user, "That offer could not be found.");
+    };
+    let active = form.active == "1";
+    // An offer with no coupon has never had its terms saved, so there is
+    // nothing for a redeemer to actually get.
+    if active && offer.discount_type.as_deref() != Some("trial") && offer.stripe_coupon_id.is_none()
+    {
+        return offer_flash(&id, "error", "Save the discount first — this offer has no Stripe coupon yet.");
+    }
+    match repos::offers::set_active(&state.db, &id, active).await {
+        Ok(()) => offer_flash(&id, "ok", if active { "Offer activated." } else { "Offer archived." }),
+        Err(e) => offer_flash(&id, "error", &e.message()),
+    }
+}
+
 // --- advanced: integrations (existing page), import/export, code injection, labs ---
 
 async fn advanced_page(State(state): State<AppState>, headers: HeaderMap, Query(q): Query<HashMap<String, String>>) -> Response {
@@ -9622,8 +11062,57 @@ async fn advanced_page(State(state): State<AppState>, headers: HeaderMap, Query(
         Err(r) => return r,
     };
     let s = |k: &str| esc(&state.settings.get_str(k).unwrap_or_default());
+
+    // --- feature flags ------------------------------------------------------
+    //
+    // Every switch writes one key on the `labs` settings object, which is how
+    // Ghost stores them too — so a flag set here is the same flag Ghost would
+    // have set, and reaches a theme as `{{#if labs.<flag>}}`.
+    let flags = labs_flags(&state);
+    let flag_rows = |set: &[(&str, &str, &str)]| -> String {
+        set.iter()
+            .map(|(key, title, detail)| {
+                format!(
+                    r#"<div class="row toggle-row"><span class="ic tint-red">{ic}</span>
+<div class="label"><b>{title}</b><span>{detail}</span></div>
+<input type="hidden" name="shown" value="{key}">
+<label class="switch"><input type="checkbox" name="{key}" value="1"{on} form="labs-form"><span class="track"><span class="thumb"></span></span></label></div>"#,
+                    ic = svg("star"),
+                    key = esc(key),
+                    title = esc(title),
+                    detail = esc(detail),
+                    on = if labs_flag_on(&flags, key) { " checked" } else { "" },
+                )
+            })
+            .collect()
+    };
+    let beta_rows = flag_rows(BETA_FLAGS);
+
+    // Said plainly, once: a switch here sets the same flag Ghost would set,
+    // and your theme can read it — but none of this port's own features are
+    // gated on one yet, so turning a flag on will not by itself change how
+    // the admin or the site behaves. Better stated than implied.
+    let honoured_note = "Each switch sets the flag Ghost stores under the same name, and your theme can read any of \
+         them as <code>{{#if labs.flagName}}</code>. None of this port's own features are gated on a \
+         flag yet, so turning one on changes what your theme sees rather than how the admin behaves.";
+
+    // Ghost keeps these behind `enableDeveloperExperiments`; the equivalent
+    // here is running in development, so a production site is not offered
+    // switches whose features are unfinished by Ghost's own account.
+    let private_section = if state.config.env == "development" {
+        format!(
+            r#"<div class="section">Private features</div>
+<div class="card rows rise" style="--i:6">{rows}</div>
+<p class="muted" style="margin:10px 2px 0">Ghost hides these unless developer experiments are switched on, and shows them here
+because this site is running in development.</p>"#,
+            rows = flag_rows(PRIVATE_FLAGS),
+        )
+    } else {
+        String::new()
+    };
+
     let group = SETTINGS_GROUPS.iter().find(|g| g.slug == "advanced").unwrap();
-    page_for_role(actor_role, 
+    page_for_role(actor_role,
         "Advanced",
         "settings",
         Some(&user),
@@ -9657,13 +11146,8 @@ async fn advanced_page(State(state): State<AppState>, headers: HeaderMap, Query(
 <label class="field" style="margin:0"><textarea name="codeinjection_foot" class="code" rows="5" placeholder=" ">{cif}</textarea><span>Foot · injected before &lt;/body&gt;</span></label>
 </form></div></div>
 </div>
-<div class="section">Labs</div>
+<div class="section">Redirects &amp; routes</div>
 <div class="card rows rise" style="--i:4">
-<div class="row" style="align-items:flex-start"><span class="ic tint-red">{labs_ic}</span>
-<div class="body" style="width:100%"><span class="title" style="display:block;margin-bottom:8px">Experiments &amp; flags</span>
-<label class="field" style="margin:0"><textarea name="labs" class="code" rows="4" placeholder=" " form="labs-form">{labs}</textarea><span>Labs flags · JSON object</span></label>
-<form method="post" action="/ghost/settings/advanced/labs/" id="labs-form"></form>
-<p class="muted" style="margin:8px 0 0">Ghost stores labs flags as a JSON object, e.g. <code>{{"flags":{{}}}}</code>. Invalid JSON is rejected.</p></div></div>
 <div class="row" style="align-items:flex-start"><span class="ic tint-red">{redirects_ic}</span>
 <div class="body" style="width:100%"><span class="title" style="display:block;margin-bottom:8px">Redirects</span>
 <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap">
@@ -9680,7 +11164,14 @@ async fn advanced_page(State(state): State<AppState>, headers: HeaderMap, Query(
 <input type="file" name="file" accept=".yaml,.yml" required class="filefield">
 <button class="btn tonal small" type="submit">Upload routes</button></form></div>
 <p class="muted" style="margin:10px 0 0">routes.yaml defines the site's URL structure — collections, channels and custom templates. Uploading rebuilds routing and the active theme immediately.</p></div></div>
-</div>"#,
+</div>
+<div class="section">Beta features</div>
+<form method="post" action="/ghost/settings/advanced/labs/" id="labs-form">
+<div class="card rows rise" style="--i:5">{beta_rows}</div>
+<p class="muted" style="margin:10px 2px 0">A testing ground for new or experimental features. They may change, break or
+inexplicably disappear at any time. {honoured}</p>
+{private_section}
+</form>"#,
             head = group_head(group, Some("advanced-form")),
             banner = flash_banner(&q),
             integrations = svg("integrations"),
@@ -9688,12 +11179,13 @@ async fn advanced_page(State(state): State<AppState>, headers: HeaderMap, Query(
             upload = svg("upload"),
             open = svg("open"),
             code = svg("code"),
-            labs_ic = svg("star"),
             redirects_ic = svg("link"),
             routes_ic = svg("layout"),
             cih = s("codeinjection_head"),
             cif = s("codeinjection_foot"),
-            labs = s("labs"),
+            beta_rows = beta_rows,
+            honoured = honoured_note,
+            private_section = private_section,
         ),
         true,
     )
@@ -9717,17 +11209,40 @@ async fn advanced_save(State(state): State<AppState>, headers: HeaderMap, Form(f
 }
 
 /// Save the labs flags — must parse as a JSON object (Ghost's shape).
-async fn labs_save(State(state): State<AppState>, headers: HeaderMap, Form(form): Form<HashMap<String, String>>) -> Response {
+/// Save the feature flags.
+///
+/// Unchecked switches post nothing, so each rendered row carries a `shown`
+/// marker and only those are rewritten — a flag whose row was not on the page
+/// (the private ones outside development) keeps whatever it held, and a flag
+/// set by a newer Ghost that this build has no row for survives untouched.
+async fn labs_save(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Form(form): Form<Vec<(String, String)>>,
+) -> Response {
     if let Err(r) = require_role(&state, &headers, Role::Administrator).await {
         return r;
     }
-    let raw = form.get("labs").cloned().unwrap_or_default();
-    match serde_json::from_str::<serde_json::Value>(&raw) {
-        Ok(v @ serde_json::Value::Object(_)) => match state.settings.set(&state.db, "labs", &v).await {
-            Ok(()) => settings_flash("advanced", "ok", "Labs flags saved."),
-            Err(e) => settings_flash("advanced", "error", &e.message()),
-        },
-        _ => settings_flash("advanced", "error", "Labs flags must be a JSON object."),
+    let shown: Vec<&str> =
+        form.iter().filter(|(k, _)| k == "shown").map(|(_, v)| v.as_str()).collect();
+    let mut flags = labs_flags(&state);
+    for key in shown {
+        let on = form.iter().any(|(k, v)| k == key && v == "1");
+        // A flag that is off is removed rather than stored as `false`, which
+        // is the shape Ghost's own object takes.
+        if on {
+            flags.insert(key.to_string(), serde_json::Value::Bool(true));
+        } else {
+            flags.remove(key);
+        }
+    }
+    match state
+        .settings
+        .set(&state.db, "labs", &serde_json::Value::Object(flags))
+        .await
+    {
+        Ok(()) => settings_flash("advanced", "ok", "Feature flags saved."),
+        Err(e) => settings_flash("advanced", "error", &e.message()),
     }
 }
 
@@ -9779,7 +11294,7 @@ fn build_ghost_export(posts: &[ghost_core::models::Post], tags: &[ghost_core::mo
                     .duration_since(std::time::UNIX_EPOCH)
                     .map(|d| d.as_millis() as u64)
                     .unwrap_or(0),
-                "version": "5.98.0",
+                "version": GHOST_VERSION,
             },
             "data": {
                 "posts": post_rows,
@@ -10227,16 +11742,31 @@ async fn danger_page(State(state): State<AppState>, headers: HeaderMap, Query(q)
 <div class="trailing">
 <form method="post" action="/ghost/settings/danger/content/" data-confirm="Delete all content|Every post, page and tag will be permanently deleted. This cannot be undone.">
 <button class="btn text danger" type="submit">Delete…</button></form></div></div>
+<div class="row"><span class="ic tint-red">{lock}</span>
+<div class="body"><span class="title">Reset all authentication</span><span class="detail">Sign every staff member and member out everywhere, and invalidate every outstanding magic link. Nobody loses their account.</span></div>
+<div class="trailing">
+<form method="post" action="/ghost/settings/danger/auth/" data-confirm="Reset all authentication|Everyone — staff and members — will be signed out on every device, and any magic links already emailed will stop working. You will be signed out too.">
+<button class="btn text danger" type="submit">Reset…</button></form></div></div>
+<div class="row"><span class="ic tint-red">{gift}</span>
+<div class="body"><span class="title">Reset all gift links</span><span class="detail">Invalidate every gift subscription link that has been shared but not yet redeemed.</span></div>
+<div class="trailing">
+<form method="post" action="/ghost/settings/danger/gifts/" data-confirm="Reset all gift links|Every unredeemed gift link stops working. Gifts already redeemed are unaffected.">
+<button class="btn text danger" type="submit">Reset…</button></form></div></div>
 <div class="row"><span class="ic tint-red">{ghost}</span>
 <div class="body"><span class="title">Delete site</span><span class="detail">Wipe everything — content, users, members and integrations — and restart at the setup screen. Settings return to their defaults.</span></div>
 <div class="trailing">
 <form method="post" action="/ghost/settings/danger/site/" data-confirm="Delete this site|ALL content, users and integrations will be permanently deleted and you will be signed out. This cannot be undone.">
 <button class="btn text danger" type="submit">Delete…</button></form></div></div>
-</div>"#,
+</div>
+<p class="muted" style="margin:14px 0 0 16px">Ghost version {version} · {env} · SQLite · <a href="/ghost/settings/about/">About this site</a></p>"#,
             head = group_head(group, None),
             banner = flash_banner(&q),
             posts = svg("delete"),
+            lock = svg("lock"),
+            gift = svg("mail"),
             ghost = svg("ghost"),
+            version = GHOST_VERSION,
+            env = esc(&state.config.env),
         ),
         true,
     )
@@ -10262,6 +11792,112 @@ async fn danger_delete_site(State(state): State<AppState>, headers: HeaderMap) -
     state.refresh_setup_flag().await;
     // the session row is gone too — straight back to setup
     Redirect::to("/ghost/setup/").into_response()
+}
+
+/// Sign everyone out, everywhere.
+///
+/// Ghost's "Reset all authentication": staff sessions, member sessions and
+/// every unredeemed magic-link token go at once. Nobody loses their account —
+/// they sign in again. The caller is signed out too, which is the point: an
+/// operator reaching for this has lost track of who holds a session, and an
+/// exception for themselves would leave the one session they cannot vouch for.
+async fn danger_reset_auth(State(state): State<AppState>, headers: HeaderMap) -> Response {
+    if let Err(r) = require_role(&state, &headers, Role::Administrator).await {
+        return r;
+    }
+    let _ = sqlx::query("DELETE FROM sessions").execute(&state.db).await;
+    // Members authenticate by a signed `transient_id`, so rolling it is what
+    // actually ends their sessions — deleting rows would not.
+    let members: Vec<String> = sqlx::query_scalar("SELECT id FROM members")
+        .fetch_all(&state.db)
+        .await
+        .unwrap_or_default();
+    for id in members {
+        let _ = sqlx::query("UPDATE members SET transient_id = ? WHERE id = ?")
+            .bind(ghost_core::ids::uuid_v4())
+            .bind(&id)
+            .execute(&state.db)
+            .await;
+    }
+    // Outstanding magic links, including any already in someone's inbox.
+    let _ = sqlx::query("DELETE FROM tokens").execute(&state.db).await;
+
+    // No session of our own survives, so there is nowhere to flash to.
+    Redirect::to("/ghost/signin/?reset=1").into_response()
+}
+
+/// Invalidate every unredeemed gift link.
+///
+/// A gift link is a token like a magic link; redeemed gifts are subscriptions
+/// and are untouched.
+async fn danger_reset_gifts(State(state): State<AppState>, headers: HeaderMap) -> Response {
+    if let Err(r) = require_role(&state, &headers, Role::Administrator).await {
+        return r;
+    }
+    let removed = sqlx::query("DELETE FROM tokens WHERE data LIKE '%\"gift\"%'")
+        .execute(&state.db)
+        .await
+        .map(|r| r.rows_affected())
+        .unwrap_or(0);
+    settings_flash(
+        "danger",
+        "ok",
+        &match removed {
+            0 => "No unredeemed gift links to reset.".to_string(),
+            1 => "1 gift link reset.".to_string(),
+            n => format!("{n} gift links reset."),
+        },
+    )
+}
+
+/// Ghost's About dialog: what is running, and where.
+async fn about_page(State(state): State<AppState>, headers: HeaderMap) -> Response {
+    let (user, actor_role) = match require_role(&state, &headers, Role::Administrator).await {
+        Ok(a) => (a.user, a.role),
+        Err(r) => return r,
+    };
+    let db_path = state.config.database.connection.filename.clone();
+    let mail = match state.settings.get_str("mail_transport").as_deref() {
+        Some("smtp") => format!(
+            "SMTP · {}",
+            state.settings.get_str("mail_smtp_host").unwrap_or_else(|| "not configured".into())
+        ),
+        _ => "Direct".to_string(),
+    };
+    let row = |label: &str, value: &str| {
+        format!(
+            r#"<div class="row"><div class="body"><span class="title">{label}</span><span class="detail">{value}</span></div></div>"#,
+            label = esc(label),
+            value = esc(value),
+        )
+    };
+
+    page_for_role(actor_role,
+        "About",
+        "settings",
+        Some(&user),
+        &format!(
+            r#"<header class="page-head rise"><a class="icon-btn" style="transform:rotate(180deg)" href="/ghost/settings/" title="Back to settings">{back}</a>
+<div><h1>About</h1><p class="sub">What is running on this site</p></div></header>
+<div class="card rows rise" style="--i:1">
+{version_row}{port_row}{env_row}{db_row}{mail_row}{theme_row}
+</div>
+<p class="muted" style="margin:14px 0 0 16px">Ghost-rust is an independent reimplementation of Ghost in Rust. It tracks the Ghost
+release above for its admin, Content API and theme behaviour; it is not affiliated with the Ghost Foundation.</p>"#,
+            back = svg("chevron"),
+            version_row = row("Ghost version", GHOST_VERSION),
+            port_row = row("Ghost-rust", env!("CARGO_PKG_VERSION")),
+            env_row = row("Environment", &state.config.env),
+            db_row = row("Database", &format!("{} · {}", state.config.database.client, db_path)),
+            mail_row = row("Mail", &mail),
+            theme_row = row(
+                "Active theme",
+                &state.settings.get_str("active_theme").unwrap_or_else(|| "casper".into()),
+            ),
+        ),
+        true,
+    )
+    .into_response()
 }
 
 // ---------------------------------------------------------------------------
@@ -11656,8 +13292,9 @@ async fn profile_save(
         ..Default::default()
     };
     match repos::users::update(&state.db, &target.id, &changes).await {
-        // Renaming (or editing the slug) can move the user, so redirect to
-        // wherever they now live rather than to a URL that no longer resolves.
+        // Editing the slug moves the user, so redirect to wherever they now
+        // live rather than to a URL that no longer resolves. A rename alone
+        // leaves the slug (and this URL) as it was.
         Ok(updated) => profile_flash_tab(
             updated.slug.as_deref().unwrap_or(&slug),
             "profile",

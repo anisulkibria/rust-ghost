@@ -149,12 +149,22 @@ pub async fn render_template(
         }
     }
 
+    // `@labs`: the flags set in Settings → Advanced. Themes guard beta markup
+    // with `{{#if labs.someFlag}}`, so this has to be the stored object rather
+    // than an empty one, or every such guard silently fails closed.
+    let labs = match state.settings.get("labs") {
+        Some(v @ Value::Object(_)) => v,
+        // Rows written as a JSON *string* read the same as a real object.
+        Some(Value::String(s)) => serde_json::from_str(&s).unwrap_or_else(|_| serde_json::json!({})),
+        _ => serde_json::json!({}),
+    };
+
     let root = match &mut data {
         Value::Object(m) => {
             m.insert("site".into(), site);
             m.insert("config".into(), config);
             m.insert("member".into(), rctx.member.clone());
-            m.insert("labs".into(), serde_json::json!({}));
+            m.insert("labs".into(), labs.clone());
             m.insert("custom".into(), custom.clone());
             m.insert("context".into(), serde_json::json!(rctx.context));
             m.insert("relativeUrl".into(), Value::String(rctx.relative_url.clone()));
@@ -168,7 +178,7 @@ pub async fn render_template(
             m.insert("site".into(), site);
             m.insert("config".into(), config);
             m.insert("member".into(), rctx.member.clone());
-            m.insert("labs".into(), serde_json::json!({}));
+            m.insert("labs".into(), labs);
             m.insert("custom".into(), custom.clone());
             m.insert("context".into(), serde_json::json!(rctx.context));
             m.insert("relativeUrl".into(), Value::String(rctx.relative_url.clone()));

@@ -202,11 +202,13 @@ pub async fn update(pool: &SqlitePool, id: &str, changes: &UserChanges) -> Resul
     let now = dates::now_db();
     let name = changes.name.clone().unwrap_or(existing.name.clone().unwrap_or_default());
     let existing_slug = existing.slug.clone().unwrap_or_default();
+    // Ghost re-slugs only when the slug itself was edited, or when there is
+    // none yet to keep (`hasChanged('slug') || !get('slug')` in its user
+    // model). A rename leaves the slug alone: the author's public URL is a
+    // published address, and silently moving it would break every link to it.
     let slug_ = match changes.slug.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
         Some(s) if slug::safe_string(s) != existing_slug => unique_slug(pool, s, Some(id)).await?,
-        _ if name != existing.name.clone().unwrap_or_default() => {
-            unique_slug(pool, &name, Some(id)).await?
-        }
+        _ if existing_slug.is_empty() => unique_slug(pool, &name, Some(id)).await?,
         _ => existing_slug,
     };
     sqlx::query("UPDATE users SET name = ?, slug = ?, email = ?, password = ?, bio = ?, website = ?, location = ?, profile_image = ?, cover_image = ?, status = ?, meta_title = ?, meta_description = ?, twitter = ?, facebook = ?, threads = ?, bluesky = ?, mastodon = ?, tiktok = ?, youtube = ?, instagram = ?, linkedin = ?, comment_notifications = ?, free_member_signup_notification = ?, paid_subscription_started_notification = ?, paid_subscription_canceled_notification = ?, mention_notifications = ?, recommendation_notifications = ?, milestone_notifications = ?, donation_notifications = ?, gift_subscription_notifications = ?, updated_at = ? WHERE id = ?")
@@ -313,5 +315,102 @@ pub async fn verify_password(pool: &SqlitePool, email: &str, password: &str) -> 
         Ok(Some(user))
     } else {
         Ok(None)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A scratch directory that deletes itself when the test ends.
+    struct TempDir(std::path::PathBuf);
+
+    impl Drop for TempDir {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
+
+    /// A throwaway database with the real migrations applied.
+    async fn test_pool() -> (SqlitePool, TempDir) {
+        let dir = std::env::temp_dir().join(format!("ghost-users-test-{}", ids::new_id()));
+        let pool = crate::pool::connect(&dir.join("test.db")).await.expect("open test db");
+        (pool, TempDir(dir))
+    }
+
+    async fn a_user(pool: &SqlitePool) -> User {
+        insert_staff(pool, "Jo Bloggs", "jo@example.com", "hash", "Author").await.expect("insert")
+    }
+
+    /// Ghost re-slugs only on `hasChanged('slug')` — a rename must leave the
+    /// author's published URL where it is.
+    #[tokio::test]
+    async fn renaming_keeps_the_slug() {
+        let (pool, _dir) = test_pool().await;
+        let user = a_user(&pool).await;
+        assert_eq!(user.slug.as_deref(), Some("jo-bloggs"));
+
+        let changes = UserChanges { name: Some("Josephine Bloggs".into()), ..Default::default() };
+        let updated = update(&pool, &user.id, &changes).await.expect("update");
+        assert_eq!(updated.name.as_deref(), Some("Josephine Bloggs"));
+        assert_eq!(updated.slug.as_deref(), Some("jo-bloggs"));
+    }
+
+    /// The profile form always posts the slug field, so a rename arrives
+    /// alongside the *unchanged* slug — that must not count as an edit.
+    #[tokio::test]
+    async fn renaming_keeps_the_slug_when_the_form_echoes_it_back() {
+        let (pool, _dir) = test_pool().await;
+        let user = a_user(&pool).await;
+
+        let changes = UserChanges {
+            name: Some("Josephine Bloggs".into()),
+            slug: Some("jo-bloggs".into()),
+            ..Default::default()
+        };
+        let updated = update(&pool, &user.id, &changes).await.expect("update");
+        assert_eq!(updated.slug.as_deref(), Some("jo-bloggs"));
+    }
+
+    #[tokio::test]
+    async fn editing_the_slug_moves_the_user() {
+        let (pool, _dir) = test_pool().await;
+        let user = a_user(&pool).await;
+
+        let changes = UserChanges { slug: Some("Jo The Writer".into()), ..Default::default() };
+        let updated = update(&pool, &user.id, &changes).await.expect("update");
+        // slugified on the way in, the way Ghost's generateSlug does it
+        assert_eq!(updated.slug.as_deref(), Some("jo-the-writer"));
+    }
+
+    /// A slug already taken gets a suffix rather than colliding.
+    #[tokio::test]
+    async fn an_edited_slug_stays_unique() {
+        let (pool, _dir) = test_pool().await;
+        let taken = a_user(&pool).await;
+        let other = insert_staff(&pool, "Sam Reed", "sam@example.com", "hash", "Author")
+            .await
+            .expect("insert");
+
+        let changes = UserChanges { slug: taken.slug.clone(), ..Default::default() };
+        let updated = update(&pool, &other.id, &changes).await.expect("update");
+        assert_eq!(updated.slug.as_deref(), Some("jo-bloggs-2"));
+    }
+
+    /// Clearing the slug falls back to the name, matching Ghost's
+    /// `|| !this.get('slug')` arm.
+    #[tokio::test]
+    async fn an_empty_slug_is_regenerated_from_the_name() {
+        let (pool, _dir) = test_pool().await;
+        let user = a_user(&pool).await;
+        sqlx::query("UPDATE users SET slug = '' WHERE id = ?")
+            .bind(&user.id)
+            .execute(&pool)
+            .await
+            .expect("blank the slug");
+
+        let changes = UserChanges { name: Some("Josephine Bloggs".into()), ..Default::default() };
+        let updated = update(&pool, &user.id, &changes).await.expect("update");
+        assert_eq!(updated.slug.as_deref(), Some("josephine-bloggs"));
     }
 }

@@ -12,7 +12,9 @@ pub mod actions;
 pub mod automations;
 pub mod comments;
 pub mod integrations;
+pub mod metafields;
 pub mod newsletters;
+pub mod offers;
 
 use ghost_core::models::{Post, PostMeta, Tag, User};
 
