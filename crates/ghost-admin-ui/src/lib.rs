@@ -11940,20 +11940,95 @@ async fn routes_upload(State(state): State<AppState>, headers: HeaderMap, mut mu
 
 // --- history: the actions audit log ---
 
-async fn history_page(State(state): State<AppState>, headers: HeaderMap) -> Response {
+/// Which resource types each of Ghost's history filter groups covers. The
+/// port records a few names Ghost does not, so each group names its own.
+const HISTORY_RESOURCES: &[(&str, &str, &[&str])] = &[
+    ("post", "Posts", &["post"]),
+    ("page", "Pages", &["page"]),
+    ("tag", "Tags", &["tag"]),
+    ("tier", "Tiers & offers", &["tier", "product", "offer"]),
+    ("setting", "Settings & staff", &["user", "users", "setting", "settings", "integrations", "members", "db"]),
+];
+
+const HISTORY_EVENTS: &[(&str, &str)] =
+    &[("added", "Added"), ("edited", "Edited"), ("deleted", "Deleted"), ("published", "Published")];
+
+async fn history_page(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Query(q): Query<HashMap<String, String>>,
+) -> Response {
     let (user, actor_role) = match require_role(&state, &headers, Role::Administrator).await {
         Ok(a) => (a.user, a.role),
         Err(r) => return r,
     };
-    let mut rows = String::new();
-    if let Ok(events) = sqlx::query_as::<_, (String, String, Option<String>, Option<String>, String, String)>(
+    // Ghost's history filters are exclusions: everything shows until you
+    // untick something. A submitted form is marked, so a first load — where
+    // no box has been touched — is not read as "everything excluded".
+    let filtered = q.contains_key("f");
+    let shown_event = |v: &str| !filtered || q.contains_key(&format!("e_{v}"));
+    let shown_resource = |k: &str| !filtered || q.contains_key(&format!("r_{k}"));
+
+    let excluded_events: Vec<&str> =
+        HISTORY_EVENTS.iter().map(|(v, _)| *v).filter(|v| !shown_event(v)).collect();
+    // Expand the excluded groups to the resource names they actually cover.
+    let excluded_names: Vec<&str> = HISTORY_RESOURCES
+        .iter()
+        .filter(|(k, _, _)| !shown_resource(k))
+        .flat_map(|(_, _, names)| names.iter().copied())
+        .collect();
+
+    let mut sql = String::from(
         "SELECT a.event, a.resource_type, a.resource_id, a.context, a.created_at, COALESCE(u.name, 'System') \
-         FROM actions a LEFT JOIN users u ON u.id = a.actor_id \
-         ORDER BY a.created_at DESC LIMIT 100",
-    )
-    .fetch_all(&state.db)
-    .await
-    {
+         FROM actions a LEFT JOIN users u ON u.id = a.actor_id WHERE 1=1",
+    );
+    for _ in &excluded_events {
+        sql.push_str(" AND a.event != ?");
+    }
+    for _ in &excluded_names {
+        sql.push_str(" AND a.resource_type != ?");
+    }
+    sql.push_str(" ORDER BY a.created_at DESC LIMIT 100");
+
+    let mut query =
+        sqlx::query_as::<_, (String, String, Option<String>, Option<String>, String, String)>(&sql);
+    for e in &excluded_events {
+        query = query.bind(*e);
+    }
+    for r in &excluded_names {
+        query = query.bind(*r);
+    }
+
+    let chip = |name: String, label: &str, on: bool| {
+        format!(
+            r#"<label class="fchip"><input type="checkbox" name="{name}" value="1"{ck} onchange="this.form.submit()"><span class="ck">{check}</span>{label}</label>"#,
+            name = esc(&name),
+            label = esc(label),
+            ck = if on { " checked" } else { "" },
+            check = svg("check"),
+        )
+    };
+    let filter_bar = format!(
+        r#"<form method="get" action="/ghost/settings/history/" class="card padded rise" style="--i:1">
+<input type="hidden" name="f" value="1">
+<span class="detail" style="display:block;margin-bottom:8px">Event</span>
+<div class="chips">{events}</div>
+<span class="detail" style="display:block;margin:14px 0 8px">Resource</span>
+<div class="chips">{resources}</div>
+<noscript><div style="margin-top:12px"><button class="btn tonal small" type="submit">Apply</button></div></noscript>
+</form>"#,
+        events = HISTORY_EVENTS
+            .iter()
+            .map(|(v, l)| chip(format!("e_{v}"), l, shown_event(v)))
+            .collect::<String>(),
+        resources = HISTORY_RESOURCES
+            .iter()
+            .map(|(k, l, _)| chip(format!("r_{k}"), l, shown_resource(k)))
+            .collect::<String>(),
+    );
+
+    let mut rows = String::new();
+    if let Ok(events) = query.fetch_all(&state.db).await {
         if events.is_empty() {
             rows = r#"<div class="row"><div class="body"><span class="muted">Nothing has happened yet — edits and publishes show up here.</span></div></div>"#.into();
         }
@@ -11978,10 +12053,13 @@ async fn history_page(State(state): State<AppState>, headers: HeaderMap) -> Resp
         Some(&user),
         &format!(
             r#"{head}
+<div class="section">Filter</div>
+{filter_bar}
 <div class="section">Site activity</div>
-<div class="card rows rise" style="--i:1">{rows}</div>
-<p class="muted" style="margin:4px 0 0 16px">The last 100 events from the actions audit log.</p>"#,
+<div class="card rows rise" style="--i:2">{rows}</div>
+<p class="muted" style="margin:4px 0 0 16px">The last 100 matching events from the actions audit log.</p>"#,
             head = group_head(group, None),
+            filter_bar = filter_bar,
             rows = rows,
         ),
         true,
