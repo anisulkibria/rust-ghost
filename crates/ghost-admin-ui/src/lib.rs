@@ -114,6 +114,9 @@ pub fn admin_ui_router() -> Router<AppState> {
         // the page was called "Bulk email" before it took Ghost's name
         .route("/settings/bulkemail/", get(|| async { Redirect::permanent("/ghost/settings/newsletters/") }))
         .route("/settings/growth/", get(growth_page).post(growth_save))
+        .route("/settings/growth/recommendations/new/", post(recommendation_new))
+        .route("/settings/growth/recommendations/{id}/", post(recommendation_save))
+        .route("/settings/growth/recommendations/{id}/delete/", post(recommendation_delete))
         .route("/settings/growth/offers/new/", post(offer_new))
         .route("/settings/growth/offers/{id}/", get(offer_edit_page).post(offer_save))
         .route("/settings/growth/offers/{id}/status/", post(offer_set_status))
@@ -10498,28 +10501,148 @@ async fn growth_page(State(state): State<AppState>, headers: HeaderMap, Query(q)
         Ok(a) => (a.user, a.role),
         Err(r) => return r,
     };
+    // Each row is its own editing form, the way the custom-fields list works:
+    // a recommendation is three short fields, so a separate page would be more
+    // navigation than content.
     let mut rec_rows = String::new();
-    if let Ok(recs) = sqlx::query_as::<_, (String, String, Option<String>)>(
-        "SELECT url, title, description FROM recommendations ORDER BY created_at DESC",
+    if let Ok(recs) = sqlx::query_as::<_, (String, String, String, Option<String>, bool)>(
+        "SELECT id, url, title, description, one_click_subscribe FROM recommendations ORDER BY created_at DESC",
     )
     .fetch_all(&state.db)
     .await
     {
         if recs.is_empty() {
-            rec_rows = r#"<div class="row"><div class="body"><span class="muted">No recommended sites yet — add them via the Admin API.</span></div></div>"#.into();
+            rec_rows = r#"<div class="row"><div class="body"><span class="muted">No recommended sites yet — add one below.</span></div></div>"#.into();
         }
-        for (url, title, description) in recs {
+        for (id, url, title, description, one_click) in recs {
             rec_rows.push_str(&format!(
-                r#"<div class="row"><span class="ic tint-slate">{globe}</span>
-<div class="body"><span class="title">{title}</span><span class="detail">{url} · {desc}</span></div></div>"#,
+                r#"<div class="row" style="align-items:flex-start"><span class="ic tint-slate">{globe}</span>
+<div class="body" style="width:100%">
+<form method="post" action="/ghost/settings/growth/recommendations/{id}/" class="inline-form" style="align-items:flex-end">
+<label class="field" style="flex:1;min-width:160px;margin:0"><input name="title" value="{title}" placeholder=" " maxlength="191" required><span>Title</span></label>
+<label class="field" style="flex:1.4;min-width:200px;margin:0"><input name="url" value="{url}" placeholder=" " maxlength="2000" required><span>URL</span></label>
+<button class="btn tonal small" type="submit">Save</button>
+</form>
+<label class="field" style="margin:10px 0 0"><input name="description" value="{desc}" placeholder=" " maxlength="2000" form="rec-{id}"><span>Short description</span></label>
+<label class="fchip" style="margin-top:10px"><input type="checkbox" name="one_click_subscribe" value="1"{oc} form="rec-{id}"><span class="ck">{check}</span>One-click subscribe</label>
+<form method="post" action="/ghost/settings/growth/recommendations/{id}/" id="rec-{id}"></form>
+</div>
+<div class="trailing" style="align-items:flex-start">
+<form method="post" action="/ghost/settings/growth/recommendations/{id}/delete/" data-confirm="Remove recommendation|&#8220;{title}&#8221; will no longer be recommended to your members.">
+<button class="icon-btn danger" title="Remove" aria-label="Remove">{del}</button></form></div></div>"#,
                 globe = svg("globe"),
+                id = esc(&id),
                 title = esc(&title),
                 url = esc(&url),
                 desc = esc(description.as_deref().unwrap_or("")),
+                oc = if one_click { " checked" } else { "" },
+                check = svg("check"),
+                del = svg("delete"),
             ));
         }
     }
+    let rec_add = format!(
+        r#"<div class="card padded rise" style="--i:2">
+<form method="post" action="/ghost/settings/growth/recommendations/new/" class="inline-form">
+<label class="field" style="flex:1;min-width:200px;margin:0"><input name="url" placeholder="https://example.com" maxlength="2000" required><span>URL</span></label>
+<label class="field" style="flex:1;min-width:160px;margin:0"><input name="title" placeholder=" " maxlength="191"><span>Title · optional</span></label>
+<button class="btn tonal" type="submit">{add} Add recommendation</button>
+</form>
+<p class="muted" style="margin:12px 0 0">Leave the title blank to use the site's domain. Recommendations appear to members when they subscribe.</p>
+</div>"#,
+        add = svg("add"),
+    );
     let origin = state.site_url();
+
+    // --- signup form builder -----------------------------------------------
+    //
+    // Server-rendered, so the controls are a GET form that re-renders this
+    // page with the snippet rebuilt — there is no client-side state to keep in
+    // step with what gets copied.
+    let sf_layout = q.get("sf_layout").cloned().unwrap_or_else(|| "all-in-one".into());
+    let sf_layout = if sf_layout == "minimal" { "minimal" } else { "all-in-one" };
+    let accent = state
+        .settings
+        .get_str("accent_color")
+        .filter(|c| !c.is_empty())
+        .unwrap_or_else(|| "#15171A".into());
+    let sf_bg = q.get("sf_bg").cloned().filter(|c| !c.is_empty()).unwrap_or_else(|| "#F1F3F4".into());
+    let sf_btn = q.get("sf_btn").cloned().filter(|c| !c.is_empty()).unwrap_or(accent);
+    let sf_labels = q.get("sf_labels").cloned().unwrap_or_default();
+
+    let signup_builder = {
+        let site_title = state.settings.get_str("title").unwrap_or_default();
+        let site_desc = state.settings.get_str("description").unwrap_or_default();
+        let icon = state.settings.get_str("icon").unwrap_or_default();
+
+        // Ghost's own attribute set (apps/signup-form). The minimal layout is
+        // just the form, so the copy and icon attributes are left off it.
+        let mut attrs: Vec<String> = vec![format!(r#"data-site="{}/""#, origin.trim_end_matches('/'))];
+        if sf_layout == "all-in-one" {
+            if !site_title.is_empty() {
+                attrs.push(format!(r#"data-title="{}""#, site_title.replace('"', "&quot;")));
+            }
+            if !site_desc.is_empty() {
+                attrs.push(format!(r#"data-description="{}""#, site_desc.replace('"', "&quot;")));
+            }
+            if !icon.is_empty() {
+                attrs.push(format!(r#"data-icon="{}""#, ghost_core::url::base_asset(&icon)));
+            }
+        }
+        attrs.push(format!(r#"data-background-color="{sf_bg}""#));
+        attrs.push(format!(r#"data-button-color="{sf_btn}""#));
+        // Labels tag whoever signs up through this form, so one embed's
+        // members can be told from another's.
+        for (i, label) in sf_labels
+            .split(',')
+            .map(str::trim)
+            .filter(|l| !l.is_empty())
+            .take(10)
+            .enumerate()
+        {
+            attrs.push(format!(r#"data-label-{}="{}""#, i + 1, label.replace('"', "&quot;")));
+        }
+
+        let snippet = format!(
+            "<script src=\"{origin}/public/signup-form.min.js\"\n    {}\n    crossOrigin=\"anonymous\"></script>",
+            attrs.join("\n    "),
+            origin = origin.trim_end_matches('/'),
+        );
+
+        format!(
+            r#"<div class="card padded rise" style="--i:3">
+<form method="get" action="/ghost/settings/growth/" class="inline-form" style="align-items:flex-end">
+<label class="field fixed" style="min-width:180px;margin:0"><select name="sf_layout" onchange="this.form.submit()">{layout_opts}</select><span>Layout</span>{car}</label>
+<label class="field" style="min-width:140px;margin:0"><input name="sf_bg" type="text" value="{bg}" placeholder=" "><span>Background color</span></label>
+<label class="field" style="min-width:140px;margin:0"><input name="sf_btn" type="text" value="{btn}" placeholder=" "><span>Button color</span></label>
+<label class="field" style="flex:1;min-width:180px;margin:0"><input name="sf_labels" value="{labels}" placeholder=" "><span>Labels at signup · comma separated</span></label>
+<button class="btn tonal" type="submit">Update</button>
+</form>
+<p class="muted" style="margin:14px 0 8px">Embed this on any external site to collect members for <b>{origin_disp}</b>:</p>
+<div class="key" style="align-items:flex-start"><span class="chip tonal">embed</span><pre style="margin:0;white-space:pre-wrap;word-break:break-all;font:inherit">{snippet_disp}</pre>
+<button type="button" data-copy="{snippet_copy}" title="Copy" aria-label="Copy snippet">{copy}</button></div>
+<p class="muted" style="margin:12px 0 0">{layout_note} Anyone signing up through this form is tagged with the labels above, so you can tell one embed's members from another's.</p>
+</div>"#,
+            layout_opts = select_options(
+                &[("all-in-one", "All-in-one · title, description and icon"), ("minimal", "Minimal · just the form")],
+                sf_layout,
+            ),
+            car = SELECT_CARET,
+            bg = esc(&sf_bg),
+            btn = esc(&sf_btn),
+            labels = esc(&sf_labels),
+            origin_disp = esc(&origin),
+            snippet_disp = esc(&snippet),
+            snippet_copy = esc(&snippet),
+            copy = svg("copy"),
+            layout_note = if sf_layout == "minimal" {
+                "The minimal layout renders the email field and button alone, for dropping into your own section."
+            } else {
+                "The all-in-one layout carries your site title, description and icon, taken from Settings → General and Design."
+            },
+        )
+    };
+
 
     // --- offers: Ghost only shows these once Stripe is connected, since an
     // offer is a discount on a paid tier and nothing else ---------------------
@@ -10579,13 +10702,9 @@ async fn growth_page(State(state): State<AppState>, headers: HeaderMap, Query(q)
 </div>
 <div class="card rows rise" style="--i:2">{rec_rows}</div>
 </form>
+{rec_add}
 <div class="section">Signup forms</div>
-<div class="card padded rise" style="--i:3">
-<p class="muted" style="margin:0 0 12px">Embed a signup form for <b>{origin}</b> on any external site:</p>
-<div class="key"><span class="chip tonal">embed</span>&lt;script src="{origin}/public/signup-form.min.js" data-site="{origin}/" crossOrigin="anonymous"&gt;&lt;/script&gt;
-<button type="button" data-copy="{snippet_escaped}" title="Copy" aria-label="Copy snippet">{copy}</button></div>
-<p class="muted" style="margin:12px 0 0">The hosted widget script is part of Ghost(Pro)'s CDN; the snippet above follows the same shape with your site URL.</p>
-</div>
+{signup_builder}
 {offers_card}
 <div class="section">Coming later</div>
 <div class="card rows rise" style="--i:4">
@@ -10597,9 +10716,8 @@ async fn growth_page(State(state): State<AppState>, headers: HeaderMap, Query(q)
             heart = svg("star"),
             rec_ck = if state.settings.get_bool("recommendations_enabled") { "checked" } else { "" },
             rec_rows = rec_rows,
-            origin = esc(&origin),
-            copy = svg("copy"),
-            snippet_escaped = esc(&format!(r#"<script src="{origin}/public/signup-form.min.js" data-site="{origin}/" crossOrigin="anonymous"></script>"#, origin = origin)),
+            rec_add = rec_add,
+            signup_builder = signup_builder,
             network = planned_row("Network", "Multi-site federation across Ghost publications"),
             explore = planned_row("Ghost Explore", "List this site in the Ghost Explore directory"),
         ),
@@ -10617,6 +10735,170 @@ async fn growth_save(State(state): State<AppState>, headers: HeaderMap, Form(for
         Ok(()) => settings_flash("growth", "ok", "Growth settings saved."),
         Err(e) => settings_flash("growth", "error", &e.message()),
     }
+}
+
+// --- recommendations ---------------------------------------------------------
+
+#[derive(Debug, Deserialize, Default)]
+#[serde(default)]
+struct RecommendationForm {
+    url: String,
+    title: String,
+    description: String,
+    one_click_subscribe: String,
+}
+
+/// Normalise a recommended site's URL, and refuse one that is not a site.
+///
+/// A bare domain gets `https://`, because that is what someone types.
+fn recommendation_url(raw: &str) -> Option<String> {
+    let raw = raw.trim();
+    if raw.is_empty() {
+        return None;
+    }
+    let with_scheme = if raw.starts_with("http://") || raw.starts_with("https://") {
+        raw.to_string()
+    } else {
+        format!("https://{raw}")
+    };
+    // A host with a dot in it is the bar: `https://localhost` is a typo here,
+    // not a publication worth recommending to members.
+    let host = with_scheme.split("//").nth(1)?.split('/').next()?;
+    (host.contains('.') && host.len() > 3).then_some(with_scheme)
+}
+
+/// Fall back to the domain, the way Ghost titles a recommendation it could
+/// not fetch a name for.
+fn recommendation_title(title: &str, url: &str) -> String {
+    let title = title.trim();
+    if !title.is_empty() {
+        return title.to_string();
+    }
+    url.split("//")
+        .nth(1)
+        .and_then(|rest| rest.split('/').next())
+        .map(|h| h.trim_start_matches("www.").to_string())
+        .unwrap_or_else(|| "Recommended site".into())
+}
+
+async fn recommendation_new(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Form(form): Form<RecommendationForm>,
+) -> Response {
+    if let Err(r) = require_role(&state, &headers, Role::Administrator).await {
+        return r;
+    }
+    let Some(url) = recommendation_url(&form.url) else {
+        return settings_flash("growth", "error", "Enter the full address of the site to recommend.");
+    };
+    // `url` is unique in Ghost — recommending the same site twice says nothing
+    // the first one did not.
+    let taken: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM recommendations WHERE url = ?")
+        .bind(&url)
+        .fetch_one(&state.db)
+        .await
+        .unwrap_or(0);
+    if taken > 0 {
+        return settings_flash("growth", "error", "That site is already recommended.");
+    }
+    let now = ghost_core::dates::now_db();
+    let res = sqlx::query(
+        "INSERT INTO recommendations (id, url, title, description, one_click_subscribe, featured, created_at, updated_at) \
+         VALUES (?, ?, ?, '', 0, 0, ?, ?)",
+    )
+    .bind(ghost_core::ids::new_id())
+    .bind(&url)
+    .bind(recommendation_title(&form.title, &url))
+    .bind(&now)
+    .bind(&now)
+    .execute(&state.db)
+    .await;
+    match res {
+        Ok(_) => settings_flash("growth", "ok", "Recommendation added."),
+        Err(e) => settings_flash("growth", "error", &format!("Could not add it: {e}")),
+    }
+}
+
+async fn recommendation_save(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+    Form(form): Form<RecommendationForm>,
+) -> Response {
+    if let Err(r) = require_role(&state, &headers, Role::Administrator).await {
+        return r;
+    }
+    // The row carries two forms — one for title/url, one for the description
+    // and the subscribe flag — so a field the submitted form did not include
+    // keeps its stored value rather than being blanked.
+    let existing: Option<(String, String, Option<String>, bool)> = sqlx::query_as(
+        "SELECT url, title, description, one_click_subscribe FROM recommendations WHERE id = ?",
+    )
+    .bind(&id)
+    .fetch_optional(&state.db)
+    .await
+    .ok()
+    .flatten();
+    let Some((old_url, old_title, old_desc, old_oc)) = existing else {
+        return settings_flash("growth", "error", "That recommendation no longer exists.");
+    };
+
+    let url = if form.url.trim().is_empty() {
+        old_url
+    } else {
+        match recommendation_url(&form.url) {
+            Some(u) => u,
+            None => return settings_flash("growth", "error", "That does not look like a site address."),
+        }
+    };
+    let title = if form.title.trim().is_empty() {
+        old_title
+    } else {
+        recommendation_title(&form.title, &url)
+    };
+    // Only the form that carries the description may change it.
+    let description = if form.description.trim().is_empty() && form.one_click_subscribe.is_empty() {
+        old_desc.unwrap_or_default()
+    } else {
+        form.description.trim().to_string()
+    };
+    let one_click = if form.description.trim().is_empty() && form.one_click_subscribe.is_empty() {
+        old_oc
+    } else {
+        form.one_click_subscribe == "1"
+    };
+
+    let res = sqlx::query(
+        "UPDATE recommendations SET url = ?, title = ?, description = ?, one_click_subscribe = ?, updated_at = ? WHERE id = ?",
+    )
+    .bind(&url)
+    .bind(&title)
+    .bind(&description)
+    .bind(one_click)
+    .bind(ghost_core::dates::now_db())
+    .bind(&id)
+    .execute(&state.db)
+    .await;
+    match res {
+        Ok(_) => settings_flash("growth", "ok", "Recommendation saved."),
+        Err(e) => settings_flash("growth", "error", &format!("Could not save it: {e}")),
+    }
+}
+
+async fn recommendation_delete(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+) -> Response {
+    if let Err(r) = require_role(&state, &headers, Role::Administrator).await {
+        return r;
+    }
+    let _ = sqlx::query("DELETE FROM recommendations WHERE id = ?")
+        .bind(&id)
+        .execute(&state.db)
+        .await;
+    settings_flash("growth", "ok", "Recommendation removed.")
 }
 
 // --- offers -----------------------------------------------------------------
@@ -13938,6 +14220,27 @@ async fn unsplash_save(
 
 #[cfg(test)]
 mod tests {
+    use super::{recommendation_title, recommendation_url};
+
+    #[test]
+    fn a_recommended_url_gets_a_scheme_but_must_be_a_real_host() {
+        assert_eq!(recommendation_url("example.com").as_deref(), Some("https://example.com"));
+        assert_eq!(
+            recommendation_url(" http://example.com/blog ").as_deref(),
+            Some("http://example.com/blog")
+        );
+        // a host with no dot is a typo here, not a publication
+        assert!(recommendation_url("localhost").is_none());
+        assert!(recommendation_url("").is_none());
+    }
+
+    #[test]
+    fn a_blank_title_falls_back_to_the_domain() {
+        assert_eq!(recommendation_title("", "https://www.example.com/blog"), "example.com");
+        assert_eq!(recommendation_title("  ", "https://example.com"), "example.com");
+        assert_eq!(recommendation_title(" Real Name ", "https://example.com"), "Real Name");
+    }
+
     use super::*;
 
     #[test]
