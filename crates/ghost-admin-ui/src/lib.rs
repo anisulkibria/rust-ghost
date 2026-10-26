@@ -6754,18 +6754,28 @@ const BETA_FLAGS: &[(&str, &str, &str)] = &[
 
 /// Ghost's private feature flags — its Private features tab, which Ghost shows
 /// only when `enableDeveloperExperiments` is configured.
+///
+/// Titles and descriptions are Ghost's own, so a flag reads here as it does
+/// there. `automations` appears in both tabs in Ghost; it is listed with the
+/// beta flags here and left out of this table rather than offered twice.
 const PRIVATE_FLAGS: &[(&str, &str, &str)] = &[
     ("automationsLifecycleTriggers", "Automations lifecycle triggers", "Triggers for upgrades and downgrades."),
-    ("stripeAutomaticTax", "Stripe Automatic Tax (private beta)", "Use Stripe Automatic Tax at Stripe Checkout. Needs to be enabled in Stripe."),
-    ("importMemberTier", "Import Member Tier", "Enables tier to be specified when importing members."),
-    ("csvContentImporter", "CSV Content Importer", "Enables importing posts from CSV files in the Universal Importer."),
+    ("stripeAutomaticTax", "Stripe Automatic Tax (private beta)", "Use Stripe Automatic Tax at Stripe Checkout. Needs to be enabled in Stripe"),
+    ("importMemberTier", "Import Member Tier", "Enables tier to be specified when importing members"),
+    ("csvContentImporter", "CSV Content Importer", "Enables importing posts from CSV files in the Universal Importer"),
     ("admin7Design", "Admin 7 · Design", "Preview the floating Admin 7 sidebar and its navigation layout."),
-    ("admin7EditorImprovements", "Admin 7 · Editor improvements", "Preview the updated editor chrome."),
-    ("emailUniqueid", "Email Unique ID", "Adds a unique id to each email sent."),
-    ("themeTranslation", "Updated theme translation (beta)", "The newer theme translation pipeline."),
-    ("getHelperDeduplication", "Get helper deduplication", "Deduplicates repeated {{#get}} queries in a render."),
-    ("machinePayments", "Machine payments", "Agent-initiated payments."),
-    ("apps", "Apps", "The apps framework."),
+    ("admin7CustomizeFromViewSite", "Admin 7 · Customize from View site", "Customize the site design from View site, with a live preview. Needs Admin 7 · Design."),
+    ("admin7EditorImprovements", "Admin 7 · Editor improvements", "Hide the editor’s controls while you write; move the mouse or scroll to bring them back."),
+    ("emailUniqueid", "Email Unique ID", "Enables {uniqueid} variable in emails for unique image URLs to bypass ESP image caching"),
+    ("themeTranslation", "Updated theme translation (beta)", "Enable theme translation using i18next instead of the old translation package."),
+    ("pictureImageFormats", "Picture Element", "Use the HTML picture element to serve modern image formats (AVIF, WebP) with automatic fallbacks"),
+    ("getHelperDeduplication", "Get helper deduplication", "Deduplicate identical {{#get}} helper queries within a single request to avoid redundant database calls"),
+    ("membersCustomFields", "Member custom fields", "Let admins create and manage custom field definitions for members, and choose which field each Stripe checkout answer is stored in"),
+    ("stripeCheckoutCollection", "Stripe checkout collection", "Let admins turn on shipping address, phone number and tax number collection for a tier, asked by Stripe checkout and stored against the member"),
+    ("stripeCheckoutDesign", "Stripe checkout design", "Let admins style the Stripe checkout page with their own button color, background color, corners and font"),
+    ("paywallImprovements", "Paywall improvements", "Enables paywall usability, discoverability and email customization improvements"),
+    ("machinePayments", "Machine payments", "Let AI agents pay for access to paid-members markdown (.md) URLs via Stripe Machine Payments Protocol"),
+    ("apps", "Apps", "Install and manage third-party apps that run on their own servers. Early and incomplete."),
 ];
 
 /// Whether structured data for LLMs is published.
