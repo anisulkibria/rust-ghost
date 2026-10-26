@@ -183,6 +183,94 @@ fn theme_dir_for(state: &AppState, name: &str) -> Result<PathBuf> {
     Ok(state.config.themes_dir().join(name))
 }
 
+/// Files the in-browser editor will open. Templates, styles and scripts —
+/// the text a theme is actually made of.
+///
+/// Anything else (images, fonts, zips) is listed but not editable: rendering
+/// a binary into a textarea would corrupt it on save.
+pub const EDITABLE_EXTENSIONS: &[&str] =
+    &["hbs", "css", "js", "json", "md", "txt", "yaml", "yml", "svg"];
+
+pub fn is_editable(path: &str) -> bool {
+    path.rsplit('.')
+        .next()
+        .map(|e| EDITABLE_EXTENSIONS.contains(&e.to_ascii_lowercase().as_str()))
+        .unwrap_or(false)
+}
+
+/// A relative path inside a theme, rejected unless every segment is a plain
+/// name.
+///
+/// The whole point: `..`, absolute paths, and anything with a separator the
+/// host treats specially must not reach the filesystem, or the editor becomes
+/// a way to read and overwrite any file the server can.
+pub fn theme_file_path(state: &AppState, theme: &str, rel: &str) -> Result<PathBuf> {
+    let dir = theme_dir_for(state, theme)?;
+    let bad = rel.is_empty()
+        || rel.starts_with('/')
+        || rel.contains('\\')
+        || rel.split('/').any(|seg| {
+            seg.is_empty()
+                || seg == "."
+                || seg == ".."
+                || seg.starts_with('.')
+                || !seg.chars().all(|c| c.is_ascii_alphanumeric() || "-_.".contains(c))
+        });
+    if bad {
+        return Err(GhostError::ValidationError {
+            message: format!("invalid file path '{rel}'"),
+            context: None,
+        });
+    }
+    let full = dir.join(rel);
+    // Belt and braces: even with the segment rules above, the resolved path
+    // has to still be inside the theme.
+    let inside = match (full.canonicalize(), dir.canonicalize()) {
+        (Ok(f), Ok(d)) => f.starts_with(&d),
+        // A file being created does not exist yet, so only its parent can be
+        // checked.
+        (Err(_), Ok(d)) => full
+            .parent()
+            .and_then(|p| p.canonicalize().ok())
+            .map(|p| p.starts_with(&d))
+            .unwrap_or(false),
+        _ => false,
+    };
+    if !inside {
+        return Err(GhostError::ValidationError {
+            message: "that path is outside the theme".into(),
+            context: None,
+        });
+    }
+    Ok(full)
+}
+
+/// Every file in a theme, relative to its root, depth-first and sorted.
+pub fn theme_files(state: &AppState, theme: &str) -> Vec<String> {
+    let Ok(dir) = theme_dir_for(state, theme) else { return Vec::new() };
+    let mut out = Vec::new();
+    fn walk(base: &std::path::Path, cur: &std::path::Path, out: &mut Vec<String>) {
+        let Ok(entries) = std::fs::read_dir(cur) else { return };
+        for e in entries.flatten() {
+            let path = e.path();
+            let name = e.file_name().to_string_lossy().to_string();
+            // Never list dotfiles or dependency trees: they are not part of
+            // the theme a publisher edits.
+            if name.starts_with('.') || name == "node_modules" {
+                continue;
+            }
+            if path.is_dir() {
+                walk(base, &path, out);
+            } else if let Ok(rel) = path.strip_prefix(base) {
+                out.push(rel.to_string_lossy().replace('\\', "/"));
+            }
+        }
+    }
+    walk(&dir, &dir, &mut out);
+    out.sort();
+    out
+}
+
 pub fn active_theme_name(state: &AppState) -> String {
     state.settings.get_str("active_theme").unwrap_or_else(|| "source".into())
 }
@@ -616,7 +704,7 @@ fn safe_entry_path(name: &str) -> Option<PathBuf> {
 
 #[cfg(test)]
 mod tests {
-    use super::{official, safe_entry_path, OFFICIAL_THEMES};
+    use super::{is_editable, official, safe_entry_path, OFFICIAL_THEMES};
     use std::path::PathBuf;
 
     #[test]
@@ -651,5 +739,52 @@ mod tests {
         assert_eq!(safe_entry_path("flux/index.hbs"), Some(PathBuf::from("flux/index.hbs")));
         assert_eq!(safe_entry_path("./flux/assets/a.css"), Some(PathBuf::from("flux/assets/a.css")));
         assert_eq!(safe_entry_path("flux\\partials\\x.hbs"), Some(PathBuf::from("flux/partials/x.hbs")));
+    }
+
+    /// The editor writes whatever path it is given, so a traversal here would
+    /// let anyone with admin access read and overwrite arbitrary files.
+    #[test]
+    fn a_theme_file_path_cannot_escape_its_theme() {
+        for bad in [
+            "../../../etc/passwd",
+            "..",
+            "a/../../b.hbs",
+            "/etc/passwd",
+            "partials\\..\\..\\x",
+            ".env",
+            "sub/.hidden",
+            "",
+        ] {
+            assert!(
+                is_rejected_relative(bad),
+                "expected {bad:?} to be rejected"
+            );
+        }
+        for ok in ["index.hbs", "partials/post-card.hbs", "assets/built/screen.css"] {
+            assert!(!is_rejected_relative(ok), "expected {ok:?} to be allowed");
+        }
+    }
+
+    /// The segment rules on their own, without needing an AppState or a real
+    /// theme on disk.
+    fn is_rejected_relative(rel: &str) -> bool {
+        rel.is_empty()
+            || rel.starts_with('/')
+            || rel.contains('\\')
+            || rel.split('/').any(|seg| {
+                seg.is_empty()
+                    || seg == "."
+                    || seg == ".."
+                    || seg.starts_with('.')
+                    || !seg.chars().all(|c| c.is_ascii_alphanumeric() || "-_.".contains(c))
+            })
+    }
+
+    #[test]
+    fn only_text_files_are_editable() {
+        assert!(is_editable("index.hbs"));
+        assert!(is_editable("assets/screen.CSS"));
+        assert!(!is_editable("assets/logo.png"));
+        assert!(!is_editable("noextension"));
     }
 }

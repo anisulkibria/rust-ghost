@@ -81,6 +81,9 @@ pub fn admin_ui_router() -> Router<AppState> {
         // Static ahead of `{name}`, so "official" is never read as a theme name.
         .route("/themes/official/{slug}/install/", post(theme_install_official))
         .route("/themes/official/{slug}/thumbnail.png", get(theme_official_thumbnail))
+        .route("/themes/{name}/edit/", get(theme_edit_page).post(theme_file_save))
+        .route("/themes/{name}/edit/new/", post(theme_file_new))
+        .route("/themes/{name}/edit/delete/", post(theme_file_delete))
         .route("/themes/{name}/activate/", post(theme_activate))
         .route("/themes/{name}/delete/", post(theme_delete))
         .route("/design/", get(design_page).post(design_save))
@@ -5997,6 +6000,10 @@ async fn themes_page(State(state): State<AppState>, headers: HeaderMap, Query(q)
                     name = esc(&t.name)
                 )
             };
+            let edit = format!(
+                r#"<a class="btn tonal small" href="/ghost/themes/{name}/edit/">Edit code</a>"#,
+                name = esc(&t.name),
+            );
             let delete = if t.active {
                 String::new()
             } else {
@@ -6011,7 +6018,7 @@ async fn themes_page(State(state): State<AppState>, headers: HeaderMap, Query(q)
                 r#"<div class="row" data-filterable>
 <span class="ic tint-purple">{ic}</span>
 <div class="body"><span class="title">{name}</span><span class="detail">{meta}</span></div>
-<div class="trailing">{status}{customise}{activate}{delete}</div>
+<div class="trailing">{status}{customise}{edit}{activate}{delete}</div>
 </div>"#,
                 ic = svg("themes"),
                 name = esc(&t.name),
@@ -6019,6 +6026,7 @@ async fn themes_page(State(state): State<AppState>, headers: HeaderMap, Query(q)
                 status = status,
                 customise = customise,
                 activate = activate,
+                edit = edit,
                 delete = delete,
             )
         })
@@ -6177,6 +6185,224 @@ async fn theme_install_official(State(state): State<AppState>, Path(slug): Path<
     match ghost_api::themes::install_official(&state, &slug).await {
         Ok(name) => themes_flash("ok", &format!("Theme '{name}' installed. Activate it when you're ready.")),
         Err(e) => themes_flash("error", &format!("Could not install that theme: {}", e.message())),
+    }
+}
+
+// --- theme code editor -------------------------------------------------------
+
+fn theme_edit_flash(theme: &str, file: &str, kind: &str, message: &str) -> Response {
+    let mut qs = form_urlencoded::Serializer::new(String::new());
+    if !file.is_empty() {
+        qs.append_pair("file", file);
+    }
+    qs.append_pair(kind, message);
+    Redirect::to(&format!("/ghost/themes/{theme}/edit/?{}", qs.finish())).into_response()
+}
+
+/// Ghost's theme code editor: the theme's files on the left, the open one in
+/// a textarea on the right.
+async fn theme_edit_page(
+    State(state): State<AppState>,
+    Path(name): Path<String>,
+    headers: HeaderMap,
+    Query(q): Query<HashMap<String, String>>,
+) -> Response {
+    let (user, actor_role) = match require_role(&state, &headers, Role::Administrator).await {
+        Ok(a) => (a.user, a.role),
+        Err(r) => return r,
+    };
+    let files = ghost_api::themes::theme_files(&state, &name);
+    if files.is_empty() {
+        return not_found_page_for(actor_role, &user, "That theme could not be read.");
+    }
+    // Default to the file a publisher most likely came to change.
+    let open = q
+        .get("file")
+        .cloned()
+        .filter(|f| files.contains(f))
+        .or_else(|| files.iter().find(|f| f.as_str() == "index.hbs").cloned())
+        .or_else(|| files.iter().find(|f| ghost_api::themes::is_editable(f)).cloned())
+        .unwrap_or_default();
+
+    let editable = ghost_api::themes::is_editable(&open);
+    let contents = if editable {
+        ghost_api::themes::theme_file_path(&state, &name, &open)
+            .ok()
+            .and_then(|p| std::fs::read_to_string(p).ok())
+            .unwrap_or_default()
+    } else {
+        String::new()
+    };
+
+    let tree: String = files
+        .iter()
+        .map(|f| {
+            format!(
+                r#"<a class="row{on}" href="/ghost/themes/{theme}/edit/?file={enc}"><span class="body"><span class="detail" style="font-family:var(--mono);font-size:12.5px">{label}</span></span>{chev}</a>"#,
+                on = if *f == open { " active" } else { "" },
+                theme = esc(&name),
+                enc = esc(&form_urlencoded::byte_serialize(f.as_bytes()).collect::<String>()),
+                label = esc(f),
+                chev = if ghost_api::themes::is_editable(f) { "" } else { r#"<span class="chip draft">binary</span>"# },
+            )
+        })
+        .collect();
+
+    let editor = if editable {
+        format!(
+            r#"<form method="post" action="/ghost/themes/{theme}/edit/" id="theme-file-form">
+<input type="hidden" name="file" value="{file}">
+<label class="field" style="margin:0"><textarea name="contents" class="code" rows="26" spellcheck="false" placeholder=" ">{contents}</textarea><span>{file}</span></label>
+<div style="display:flex;gap:10px;margin-top:12px;align-items:center;flex-wrap:wrap">
+<button class="btn" type="submit">{check} Save file</button>
+<form method="post" action="/ghost/themes/{theme}/edit/delete/" data-confirm="Delete file|&#8220;{file}&#8221; will be removed from the theme.">
+<input type="hidden" name="file" value="{file}">
+<button class="btn tonal small danger" type="submit">Delete file</button></form>
+</div>
+<p class="muted" style="margin:12px 0 0">Saving reloads the theme immediately. A template that fails to parse will be reported here rather than breaking the site.</p>
+</form>"#,
+            theme = esc(&name),
+            file = esc(&open),
+            contents = esc(&contents),
+            check = svg("check"),
+        )
+    } else {
+        format!(
+            r#"<div class="card padded"><p class="muted" style="margin:0">{file} is not a text file, so it cannot be edited here. Replace it by uploading a new version of the theme.</p></div>"#,
+            file = esc(&open),
+        )
+    };
+
+    page_for_role(actor_role,
+        "Edit theme",
+        "themes",
+        Some(&user),
+        &format!(
+            r#"<header class="page-head rise"><a class="icon-btn" style="transform:rotate(180deg)" href="/ghost/themes/" title="Back to themes">{back}</a>
+<div><h1>{name}</h1><p class="sub">Editing theme files</p></div></header>
+{banner}
+<div style="display:grid;grid-template-columns:minmax(220px,300px) 1fr;gap:18px;align-items:start">
+<div>
+<div class="section" style="margin-top:0">Files</div>
+<div class="card rows rise" style="--i:1;max-height:60vh;overflow:auto">{tree}</div>
+<div class="card padded rise" style="--i:2">
+<form method="post" action="/ghost/themes/{theme}/edit/new/" class="inline-form">
+<label class="field" style="flex:1;min-width:140px;margin:0"><input name="file" placeholder="partials/thing.hbs" required><span>New file</span></label>
+<button class="btn tonal small" type="submit">Create</button>
+</form></div>
+</div>
+<div><div class="section" style="margin-top:0">{open_label}</div>{editor}</div>
+</div>"#,
+            back = svg("chevron"),
+            banner = flash_banner(&q),
+            name = esc(&name),
+            theme = esc(&name),
+            tree = tree,
+            open_label = esc(if open.is_empty() { "No file open" } else { &open }),
+            editor = editor,
+        ),
+        true,
+    )
+    .into_response()
+}
+
+#[derive(Debug, Deserialize, Default)]
+#[serde(default)]
+struct ThemeFileForm {
+    file: String,
+    contents: String,
+}
+
+async fn theme_file_save(
+    State(state): State<AppState>,
+    Path(name): Path<String>,
+    headers: HeaderMap,
+    Form(form): Form<ThemeFileForm>,
+) -> Response {
+    if let Err(r) = require_role(&state, &headers, Role::Administrator).await {
+        return r;
+    }
+    if !ghost_api::themes::is_editable(&form.file) {
+        return theme_edit_flash(&name, "", "error", "That file cannot be edited here.");
+    }
+    let path = match ghost_api::themes::theme_file_path(&state, &name, &form.file) {
+        Ok(p) => p,
+        Err(e) => return theme_edit_flash(&name, "", "error", &e.message()),
+    };
+    // Browsers submit CRLF in a textarea; a theme file with those line endings
+    // still works, but it would rewrite the whole file on first save.
+    let contents = form.contents.replace("\r\n", "\n");
+    if let Err(e) = std::fs::write(&path, contents) {
+        return theme_edit_flash(&name, &form.file, "error", &format!("Could not write it: {e}"));
+    }
+    // The active theme is compiled in memory, so a saved template does nothing
+    // until it is reloaded.
+    let reloaded = if ghost_api::themes::active_theme_name(&state) == name {
+        ghost_api::themes::activate(&state, &name).await.err().map(|e| e.message())
+    } else {
+        None
+    };
+    match reloaded {
+        Some(err) => theme_edit_flash(
+            &name,
+            &form.file,
+            "error",
+            &format!("Saved, but the theme would not reload: {err}"),
+        ),
+        None => theme_edit_flash(&name, &form.file, "ok", "File saved."),
+    }
+}
+
+async fn theme_file_new(
+    State(state): State<AppState>,
+    Path(name): Path<String>,
+    headers: HeaderMap,
+    Form(form): Form<ThemeFileForm>,
+) -> Response {
+    if let Err(r) = require_role(&state, &headers, Role::Administrator).await {
+        return r;
+    }
+    let rel = form.file.trim().trim_start_matches('/').to_string();
+    if !ghost_api::themes::is_editable(&rel) {
+        return theme_edit_flash(
+            &name,
+            "",
+            "error",
+            "Give the file an editable extension, such as .hbs or .css.",
+        );
+    }
+    let path = match ghost_api::themes::theme_file_path(&state, &name, &rel) {
+        Ok(p) => p,
+        Err(e) => return theme_edit_flash(&name, "", "error", &e.message()),
+    };
+    if path.exists() {
+        return theme_edit_flash(&name, &rel, "error", "That file already exists.");
+    }
+    if let Some(parent) = path.parent() {
+        let _ = std::fs::create_dir_all(parent);
+    }
+    match std::fs::write(&path, "") {
+        Ok(()) => theme_edit_flash(&name, &rel, "ok", "File created."),
+        Err(e) => theme_edit_flash(&name, "", "error", &format!("Could not create it: {e}")),
+    }
+}
+
+async fn theme_file_delete(
+    State(state): State<AppState>,
+    Path(name): Path<String>,
+    headers: HeaderMap,
+    Form(form): Form<ThemeFileForm>,
+) -> Response {
+    if let Err(r) = require_role(&state, &headers, Role::Administrator).await {
+        return r;
+    }
+    let path = match ghost_api::themes::theme_file_path(&state, &name, &form.file) {
+        Ok(p) => p,
+        Err(e) => return theme_edit_flash(&name, "", "error", &e.message()),
+    };
+    match std::fs::remove_file(&path) {
+        Ok(()) => theme_edit_flash(&name, "", "ok", "File deleted."),
+        Err(e) => theme_edit_flash(&name, &form.file, "error", &format!("Could not delete it: {e}")),
     }
 }
 
