@@ -132,8 +132,8 @@ pub fn admin_ui_router() -> Router<AppState> {
         .route("/settings/danger/auth/", post(danger_reset_auth))
         .route("/settings/danger/gifts/", post(danger_reset_gifts))
         .route("/settings/about/", get(about_page))
-        .route("/settings/advanced/", get(advanced_page).post(advanced_save))
-        .route("/settings/advanced/labs/", post(labs_save))
+        .route("/settings/code-injection/", get(code_injection_page).post(code_injection_save))
+        .route("/settings/advanced/", get(advanced_page))
         .route("/settings/advanced/export/", get(advanced_export))
         .route("/settings/advanced/import/", post(advanced_import).layer(axum::extract::DefaultBodyLimit::max(MAX_UPLOAD_BYTES)))
         .route(
@@ -159,35 +159,45 @@ pub fn admin_ui_router() -> Router<AppState> {
         // redeeming an invitation is the one staff route a signed-out person
         // must reach
         .route("/invite/{token}/", get(invite_accept_page).post(invite_accept_submit))
-        .route("/settings/advanced/integrations/", get(integrations_page).post(integration_create))
+        .route("/settings/integrations/", get(integrations_page).post(integration_create))
         // the built-in apps. Static segments, so they cannot be shadowed by a
         // custom integration's id — which is why those live under /custom/.
-        .route("/settings/advanced/integrations/zapier/", get(zapier_page))
-        .route("/settings/advanced/integrations/slack/", get(slack_page).post(slack_save))
-        .route("/settings/advanced/integrations/slack/test/", post(slack_test))
-        .route("/settings/advanced/integrations/unsplash/", get(unsplash_page).post(unsplash_save))
-        .route("/settings/advanced/integrations/firstpromoter/", get(firstpromoter_page).post(firstpromoter_save))
-        .route("/settings/advanced/integrations/pintura/", get(pintura_page).post(pintura_save))
-        .route("/settings/advanced/integrations/transistor/", get(transistor_page).post(transistor_save))
+        .route("/settings/integrations/zapier/", get(zapier_page))
+        .route("/settings/integrations/slack/", get(slack_page).post(slack_save))
+        .route("/settings/integrations/slack/test/", post(slack_test))
+        .route("/settings/integrations/unsplash/", get(unsplash_page).post(unsplash_save))
+        .route("/settings/integrations/firstpromoter/", get(firstpromoter_page).post(firstpromoter_save))
+        .route("/settings/integrations/pintura/", get(pintura_page).post(pintura_save))
+        .route("/settings/integrations/transistor/", get(transistor_page).post(transistor_save))
         .route(
-            "/settings/advanced/integrations/custom/{id}/",
+            "/settings/integrations/custom/{id}/",
             get(custom_integration_page).post(custom_integration_save),
         )
         .route(
-            "/settings/advanced/integrations/custom/{id}/webhooks/new/",
+            "/settings/integrations/custom/{id}/webhooks/new/",
             post(webhook_new),
         )
         .route(
-            "/settings/advanced/integrations/custom/{id}/webhooks/{wid}/delete/",
+            "/settings/integrations/custom/{id}/webhooks/{wid}/delete/",
             post(webhook_delete),
         )
         .route(
-            "/settings/advanced/integrations/custom/{id}/delete/",
+            "/settings/integrations/custom/{id}/delete/",
             post(custom_integration_delete),
         )
-        // bookmarks and in-page links from before Integrations moved under
-        // Settings still resolve
+        // bookmarks and in-page links from before Integrations became a
+        // settings page of its own still resolve, wherever they pointed
         .route("/integrations/", get(integrations_redirect))
+        .route(
+            "/settings/advanced/integrations/",
+            get(|| async { Redirect::permanent("/ghost/settings/integrations/") }),
+        )
+        .route(
+            "/settings/advanced/integrations/{*rest}",
+            get(|Path(rest): Path<String>| async move {
+                Redirect::permanent(&format!("/ghost/settings/integrations/{rest}"))
+            }),
+        )
         .route("/navigation/", get(navigation_page).post(navigation_save))
         // the editor's vendored runtime (React + Koenig), served from the
         // binary and cached hard behind the version in the path
@@ -298,6 +308,9 @@ fn icon(name: &str) -> &'static str {
         "excerpt" => r#"<path d="M4 9h16v2H4V9zm0 4h10v2H4v-2z"/>"#,
         "flag" => r#"<path d="M14.4 6L14 4H5v17h2v-7h5.6l.4 2h7V6z"/>"#,
         "star" => r#"<path d="M12 17.27L18.18 21l-1.64-7.03L22 9.24l-7.19-.61L12 2 9.19 8.63 2 9.24l5.46 4.73L5.82 21z"/>"#,
+        "folder" => r#"<path d="M10 4H4c-1.1 0-1.99.9-1.99 2L2 18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2h-8l-2-2z"/>"#,
+        "folder-open" => r#"<path d="M20 6h-8l-2-2H4c-1.1 0-1.99.9-1.99 2L2 18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2zm0 12H4V8h16v10z"/>"#,
+        "file" => r#"<path d="M6 2c-1.1 0-1.99.9-1.99 2L4 20c0 1.1.89 2 1.99 2H18c1.1 0 2-.9 2-2V8l-6-6H6zm7 7V3.5L18.5 9H13z"/>"#,
         "copy" => r#"<path d="M16 1H4c-1.1 0-2 .9-2 2v14h2V3h12V1zm3 4H8c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h11c1.1 0 2-.9 2-2V7c0-1.1-.9-2-2-2zm0 16H8V7h11v14z"/>"#,
         "check" => r#"<path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/>"#,
         "ghost" => r#"<path d="M12 2a8 8 0 0 0-8 8v10.6c0 .7.85 1.05 1.35.55l1.9-1.9 2.2 2.2c.3.3.78.3 1.08 0L12 20l1.47 1.45c.3.3.78.3 1.08 0l2.2-2.2 1.9 1.9c.5.5 1.35.15 1.35-.55V10a8 8 0 0 0-8-8zm-3 8.5A1.5 1.5 0 1 1 10.5 9 1.5 1.5 0 0 1 9 10.5zm6 0A1.5 1.5 0 1 1 16.5 9 1.5 1.5 0 0 1 15 10.5z"/>"#,
@@ -578,9 +591,15 @@ svg.i { width: 22px; height: 22px; flex: none; display: block; }
    fill, which puts an element between the input and its label and leaves the
    label sitting on top of the value. `:has()` does not care where in the
    field the control is. */
+/* A field with a real placeholder floats its label straight away. Most
+   fields here carry `placeholder=" "` purely to drive `:placeholder-shown`,
+   and for those the label correctly rests over an empty box — but where the
+   placeholder is an actual hint ("partials/thing.hbs"), leaving the label at
+   rest prints the two on top of each other. */
 .field:focus-within > span,
 .field:has(input:not(:placeholder-shown)) > span,
 .field:has(textarea:not(:placeholder-shown)) > span,
+.field:has(input[placeholder]:not([placeholder=" "]):not([placeholder=""])) > span,
 .field.fixed > span, .field:has(textarea) > span { top: -8px; font-size: 12px; font-weight: 600; color: var(--primary);
   background: var(--sc-lowest); border-radius: 4px; }
 .field:has(textarea.code) > span { background: var(--sc-lowest); }
@@ -711,6 +730,107 @@ code { font-family: var(--mono); }
 .key button:hover { opacity: 1; background: color-mix(in srgb, currentColor 12%, transparent); }
 .key button svg { width: 15px; height: 15px; }
 .muted { color: var(--on-surface-variant); font-size: 13px; }
+
+/* ---- Portal links reference ----
+   A label column against a copyable value, repeated. The value wraps rather
+   than scrolls: a tier signup URL carries a 24-character id, and a link the
+   publisher cannot read in full is a link they cannot check. */
+.plinks h3 { margin: 22px 0 10px; font-size: 13px; font-weight: 600; letter-spacing: .02em;
+  text-transform: uppercase; color: var(--on-surface-variant);
+  border-bottom: 1px solid var(--outline-variant); padding-bottom: 6px; }
+.plinks h3:first-of-type { margin-top: 4px; }
+.plink { display: flex; align-items: center; gap: 16px; padding: 5px 0; flex-wrap: wrap; }
+.plink > .name { flex: none; width: 190px; font-size: 13.5px; font-weight: 500; }
+.plink > .key { flex: 1; min-width: 240px; word-break: break-all; }
+.plink > .key code { flex: 1; }
+@media (max-width: 720px) { .plink > .name { width: 100%; } }
+
+/* ---- file explorer ----
+   A tree of <details> elements. `--d` is the row's depth, and the single
+   padding rule below is what turns it into indentation, so nesting costs no
+   extra markup. The disclosure triangle is suppressed in favour of the
+   chevron, which rotates with the open state. */
+.ftree { padding: 6px; max-height: 60vh; overflow: auto; font-size: 13px; }
+.ftree summary, .ftree .frow { display: flex; align-items: center; gap: 7px;
+  padding: 5px 8px 5px calc(8px + var(--d, 0) * 13px); border-radius: 8px;
+  color: var(--on-surface); text-decoration: none; cursor: pointer;
+  white-space: nowrap; overflow: hidden; }
+.ftree summary { list-style: none; font-weight: 500; }
+.ftree summary::-webkit-details-marker { display: none; }
+.ftree summary:hover, .ftree .frow:hover { background: color-mix(in srgb, var(--on-surface) 7%, transparent); }
+.ftree .frow.active { background: var(--secondary-container); color: var(--on-secondary-container); font-weight: 600; }
+.ftree .fname { overflow: hidden; text-overflow: ellipsis; font-family: var(--mono); font-size: 12.5px; }
+.ftree .fic { flex: none; display: flex; color: var(--on-surface-variant); }
+.ftree .fic svg { width: 16px; height: 16px; }
+.ftree .frow.active .fic { color: inherit; }
+.ftree .tw { flex: none; display: flex; color: var(--on-surface-variant);
+  transition: transform .15s var(--ease); }
+.ftree .tw svg { width: 16px; height: 16px; }
+.ftree details[open] > summary > .tw { transform: rotate(90deg); }
+.ftree .chip { margin-left: auto; flex: none; }
+
+/* ---- code editor ----
+   A highlighted <pre> sitting exactly under a transparent <textarea>, with a
+   line-number gutter beside them. The textarea keeps every native editing
+   behaviour — caret, selection, undo, spellcheck off, IME — and the layer
+   below only paints. The two must agree on font, size, line-height, padding,
+   tab-size and white-space to the pixel, or the text drifts apart as you
+   type; that is what the shared `.ced-layer` rule is for. */
+.ced { border: 1px solid var(--outline); border-radius: 12px; overflow: hidden;
+  background: var(--sc-lowest); }
+.ced-bar { display: flex; align-items: center; gap: 10px; padding: 8px 12px;
+  background: var(--sc); border-bottom: 1px solid var(--outline-variant);
+  font-family: var(--mono); font-size: 12.5px; color: var(--on-surface-variant); }
+.ced-bar .lang { margin-left: auto; text-transform: uppercase; letter-spacing: .06em;
+  font-size: 11px; font-weight: 600; background: var(--sc-high); border-radius: 999px; padding: 2px 9px; }
+/* The gutter, the highlight layer and the textarea are all held to the one
+   height the script works out from the line count (`--ced-h`), clamped
+   between a usable minimum and a share of the viewport. Letting the gutter
+   size itself is what left a tall blank column beside a long file: its one
+   div per line ran to the full line count and stretched the flex row, while
+   the text beside it stayed at its own fixed height. */
+.ced-body { display: flex; align-items: stretch; position: relative; }
+.ced-gut { flex: none; padding: 12px 10px 12px 14px; text-align: right; user-select: none;
+  background: var(--sc-low); color: var(--on-surface-variant); opacity: .65;
+  border-right: 1px solid var(--outline-variant); overflow: hidden;
+  height: var(--ced-h, 420px); box-sizing: border-box;
+  font-family: var(--mono); font-size: 13px; line-height: 1.6; }
+.ced-wrap { position: relative; flex: 1; min-width: 0; }
+.ced-layer { margin: 0; padding: 12px 14px; font-family: var(--mono); font-size: 13px;
+  line-height: 1.6; tab-size: 2; white-space: pre; overflow: auto;
+  border: 0; width: 100%; height: var(--ced-h, 420px); box-sizing: border-box; }
+.ced-wrap .ced-hl { position: absolute; inset: 0; pointer-events: none; color: var(--on-surface); }
+.ced-wrap textarea.ced-in { position: relative; display: block; resize: none;
+  background: transparent; color: transparent; caret-color: var(--primary);
+  outline: none; -webkit-text-fill-color: transparent; }
+.ced-wrap textarea.ced-in::selection { background: var(--primary-container);
+  -webkit-text-fill-color: transparent; }
+.ced:focus-within { border-color: var(--primary); box-shadow: inset 0 0 0 1px var(--primary); }
+
+/* Token colours. Hue carries the meaning, so they are held apart in lightness
+   too — a reviewer reading this in grayscale still sees structure. */
+.tok-com { color: #6E7A8A; font-style: italic; }
+.tok-str { color: #B2522F; }
+.tok-key { color: #8A3FA8; font-weight: 600; }
+.tok-num { color: #1F6F5C; }
+.tok-tag { color: #9B2A4A; }
+.tok-atr { color: #7A5C12; }
+.tok-mus { color: #1D5FA8; font-weight: 600; }
+.tok-sel { color: #9B2A4A; }
+.tok-prp { color: #1D5FA8; }
+.tok-hed { color: #9B2A4A; font-weight: 700; }
+@media (prefers-color-scheme: dark) {
+  .tok-com { color: #8A95A6; }
+  .tok-str { color: #F0A67F; }
+  .tok-key { color: #DDA7F0; }
+  .tok-num { color: #7FD8BE; }
+  .tok-tag { color: #FF9FB6; }
+  .tok-atr { color: #E7C77A; }
+  .tok-mus { color: #9FC4FF; }
+  .tok-sel { color: #FF9FB6; }
+  .tok-prp { color: #9FC4FF; }
+  .tok-hed { color: #FF9FB6; }
+}
 
 /* ---- analytics: stat tiles + chart ---- */
 .tiles { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 12px; }
@@ -1342,6 +1462,269 @@ const JS: &str = r#"
     navigator.clipboard.writeText(b.dataset.copy).then(function () { say('Copied to clipboard'); },
       function () { say('Copy failed'); });
   });
+
+  // ---- Portal links reference ----
+  // Every row carries both spellings of the same destination: the href a
+  // theme puts in an <a>, and the data-portal attribute that turns any
+  // element into the same trigger. The switch rewrites the shown value and
+  // the copy button together, so what is copied is always what is read.
+  // Tier rows hold a template with {tier} in it, filled from the picker.
+  function paintPortalLinks() {
+    var root = document.querySelector('[data-plinks]');
+    if (!root) return;
+    var mode = root.querySelector('input[name="portal_link_mode"]:checked');
+    var attrs = mode && mode.value === 'attrs';
+    var tierSel = root.querySelector('[data-plink-tier]');
+    var tier = tierSel ? tierSel.value : '';
+    root.querySelectorAll('[data-plink]').forEach(function (row) {
+      var value = (attrs ? row.dataset.attr : row.dataset.link).split('{tier}').join(tier);
+      var out = row.querySelector('code');
+      var btn = row.querySelector('[data-copy]');
+      if (out) out.textContent = value;
+      if (btn) btn.dataset.copy = value;
+    });
+    var note = root.querySelector('[data-plink-note]');
+    if (note) note.textContent = attrs ? 'data attributes' : 'links';
+  }
+  document.addEventListener('change', function (e) {
+    if (e.target.name === 'portal_link_mode' || e.target.hasAttribute('data-plink-tier')) {
+      paintPortalLinks();
+    }
+  });
+  paintPortalLinks();
+
+  // ---- code editor ----
+  // Highlighting is a paint pass over the textarea's own value, so nothing
+  // here can lose or reorder what you typed: if the tokenizer throws, the
+  // worst case is uncoloured text over a working textarea.
+  function esc(s) {
+    return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  }
+  // Walk `re` over `src`, handing each match to `paint`. Text between matches
+  // goes to `rest`, which defaults to escaping it — passing a `rest` is how a
+  // second pass gets layered over the gaps the first one left.
+  function scan(src, re, paint, rest) {
+    var out = '', last = 0, m;
+    re.lastIndex = 0;
+    while ((m = re.exec(src)) !== null) {
+      // A zero-width match would spin forever; step past it.
+      if (m.index === re.lastIndex) { re.lastIndex++; continue; }
+      var gap = src.slice(last, m.index);
+      out += rest ? rest(gap) : esc(gap);
+      out += paint(m);
+      last = m.index + m[0].length;
+    }
+    var tail = src.slice(last);
+    return out + (rest ? rest(tail) : esc(tail));
+  }
+  function span(cls, text) { return '<span class="' + cls + '">' + esc(text) + '</span>'; }
+
+  var MUSTACHE = /\{\{\{?[\s\S]*?\}?\}\}/g;
+  // A quoted attribute value, where a mustache may carry quotes of its own:
+  // `src="{{img_url x size="m"}}"`. Consuming a whole mustache as one
+  // alternative is what stops the inner `"` from closing the value early —
+  // pair them naively and the rest of the tag colours as a string.
+  var ATTR_VALUE = '"(?:\\{\\{[\\s\\S]*?\\}\\}|[^"])*"|\'(?:\\{\\{[\\s\\S]*?\\}\\}|[^\'])*\'';
+
+  // String-coloured, except for the mustaches inside it.
+  function paintValue(v) {
+    return '<span class="tok-str">' +
+      scan(v, MUSTACHE, function (m) { return span('tok-mus', m[0]); }) +
+      '</span>';
+  }
+
+  // Inside one `<tag ...>`: the name, its attribute names, and their values.
+  function paintTag(tag) {
+    return scan(
+      tag,
+      new RegExp('(' + ATTR_VALUE + ')|(\\{\\{\\{?[\\s\\S]*?\\}?\\}\\})|([\\w:@.-]+)(?==)|(<\\/?[A-Za-z][\\w:-]*|\\/?>)', 'g'),
+      function (m) {
+        if (m[1]) return paintValue(m[1]);
+        if (m[2]) return span('tok-mus', m[2]);
+        if (m[3]) return span('tok-atr', m[3]);
+        return span('tok-tag', m[4]);
+      }
+    );
+  }
+
+  var JS_WORDS = /\b(const|let|var|function|return|if|else|for|while|of|in|new|class|extends|import|export|from|default|async|await|try|catch|finally|throw|typeof|instanceof|this|null|undefined|true|false|break|continue|switch|case|do|delete|void|yield|static)\b/;
+
+  var LANGS = {
+    // Handlebars is HTML plus mustaches, so one pass handles both. Comments
+    // come first in the alternation: `{{!-- <div> --}}` is a comment, not a
+    // tag, and the leftmost-longest rule only holds if it is offered first.
+    hbs: function (src) {
+      // A tag runs to the `>` that is not inside one of its attribute values,
+      // so `<a title="a > b">` stays one tag; the alternation spells that out
+      // rather than using `[^>]*`.
+      var TAG = '<\\/?[A-Za-z][\\w:-]*(?:' + ATTR_VALUE + '|\\{\\{[\\s\\S]*?\\}\\}|[^>"\'])*\\/?>';
+      return scan(
+        src,
+        new RegExp('(\\{\\{!--[\\s\\S]*?--\\}\\}|<!--[\\s\\S]*?-->)|(\\{\\{\\{?[\\s\\S]*?\\}?\\}\\})|(' + TAG + ')|(<![A-Za-z][^>]*>)', 'g'),
+        function (m) {
+          if (m[1]) return span('tok-com', m[1]);
+          if (m[2]) return span('tok-mus', m[2]);
+          if (m[3]) return paintTag(m[3]);
+          return span('tok-key', m[4]);
+        }
+      );
+    },
+    css: function (src) {
+      return scan(
+        src,
+        /(\/\*[\s\S]*?\*\/)|("(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*')|(@[\w-]+)|(#[0-9a-fA-F]{3,8}\b)|([{;]\s*)([\w-]+)(\s*:)|(-?\d*\.?\d+(?:px|em|rem|%|vh|vw|vmin|vmax|s|ms|deg|fr|ch|ex|pt)?\b)/g,
+        function (m) {
+          if (m[1]) return span('tok-com', m[1]);
+          if (m[2]) return span('tok-str', m[2]);
+          if (m[3]) return span('tok-key', m[3]);
+          if (m[4]) return span('tok-num', m[4]);
+          // A property is only a property after `{` or `;` — anchoring on
+          // that is what keeps `a:hover` a selector rather than a declaration.
+          if (m[6]) return esc(m[5]) + span('tok-prp', m[6]) + esc(m[7]);
+          return span('tok-num', m[8]);
+        }
+      );
+    },
+    js: function (src) {
+      return scan(
+        src,
+        /(\/\/[^\n]*|\/\*[\s\S]*?\*\/)|(`(?:[^`\\]|\\.)*`|"(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*')|(\b(?:const|let|var|function|return|if|else|for|while|of|in|new|class|extends|import|export|from|default|async|await|try|catch|finally|throw|typeof|instanceof|this|null|undefined|true|false|break|continue|switch|case|do|delete|void|yield|static)\b)|(\b\d+\.?\d*\b)/g,
+        function (m) {
+          if (m[1]) return span('tok-com', m[1]);
+          if (m[2]) return span('tok-str', m[2]);
+          if (m[3]) return span('tok-key', m[3]);
+          return span('tok-num', m[4]);
+        }
+      );
+    },
+    json: function (src) {
+      return scan(
+        src,
+        /("(?:[^"\\]|\\.)*")(\s*:)?|(\btrue\b|\bfalse\b|\bnull\b)|(-?\d+\.?\d*(?:[eE][+-]?\d+)?)/g,
+        function (m) {
+          // A string followed by a colon is a key, and reads differently.
+          if (m[1]) return span(m[2] ? 'tok-prp' : 'tok-str', m[1]) + (m[2] ? esc(m[2]) : '');
+          if (m[3]) return span('tok-key', m[3]);
+          return span('tok-num', m[4]);
+        }
+      );
+    },
+    md: function (src) {
+      return scan(
+        src,
+        /(^```[\s\S]*?^```|^~~~[\s\S]*?^~~~)|(^#{1,6} .*$)|(^>.*$)|(`[^`\n]+`)|(\*\*[^*\n]+\*\*|__[^_\n]+__)|(\[[^\]\n]*\]\([^)\n]*\))/gm,
+        function (m) {
+          if (m[1]) return span('tok-str', m[1]);
+          if (m[2]) return span('tok-hed', m[2]);
+          if (m[3]) return span('tok-com', m[3]);
+          if (m[4]) return span('tok-str', m[4]);
+          if (m[5]) return span('tok-key', m[5]);
+          return span('tok-mus', m[6]);
+        }
+      );
+    },
+    txt: function (src) { return esc(src); },
+  };
+
+  function paintEditor(ed) {
+    var ta = ed.querySelector('.ced-in');
+    var hl = ed.querySelector('.ced-hl');
+    var gut = ed.querySelector('.ced-gut');
+    if (!ta || !hl) return;
+    var src = ta.value;
+    var lang = LANGS[ed.dataset.lang] || LANGS.txt;
+    var painted;
+    try {
+      painted = lang(src);
+    } catch (err) {
+      painted = esc(src);
+    }
+    // A value ending in a newline leaves the last (empty) line with nothing
+    // to give the block height, so the highlight stops one row short of the
+    // caret. The trailing newline keeps the two in step.
+    hl.innerHTML = painted + '\n';
+    var lines = src.split('\n').length;
+    if (gut && gut.childElementCount !== lines) {
+      var nums = '';
+      for (var i = 1; i <= lines; i++) nums += '<div>' + i + '</div>';
+      gut.innerHTML = nums;
+    }
+    // Size to the content, so a twelve-line partial is not framed by half a
+    // screen of nothing and a long stylesheet still gets a usable window.
+    // The line box is measured rather than assumed: it follows the font the
+    // browser actually resolved, which is not always the one asked for.
+    var lineH = (gut && gut.firstElementChild && gut.firstElementChild.offsetHeight) || 21;
+    var min = 320;
+    var max = Math.max(min, Math.round(window.innerHeight * 0.68));
+    var want = lines * lineH + 24; // the layers' 12px of padding, top and bottom
+    ed.style.setProperty('--ced-h', Math.min(Math.max(want, min), max) + 'px');
+    hl.scrollTop = ta.scrollTop;
+    hl.scrollLeft = ta.scrollLeft;
+    if (gut) gut.scrollTop = ta.scrollTop;
+  }
+
+  // Indent or outdent the lines the selection touches; with no selection,
+  // Tab is just two spaces. Without this, Tab leaves the editor entirely.
+  function tabKey(ta, outdent) {
+    var v = ta.value, s = ta.selectionStart, e = ta.selectionEnd;
+    var lineStart = v.lastIndexOf('\n', s - 1) + 1;
+    if (s === e && !outdent) {
+      ta.value = v.slice(0, s) + '  ' + v.slice(e);
+      ta.selectionStart = ta.selectionEnd = s + 2;
+      return;
+    }
+    var lineEnd = v.indexOf('\n', e);
+    if (lineEnd === -1) lineEnd = v.length;
+    var block = v.slice(lineStart, lineEnd);
+    var next = outdent
+      ? block.replace(/^[ \t]{1,2}/gm, '')
+      : block.replace(/^/gm, '  ');
+    ta.value = v.slice(0, lineStart) + next + v.slice(lineEnd);
+    ta.selectionStart = lineStart;
+    ta.selectionEnd = lineStart + next.length;
+  }
+
+  // Enter keeps the current line's indentation, which is most of what an
+  // editor's auto-indent is worth in a template.
+  function enterKey(ta) {
+    var v = ta.value, s = ta.selectionStart;
+    var lineStart = v.lastIndexOf('\n', s - 1) + 1;
+    var indent = (v.slice(lineStart, s).match(/^[ \t]*/) || [''])[0];
+    if (!indent) return false;
+    ta.value = v.slice(0, s) + '\n' + indent + v.slice(ta.selectionEnd);
+    ta.selectionStart = ta.selectionEnd = s + 1 + indent.length;
+    return true;
+  }
+
+  var editors = Array.from(document.querySelectorAll('.ced'));
+  if (editors.length) {
+    // The height cap is a share of the viewport, so it has to be recomputed
+    // when the viewport changes.
+    window.addEventListener('resize', function () {
+      editors.forEach(paintEditor);
+    });
+  }
+  editors.forEach(function (ed) {
+    var ta = ed.querySelector('.ced-in');
+    if (!ta) return;
+    paintEditor(ed);
+    ta.addEventListener('input', function () { paintEditor(ed); });
+    ta.addEventListener('scroll', function () { paintEditor(ed); });
+    ta.addEventListener('keydown', function (e) {
+      if (e.key === 'Tab') {
+        e.preventDefault();
+        tabKey(ta, e.shiftKey);
+        paintEditor(ed);
+      } else if (e.key === 'Enter' && !e.shiftKey) {
+        if (enterKey(ta)) { e.preventDefault(); paintEditor(ed); }
+      } else if ((e.metaKey || e.ctrlKey) && e.key === 's') {
+        // Reflex from every other editor; without it the browser offers to
+        // save the admin page as a file instead.
+        var form = ta.form || document.getElementById(ta.getAttribute('form'));
+        if (form) { e.preventDefault(); form.requestSubmit(); }
+      }
+    });
+  });
 })();
 "#;
 
@@ -1361,7 +1744,7 @@ fn rail(active: &str, user: Option<&ghost_core::models::User>, role: Role) -> St
         ("comments", "/ghost/comments/", "Comments", "comment", "purple"),
         ("automations", "/ghost/automations/", "Automations", "flow", "green"),
         // Integrations is not a rail item: like Ghost, it lives under
-        // Settings → Advanced → Integrations.
+        // Settings → Integrations.
         ("settings", "/ghost/settings/", "Settings", "settings", "pink"),
     ];
     let mut links: String = items
@@ -6422,6 +6805,89 @@ fn theme_edit_flash(theme: &str, file: &str, kind: &str, message: &str) -> Respo
     Redirect::to(&format!("/ghost/themes/{theme}/edit/?{}", qs.finish())).into_response()
 }
 
+/// A theme's files as a tree, the way an editor shows them.
+///
+/// Built from the flat relative paths rather than by walking the directory
+/// again, so the tree can only ever contain files the editor would list.
+#[derive(Default)]
+struct FileTree {
+    /// Sub-directories by name, in path order.
+    dirs: Vec<(String, FileTree)>,
+    /// `(relative path, leaf name)` for the files directly in this directory.
+    files: Vec<(String, String)>,
+}
+
+impl FileTree {
+    fn insert(&mut self, rel: &str, rest: &str) {
+        match rest.split_once('/') {
+            Some((head, tail)) => {
+                // Linear scan rather than a map: a theme has a handful of
+                // directories, and this preserves the sorted input order.
+                if let Some(i) = self.dirs.iter().position(|(n, _)| n == head) {
+                    self.dirs[i].1.insert(rel, tail);
+                } else {
+                    let mut child = FileTree::default();
+                    child.insert(rel, tail);
+                    self.dirs.push((head.to_string(), child));
+                }
+            }
+            None => self.files.push((rel.to_string(), rest.to_string())),
+        }
+    }
+
+    fn build(paths: &[String]) -> Self {
+        let mut root = FileTree::default();
+        for p in paths {
+            root.insert(p, p);
+        }
+        root
+    }
+}
+
+/// Render the tree as nested `<details>` elements.
+///
+/// `<details>` gives the open/close behaviour, the disclosure state and
+/// keyboard operation for free, so the explorer needs no script of its own —
+/// which also means it still works on the first paint, before the page's
+/// JavaScript has run. Directories on the path to the open file start
+/// expanded; everything else starts closed, so a theme with a deep `assets`
+/// tree does not bury the templates under it.
+fn render_file_tree(tree: &FileTree, theme: &str, open: &str, prefix: &str, depth: usize) -> String {
+    let mut out = String::new();
+    for (dir_name, child) in &tree.dirs {
+        let path = if prefix.is_empty() {
+            dir_name.clone()
+        } else {
+            format!("{prefix}/{dir_name}")
+        };
+        let holds_open = open.starts_with(&format!("{path}/"));
+        out.push_str(&format!(
+            r#"<details class="fdir"{open_attr}><summary style="--d:{depth}"><span class="tw">{chev}</span><span class="fic">{folder}</span>{name}</summary>{kids}</details>"#,
+            open_attr = if holds_open { " open" } else { "" },
+            depth = depth,
+            chev = svg("chevron"),
+            folder = svg("folder"),
+            name = esc(dir_name),
+            kids = render_file_tree(child, theme, open, &path, depth + 1),
+        ));
+    }
+    for (rel, leaf) in &tree.files {
+        let editable = ghost_api::themes::is_editable(rel);
+        out.push_str(&format!(
+            r#"<a class="frow{on}" style="--d:{depth}" href="/ghost/themes/{theme}/edit/?file={enc}" title="{full}"><span class="fic">{ic}</span><span class="fname">{leaf}</span>{chip}</a>"#,
+            on = if rel == open { " active" } else { "" },
+            depth = depth,
+            theme = esc(theme),
+            enc = esc(&form_urlencoded::byte_serialize(rel.as_bytes()).collect::<String>()),
+            full = esc(rel),
+            ic = svg(if editable { "file" } else { "image" }),
+            leaf = esc(leaf),
+            chip = if editable { "" } else { r#"<span class="chip draft">binary</span>"# },
+        ));
+    }
+    out
+}
+
 /// Ghost's theme code editor: the theme's files on the left, the open one in
 /// a textarea on the right.
 async fn theme_edit_page(
@@ -6457,37 +6923,40 @@ async fn theme_edit_page(
         String::new()
     };
 
-    let tree: String = files
-        .iter()
-        .map(|f| {
-            format!(
-                r#"<a class="row{on}" href="/ghost/themes/{theme}/edit/?file={enc}"><span class="body"><span class="detail" style="font-family:var(--mono);font-size:12.5px">{label}</span></span>{chev}</a>"#,
-                on = if *f == open { " active" } else { "" },
-                theme = esc(&name),
-                enc = esc(&form_urlencoded::byte_serialize(f.as_bytes()).collect::<String>()),
-                label = esc(f),
-                chev = if ghost_api::themes::is_editable(f) { "" } else { r#"<span class="chip draft">binary</span>"# },
-            )
-        })
-        .collect();
+    let tree = render_file_tree(&FileTree::build(&files), &name, &open, "", 0);
 
     let editor = if editable {
+        // Two sibling forms, never nested. A `<form>` inside a `<form>` is
+        // dropped by the parser while its children are kept, which put the
+        // delete form's hidden `file` input into the save form — the save
+        // then posted `file` twice ("duplicate field `file`") and the Delete
+        // button submitted the save form instead of deleting. The save
+        // controls reach their form by id, so the markup can stay flat.
         format!(
             r#"<form method="post" action="/ghost/themes/{theme}/edit/" id="theme-file-form">
 <input type="hidden" name="file" value="{file}">
-<label class="field" style="margin:0"><textarea name="contents" class="code" rows="26" spellcheck="false" placeholder=" ">{contents}</textarea><span>{file}</span></label>
+<div class="ced" data-lang="{lang}">
+<div class="ced-bar"><span>{file}</span><span class="lang">{lang_label}</span></div>
+<div class="ced-body">
+<div class="ced-gut" aria-hidden="true"></div>
+<div class="ced-wrap">
+<pre class="ced-layer ced-hl" aria-hidden="true"></pre>
+<textarea class="ced-layer ced-in" name="contents" spellcheck="false" autocapitalize="off" autocorrect="off" autocomplete="off" aria-label="{file} contents">{contents}</textarea>
+</div></div></div>
+</form>
 <div style="display:flex;gap:10px;margin-top:12px;align-items:center;flex-wrap:wrap">
-<button class="btn" type="submit">{check} Save file</button>
+<button class="btn" type="submit" form="theme-file-form">{check} Save file</button>
 <form method="post" action="/ghost/themes/{theme}/edit/delete/" data-confirm="Delete file|&#8220;{file}&#8221; will be removed from the theme.">
 <input type="hidden" name="file" value="{file}">
 <button class="btn tonal small danger" type="submit">Delete file</button></form>
 </div>
-<p class="muted" style="margin:12px 0 0">Saving reloads the theme immediately. A template that fails to parse will be reported here rather than breaking the site.</p>
-</form>"#,
+<p class="muted" style="margin:12px 0 0">Saving reloads the theme immediately. A template that fails to parse will be reported here rather than breaking the site. Tab indents, Shift+Tab outdents, Ctrl/⌘+S saves.</p>"#,
             theme = esc(&name),
             file = esc(&open),
             contents = esc(&contents),
             check = svg("check"),
+            lang = ghost_api::themes::editor_language(&open),
+            lang_label = ghost_api::themes::editor_language(&open),
         )
     } else {
         format!(
@@ -6507,7 +6976,7 @@ async fn theme_edit_page(
 <div style="display:grid;grid-template-columns:minmax(220px,300px) 1fr;gap:18px;align-items:start">
 <div>
 <div class="section" style="margin-top:0">Files</div>
-<div class="card rows rise" style="--i:1;max-height:60vh;overflow:auto">{tree}</div>
+<div class="card rise ftree" style="--i:1">{tree}</div>
 <div class="card padded rise" style="--i:2">
 <form method="post" action="/ghost/themes/{theme}/edit/new/" class="inline-form">
 <label class="field" style="flex:1;min-width:140px;margin:0"><input name="file" placeholder="partials/thing.hbs" required><span>New file</span></label>
@@ -6558,14 +7027,7 @@ async fn theme_file_save(
     if let Err(e) = std::fs::write(&path, contents) {
         return theme_edit_flash(&name, &form.file, "error", &format!("Could not write it: {e}"));
     }
-    // The active theme is compiled in memory, so a saved template does nothing
-    // until it is reloaded.
-    let reloaded = if ghost_api::themes::active_theme_name(&state) == name {
-        ghost_api::themes::activate(&state, &name).await.err().map(|e| e.message())
-    } else {
-        None
-    };
-    match reloaded {
+    match reload_if_active(&state, &name).await {
         Some(err) => theme_edit_flash(
             &name,
             &form.file,
@@ -6574,6 +7036,19 @@ async fn theme_file_save(
         ),
         None => theme_edit_flash(&name, &form.file, "ok", "File saved."),
     }
+}
+
+/// Recompile the theme if it is the one being served, reporting why not.
+///
+/// The active theme is compiled in memory, so a file written to disk does
+/// nothing until it is reloaded — and that applies to creating and deleting a
+/// template just as much as to editing one. Returns the failure, if the
+/// reload found the theme in a state it cannot render.
+async fn reload_if_active(state: &AppState, name: &str) -> Option<String> {
+    if ghost_api::themes::active_theme_name(state) != name {
+        return None;
+    }
+    ghost_api::themes::activate(state, name).await.err().map(|e| e.message())
 }
 
 async fn theme_file_new(
@@ -6604,9 +7079,19 @@ async fn theme_file_new(
     if let Some(parent) = path.parent() {
         let _ = std::fs::create_dir_all(parent);
     }
-    match std::fs::write(&path, "") {
-        Ok(()) => theme_edit_flash(&name, &rel, "ok", "File created."),
-        Err(e) => theme_edit_flash(&name, "", "error", &format!("Could not create it: {e}")),
+    if let Err(e) = std::fs::write(&path, "") {
+        return theme_edit_flash(&name, "", "error", &format!("Could not create it: {e}"));
+    }
+    // A new partial is not loadable until the theme is recompiled, so a
+    // template referencing it would 500 in the window before the next save.
+    match reload_if_active(&state, &name).await {
+        Some(err) => theme_edit_flash(
+            &name,
+            &rel,
+            "error",
+            &format!("Created, but the theme would not reload: {err}"),
+        ),
+        None => theme_edit_flash(&name, &rel, "ok", "File created."),
     }
 }
 
@@ -6623,9 +7108,20 @@ async fn theme_file_delete(
         Ok(p) => p,
         Err(e) => return theme_edit_flash(&name, "", "error", &e.message()),
     };
-    match std::fs::remove_file(&path) {
-        Ok(()) => theme_edit_flash(&name, "", "ok", "File deleted."),
-        Err(e) => theme_edit_flash(&name, &form.file, "error", &format!("Could not delete it: {e}")),
+    if let Err(e) = std::fs::remove_file(&path) {
+        return theme_edit_flash(&name, &form.file, "error", &format!("Could not delete it: {e}"));
+    }
+    // Deleting a template the theme still references is the one case where the
+    // reload is load-bearing: saying so here is what tells the publisher to
+    // put it back, rather than letting the site 500 on the next request.
+    match reload_if_active(&state, &name).await {
+        Some(err) => theme_edit_flash(
+            &name,
+            "",
+            "error",
+            &format!("Deleted, but the theme would not reload: {err}"),
+        ),
+        None => theme_edit_flash(&name, "", "ok", "File deleted."),
     }
 }
 
@@ -7035,13 +7531,15 @@ const SETTINGS_GROUPS: &[SettingsGroup] = &[
     SettingsGroup { slug: "analytics", title: "Analytics", icon: "chart", tint: "green", items: &["Web analytics", "Email opens", "Email clicks", "Member sources", "Outbound link tagging"] },
     SettingsGroup { slug: "design", title: "Design & branding", icon: "tune", tint: "purple", items: &["Brand", "Site-wide colors", "Theme settings"] },
     SettingsGroup { slug: "navigation", title: "Navigation", icon: "menu", tint: "red", items: &["Primary menu", "Secondary menu"] },
+    SettingsGroup { slug: "code-injection", title: "Code injection", icon: "code", tint: "purple", items: &["Site head", "Site foot"] },
     SettingsGroup { slug: "site", title: "Announcement", icon: "flag", tint: "amber", items: &["Announcement bar", "Background", "Visibility"] },
     SettingsGroup { slug: "membership", title: "Membership", icon: "ghost", tint: "teal", items: &["Access", "Spam filters", "Tiers", "Signup portal", "Gift subscriptions", "Tips & donations", "Custom fields"] },
     SettingsGroup { slug: "email", title: "Email", icon: "mail", tint: "blue", items: &["Transactional email", "SMTP server", "Sender identity", "Send a test"] },
     SettingsGroup { slug: "newsletters", title: "Newsletters", icon: "send", tint: "purple", items: &["Newsletter sending", "Default recipients", "Mailgun", "Region"] },
     SettingsGroup { slug: "growth", title: "Growth", icon: "globe", tint: "slate", items: &["Network", "Ghost Explore", "Recommendations", "Signup forms", "Offers"] },
-    SettingsGroup { slug: "features", title: "Features", icon: "tune", tint: "teal", items: &["Comments", "Automations"] },
-    SettingsGroup { slug: "advanced", title: "Advanced", icon: "code", tint: "red", items: &["Integrations", "Import/Export", "Code injection", "Beta features"] },
+    SettingsGroup { slug: "features", title: "Features", icon: "tune", tint: "teal", items: &["Comments", "Automations", "Beta features", "Private features"] },
+    SettingsGroup { slug: "integrations", title: "Integrations", icon: "integrations", tint: "red", items: &["Built-in apps", "Custom integrations", "Content API"] },
+    SettingsGroup { slug: "advanced", title: "Advanced", icon: "code", tint: "red", items: &["Import/Export", "Redirects & routes"] },
     SettingsGroup { slug: "history", title: "History", icon: "history", tint: "slate", items: &["Site activity"] },
     SettingsGroup { slug: "danger", title: "Danger zone", icon: "delete", tint: "red", items: &["Delete all content", "Delete site"] },
 ];
@@ -7128,25 +7626,24 @@ const SETTINGS_INDEX: &[(&str, &str, &str)] = &[
     ("features", "Comments", "New comments"),
     ("features", "Comments", "Hold for review"),
     ("features", "Automations", "Automations"),
-    ("advanced", "Code injection", "Head"),
-    ("advanced", "Code injection", "Foot"),
-    ("advanced", "Beta features", "Feature flags"),
+    ("features", "Beta features", "Feature flags"),
+    ("features", "Private features", "Developer experiments"),
+    ("code-injection", "Site head", "Head"),
+    ("code-injection", "Site foot", "Foot"),
     ("advanced", "Redirects & routes", "Redirects"),
     ("advanced", "Redirects & routes", "Routes"),
 ];
 
 /// Sub-pages and on-page headings the group rows do not already carry:
-/// things with their own URL nested inside a group (Integrations and the
-/// built-in apps it lists), and headings that are neither the page's own
+/// things with their own URL nested inside a group (the built-in apps
+/// Integrations lists), and headings that are neither the page's own
 /// name nor one of its listed sub-pages. Each row links straight to where
 /// the thing actually lives.
 const SETTINGS_PLACES: &[(&str, &str, &str)] = &[
     // (path under /ghost/settings/, what you are looking for, parent group slug)
-    ("advanced/integrations/", "Built-in apps", "advanced"),
-    ("advanced/integrations/", "Custom integrations", "advanced"),
-    ("advanced/integrations/zapier/", "Zapier", "advanced"),
-    ("advanced/integrations/slack/", "Slack", "advanced"),
-    ("advanced/integrations/unsplash/", "Unsplash", "advanced"),
+    ("integrations/zapier/", "Zapier", "integrations"),
+    ("integrations/slack/", "Slack", "integrations"),
+    ("integrations/unsplash/", "Unsplash", "integrations"),
     ("membership/", "Stripe", "membership"),
     ("growth/", "Coming later", "growth"),
 ];
@@ -7249,6 +7746,36 @@ fn labs_flags(state: &AppState) -> serde_json::Map<String, serde_json::Value> {
 
 fn labs_flag_on(flags: &serde_json::Map<String, serde_json::Value>, key: &str) -> bool {
     flags.get(key).and_then(serde_json::Value::as_bool).unwrap_or(false)
+}
+
+/// One switch per flag, posted as part of `form_id`.
+///
+/// Every switch writes one key on the `labs` settings object, which is how
+/// Ghost stores them too — so a flag set here is the same flag Ghost would
+/// have set, and reaches a theme as `{{#if labs.<flag>}}`. The hidden `shown`
+/// field is what tells the save which flags this render actually offered, so
+/// an unchecked box can be told apart from a flag that was never on screen.
+fn labs_flag_rows(
+    flags: &serde_json::Map<String, serde_json::Value>,
+    set: &[(&str, &str, &str)],
+    form_id: &str,
+) -> String {
+    set.iter()
+        .map(|(key, title, detail)| {
+            format!(
+                r#"<div class="row toggle-row"><span class="ic tint-teal">{ic}</span>
+<div class="label"><b>{title}</b><span>{detail}</span></div>
+<input type="hidden" name="shown" value="{key}" form="{form}">
+<label class="switch"><input type="checkbox" name="{key}" value="1"{on} form="{form}"><span class="track"><span class="thumb"></span></span></label></div>"#,
+                ic = svg("star"),
+                key = esc(key),
+                form = esc(form_id),
+                title = esc(title),
+                detail = esc(detail),
+                on = if labs_flag_on(flags, key) { " checked" } else { "" },
+            )
+        })
+        .collect()
 }
 
 /// The words Ghost builds a private-site access code from
@@ -7634,13 +8161,7 @@ async fn settings_page(State(state): State<AppState>, headers: HeaderMap) -> Res
             g,
         );
         for item in g.items {
-            // Integrations is the one listed sub-page with a page of its own
-            let url = if *item == "Integrations" {
-                "/ghost/settings/advanced/integrations/".to_string()
-            } else {
-                g.path()
-            };
-            push_hit(url, item, g.title, item, g);
+            push_hit(g.path(), item, g.title, item, g);
         }
     }
     for (path, name, parent) in SETTINGS_PLACES {
@@ -7661,6 +8182,30 @@ async fn settings_page(State(state): State<AppState>, headers: HeaderMap) -> Res
                 &format!("{section} {field}"),
                 g,
             );
+        }
+    }
+    // Each feature flag answers to its own name, so "automatic tax" or
+    // "navigation icons" finds the switch rather than only the page it sits
+    // on. Folded in here rather than copied into `SETTINGS_INDEX` so the two
+    // lists cannot drift, and the flag key joins the haystack because that is
+    // what a developer reading a theme has in front of them.
+    //
+    // The private flags are indexed only where the Features page renders
+    // them: on a production site, a hit would lead to a row that is not
+    // there.
+    if let Some(g) = SETTINGS_GROUPS.iter().find(|g| g.slug == "features") {
+        let private: &[(&str, &str, &str)] =
+            if state.config.env == "development" { PRIVATE_FLAGS } else { &[] };
+        for (section, set) in [("Beta features", BETA_FLAGS), ("Private features", private)] {
+            for (key, title, _) in set {
+                push_hit(
+                    g.path(),
+                    title,
+                    &format!("{} · {}", g.title, section),
+                    &format!("{section} {title} {key}"),
+                    g,
+                );
+            }
         }
     }
     let hits = hit_rows.join("\n");
@@ -9320,6 +9865,37 @@ async fn features_page(State(state): State<AppState>, headers: HeaderMap, Query(
     // get_str + "false" rather than get_bool: a missing row must read as on,
     // and get_bool calls missing false
     let automations_on = state.settings.get_str("automations_enabled").as_deref() != Some("false");
+
+    // The feature flags live here rather than under Advanced: they are
+    // features, and Advanced is where a site's plumbing lives — import,
+    // redirects, routes. One page, one Save, so the flags post as part of the
+    // same form as the switches above them.
+    let flags = labs_flags(&state);
+    let beta_rows = labs_flag_rows(&flags, BETA_FLAGS, "features-form");
+
+    // Said plainly, once: a switch here sets the same flag Ghost would set,
+    // and your theme can read it — but none of this port's own features are
+    // gated on one yet, so turning a flag on will not by itself change how
+    // the admin or the site behaves. Better stated than implied.
+    let honoured_note = "Each switch sets the flag Ghost stores under the same name, and your theme can read any of \
+         them as <code>{{#if labs.flagName}}</code>. None of this port's own features are gated on a \
+         flag yet, so turning one on changes what your theme sees rather than how the admin behaves.";
+
+    // Ghost keeps these behind `enableDeveloperExperiments`; the equivalent
+    // here is running in development, so a production site is not offered
+    // switches whose features are unfinished by Ghost's own account.
+    let private_section = if state.config.env == "development" {
+        format!(
+            r#"<div class="section">Private features</div>
+<div class="card rows rise" style="--i:4">{rows}</div>
+<p class="muted" style="margin:10px 2px 0">Ghost hides these unless developer experiments are switched on, and shows them here
+because this site is running in development.</p>"#,
+            rows = labs_flag_rows(&flags, PRIVATE_FLAGS, "features-form"),
+        )
+    } else {
+        String::new()
+    };
+
     page_for_role(actor_role,
         "Features",
         "settings",
@@ -9338,7 +9914,12 @@ async fn features_page(State(state): State<AppState>, headers: HeaderMap, Query(
 <div class="card rows rise" style="--i:2">
 {automations_toggle}
 </div>
-</form>"#,
+</form>
+<div class="section">Beta features</div>
+<div class="card rows rise" style="--i:3">{beta_rows}</div>
+<p class="muted" style="margin:10px 2px 0">A testing ground for new or experimental features. They may change, break or
+inexplicably disappear at any time. {honoured}</p>
+{private_section}"#,
             head = group_head(group, Some("features-form")),
             banner = flash_banner(&q),
             comment = svg("comment"),
@@ -9353,16 +9934,22 @@ async fn features_page(State(state): State<AppState>, headers: HeaderMap, Query(
                 "Runs the email sequences that start when members join. Stopping the system pauses every automation — nothing is enrolled, nothing is sent, and runs in flight wait exactly where they are.",
                 automations_on,
             ),
+            beta_rows = beta_rows,
+            honoured = honoured_note,
+            private_section = private_section,
         ),
         true,
     )
     .into_response()
 }
 
-async fn features_save(State(state): State<AppState>, headers: HeaderMap, Form(form): Form<HashMap<String, String>>) -> Response {
+/// `shown` repeats once per feature flag on the page, so the body is read as
+/// pairs; the map is only for the fields that appear once.
+async fn features_save(State(state): State<AppState>, headers: HeaderMap, Form(pairs): Form<Vec<(String, String)>>) -> Response {
     if let Err(r) = require_role(&state, &headers, Role::Administrator).await {
         return r;
     }
+    let form: HashMap<String, String> = pairs.iter().cloned().collect();
     let moderation = form.get("comments_moderation").map(String::as_str).unwrap_or("immediate");
     if !matches!(moderation, "immediate" | "review") {
         return settings_flash("features", "error", "New comments must publish immediately or be held for review.");
@@ -9376,11 +9963,30 @@ async fn features_save(State(state): State<AppState>, headers: HeaderMap, Form(f
         .settings
         .set(&state.db, "automations_enabled", &serde_json::Value::Bool(automations_on))
         .await;
+
+    // Only the flags this page actually rendered are touched: on a production
+    // site the private ones are never shown, and reading their absence as
+    // "off" would clear flags the publisher never saw.
+    let shown: Vec<&str> =
+        pairs.iter().filter(|(k, _)| k == "shown").map(|(_, v)| v.as_str()).collect();
+    let mut flags = labs_flags(&state);
+    for key in shown {
+        // A flag that is off is removed rather than stored as `false`, which
+        // is the shape Ghost's own object takes.
+        if pairs.iter().any(|(k, v)| k == key && v == "1") {
+            flags.insert(key.to_string(), serde_json::Value::Bool(true));
+        } else {
+            flags.remove(key);
+        }
+    }
+    let saved_flags =
+        state.settings.set(&state.db, "labs", &serde_json::Value::Object(flags)).await;
+
     // Turning the system back on should not wait for the next tick to notice
     if automations_on {
         ghost_api::automations_engine::request_poll();
     }
-    if saved_moderation.is_ok() && saved_automations.is_ok() {
+    if saved_moderation.is_ok() && saved_automations.is_ok() && saved_flags.is_ok() {
         settings_flash("features", "ok", "Feature settings saved.")
     } else {
         settings_flash("features", "error", "Saving failed — check the logs.")
@@ -10121,6 +10727,138 @@ async fn stripe_disconnect(State(state): State<AppState>, headers: HeaderMap) ->
     membership_flash("ok", "Disconnected from Stripe. Existing subscriptions are untouched on Stripe's side.")
 }
 
+/// One row of the Portal links reference: a name, and the same destination in
+/// both of the spellings Portal accepts.
+///
+/// `link` is shown first because that is the form a theme author reaches for;
+/// the attribute is the one to use on an element that is not an anchor, or
+/// where the href has to stay a real URL for visitors without JavaScript. Both
+/// are rendered into `data-` attributes and the visible one is chosen in the
+/// browser, so flipping the switch costs no round trip.
+fn portal_link_row(name: &str, link: &str, attr: &str) -> String {
+    format!(
+        r#"<div class="plink" data-plink data-link="{link}" data-attr="{attr}">
+<span class="name">{name}</span>
+<span class="key"><code>{link}</code><button type="button" data-copy="{link}" title="Copy" aria-label="Copy {name}">{copy}</button></span></div>"#,
+        name = esc(name),
+        link = esc(link),
+        attr = esc(attr),
+        copy = svg("copy"),
+    )
+}
+
+/// Every Portal destination the site answers, as a link and as a data
+/// attribute — Ghost's Settings → Portal → Links, which this port had nowhere
+/// to show.
+///
+/// Rows are gated on what the site can actually do: with no Stripe connection
+/// there are no paid signups, no gifts and no tips, so listing those links
+/// would advertise screens Portal refuses to open. `paid_tiers` drives the
+/// picker, since a tier-specific signup URL needs a real tier id to work.
+fn portal_links_card(
+    site_url: &str,
+    paid_tiers: &[(String, String)],
+    paid_on: bool,
+    recommendations_on: bool,
+) -> String {
+    let base = site_url.trim_end_matches('/');
+    let row = |name: &str, path: &str| {
+        let attr = path.trim_start_matches('/');
+        let attr = if attr.is_empty() {
+            "data-portal".to_string()
+        } else {
+            format!(r#"data-portal="{attr}""#)
+        };
+        portal_link_row(name, &format!("{base}/#/portal{path}"), &attr)
+    };
+
+    let mut generic = String::new();
+    generic.push_str(&row("Default", ""));
+    generic.push_str(&row("Sign in", "/signin"));
+    generic.push_str(&row("Sign up", "/signup"));
+    generic.push_str(&row("Sign up / Free", "/signup/free"));
+    if paid_on {
+        generic.push_str(&row("Sign up / Monthly", "/signup/monthly"));
+        generic.push_str(&row("Sign up / Yearly", "/signup/yearly"));
+        generic.push_str(&row("Gift subscriptions", "/gift"));
+        generic.push_str(&row("Tips & donations", "/support"));
+    }
+    if recommendations_on {
+        generic.push_str(&row("Recommendations", "/recommendations"));
+    }
+
+    // The tier block only makes sense once there is a paid tier to name: the
+    // id is part of the path, and `#/portal/signup//monthly` opens nothing.
+    let tiers = if paid_on && !paid_tiers.is_empty() {
+        let opts: String = paid_tiers
+            .iter()
+            .enumerate()
+            .map(|(i, (id, name))| {
+                format!(
+                    r#"<option value="{id}"{sel}>{name}</option>"#,
+                    id = esc(id),
+                    name = esc(name),
+                    sel = if i == 0 { " selected" } else { "" },
+                )
+            })
+            .collect();
+        format!(
+            r#"<h3>Tiers</h3>
+<div class="plink"><span class="name">Tier</span>
+<label class="field fixed" style="margin:0;max-width:260px"><select data-plink-tier>{opts}</select><span>Tier</span>{car}</label></div>
+{monthly}{yearly}"#,
+            opts = opts,
+            car = SELECT_CARET,
+            monthly = row("Signup / Monthly", "/signup/{tier}/monthly"),
+            yearly = row("Signup / Yearly", "/signup/{tier}/yearly"),
+        )
+    } else {
+        String::new()
+    };
+
+    let mut account = String::new();
+    account.push_str(&row("Account", "/account"));
+    if paid_on {
+        account.push_str(&row("Account / Plans", "/account/plans"));
+    }
+    account.push_str(&row("Account / Profile", "/account/profile"));
+    account.push_str(&row("Account / Newsletters", "/account/newsletters"));
+    account.push_str(&row("Account / Newsletter help", "/account/newsletters/help"));
+    account.push_str(&row("Account / Email disabled", "/account/newsletters/disabled"));
+
+    format!(
+        r#"<div class="section">Portal links</div>
+<div class="card padded rise plinks" style="--i:7" data-plinks>
+<div class="inline-form" style="justify-content:space-between;align-items:center;margin-bottom:6px">
+<p class="muted" style="margin:0;max-width:460px">Use these <span data-plink-note>links</span> anywhere in your theme, your navigation or an email to open a page of Portal. Copy a row to use it as it is.</p>
+{seg}
+</div>
+<h3>Generic</h3>
+{generic}
+{tiers}
+<h3>Account</h3>
+{account}
+<p class="muted" style="margin:18px 0 0">An offer has a link of its own, <code>{base}/&lt;offer code&gt;</code>, which sends the visitor to <code>#/portal/offers/&lt;id&gt;</code> — find it on the offer in <a href="/ghost/settings/growth/">Settings → Growth</a>.{gift_note}</p>
+</div>"#,
+        seg = segmented(
+            "portal_link_mode",
+            &[("links", "Links"), ("attrs", "Data attributes")],
+            "links",
+        ),
+        generic = generic,
+        tiers = tiers,
+        account = account,
+        base = esc(base),
+        // A redemption link only exists once gifts can be bought, which needs
+        // the same Stripe connection as the Gift row above.
+        gift_note = if paid_on {
+            " A gift email carries <code>#/portal/gift/redeem/&lt;token&gt;</code>, which is minted per gift."
+        } else {
+            ""
+        },
+    )
+}
+
 async fn membership_page(State(state): State<AppState>, headers: HeaderMap, Query(q): Query<HashMap<String, String>>) -> Response {
     let (user, actor_role) = match require_role(&state, &headers, Role::Administrator).await {
         Ok(a) => (a.user, a.role),
@@ -10130,6 +10868,9 @@ async fn membership_page(State(state): State<AppState>, headers: HeaderMap, Quer
     let get = |k: &str, d: &str| state.settings.get_str(k).unwrap_or_else(|| d.to_string());
 
     let mut tier_rows = String::new();
+    // The paid, active tiers also feed the Portal links reference below, whose
+    // tier-specific signup URLs name a tier by id.
+    let mut paid_tiers: Vec<(String, String)> = Vec::new();
     if let Ok(tiers) = sqlx::query_as::<_, (String, String, String, Option<i64>, Option<i64>, bool)>(
         "SELECT id, name, type, monthly_price, yearly_price, active FROM products ORDER BY type DESC, created_at",
     )
@@ -10137,6 +10878,9 @@ async fn membership_page(State(state): State<AppState>, headers: HeaderMap, Quer
     .await
     {
         for (id, name, tier_type, monthly, yearly, active) in tiers {
+            if active && tier_type != "free" {
+                paid_tiers.push((id.clone(), name.clone()));
+            }
             let price = if tier_type == "free" {
                 "Free".to_string()
             } else {
@@ -10629,6 +11373,7 @@ engines and asks every visitor for one shared access code.</p>
 <div class="card rows rise" style="--i:5">{newsletter_rows}</div>
 {newsletter_edit}
 <p class="muted" style="margin:4px 0 0 16px">The design of each newsletter — colours, typography, header and footer — is set in <a href="/ghost/settings/newsletters/">Settings → Newsletters</a>.</p>
+{portal_links}
 "#,
             head = group_head(group, Some("membership-form")),
             banner = flash_banner(&q),
@@ -10734,6 +11479,15 @@ engines and asks every visitor for one shared access code.</p>
                     )
                 })
                 .unwrap_or_default(),
+            // Gated on the same connection as the Gift and Tips cards above,
+            // so the page never offers a link to a screen it has just said is
+            // unavailable.
+            portal_links = portal_links_card(
+                site_url,
+                &paid_tiers,
+                stripe_on,
+                state.settings.get_bool("recommendations_enabled"),
+            ),
         ),
         true,
     )
@@ -11935,56 +12689,12 @@ async fn advanced_page(State(state): State<AppState>, headers: HeaderMap, Query(
         Ok(a) => (a.user, a.role),
         Err(r) => return r,
     };
-    let s = |k: &str| esc(&state.settings.get_str(k).unwrap_or_default());
 
-    // --- feature flags ------------------------------------------------------
-    //
-    // Every switch writes one key on the `labs` settings object, which is how
-    // Ghost stores them too — so a flag set here is the same flag Ghost would
-    // have set, and reaches a theme as `{{#if labs.<flag>}}`.
-    let flags = labs_flags(&state);
-    let flag_rows = |set: &[(&str, &str, &str)]| -> String {
-        set.iter()
-            .map(|(key, title, detail)| {
-                format!(
-                    r#"<div class="row toggle-row"><span class="ic tint-red">{ic}</span>
-<div class="label"><b>{title}</b><span>{detail}</span></div>
-<input type="hidden" name="shown" value="{key}">
-<label class="switch"><input type="checkbox" name="{key}" value="1"{on} form="labs-form"><span class="track"><span class="thumb"></span></span></label></div>"#,
-                    ic = svg("star"),
-                    key = esc(key),
-                    title = esc(title),
-                    detail = esc(detail),
-                    on = if labs_flag_on(&flags, key) { " checked" } else { "" },
-                )
-            })
-            .collect()
-    };
-    let beta_rows = flag_rows(BETA_FLAGS);
-
-    // Said plainly, once: a switch here sets the same flag Ghost would set,
-    // and your theme can read it — but none of this port's own features are
-    // gated on one yet, so turning a flag on will not by itself change how
-    // the admin or the site behaves. Better stated than implied.
-    let honoured_note = "Each switch sets the flag Ghost stores under the same name, and your theme can read any of \
-         them as <code>{{#if labs.flagName}}</code>. None of this port's own features are gated on a \
-         flag yet, so turning one on changes what your theme sees rather than how the admin behaves.";
-
-    // Ghost keeps these behind `enableDeveloperExperiments`; the equivalent
-    // here is running in development, so a production site is not offered
-    // switches whose features are unfinished by Ghost's own account.
-    let private_section = if state.config.env == "development" {
-        format!(
-            r#"<div class="section">Private features</div>
-<div class="card rows rise" style="--i:6">{rows}</div>
-<p class="muted" style="margin:10px 2px 0">Ghost hides these unless developer experiments are switched on, and shows them here
-because this site is running in development.</p>"#,
-            rows = flag_rows(PRIVATE_FLAGS),
-        )
-    } else {
-        String::new()
-    };
-
+    // Beta and private feature flags used to sit here; they live on the
+    // Features page now, where the rest of what a publisher can switch on and
+    // off already is. What is left on this page is plumbing — import, export,
+    // redirects, routes — and none of it posts a form, so the header carries
+    // no Save.
     let group = SETTINGS_GROUPS.iter().find(|g| g.slug == "advanced").unwrap();
     page_for_role(actor_role,
         "Advanced",
@@ -11992,14 +12702,8 @@ because this site is running in development.</p>"#,
         Some(&user),
         &format!(
             r#"{head}{banner}
-<div class="section">Advanced</div>
-<div class="card rows rise" style="--i:1">
-<a class="row" href="/ghost/settings/advanced/integrations/"><span class="ic tint-red">{integrations}</span>
-<div class="body"><span class="title">Integrations</span><span class="detail">API keys &amp; external services</span></div>
-<div class="trailing">{chev}</div></a>
-</div>
 <div class="section">Import/Export</div>
-<div class="card rows rise" style="--i:2">
+<div class="card rows rise" style="--i:1">
 <div class="row" style="align-items:flex-start"><span class="ic tint-red">{upload}</span>
 <div class="body" style="width:100%"><span class="title" style="display:block;margin-bottom:8px">Import content</span>
 <form method="post" action="/ghost/settings/advanced/import/" enctype="multipart/form-data" style="display:flex;gap:12px;align-items:center;flex-wrap:wrap">
@@ -12011,17 +12715,8 @@ because this site is running in development.</p>"#,
 <div class="body"><span class="title">Export content</span><span class="detail">Download everything as a Ghost-format JSON export</span></div>
 <div class="trailing"><a class="btn tonal small" href="/ghost/settings/advanced/export/">Export</a></div></div>
 </div>
-<div class="section">Code injection</div>
-<div class="card rows rise" style="--i:3">
-<div class="row" style="align-items:flex-start"><span class="ic tint-red">{code}</span>
-<div class="body" style="width:100%">
-<form method="post" action="/ghost/settings/advanced/" id="advanced-form">
-<label class="field" style="margin:0 0 12px"><textarea name="codeinjection_head" class="code" rows="5" placeholder=" ">{cih}</textarea><span>Head · injected into &lt;head&gt;</span></label>
-<label class="field" style="margin:0"><textarea name="codeinjection_foot" class="code" rows="5" placeholder=" ">{cif}</textarea><span>Foot · injected before &lt;/body&gt;</span></label>
-</form></div></div>
-</div>
 <div class="section">Redirects &amp; routes</div>
-<div class="card rows rise" style="--i:4">
+<div class="card rows rise" style="--i:2">
 <div class="row" style="align-items:flex-start"><span class="ic tint-red">{redirects_ic}</span>
 <div class="body" style="width:100%"><span class="title" style="display:block;margin-bottom:8px">Redirects</span>
 <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap">
@@ -12039,34 +12734,60 @@ because this site is running in development.</p>"#,
 <button class="btn tonal small" type="submit">Upload routes</button></form></div>
 <p class="muted" style="margin:10px 0 0">routes.yaml defines the site's URL structure — collections, channels and custom templates. Uploading rebuilds routing and the active theme immediately.</p></div></div>
 </div>
-<div class="section">Beta features</div>
-<form method="post" action="/ghost/settings/advanced/labs/" id="labs-form">
-<div class="card rows rise" style="--i:5">{beta_rows}</div>
-<p class="muted" style="margin:10px 2px 0">A testing ground for new or experimental features. They may change, break or
-inexplicably disappear at any time. {honoured}</p>
-{private_section}
-</form>"#,
-            head = group_head(group, Some("advanced-form")),
+<p class="muted" style="margin:14px 2px 0">Looking for beta and private features? They moved to <a href="/ghost/settings/features/">Settings → Features</a>.</p>"#,
+            head = group_head(group, None),
             banner = flash_banner(&q),
-            integrations = svg("integrations"),
-            chev = svg("chevron"),
             upload = svg("upload"),
             open = svg("open"),
-            code = svg("code"),
             redirects_ic = svg("link"),
             routes_ic = svg("layout"),
-            cih = s("codeinjection_head"),
-            cif = s("codeinjection_foot"),
-            beta_rows = beta_rows,
-            honoured = honoured_note,
-            private_section = private_section,
         ),
         true,
     )
     .into_response()
 }
 
-async fn advanced_save(State(state): State<AppState>, headers: HeaderMap, Form(form): Form<HashMap<String, String>>) -> Response {
+// --- code injection: a page of its own under Settings ------------------
+
+async fn code_injection_page(State(state): State<AppState>, headers: HeaderMap, Query(q): Query<HashMap<String, String>>) -> Response {
+    let (user, actor_role) = match require_role(&state, &headers, Role::Administrator).await {
+        Ok(a) => (a.user, a.role),
+        Err(r) => return r,
+    };
+    let s = |k: &str| esc(&state.settings.get_str(k).unwrap_or_default());
+    let group = SETTINGS_GROUPS.iter().find(|g| g.slug == "code-injection").unwrap();
+    page_for_role(actor_role,
+        "Code injection",
+        "settings",
+        Some(&user),
+        &format!(
+            r#"{head}{banner}
+<form method="post" action="/ghost/settings/code-injection/" id="codeinjection-form">
+<div class="section">Site head</div>
+<div class="card rows rise" style="--i:1">
+<div class="row" style="align-items:flex-start"><span class="ic tint-purple">{code}</span>
+<div class="body" style="width:100%"><label class="field" style="margin:0"><textarea name="codeinjection_head" class="code" rows="8" placeholder=" ">{cih}</textarea><span>Injected into &lt;head&gt; on every page</span></label></div></div>
+</div>
+<div class="section">Site foot</div>
+<div class="card rows rise" style="--i:2">
+<div class="row" style="align-items:flex-start"><span class="ic tint-purple">{code}</span>
+<div class="body" style="width:100%"><label class="field" style="margin:0"><textarea name="codeinjection_foot" class="code" rows="8" placeholder=" ">{cif}</textarea><span>Injected before &lt;/body&gt; on every page</span></label></div></div>
+</div>
+</form>
+<p class="muted" style="margin:10px 2px 0">Styles, scripts or analytics for the whole site — pasted as-is, so tags and quotes
+stay exactly as written.</p>"#,
+            head = group_head(group, Some("codeinjection-form")),
+            banner = flash_banner(&q),
+            code = svg("code"),
+            cih = s("codeinjection_head"),
+            cif = s("codeinjection_foot"),
+        ),
+        true,
+    )
+    .into_response()
+}
+
+async fn code_injection_save(State(state): State<AppState>, headers: HeaderMap, Form(form): Form<HashMap<String, String>>) -> Response {
     if let Err(r) = require_role(&state, &headers, Role::Administrator).await {
         return r;
     }
@@ -12076,50 +12797,20 @@ async fn advanced_save(State(state): State<AppState>, headers: HeaderMap, Form(f
         ok &= state.settings.set(&state.db, key, &serde_json::json!(value)).await.is_ok();
     }
     if ok {
-        settings_flash("advanced", "ok", "Code injection saved.")
+        settings_flash("code-injection", "ok", "Code injection saved.")
     } else {
-        settings_flash("advanced", "error", "Saving failed — check the logs.")
+        settings_flash("code-injection", "error", "Saving failed — check the logs.")
     }
 }
 
-/// Save the labs flags — must parse as a JSON object (Ghost's shape).
-/// Save the feature flags.
+/// Save the feature flags, stored as keys on the `labs` settings object —
+/// the same object Ghost writes, so a flag set here is the flag a Ghost
+/// theme or export expects.
 ///
 /// Unchecked switches post nothing, so each rendered row carries a `shown`
 /// marker and only those are rewritten — a flag whose row was not on the page
 /// (the private ones outside development) keeps whatever it held, and a flag
 /// set by a newer Ghost that this build has no row for survives untouched.
-async fn labs_save(
-    State(state): State<AppState>,
-    headers: HeaderMap,
-    Form(form): Form<Vec<(String, String)>>,
-) -> Response {
-    if let Err(r) = require_role(&state, &headers, Role::Administrator).await {
-        return r;
-    }
-    let shown: Vec<&str> =
-        form.iter().filter(|(k, _)| k == "shown").map(|(_, v)| v.as_str()).collect();
-    let mut flags = labs_flags(&state);
-    for key in shown {
-        let on = form.iter().any(|(k, v)| k == key && v == "1");
-        // A flag that is off is removed rather than stored as `false`, which
-        // is the shape Ghost's own object takes.
-        if on {
-            flags.insert(key.to_string(), serde_json::Value::Bool(true));
-        } else {
-            flags.remove(key);
-        }
-    }
-    match state
-        .settings
-        .set(&state.db, "labs", &serde_json::Value::Object(flags))
-        .await
-    {
-        Ok(()) => settings_flash("advanced", "ok", "Feature flags saved."),
-        Err(e) => settings_flash("advanced", "error", &e.message()),
-    }
-}
-
 // --- export / import (Ghost-format JSON) ---
 
 /// Ghost export shape: `{db: [{meta: {…}, data: {posts, tags, users, …}}]}`.
@@ -14389,10 +15080,11 @@ async fn profile_password(
 // integrations (shows the content API keys) — a Settings → Advanced sub-page
 // ---------------------------------------------------------------------------
 
-/// Integrations used to be a top-level rail item. Ghost files it under
-/// Settings → Advanced, so it moved there; this keeps old links working.
+/// Integrations used to be a top-level rail item, then lived under Settings →
+/// Advanced before becoming a settings page of its own; this keeps links from
+/// both eras working.
 async fn integrations_redirect() -> Response {
-    Redirect::permanent("/ghost/settings/advanced/integrations/").into_response()
+    Redirect::permanent("/ghost/settings/integrations/").into_response()
 }
 
 /// The three apps Ghost ships with. Slug, label, blurb, icon, tint.
@@ -14414,7 +15106,7 @@ fn integrations_flash(sub: &str, kind: &str, message: &str) -> Response {
     let encoded: String = form_urlencoded::Serializer::new(String::new())
         .append_pair(kind, message)
         .finish();
-    Redirect::to(&format!("/ghost/settings/advanced/integrations/{sub}?{encoded}")).into_response()
+    Redirect::to(&format!("/ghost/settings/integrations/{sub}?{encoded}")).into_response()
 }
 
 /// A secret with a copy button. Long keys are shown in full — they have to be
@@ -14454,7 +15146,7 @@ async fn integrations_page(
             _ => r#"<span class="chip tonal">Not set up</span>"#,
         };
         apps.push_str(&format!(
-            r#"<a class="row" href="/ghost/settings/advanced/integrations/{slug}/"><span class="ic tint-{tint}">{ic}</span>
+            r#"<a class="row" href="/ghost/settings/integrations/{slug}/"><span class="ic tint-{tint}">{ic}</span>
 <div class="body"><span class="title">{name}</span><span class="detail">{blurb}</span></div>
 <div class="trailing">{status}</div></a>"#,
             slug = slug,
@@ -14476,7 +15168,7 @@ async fn integrations_page(
             .filter(|d| !d.is_empty())
             .unwrap_or_else(|| format!("/{}", i.slug.clone().unwrap_or_default()));
         custom_rows.push_str(&format!(
-            r#"<a class="row" href="/ghost/settings/advanced/integrations/custom/{id}/"><span class="ic tint-teal">{ic}</span>
+            r#"<a class="row" href="/ghost/settings/integrations/custom/{id}/"><span class="ic tint-teal">{ic}</span>
 <div class="body"><span class="title">{name}</span><span class="detail">{detail}</span></div>
 <span class="chip tonal">2 keys</span></a>"#,
             id = esc(&i.id),
@@ -14510,14 +15202,14 @@ async fn integrations_page(
         "settings",
         Some(&user),
         &format!(
-            r#"<header class="page-head rise"><a class="icon-btn" style="transform:rotate(180deg)" href="/ghost/settings/advanced/" title="Back to advanced settings">{back}</a>
+            r#"<header class="page-head rise"><a class="icon-btn" style="transform:rotate(180deg)" href="/ghost/settings/" title="Back to settings">{back}</a>
 <div><h1>Integrations</h1><p class="sub">Built-in apps, API keys &amp; your own scripts</p></div></header>
 {banner}
 <div class="section">Built-in apps</div>
 <div class="card rows rise" style="--i:1">{apps}</div>
 <div class="section">Custom integrations</div>
 <div class="card rows rise" style="--i:2">{custom_rows}</div>
-<div class="card padded rise" style="--i:3"><form method="post" action="/ghost/settings/advanced/integrations/">
+<div class="card padded rise" style="--i:3"><form method="post" action="/ghost/settings/integrations/">
 <div class="section" style="margin-top:0">Add a custom integration</div>
 <p class="muted" style="margin:0 0 12px">Creates a Content API key and an Admin API key you can use from your own code.</p>
 <div class="inline-form">
@@ -14623,7 +15315,7 @@ async fn custom_integration_page(
 <div class="body"><span class="title">{label}{name}</span><span class="detail">{url}</span>
 <div style="margin-top:6px">{last}</div></div>
 <div class="trailing">
-<form method="post" action="/ghost/settings/advanced/integrations/custom/{iid}/webhooks/{wid}/delete/" data-confirm="Delete webhook|Nothing will be sent to {url} when this event fires.">
+<form method="post" action="/ghost/settings/integrations/custom/{iid}/webhooks/{wid}/delete/" data-confirm="Delete webhook|Nothing will be sent to {url} when this event fires.">
 <button class="icon-btn danger" title="Delete" aria-label="Delete">{del}</button></form></div></div>"#,
             ic = svg("share"),
             label = esc(ghost_api::webhooks::event_label(&h.event)),
@@ -14648,10 +15340,10 @@ async fn custom_integration_page(
         "settings",
         Some(&user),
         &format!(
-            r#"<header class="page-head rise"><a class="icon-btn" style="transform:rotate(180deg)" href="/ghost/settings/advanced/integrations/" title="Back to integrations">{back}</a>
+            r#"<header class="page-head rise"><a class="icon-btn" style="transform:rotate(180deg)" href="/ghost/settings/integrations/" title="Back to integrations">{back}</a>
 <div><h1>{name}</h1><p class="sub">Custom integration</p></div></header>
 {banner}
-<div class="card padded rise" style="--i:1"><form method="post" action="/ghost/settings/advanced/integrations/custom/{id}/">
+<div class="card padded rise" style="--i:1"><form method="post" action="/ghost/settings/integrations/custom/{id}/">
 {name_field}{desc_field}
 <div style="margin-top:14px"><button class="btn" type="submit">Save</button></div></form></div>
 <div class="section">API keys</div>
@@ -14661,7 +15353,7 @@ async fn custom_integration_page(
 <div class="section">Webhooks</div>
 <div class="card rows rise" style="--i:4">{webhook_rows}</div>
 <div class="card padded rise" style="--i:4">
-<form method="post" action="/ghost/settings/advanced/integrations/custom/{id}/webhooks/new/" class="inline-form">
+<form method="post" action="/ghost/settings/integrations/custom/{id}/webhooks/new/" class="inline-form">
 <label class="field" style="min-width:160px;margin:0"><input name="name" placeholder=" " maxlength="191"><span>Name · optional</span></label>
 <label class="field fixed" style="min-width:230px;margin:0"><select name="event" required>{event_opts}</select><span>Event</span>{car}</label>
 <label class="field" style="flex:1;min-width:220px;margin:0"><input name="target_url" type="url" placeholder="https://example.com/hook" maxlength="2000" required><span>Target URL</span></label>
@@ -14674,7 +15366,7 @@ delivery from anyone who learned the URL.</p>
 </div>
 <div class="section">Danger zone</div>
 <div class="card padded rise" style="--i:4">
-<form method="post" action="/ghost/settings/advanced/integrations/custom/{id}/delete/" data-confirm="Delete integration|&#8220;{name}&#8221; and its API keys will be removed. Anything using them will stop working.">
+<form method="post" action="/ghost/settings/integrations/custom/{id}/delete/" data-confirm="Delete integration|&#8220;{name}&#8221; and its API keys will be removed. Anything using them will stop working.">
 <button class="btn danger" type="submit">{del} Delete integration</button></form></div>"#,
             back = svg("chevron"),
             banner = flash_banner(&q),
@@ -14794,7 +15486,7 @@ struct WebhookForm {
 fn integration_flash(id: &str, kind: &str, message: &str) -> Response {
     let encoded: String =
         form_urlencoded::Serializer::new(String::new()).append_pair(kind, message).finish();
-    Redirect::to(&format!("/ghost/settings/advanced/integrations/custom/{id}/?{encoded}"))
+    Redirect::to(&format!("/ghost/settings/integrations/custom/{id}/?{encoded}"))
         .into_response()
 }
 
@@ -14916,7 +15608,7 @@ async fn zapier_page(
         "settings",
         Some(&user),
         &format!(
-            r#"<header class="page-head rise"><a class="icon-btn" style="transform:rotate(180deg)" href="/ghost/settings/advanced/integrations/" title="Back to integrations">{back}</a>
+            r#"<header class="page-head rise"><a class="icon-btn" style="transform:rotate(180deg)" href="/ghost/settings/integrations/" title="Back to integrations">{back}</a>
 <div><h1>Zapier</h1><p class="sub">Automate Ghost with 6,000+ apps</p></div></header>
 {banner}
 <div class="banner info rise" style="--i:1">{bulb}<span class="msg">Paste these into Zapier when it asks to connect to Ghost. The Admin API key lets a Zap create and edit content, so treat it like a password.</span></div>
@@ -14961,7 +15653,7 @@ async fn slack_page(
         .unwrap_or_else(|| "Ghost".into());
     let configured = !url.trim().is_empty();
     let test = match configured {
-        true => r#"<form method="post" action="/ghost/settings/advanced/integrations/slack/test/" style="margin-top:14px"><button class="btn tonal" type="submit">Send test notification</button></form>"#,
+        true => r#"<form method="post" action="/ghost/settings/integrations/slack/test/" style="margin-top:14px"><button class="btn tonal" type="submit">Send test notification</button></form>"#,
         false => "",
     };
 
@@ -14971,11 +15663,11 @@ async fn slack_page(
         "settings",
         Some(&user),
         &format!(
-            r#"<header class="page-head rise"><a class="icon-btn" style="transform:rotate(180deg)" href="/ghost/settings/advanced/integrations/" title="Back to integrations">{back}</a>
+            r#"<header class="page-head rise"><a class="icon-btn" style="transform:rotate(180deg)" href="/ghost/settings/integrations/" title="Back to integrations">{back}</a>
 <div><h1>Slack</h1><p class="sub">Post to a channel when you publish</p></div></header>
 {banner}
 <div class="banner info rise" style="--i:1">{bulb}<span class="msg">Create an <b>Incoming Webhook</b> in Slack (Slack → Apps → Incoming WebHooks), pick a channel, and paste the URL it gives you. The URL is a credential — anyone with it can post to that channel.</span></div>
-<div class="card padded rise" style="--i:2"><form method="post" action="/ghost/settings/advanced/integrations/slack/">
+<div class="card padded rise" style="--i:2"><form method="post" action="/ghost/settings/integrations/slack/">
 {url_field}{name_field}
 <div style="margin-top:14px"><button class="btn" type="submit">Save</button></div></form>
 {test}</div>"#,
@@ -15060,10 +15752,10 @@ async fn firstpromoter_page(
         "settings",
         Some(&user),
         &format!(
-            r#"<header class="page-head rise"><a class="icon-btn" style="transform:rotate(180deg)" href="/ghost/settings/advanced/integrations/" title="Back to integrations">{back}</a>
+            r#"<header class="page-head rise"><a class="icon-btn" style="transform:rotate(180deg)" href="/ghost/settings/integrations/" title="Back to integrations">{back}</a>
 <div><h1>FirstPromoter</h1><p class="sub">Referral and affiliate tracking for members</p></div></header>
 {banner}
-<div class="card padded rise" style="--i:1"><form method="post" action="/ghost/settings/advanced/integrations/firstpromoter/">
+<div class="card padded rise" style="--i:1"><form method="post" action="/ghost/settings/integrations/firstpromoter/">
 {toggle}
 <div style="margin-top:14px">{id_field}</div>
 <p class="muted" style="margin:10px 0 0">{note}</p>
@@ -15108,10 +15800,10 @@ async fn pintura_page(
         "settings",
         Some(&user),
         &format!(
-            r#"<header class="page-head rise"><a class="icon-btn" style="transform:rotate(180deg)" href="/ghost/settings/advanced/integrations/" title="Back to integrations">{back}</a>
+            r#"<header class="page-head rise"><a class="icon-btn" style="transform:rotate(180deg)" href="/ghost/settings/integrations/" title="Back to integrations">{back}</a>
 <div><h1>Pintura</h1><p class="sub">Edit images without leaving the editor</p></div></header>
 {banner}
-<div class="card padded rise" style="--i:1"><form method="post" action="/ghost/settings/advanced/integrations/pintura/">
+<div class="card padded rise" style="--i:1"><form method="post" action="/ghost/settings/integrations/pintura/">
 {toggle}
 <div class="grid2" style="gap:12px;margin-top:14px">{js_field}{css_field}</div>
 <p class="muted" style="margin:10px 0 0">Pintura is a commercial library Ghost does not ship. Buy a licence, host the two files
@@ -15148,10 +15840,10 @@ async fn transistor_page(
         "settings",
         Some(&user),
         &format!(
-            r#"<header class="page-head rise"><a class="icon-btn" style="transform:rotate(180deg)" href="/ghost/settings/advanced/integrations/" title="Back to integrations">{back}</a>
+            r#"<header class="page-head rise"><a class="icon-btn" style="transform:rotate(180deg)" href="/ghost/settings/integrations/" title="Back to integrations">{back}</a>
 <div><h1>Transistor.fm</h1><p class="sub">Private podcast feeds for your members</p></div></header>
 {banner}
-<div class="card padded rise" style="--i:1"><form method="post" action="/ghost/settings/advanced/integrations/transistor/">
+<div class="card padded rise" style="--i:1"><form method="post" action="/ghost/settings/integrations/transistor/">
 {toggle}
 <label class="field" style="margin:14px 0 0"><input name="transistor_portal_url_template" value="{url_template}" placeholder="https://partner.transistor.fm/ghost/{{uuid}}"><span>Private feed URL template</span></label>
 <p class="muted" style="margin:6px 0 0">Use <code>{{uuid}}</code> where the member's own identifier goes — that is what makes each feed private to them.</p>
@@ -15253,10 +15945,10 @@ async fn unsplash_page(
         "settings",
         Some(&user),
         &format!(
-            r#"<header class="page-head rise"><a class="icon-btn" style="transform:rotate(180deg)" href="/ghost/settings/advanced/integrations/" title="Back to integrations">{back}</a>
+            r#"<header class="page-head rise"><a class="icon-btn" style="transform:rotate(180deg)" href="/ghost/settings/integrations/" title="Back to integrations">{back}</a>
 <div><h1>Unsplash</h1><p class="sub">Free photography inside the editor</p></div></header>
 {banner}
-<div class="card padded rise" style="--i:1"><form method="post" action="/ghost/settings/advanced/integrations/unsplash/">
+<div class="card padded rise" style="--i:1"><form method="post" action="/ghost/settings/integrations/unsplash/">
 {toggle}
 <div style="margin-top:14px">{key_field}</div>
 <p class="muted" style="margin:10px 0 0">{note}</p>
@@ -15802,13 +16494,15 @@ mod tests {
         // Design & branding and Navigation moved here out of the left rail,
         // which is also where Ghost keeps them; Announcement is what is left
         // of the old Site group once its Theme row — a second door onto
-        // Design — was taken away.
+        // Design — was taken away. Integrations and Code injection are
+        // Ghost's own settings pages too; they lived under Advanced here
+        // until each grew a Save button of its own.
         let titles: Vec<&str> = SETTINGS_GROUPS.iter().map(|g| g.title).collect();
         assert_eq!(
             titles,
             ["General settings", "Staff", "Meta data", "Social accounts", "Analytics",
-             "Design & branding", "Navigation", "Announcement",
-             "Membership", "Email", "Newsletters", "Growth", "Features", "Advanced", "History", "Danger zone"]
+             "Design & branding", "Navigation", "Code injection", "Announcement",
+             "Membership", "Email", "Newsletters", "Growth", "Features", "Integrations", "Advanced", "History", "Danger zone"]
         );
         // every group has a working page at its slug
         assert!(SETTINGS_GROUPS.iter().all(|g| !g.slug.is_empty() && !g.items.is_empty()));
@@ -15983,5 +16677,109 @@ mod tests {
         form.insert("sticky_header".into(), "1".into());
         let values = coerce_custom_values(&decls, &form);
         assert_eq!(values["sticky_header"], serde_json::json!(true));
+    }
+
+    #[test]
+    fn portal_links_carry_both_spellings_of_each_destination() {
+        let tiers = vec![("tier1".to_string(), "Gold".to_string())];
+        let html = portal_links_card("https://site.test/", &tiers, true, true);
+
+        // The link and the attribute ride on the same row, because the switch
+        // between them happens in the browser with no round trip.
+        assert!(html.contains(r#"data-link="https://site.test/#/portal/signup""#));
+        assert!(html.contains(r#"data-attr="data-portal=&quot;signup&quot;""#));
+        // The bare default has no value on the attribute at all.
+        assert!(html.contains(r#"data-link="https://site.test/#/portal" data-attr="data-portal""#));
+        // A trailing slash on the site URL must not double up.
+        assert!(!html.contains("site.test//#"));
+        // Tier rows keep the placeholder; the picker fills it client-side.
+        assert!(html.contains("#/portal/signup/{tier}/monthly"));
+        assert!(html.contains(r#"<option value="tier1" selected>Gold</option>"#));
+    }
+
+    #[test]
+    fn portal_links_hide_what_the_site_cannot_do() {
+        // No Stripe: no paid signup, no gifts, no tips, no plan switching —
+        // Portal refuses to open those, so offering the links would mislead.
+        let html = portal_links_card("https://site.test", &[], false, false);
+        for absent in [
+            "signup/monthly",
+            "gift",
+            "support",
+            "account/plans",
+            "recommendations",
+        ] {
+            let row = format!(r#"data-link="https://site.test/#/portal/{absent}""#);
+            assert!(!html.contains(&row), "{absent} should be hidden");
+        }
+        assert!(!html.contains("<h3>Tiers</h3>"));
+        // What survives is what a free members site really answers.
+        assert!(html.contains("#/portal/signup/free"));
+        assert!(html.contains("#/portal/account/newsletters"));
+    }
+
+    #[test]
+    fn the_tier_block_needs_a_tier_to_name() {
+        // `#/portal/signup//monthly` opens nothing, so with Stripe connected
+        // but no paid tier priced yet the whole group stays away.
+        let html = portal_links_card("https://site.test", &[], true, false);
+        assert!(!html.contains("<h3>Tiers</h3>"));
+        assert!(html.contains(r#"data-link="https://site.test/#/portal/gift""#));
+    }
+
+    #[test]
+    fn the_file_tree_mirrors_the_paths_it_was_built_from() {
+        let files: Vec<String> = [
+            "assets/css/screen.css",
+            "assets/screenshot.jpg",
+            "default.hbs",
+            "partials/icons/arrow.hbs",
+            "partials/card.hbs",
+        ]
+        .iter()
+        .map(|s| s.to_string())
+        .collect();
+        let tree = FileTree::build(&files);
+
+        // Directories nest; files sit in the directory that owns them.
+        let names: Vec<&str> = tree.dirs.iter().map(|(n, _)| n.as_str()).collect();
+        assert_eq!(names, vec!["assets", "partials"]);
+        assert_eq!(tree.files, vec![("default.hbs".to_string(), "default.hbs".to_string())]);
+
+        let assets = &tree.dirs[0].1;
+        assert_eq!(assets.dirs.len(), 1, "assets holds css");
+        assert_eq!(
+            assets.files,
+            vec![("assets/screenshot.jpg".to_string(), "screenshot.jpg".to_string())],
+            "a leaf keeps its full path for the link and its bare name for the label"
+        );
+        assert_eq!(
+            assets.dirs[0].1.files,
+            vec![("assets/css/screen.css".to_string(), "screen.css".to_string())]
+        );
+    }
+
+    #[test]
+    fn only_the_open_files_folders_start_expanded() {
+        let files: Vec<String> =
+            ["assets/css/screen.css", "partials/card.hbs"].iter().map(|s| s.to_string()).collect();
+        let html = render_file_tree(&FileTree::build(&files), "casper", "assets/css/screen.css", "", 0);
+
+        // Both directories on the path to the open file are open; the
+        // unrelated one is not, or a deep assets tree buries the templates.
+        assert!(html.contains(r#"<details class="fdir" open><summary style="--d:0"><span class="tw">"#));
+        assert_eq!(html.matches("<details class=\"fdir\" open>").count(), 2);
+        assert_eq!(html.matches("<details class=\"fdir\">").count(), 1);
+        // The open file is the marked row, and links by full path.
+        assert!(html.contains(r#"class="frow active""#));
+        assert!(html.contains("file=assets%2Fcss%2Fscreen.css"));
+    }
+
+    #[test]
+    fn a_binary_file_is_listed_but_marked() {
+        let files: Vec<String> = vec!["logo.png".to_string(), "index.hbs".to_string()];
+        let html = render_file_tree(&FileTree::build(&files), "casper", "index.hbs", "", 0);
+        assert!(html.contains("logo.png"), "binaries are still listed");
+        assert_eq!(html.matches(r#"<span class="chip draft">binary</span>"#).count(), 1);
     }
 }

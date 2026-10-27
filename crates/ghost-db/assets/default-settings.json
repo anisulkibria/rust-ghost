@@ -868,6 +868,13 @@
         "value": ""
     },
     {
+        "group": "members",
+        "key": "paid_members_enabled",
+        "type": "boolean",
+        "flags": "",
+        "value": "false"
+    },
+    {
         "group": "donations",
         "key": "donations_currency",
         "type": "string",

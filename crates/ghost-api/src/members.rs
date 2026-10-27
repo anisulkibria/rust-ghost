@@ -54,6 +54,16 @@ pub fn members_router() -> Router<AppState> {
         .route("/members/api/integrity-token/", get(integrity_token))
         .route("/members/api/offers/{id}", get(read_offer))
         .route("/members/api/offers/{id}/", get(read_offer))
+        // Gift redemption, keyed by the token in `/#/portal/gift/redeem/{t}`.
+        // Both halves are mounted at the same path, like Ghost's members app.
+        .route(
+            "/members/api/gifts/{token}/redeem",
+            get(gift_get_redeemable).post(gift_redeem),
+        )
+        .route(
+            "/members/api/gifts/{token}/redeem/",
+            get(gift_get_redeemable).post(gift_redeem),
+        )
         .route("/members/api/member/metafields", get(get_metafields).put(put_metafields))
         .route("/members/api/member/metafields/", get(get_metafields).put(put_metafields))
         .route("/members/api/send-magic-link", post(send_magic_link))
@@ -66,8 +76,25 @@ pub fn members_router() -> Router<AppState> {
         .route("/members/api/member/newsletters/", get(get_member_newsletters).put(put_member_newsletters))
         .route("/members/api/member/suppression", delete(delete_suppression))
         .route("/members/api/member/suppression/", delete(delete_suppression))
+        // The retention offers Portal shows a paid member on
+        // `#/portal/account/plans` when they move to cancel. Declared before
+        // the bare `member` route, like `member/newsletters` above.
+        .route("/members/api/member/offers", get(get_member_offers))
+        .route("/members/api/member/offers/", get(get_member_offers))
         .route("/members/api/member", get(get_member).put(update_member))
         .route("/members/api/member/", get(get_member).put(update_member))
+        // Audience feedback, from the `#/feedback/{post}/{score}` buttons in a
+        // newsletter. Authenticated by session or by the signed `uuid`+`key`
+        // pair in the link, since it is followed from an email client.
+        .route("/members/api/feedback", post(add_feedback))
+        .route("/members/api/feedback/", post(add_feedback))
+        // `#/portal/recommendations` reports what a visitor did with a
+        // recommendation through `navigator.sendBeacon`, which cannot read a
+        // response — so these answer 204 and never make the caller wait.
+        .route("/members/api/recommendations/{id}/clicked", post(recommendation_clicked))
+        .route("/members/api/recommendations/{id}/clicked/", post(recommendation_clicked))
+        .route("/members/api/recommendations/{id}/subscribed", post(recommendation_subscribed))
+        .route("/members/api/recommendations/{id}/subscribed/", post(recommendation_subscribed))
         // Paid flows need Stripe, which this port has no credentials for.
         .route("/members/api/create-stripe-checkout-session", post(create_checkout_session))
         .route("/members/api/create-stripe-checkout-session/", post(create_checkout_session))
@@ -128,6 +155,10 @@ struct CheckoutRequest {
     cadence: Option<String>,
     identity: Option<String>,
     email: Option<String>,
+    /// Portal's name for the buyer's address; same field as `email` under
+    /// the name Ghost's controller reads (`req.body.customerEmail`).
+    #[serde(rename = "customerEmail")]
+    customer_email: Option<String>,
     #[serde(rename = "successUrl")]
     success_url: Option<String>,
     #[serde(rename = "cancelUrl")]
@@ -136,6 +167,27 @@ struct CheckoutRequest {
     /// Portal sends the offer's id when a visitor arrives on an offer URL.
     #[serde(rename = "offerId")]
     offer_id: Option<String>,
+    /// Which flow this is. Ghost's controller names it the same way and
+    /// defaults to a subscription when the field is absent.
+    #[serde(rename = "type")]
+    kind: Option<String>,
+    // --- gift purchase fields (Portal's `#/portal/gift` screen) ---
+    /// Total months of access: 1, 3, 6 or 12 (a year).
+    duration: Option<u32>,
+    #[serde(rename = "deliveryMethod")]
+    delivery_method: Option<String>,
+    #[serde(rename = "recipientEmail")]
+    recipient_email: Option<String>,
+    #[serde(rename = "recipientName")]
+    recipient_name: Option<String>,
+    #[serde(rename = "buyerName")]
+    buyer_name: Option<String>,
+    #[serde(rename = "personalMessage")]
+    personal_message: Option<String>,
+    /// A note the donor typed into Portal's tips screen; it becomes the
+    /// label on Stripe's "personal note" field.
+    #[serde(rename = "personalNote")]
+    personal_note: Option<String>,
 }
 
 /// Start a paid signup. Portal posts the tier and cadence it wants and
@@ -145,6 +197,20 @@ async fn create_checkout_session(
     headers: HeaderMap,
     axum::Json(req): axum::Json<CheckoutRequest>,
 ) -> Response {
+    match req.kind.as_deref() {
+        // One-time flows. Ghost's controller dispatches on the same field;
+        // the default when nothing is said is a subscription.
+        Some("gift") => return gift_checkout(&state, &headers, &req).await,
+        Some("donation") => return donation_checkout(&state, &headers, &req).await,
+        Some("subscription") | None | Some("") => {}
+        Some(other) => {
+            return api_error(
+                StatusCode::BAD_REQUEST,
+                &format!("Unsupported checkout type \"{other}\"."),
+                "BadRequestError",
+            );
+        }
+    }
     let Some(cfg) = stripe_cfg(&state) else {
         return api_error(
             StatusCode::BAD_REQUEST,
@@ -189,7 +255,7 @@ async fn create_checkout_session(
     let email = member
         .as_ref()
         .map(|m| m.email.clone())
-        .or_else(|| req.email.clone())
+        .or_else(|| req.email.clone().filter(|e| !e.is_empty()).or_else(|| req.customer_email.clone()))
         .unwrap_or_default();
     let uuid = member.as_ref().map(|m| m.uuid.clone()).unwrap_or_default();
 
@@ -285,6 +351,739 @@ async fn create_billing_portal(State(state): State<AppState>, headers: HeaderMap
     }
 }
 
+// ---------------------------------------------------------------------------
+// gifts — the `/#/portal/gift` flow
+// ---------------------------------------------------------------------------
+
+/// Ghost's gift catalogue (`gift-checkout-offer.ts`), which Portal's own
+/// picker mirrors: a duration is *total months*, and 12 is sold as a year.
+/// (total months, cadence, billing duration, price multiplier)
+const GIFT_DURATIONS: &[(u32, &str, u32, u32)] = &[
+    (1, "month", 1, 1),
+    (3, "month", 3, 3),
+    (6, "month", 6, 6),
+    (12, "year", 1, 1),
+];
+
+/// Resolve what a gift costs: the catalogue entry for the asked duration,
+/// checked against the cadence when one was given.
+fn resolve_gift_duration(
+    duration: Option<u32>,
+    cadence: Option<&str>,
+) -> Result<&'static (u32, &'static str, u32, u32), String> {
+    let total = match duration {
+        Some(d) => d,
+        // A cadence with no duration is the pre-duration Portal request
+        // shape, which Ghost still honours with the shortest matching gift.
+        None => match cadence {
+            Some("month") => 1,
+            Some("year") | Some("yearly") => 12,
+            _ => return Err("Expected a supported gift duration or legacy cadence".into()),
+        },
+    };
+    let entry = GIFT_DURATIONS
+        .iter()
+        .find(|(months, _, _, _)| *months == total)
+        .ok_or_else(|| format!("Unsupported gift duration \"{total}\""))?;
+    if let Some(c) = cadence.filter(|c| *c == "month" || *c == "year" || *c == "yearly") {
+        let c = if c == "yearly" { "year" } else { c };
+        if c != entry.1 {
+            return Err(format!("Gift duration \"{total}\" conflicts with cadence \"{c}\""));
+        }
+    }
+    Ok(entry)
+}
+
+/// A paid tier as a gift needs to see it: its prices and its public face.
+struct GiftTier {
+    id: String,
+    name: String,
+    currency: String,
+    monthly_price: Option<i64>,
+    yearly_price: Option<i64>,
+}
+
+async fn gift_tier(state: &AppState, id: &str) -> Option<GiftTier> {
+    sqlx::query_as::<_, (String, String, Option<String>, Option<i64>, Option<i64>)>(
+        "SELECT id, name, currency, monthly_price, yearly_price \
+         FROM products WHERE id = ? AND active = 1 AND visibility = 'public' AND type = 'paid' LIMIT 1",
+    )
+    .bind(id)
+    .fetch_optional(&state.db)
+    .await
+    .ok()
+    .flatten()
+    .map(|(id, name, currency, monthly_price, yearly_price)| GiftTier {
+        id,
+        name,
+        currency: currency.unwrap_or_default(),
+        monthly_price,
+        yearly_price,
+    })
+}
+
+/// Ghost's gift token: 12 characters of [A-Za-z0-9] off the CSPRNG — short
+/// enough to read out, long enough (~71 bits of entropy) to be unguessable.
+fn gift_token() -> String {
+    const ALPHABET: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
+    (0..12)
+        .map(|_| ALPHABET[ids::random_below(ALPHABET.len() as u32) as usize] as char)
+        .collect()
+}
+
+/// A purchased-not-yet-redeemed gift, stored as a `tokens` row like a magic
+/// link. The `gift: true` marker is what Danger zone's "Reset all gift
+/// links" keys on, and the token column is what the redeem URL carries.
+#[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
+struct Gift {
+    gift: bool,
+    token: String,
+    tier_id: String,
+    tier_name: String,
+    cadence: String,
+    /// Billing duration — 3 for a three-month gift, 1 for a year.
+    duration: u32,
+    /// Total months of access granted on redemption.
+    total_months: u32,
+    currency: String,
+    amount: i64,
+    buyer_email: String,
+    #[serde(default)]
+    buyer_name: Option<String>,
+    #[serde(default)]
+    recipient_email: Option<String>,
+    #[serde(default)]
+    recipient_name: Option<String>,
+    #[serde(default)]
+    personal_message: Option<String>,
+    /// `link` (buyer shares it themselves) or `email` (we deliver it).
+    delivery: String,
+    /// `payment_pending` → `paid` → `redeemed`.
+    status: String,
+    #[serde(default)]
+    purchased_at: Option<String>,
+    #[serde(default)]
+    redeemed_by: Option<String>,
+    #[serde(default)]
+    redeemed_at: Option<String>,
+}
+
+async fn insert_gift(state: &AppState, gift: &Gift) -> bool {
+    let now = now_rfc3339();
+    sqlx::query(
+        "INSERT INTO tokens (id, token, uuid, data, created_at, updated_at, used_count, otc_used_count) \
+         VALUES (?, ?, ?, ?, ?, ?, 0, 0)",
+    )
+    .bind(ids::new_id())
+    .bind(&gift.token)
+    .bind(ids::uuid_v4())
+    .bind(serde_json::to_string(gift).unwrap_or_default())
+    .bind(&now)
+    .bind(&now)
+    .execute(&state.db)
+    .await
+    .is_ok()
+}
+
+async fn find_gift(state: &AppState, token: &str) -> Option<Gift> {
+    let data: Option<String> = sqlx::query_scalar("SELECT data FROM tokens WHERE token = ? LIMIT 1")
+        .bind(token)
+        .fetch_optional(&state.db)
+        .await
+        .ok()
+        .flatten();
+    data.and_then(|d| {
+        let g: Gift = serde_json::from_str(&d).ok()?;
+        g.gift.then_some(g)
+    })
+}
+
+async fn update_gift(state: &AppState, gift: &Gift) {
+    let _ = sqlx::query("UPDATE tokens SET data = ?, updated_at = ? WHERE token = ?")
+        .bind(serde_json::to_string(gift).unwrap_or_default())
+        .bind(now_rfc3339())
+        .bind(&gift.token)
+        .execute(&state.db)
+        .await;
+}
+
+/// Append query parameters to a URL *before* its `#` fragment — `?a=b#x`, not
+/// `#x?a=b` — the way a URL library would. Portal's success URLs are hash
+/// routes, so naively appending would hide the params from it.
+fn add_query_params(base: &str, params: &[( &str, String )]) -> String {
+    let (before_hash, hash) = match base.split_once('#') {
+        Some((a, b)) => (a, format!("#{b}")),
+        None => (base, String::new()),
+    };
+    let mut out = before_hash.to_string();
+    let mut sep = if before_hash.contains('?') { '&' } else { '?' };
+    for (k, v) in params {
+        out.push(sep);
+        sep = '&';
+        out.push_str(k);
+        out.push('=');
+        out.push_str(&percent_encoding::utf8_percent_encode(v, percent_encoding::NON_ALPHANUMERIC).to_string());
+    }
+    out.push_str(&hash);
+    out
+}
+
+/// "{duration_label}" for the checkout line item and emails: Ghost's
+/// `'{count} month'` / `'{count} year'` with i18next plurals.
+fn gift_duration_label(total_months: u32) -> String {
+    if total_months == 12 {
+        "1 year".to_string()
+    } else if total_months == 1 {
+        "1 month".to_string()
+    } else {
+        format!("{total_months} months")
+    }
+}
+
+/// The `#/portal/gift` purchase: one payment for a fixed term of a tier,
+/// minting a token the recipient redeems later. Ghost creates the gift row
+/// first and deletes it if Stripe refuses; here the row is written only
+/// after Stripe accepts, so a failed session leaves nothing behind.
+async fn gift_checkout(state: &AppState, headers: &HeaderMap, req: &CheckoutRequest) -> Response {
+    let Some(cfg) = stripe_cfg(state) else {
+        return api_error(
+            StatusCode::BAD_REQUEST,
+            "This site is not set up to take payments yet.",
+            "BadRequestError",
+        );
+    };
+
+    let Some(tier_id) = req.tier_id.clone().filter(|t| !t.is_empty()) else {
+        return api_error(StatusCode::BAD_REQUEST, "Expected a tier to buy the gift on.", "BadRequestError");
+    };
+    let entry = match resolve_gift_duration(req.duration, req.cadence.as_deref()) {
+        Ok(e) => e,
+        Err(context) => return api_error(StatusCode::BAD_REQUEST, &context, "BadRequestError"),
+    };
+    let (_, cadence, billing_duration, multiplier) = *entry;
+
+    let Some(tier) = gift_tier(state, &tier_id).await else {
+        return api_error(
+            StatusCode::BAD_REQUEST,
+            "The requested tier is not available for gift purchases.",
+            "BadRequestError",
+        );
+    };
+
+    // Portal's plan gate: Ghost refuses a duration whose plan the publisher
+    // has turned off in the signup portal. A duration was always sent by the
+    // time this runs; an absent list is Ghost's default of both plans on.
+    let portal_plans = state
+        .settings
+        .get("portal_plans")
+        .and_then(|p| p.as_array().cloned())
+        .unwrap_or_else(|| vec![json!("monthly"), json!("yearly")]);
+    let plan_name = if cadence == "year" { "yearly" } else { "monthly" };
+    if !portal_plans.iter().any(|p| p == plan_name) {
+        return api_error(
+            StatusCode::BAD_REQUEST,
+            &format!("The {plan_name} Portal plan is not available"),
+            "BadRequestError",
+        );
+    }
+
+    let unit = if cadence == "year" { tier.yearly_price } else { tier.monthly_price };
+    let Some(unit) = unit.filter(|p| *p > 0) else {
+        return api_error(
+            StatusCode::BAD_REQUEST,
+            "The requested tier does not have a valid gift price.",
+            "BadRequestError",
+        );
+    };
+    if tier.currency.is_empty() {
+        return api_error(
+            StatusCode::BAD_REQUEST,
+            "The requested tier does not have a valid gift price.",
+            "BadRequestError",
+        );
+    }
+    let amount = unit * multiplier as i64;
+
+    let member = current_member(state, headers).await;
+    let buyer_email = member
+        .as_ref()
+        .map(|m| m.email.clone())
+        .or_else(|| {
+            req.email
+                .clone()
+                .filter(|e| !e.is_empty())
+                .or_else(|| req.customer_email.clone())
+        })
+        .filter(|e| !e.is_empty());
+    let Some(buyer_email) = buyer_email else {
+        return api_error(StatusCode::BAD_REQUEST, "A buyer email is required.", "BadRequestError");
+    };
+
+    let delivery = match req.delivery_method.as_deref() {
+        Some("email") => {
+            if req.recipient_email.as_deref().unwrap_or("").trim().is_empty() {
+                return api_error(
+                    StatusCode::BAD_REQUEST,
+                    "Email delivery needs a recipient address.",
+                    "BadRequestError",
+                );
+            }
+            "email"
+        }
+        _ => "link",
+    };
+
+    let token = gift_token();
+    let site_url = state.site_url();
+    let success = req
+        .success_url
+        .clone()
+        .filter(|u| u.starts_with(&site_url))
+        .unwrap_or_else(|| format!("{site_url}/"));
+    let cancel = req
+        .cancel_url
+        .clone()
+        .filter(|u| u.starts_with(&site_url))
+        .unwrap_or_else(|| format!("{site_url}/"));
+    // Portal's success screen reads these to show the buyer their gift link
+    // (link delivery) or say the email is on its way.
+    let success = add_query_params(
+        &success,
+        &[
+            ("stripe", "gift-purchase-success".to_string()),
+            ("gift_token", token.clone()),
+            ("gift_tier", tier.id.clone()),
+            ("gift_cadence", cadence.to_string()),
+            ("gift_delivery", delivery.to_string()),
+            ("gift_duration", entry.0.to_string()),
+        ],
+    );
+
+    let product_name = format!("Gift subscription — {} ({})", tier.name, gift_duration_label(entry.0));
+    match ghost_stripe::create_gift_checkout_session(
+        &cfg,
+        amount,
+        &tier.currency,
+        &product_name,
+        Some(&buyer_email),
+        &success,
+        &cancel,
+        &token,
+    )
+    .await
+    {
+        Ok(url) => {
+            let gift = Gift {
+                gift: true,
+                token,
+                tier_id: tier.id,
+                tier_name: tier.name,
+                cadence: cadence.to_string(),
+                duration: billing_duration,
+                total_months: entry.0,
+                currency: tier.currency.to_lowercase(),
+                amount,
+                buyer_email: buyer_email.clone(),
+                buyer_name: req.buyer_name.clone().filter(|n| !n.trim().is_empty()),
+                recipient_email: req.recipient_email.clone().filter(|e| !e.trim().is_empty()),
+                recipient_name: req.recipient_name.clone().filter(|n| !n.trim().is_empty()),
+                personal_message: req.personal_message.clone().filter(|m| !m.trim().is_empty()),
+                delivery: delivery.to_string(),
+                status: "payment_pending".to_string(),
+                ..Default::default()
+            };
+            if !insert_gift(state, &gift).await {
+                tracing::error!("members: paid gift checkout for {buyer_email} could not be recorded");
+            }
+            private_json(StatusCode::OK, json!({ "url": url }))
+        }
+        Err(e) => {
+            tracing::error!("stripe: gift checkout session failed: {}", e.message());
+            api_error(StatusCode::BAD_REQUEST, "Unable to start checkout. Please try again.", "BadRequestError")
+        }
+    }
+}
+
+/// Payment landed for a gift: mark it redeemable and deliver it. Email
+/// delivery sends the recipient their gift; link delivery confirms to the
+/// buyer, repeating the link so it cannot be lost with the browser tab.
+async fn gift_payment_completed(state: &AppState, token: &str) {
+    let Some(mut gift) = find_gift(state, token).await else {
+        tracing::warn!("stripe: paid gift checkout for unknown token {token}");
+        return;
+    };
+    if gift.status != "payment_pending" {
+        return;
+    }
+    gift.status = "paid".to_string();
+    gift.purchased_at = Some(now_rfc3339());
+    update_gift(state, &gift).await;
+
+    let link = format!("{}/#/portal/gift/redeem/{}", state.site_url(), gift.token);
+    let bg = state.clone();
+    let gift_bg = gift.clone();
+    let link_bg = link;
+    tokio::spawn(async move {
+        if let Err(e) = send_gift_email(&bg, &gift_bg, &link_bg).await {
+            tracing::error!(
+                "members: could not send gift email for token {}: {}",
+                gift_bg.token,
+                e.message()
+            );
+        }
+    });
+}
+
+async fn send_gift_email(
+    state: &AppState,
+    gift: &Gift,
+    link: &str,
+) -> ghost_core::Result<()> {
+    let site_url = state.site_url();
+    let site_title = state.settings.get_str("title").unwrap_or_else(|| "Ghost".into());
+    let (to_recipient, to) = if gift.delivery == "email" {
+        (true, gift.recipient_email.clone().unwrap_or_default())
+    } else {
+        (false, gift.buyer_email.clone())
+    };
+    let sender = if to_recipient {
+        gift.buyer_name
+            .clone()
+            .filter(|n| !n.trim().is_empty())
+            .unwrap_or_else(|| gift.buyer_email.clone())
+    } else {
+        site_title.clone()
+    };
+    let (subject, text, html) = ghost_mail::templates::gift_subscription(
+        to_recipient,
+        &site_title,
+        &site_url,
+        &sender,
+        &gift.tier_name,
+        &gift_duration_label(gift.total_months),
+        gift.personal_message.as_deref(),
+        link,
+    );
+    let cfg = ghost_mail::MailConfig::from_settings(&state.settings, &site_title, &site_url);
+    let msg = ghost_mail::Message { to, subject, html, text };
+    match ghost_mail::send(&cfg, &msg).await {
+        Ok(()) => Ok(()),
+        Err(e) if state.config.env == "development" => {
+            tracing::warn!(
+                "members: gift email for token {} could not be delivered ({}) — the redeem link is: {link}",
+                gift.token,
+                e.message()
+            );
+            Ok(())
+        }
+        Err(e) => Err(e),
+    }
+}
+
+/// The redemption a gift carries, in Portal's shape. Field names are Ghost's
+/// `GiftRedemption`, wrapped the way its API frame wraps every docName.
+async fn serialize_redemption(state: &AppState, gift: &Gift) -> Value {
+    let tier: Option<(Option<String>, Option<String>)> = sqlx::query_as(
+        "SELECT description, currency FROM products WHERE id = ? LIMIT 1",
+    )
+    .bind(&gift.tier_id)
+    .fetch_optional(&state.db)
+    .await
+    .ok()
+    .flatten();
+    let benefits: Vec<String> = sqlx::query_scalar(
+        "SELECT name FROM products_benefits WHERE product_id = ? ORDER BY sort_order ASC",
+    )
+    .bind(&gift.tier_id)
+    .fetch_all(&state.db)
+    .await
+    .unwrap_or_default();
+
+    // Both dates count from payment, Ghost's GIFT_EXPIRY_DAYS apart; the
+    // consumption date is when the redeemer's access runs out.
+    let purchased = gift
+        .purchased_at
+        .as_deref()
+        .and_then(|p| chrono::NaiveDateTime::parse_from_str(p, "%Y-%m-%d %H:%M:%S").ok())
+        .map(|t| t.and_utc())
+        .unwrap_or_else(chrono::Utc::now);
+    let expires_at = purchased + chrono::Duration::days(365);
+    let consumes_at = gift
+        .redeemed_at
+        .as_deref()
+        .and_then(|r| chrono::NaiveDateTime::parse_from_str(r, "%Y-%m-%d %H:%M:%S").ok())
+        .map(|t| months_after(t.and_utc(), gift.total_months));
+
+    json!({ "gifts": [{
+        "token": gift.token,
+        "cadence": gift.cadence,
+        "duration": gift.duration,
+        "currency": gift.currency,
+        "amount": gift.amount,
+        "buyer_name": gift.buyer_name,
+        "recipient_name": gift.recipient_name,
+        "recipient_email": gift.recipient_email,
+        "message": gift.personal_message,
+        "expires_at": expires_at.to_rfc3339(),
+        "consumes_at": consumes_at.map(|d| d.to_rfc3339()),
+        "tier": {
+            "id": gift.tier_id,
+            "name": gift.tier_name,
+            "description": tier.as_ref().and_then(|(d, _)| d.clone()),
+            "benefits": benefits,
+        }
+    }] })
+}
+
+/// Ghost adds calendar months (`setMonth(+duration)`; a year cadence is a
+/// 1-of-years add), so a Feb 29 present keeps its month rather than clipping
+/// to a 28-day calendar.
+fn months_after(from: chrono::DateTime<chrono::Utc>, total_months: u32) -> chrono::DateTime<chrono::Utc> {
+    from + chrono::Months::new(total_months)
+}
+
+/// Ghost's redeemability rules (`Gift.checkRedeemable`), with its exact
+/// visitor-facing messages. `member_status` is the signed-in member's, or
+/// none for the pre-signin peek Portal makes.
+fn check_redeemable(gift: &Gift, member_status: Option<&str>) -> Result<(), (StatusCode, &'static str, &'static str)> {
+    match gift.status.as_str() {
+        "payment_pending" => {
+            return Err((StatusCode::NOT_FOUND, "This gift does not exist.", "NotFoundError"));
+        }
+        "redeemed" => {
+            return Err((StatusCode::BAD_REQUEST, "This gift has already been redeemed.", "BadRequestError"));
+        }
+        _ => {}
+    }
+    let expired = gift
+        .purchased_at
+        .as_deref()
+        .and_then(|p| chrono::NaiveDateTime::parse_from_str(p, "%Y-%m-%d %H:%M:%S").ok())
+        .map(|t| t.and_utc() + chrono::Duration::days(365) < chrono::Utc::now())
+        .unwrap_or(true);
+    if expired {
+        return Err((StatusCode::BAD_REQUEST, "This gift has expired.", "BadRequestError"));
+    }
+    if member_status.is_some_and(|s| s != "free") {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            "You already have an active subscription.",
+            "BadRequestError",
+        ));
+    }
+    Ok(())
+}
+
+/// GET /members/api/gifts/{token}/redeem — what Portal shows on the redeem
+/// screen. Unauthenticated on purpose: the recipient has not signed in yet.
+async fn gift_get_redeemable(State(state): State<AppState>, Path(token): Path<String>, headers: HeaderMap) -> Response {
+    let Some(gift) = find_gift(&state, &token).await else {
+        return api_error(StatusCode::NOT_FOUND, "This gift does not exist.", "NotFoundError");
+    };
+    let member_status = current_member(&state, &headers).await.map(|m| m.status);
+    if let Err((status, message, kind)) = check_redeemable(&gift, member_status.as_deref()) {
+        return api_error(status, message, kind);
+    }
+    private_json(StatusCode::OK, serialize_redemption(&state, &gift).await)
+}
+
+/// POST /members/api/gifts/{token}/redeem — attach the gift's tier and term
+/// to the signed-in member. Ghost requires a session here; an unsigned
+/// visitor is bounced to signin by Portal.
+async fn gift_redeem(State(state): State<AppState>, Path(token): Path<String>, headers: HeaderMap) -> Response {
+    let Some(member) = current_member(&state, &headers).await else {
+        return api_error(StatusCode::UNAUTHORIZED, "Member authentication required.", "UnauthorizedError");
+    };
+    let Some(mut gift) = find_gift(&state, &token).await else {
+        return api_error(StatusCode::NOT_FOUND, "This gift does not exist.", "NotFoundError");
+    };
+    if let Err((status, message, kind)) = check_redeemable(&gift, Some(&member.status)) {
+        return api_error(status, message, kind);
+    }
+
+    let now = now_rfc3339();
+    let redeemed_at = chrono::Utc::now();
+    let consumes_at = months_after(redeemed_at, gift.total_months)
+        .format("%Y-%m-%d %H:%M:%S")
+        .to_string();
+
+    // A gift replaces any tier the member had — Ghost writes a single
+    // products row with an expiry — and marks the member `gift`, which reads
+    // as paid to content gating.
+    let _ = sqlx::query("DELETE FROM members_products WHERE member_id = ?")
+        .bind(&member.id)
+        .execute(&state.db)
+        .await;
+    let _ = sqlx::query(
+        "INSERT INTO members_products (id, member_id, product_id, sort_order, expiry_at) VALUES (?, ?, ?, 0, ?)",
+    )
+    .bind(ids::new_id())
+    .bind(&member.id)
+    .bind(&gift.tier_id)
+    .bind(&consumes_at)
+    .execute(&state.db)
+    .await;
+    let _ = sqlx::query("UPDATE members SET status = 'gift', updated_at = ? WHERE id = ?")
+        .bind(&now)
+        .bind(&member.id)
+        .execute(&state.db)
+        .await;
+
+    gift.status = "redeemed".to_string();
+    gift.redeemed_by = Some(member.id);
+    gift.redeemed_at = Some(now);
+    update_gift(&state, &gift).await;
+
+    private_json(StatusCode::OK, serialize_redemption(&state, &gift).await)
+}
+
+// ---------------------------------------------------------------------------
+// donations — the `/#/portal/support` flow
+// ---------------------------------------------------------------------------
+
+/// The Stripe price a tip is paid against, created on first use and cached
+/// in settings (Ghost caches the same in its `stripe_prices` table). The
+/// price's amount is donor-set on the checkout page — `custom_unit_amount`
+/// — with the site's suggested amount as the preset.
+async fn donation_price(state: &AppState, cfg: &ghost_stripe::StripeConfig) -> Result<String, ghost_core::GhostError> {
+    let currency = state
+        .settings
+        .get_str("donations_currency")
+        .filter(|c| !c.is_empty())
+        .unwrap_or_else(|| "USD".to_string());
+
+    // {"price": "…", "product": "…", "currency": "USD"} — the currency rides
+    // along so a change of heart is caught, not silently tipped in the old
+    // one. A changed *suggested amount* is tolerated: the preset is only a
+    // starting point, the donor can type any amount.
+    let cached = state
+        .settings
+        .get_str("donations_price_id")
+        .and_then(|v| serde_json::from_str::<Value>(&v).ok());
+    if let Some(price) = cached
+        .as_ref()
+        .and_then(|c| c.get("price"))
+        .and_then(|p| p.as_str())
+        .filter(|p| !p.is_empty())
+    {
+        let cached_currency = cached
+            .as_ref()
+            .and_then(|c| c.get("currency"))
+            .and_then(|c| c.as_str())
+            .unwrap_or("");
+        if cached_currency.eq_ignore_ascii_case(&currency) {
+            return Ok(price.to_string());
+        }
+    }
+
+    let site_title = state.settings.get_str("title").unwrap_or_else(|| "Ghost".into());
+    let nickname = format!("Support {site_title}");
+    let product = cached
+        .as_ref()
+        .and_then(|c| c.get("product"))
+        .and_then(|p| p.as_str())
+        .map(str::to_string);
+    let product = ghost_stripe::ensure_product(cfg, &nickname, product.as_deref()).await?;
+    let preset = state
+        .settings
+        .get_str("donations_suggested_amount")
+        .and_then(|v| v.trim().parse::<i64>().ok());
+    let price = ghost_stripe::create_donation_price(cfg, &product, &currency, preset, &nickname).await?;
+    let _ = state
+        .settings
+        .set(
+            &state.db,
+            "donations_price_id",
+            &json!({ "price": price, "product": product, "currency": currency.to_uppercase() }),
+        )
+        .await;
+    Ok(price)
+}
+
+/// The `#/portal/support` tip: a one-time payment with no account required
+/// (though an email lets the donor be recorded as a free member, the way
+/// Ghost records donors).
+async fn donation_checkout(state: &AppState, headers: &HeaderMap, req: &CheckoutRequest) -> Response {
+    let Some(cfg) = stripe_cfg(state) else {
+        return api_error(
+            StatusCode::BAD_REQUEST,
+            "This site is not set up to take payments yet.",
+            "BadRequestError",
+        );
+    };
+    if state.settings.get_str("donations_currency").filter(|c| !c.is_empty()).is_none() {
+        return api_error(
+            StatusCode::BAD_REQUEST,
+            "Donations are not configured on this site.",
+            "BadRequestError",
+        );
+    }
+
+    let member = current_member(state, headers).await;
+    let email = member
+        .as_ref()
+        .map(|m| m.email.clone())
+        .or_else(|| {
+            req.email
+                .clone()
+                .filter(|e| !e.is_empty())
+                .or_else(|| req.customer_email.clone())
+        })
+        .filter(|e| !e.is_empty());
+    let uuid = member.as_ref().map(|m| m.uuid.clone()).unwrap_or_default();
+
+    let price = match donation_price(state, &cfg).await {
+        Ok(p) => p,
+        Err(e) => {
+            tracing::error!("stripe: donation price could not be prepared: {}", e.message());
+            return api_error(
+                StatusCode::BAD_REQUEST,
+                "Unable to start checkout. Please try again.",
+                "BadRequestError",
+            );
+        }
+    };
+
+    let site_url = state.site_url();
+    let success = req
+        .success_url
+        .clone()
+        .filter(|u| u.starts_with(&site_url))
+        .unwrap_or_else(|| format!("{site_url}/?stripe=success"));
+    let cancel = req
+        .cancel_url
+        .clone()
+        .filter(|u| u.starts_with(&site_url))
+        .unwrap_or_else(|| format!("{site_url}/?stripe=cancelled"));
+    let note_label = req
+        .personal_note
+        .clone()
+        .filter(|n| !n.trim().is_empty())
+        .unwrap_or_else(|| "Add a personal note".to_string());
+
+    match ghost_stripe::create_donation_checkout_session(
+        &cfg,
+        &price,
+        email.as_deref(),
+        &success,
+        &cancel,
+        &uuid,
+        &note_label,
+    )
+    .await
+    {
+        Ok(url) => private_json(StatusCode::OK, json!({ "url": url })),
+        Err(e) => {
+            tracing::error!("stripe: donation checkout session failed: {}", e.message());
+            api_error(
+                StatusCode::BAD_REQUEST,
+                "Unable to start checkout. Please try again.",
+                "BadRequestError",
+            )
+        }
+    }
+}
+
 /// Stripe's webhook. This is what actually turns a payment into membership —
 /// the browser redirect after checkout is a convenience, not proof of payment,
 /// so nothing is granted until Stripe tells us here.
@@ -323,6 +1122,19 @@ async fn stripe_webhook(State(state): State<AppState>, headers: HeaderMap, body:
 
 /// A completed checkout: find or create the member, attach the customer.
 async fn handle_checkout_completed(state: &AppState, cfg: &ghost_stripe::StripeConfig, obj: &Value) {
+    // A gift's buyer is not necessarily becoming a member — the gift itself
+    // is the product — so it never reaches the member logic below.
+    if let Some(token) = obj
+        .pointer("/metadata/ghost_gift")
+        .and_then(|t| t.as_str())
+        .filter(|t| !t.is_empty())
+    {
+        gift_payment_completed(state, token).await;
+        return;
+    }
+    // A donation is recorded like any checkout — the donor becomes a free
+    // member when an email is known, and the customer is attached — but
+    // carries no subscription, so the rest of this handler is a no-op for it.
     let email = obj
         .pointer("/customer_details/email")
         .and_then(|e| e.as_str())
@@ -783,6 +1595,14 @@ async fn read_site(State(state): State<AppState>) -> Response {
         .settings
         .get_str("members_signup_access")
         .unwrap_or_else(|| "all".into());
+    // Ghost withholds external signup when the publisher requires a terms
+    // checkbox: a signup form embedded on another site cannot show those terms,
+    // so accepting the signup there would collect consent that was never given.
+    let terms_gated = state.settings.get_bool("portal_signup_checkbox_required")
+        && state
+            .settings
+            .get_str("portal_signup_terms_html")
+            .is_some_and(|t| !t.trim().is_empty());
     private_json(
         StatusCode::OK,
         json!({ "site": {
@@ -795,9 +1615,12 @@ async fn read_site(State(state): State<AppState>) -> Response {
             "cover_image": image(s("cover_image")),
             "accent_color": s("accent_color"),
             "locale": state.settings.get_str("locale").unwrap_or_else(|| "en".into()),
+            // Portal's gift screen reads this to work out the earliest
+            // delivery date it may offer.
+            "timezone": state.settings.get_str("timezone").unwrap_or_else(|| "Etc/UTC".into()),
             "url": format!("{}/", state.site_url()),
             "version": "6.39",
-            "allow_external_signup": signup_access == "all",
+            "allow_external_signup": signup_access == "all" && !terms_gated,
             "site_uuid": s("site_uuid"),
         }}),
     )
@@ -919,30 +1742,207 @@ async fn put_metafields(
 }
 
 /// The public view of an offer, which Portal reads to show the discounted
-/// price. Ghost's `offers-public` endpoint: only what a buyer needs, and only
-/// for an offer still being redeemed — an archived code must not resolve.
+/// price. Ghost's `offers-public` shape: only what a buyer needs.
+///
+/// Shared with the Content API's `offers/{id}`, which is the route Portal
+/// actually calls — the two must not drift, or the offer screen would render
+/// differently depending on which one answered.
+pub(crate) fn offer_public_json(offer: &ghost_db::repos::offers::Offer) -> Value {
+    json!({
+        "id": offer.id,
+        "display_title": offer.portal_title.clone().unwrap_or_default(),
+        "display_description": offer.portal_description.clone().unwrap_or_default(),
+        "type": offer.discount_type.clone().unwrap_or_default(),
+        "cadence": offer.interval.clone().unwrap_or_default(),
+        "amount": offer.discount_amount.unwrap_or(0),
+        "duration": offer.duration.clone().unwrap_or_default(),
+        "duration_in_months": offer.duration_in_months,
+        "currency": offer.currency,
+        "status": offer.status(),
+        "redemption_type": offer.redemption_type.clone().unwrap_or_else(|| "signup".into()),
+        "tier": { "id": offer.product_id },
+    })
+}
+
+/// Only an offer still being redeemed resolves — an archived code must not.
 async fn read_offer(State(state): State<AppState>, Path(id): Path<String>) -> Response {
     let offer = ghost_db::repos::offers::find_by_id(&state.db, &id).await.ok().flatten();
     let Some(offer) = offer.filter(|o| o.active) else {
         return api_error(StatusCode::NOT_FOUND, "Offer not found.", "NotFoundError");
     };
+    private_json(StatusCode::OK, json!({ "offers": [offer_public_json(&offer)] }))
+}
+
+/// The offers Portal may put in front of *this* member.
+///
+/// Only retention offers, and only for someone paying: Portal asks for these
+/// on boot when `member.paid`, then uses them to make a cancelling subscriber
+/// a discounted counter-offer on `#/portal/account/plans`. A signup offer has
+/// no place here — it is for people who are not members yet.
+async fn get_member_offers(State(state): State<AppState>, headers: HeaderMap) -> Response {
+    let Some(member) = current_member(&state, &headers).await else {
+        return private_json(StatusCode::OK, json!({ "offers": [] }));
+    };
+    if member.status == "free" {
+        return private_json(StatusCode::OK, json!({ "offers": [] }));
+    }
+    let offers = ghost_db::repos::offers::list(&state.db).await.unwrap_or_default();
+    let items: Vec<Value> = offers
+        .iter()
+        .filter(|o| o.active && o.redemption_type.as_deref() == Some("retention"))
+        .map(offer_public_json)
+        .collect();
+    private_json(StatusCode::OK, json!({ "offers": items }))
+}
+
+/// `POST /members/api/feedback` — one score for one post.
+///
+/// A reader who clicks both buttons in the same email, or changes their mind
+/// later, should end up with the score they chose last rather than two rows,
+/// so this upserts on the member/post pair.
+async fn add_feedback(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Query(params): Query<HashMap<String, String>>,
+    axum::Json(body): axum::Json<Value>,
+) -> Response {
+    // Session first, then the signed link — Ghost runs the same two in that
+    // order, so a member reading their own newsletter while signed in is
+    // identified by the session even if the link's tokens are stale.
+    let member = match current_member(&state, &headers).await {
+        Some(m) => Some(m),
+        None => auth_member_by_uuid(&state, &params).await,
+    };
+    let Some(member) = member else {
+        return api_error(
+            StatusCode::UNAUTHORIZED,
+            "You must be signed in to leave feedback.",
+            "UnauthorizedError",
+        );
+    };
+
+    let entry = body
+        .get("feedback")
+        .and_then(|f| f.as_array())
+        .and_then(|a| a.first())
+        .or(body.get("feedback"));
+    let post_id = entry.and_then(|e| e.get("post_id")).and_then(|v| v.as_str()).unwrap_or_default();
+    let score = entry.and_then(|e| e.get("score")).and_then(|v| v.as_i64()).unwrap_or(-1);
+    if post_id.is_empty() || !(0..=1).contains(&score) {
+        return api_error(
+            StatusCode::BAD_REQUEST,
+            "Feedback needs a post and a score of 0 or 1.",
+            "BadRequestError",
+        );
+    }
+
+    // The post has to exist; a feedback row pointing at nothing would break
+    // the foreign key and tell us nothing anyway.
+    let exists: Option<String> = sqlx::query_scalar("SELECT id FROM posts WHERE id = ?")
+        .bind(post_id)
+        .fetch_optional(&state.db)
+        .await
+        .ok()
+        .flatten();
+    if exists.is_none() {
+        return api_error(StatusCode::NOT_FOUND, "Post not found.", "NotFoundError");
+    }
+
+    let now = now_rfc3339();
+    let id = ids::new_id();
+    let saved = sqlx::query(
+        "INSERT INTO members_feedback (id, score, member_id, post_id, created_at, updated_at) \
+         VALUES (?, ?, ?, ?, ?, ?) \
+         ON CONFLICT (member_id, post_id) DO UPDATE SET score = excluded.score, updated_at = excluded.updated_at",
+    )
+    .bind(&id)
+    .bind(score)
+    .bind(&member.id)
+    .bind(post_id)
+    .bind(&now)
+    .bind(&now)
+    .execute(&state.db)
+    .await;
+    if saved.is_err() {
+        return api_error(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "Could not save your feedback.",
+            "InternalServerError",
+        );
+    }
+    // Read the id back: when the upsert hit an existing row, the one minted
+    // above was never used, and reporting it would name a record that is not
+    // there.
+    let stored: Option<(String, String)> =
+        sqlx::query_as("SELECT id, created_at FROM members_feedback WHERE member_id = ? AND post_id = ?")
+            .bind(&member.id)
+            .bind(post_id)
+            .fetch_optional(&state.db)
+            .await
+            .ok()
+            .flatten();
+    let (id, created_at) = stored.unwrap_or((id, now));
     private_json(
-        StatusCode::OK,
-        json!({ "offers": [{
-            "id": offer.id,
-            "display_title": offer.portal_title.clone().unwrap_or_default(),
-            "display_description": offer.portal_description.clone().unwrap_or_default(),
-            "type": offer.discount_type.clone().unwrap_or_default(),
-            "cadence": offer.interval.clone().unwrap_or_default(),
-            "amount": offer.discount_amount.unwrap_or(0),
-            "duration": offer.duration.clone().unwrap_or_default(),
-            "duration_in_months": offer.duration_in_months,
-            "currency": offer.currency,
-            "status": offer.status(),
-            "redemption_type": offer.redemption_type.clone().unwrap_or_else(|| "signup".into()),
-            "tier": { "id": offer.product_id },
+        StatusCode::CREATED,
+        json!({ "feedback": [{
+            "id": id,
+            "score": score,
+            "post_id": post_id,
+            "member_id": member.id,
+            "created_at": created_at,
         }] }),
     )
+}
+
+/// A visitor opened a recommended site from `#/portal/recommendations`.
+async fn recommendation_clicked(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+) -> Response {
+    record_recommendation_event(&state, &headers, &id, "recommendation_click_events").await
+}
+
+/// A visitor took the one-click subscribe on a recommended site.
+async fn recommendation_subscribed(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+) -> Response {
+    record_recommendation_event(&state, &headers, &id, "recommendation_subscribe_events").await
+}
+
+/// Both beacons record the same three columns into their own table.
+///
+/// `member_id` stays null for a visitor who is not signed in — the event is
+/// still worth having, and Ghost's column is nullable for exactly that. An
+/// unknown recommendation id is dropped rather than refused: a beacon cannot
+/// read the answer, so an error would only be noise.
+async fn record_recommendation_event(
+    state: &AppState,
+    headers: &HeaderMap,
+    recommendation_id: &str,
+    table: &str,
+) -> Response {
+    let known: Option<String> = sqlx::query_scalar("SELECT id FROM recommendations WHERE id = ?")
+        .bind(recommendation_id)
+        .fetch_optional(&state.db)
+        .await
+        .ok()
+        .flatten();
+    if known.is_some() {
+        let member_id = current_member(state, headers).await.map(|m| m.id);
+        let _ = sqlx::query(&format!(
+            "INSERT INTO {table} (id, recommendation_id, member_id, created_at) VALUES (?, ?, ?, ?)"
+        ))
+        .bind(ids::new_id())
+        .bind(recommendation_id)
+        .bind(member_id)
+        .bind(now_rfc3339())
+        .execute(&state.db)
+        .await;
+    }
+    no_content()
 }
 
 async fn integrity_token(State(state): State<AppState>) -> Response {
@@ -1599,4 +2599,111 @@ mod tests {
         assert_eq!(base64_url_nopad::encode(b"a"), "YQ");
         assert!(!base64_url_nopad::encode(&[251, 255, 190]).contains('+'));
     }
+    // --- gifts -------------------------------------------------------------
+
+    #[test]
+    fn gift_durations_resolve_from_ghosts_catalogue() {
+        // explicit durations
+        assert_eq!(resolve_gift_duration(Some(1), None).unwrap().1, "month");
+        assert_eq!(resolve_gift_duration(Some(3), None).unwrap().1, "month");
+        assert_eq!(resolve_gift_duration(Some(6), None).unwrap().1, "month");
+        assert_eq!(resolve_gift_duration(Some(12), None).unwrap().1, "year");
+        // a year is billed once, a multi-month gift once per month
+        assert_eq!(resolve_gift_duration(Some(12), None).unwrap().2, 1);
+        assert_eq!(resolve_gift_duration(Some(3), None).unwrap().2, 3);
+        // cadence must agree with the duration
+        assert!(resolve_gift_duration(Some(12), Some("month")).is_err());
+        assert!(resolve_gift_duration(Some(3), Some("year")).is_err());
+        assert!(resolve_gift_duration(Some(3), Some("month")).is_ok());
+        // off-catalogue durations are refused
+        assert!(resolve_gift_duration(Some(5), None).is_err());
+        // the legacy cadence-only shape still resolves
+        assert_eq!(resolve_gift_duration(None, Some("year")).unwrap().0, 12);
+        assert_eq!(resolve_gift_duration(None, Some("month")).unwrap().0, 1);
+    }
+
+    #[test]
+    fn gift_tokens_are_twelve_url_safe_characters() {
+        let token = gift_token();
+        assert_eq!(token.len(), 12);
+        assert!(token.bytes().all(|b| b.is_ascii_alphanumeric()));
+        // off the CSPRNG, not a counter: two in a row differ
+        assert_ne!(token, gift_token());
+    }
+
+    #[test]
+    fn query_params_go_before_the_hash_fragment() {
+        // Portal's success URLs are hash routes; params appended after the
+        // hash would never reach the success screen.
+        assert_eq!(
+            add_query_params("https://x.test/#/portal/", &[("a", "1".into())]),
+            "https://x.test/?a=1#/portal/"
+        );
+        assert_eq!(
+            add_query_params("https://x.test/?b=2#/portal/gift", &[("a", "1 b".into())]),
+            "https://x.test/?b=2&a=1%20b#/portal/gift"
+        );
+        assert_eq!(
+            add_query_params("https://x.test/gift", &[("a", "1".into())]),
+            "https://x.test/gift?a=1"
+        );
+    }
+
+    #[test]
+    fn gift_duration_labels_read_like_ghosts_i18n() {
+        assert_eq!(gift_duration_label(1), "1 month");
+        assert_eq!(gift_duration_label(3), "3 months");
+        assert_eq!(gift_duration_label(6), "6 months");
+        assert_eq!(gift_duration_label(12), "1 year");
+    }
+
+    #[test]
+    fn gifts_round_trip_through_the_tokens_row() {
+        let gift = Gift {
+            gift: true,
+            token: "AbC123dEf456".into(),
+            tier_id: "tier1".into(),
+            tier_name: "Supporter".into(),
+            cadence: "month".into(),
+            duration: 3,
+            total_months: 3,
+            currency: "usd".into(),
+            amount: 1500,
+            buyer_email: "buyer@test".into(),
+            delivery: "link".into(),
+            status: "payment_pending".into(),
+            ..Default::default()
+        };
+        let json = serde_json::to_string(&gift).unwrap();
+        let back: Gift = serde_json::from_str(&json).unwrap();
+        assert_eq!(back.token, gift.token);
+        assert_eq!(back.total_months, 3);
+    }
+
+    #[test]
+    fn unredeemable_gifts_get_ghosts_visitor_messages() {
+        let pending = Gift { status: "payment_pending".into(), ..Default::default() };
+        let (code, message, _) = check_redeemable(&pending, None).unwrap_err();
+        assert_eq!(code, StatusCode::NOT_FOUND);
+        assert_eq!(message, "This gift does not exist.");
+
+        let redeemed = Gift { status: "redeemed".into(), ..Default::default() };
+        let (code, message, _) = check_redeemable(&redeemed, None).unwrap_err();
+        assert_eq!(code, StatusCode::BAD_REQUEST);
+        assert_eq!(message, "This gift has already been redeemed.");
+
+        // a paid member cannot take a gift — Ghost keeps gifts for free
+        // members and new signups
+        let fresh = Gift {
+            status: "paid".into(),
+            purchased_at: Some(now_rfc3339()),
+            ..Default::default()
+        };
+        let (code, message, _) = check_redeemable(&fresh, Some("paid")).unwrap_err();
+        assert_eq!(code, StatusCode::BAD_REQUEST);
+        assert_eq!(message, "You already have an active subscription.");
+        // the same gift is fine for a signed-out visitor
+        assert!(check_redeemable(&fresh, None).is_ok());
+    }
+
 }

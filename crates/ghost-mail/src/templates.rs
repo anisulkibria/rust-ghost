@@ -223,6 +223,80 @@ fn article_for(role: &str) -> &'static str {
     }
 }
 
+/// The gift subscription email, in both of the shapes it is sent:
+///
+/// - to the **recipient**, when the buyer chose email delivery — "someone
+///   sent you a gift", with the sender's message and the redeem link;
+/// - to the **buyer**, when they chose a shareable link — a purchase
+///   confirmation that repeats the link so it cannot be lost with the
+///   browser tab.
+///
+/// `sender` is the buyer's name or email for the recipient copy, and the
+/// site title for the buyer copy.
+pub fn gift_subscription(
+    to_recipient: bool,
+    site_title: &str,
+    site_url: &str,
+    sender: &str,
+    tier_name: &str,
+    duration_label: &str,
+    message: Option<&str>,
+    url: &str,
+) -> (String, String, String) {
+    let subject = if to_recipient {
+        format!("{sender} sent you a gift subscription to {site_title}")
+    } else {
+        format!("Your gift subscription to {site_title}")
+    };
+    let lead = if to_recipient {
+        format!("{sender} has bought you {duration_label} of access to everything on {site_title}, as part of the {tier_name} plan.")
+    } else {
+        format!("You have bought {duration_label} of {tier_name} access on {site_title} as a gift. The link below is the gift — whoever redeems it gets the subscription, so keep it safe or pass it on.")
+    };
+    let button = if to_recipient { "Redeem your gift" } else { "View your gift link" };
+    let text = format!(
+        "{lead}\n\n{url}\n\n{extra}The gift can be redeemed at any time in the next 12 months.\n\n{site_url}",
+        extra = message
+            .filter(|m| !m.trim().is_empty())
+            .map(|m| format!("A note from {sender}:\n\n{m}\n\n"))
+            .unwrap_or_default(),
+    );
+    let message_html = message
+        .filter(|m| !m.trim().is_empty())
+        .map(|m| {
+            format!(
+                r#"<p style="margin:0 0 24px;padding:16px;background:#f1f3f4;border-radius:8px;font-style:italic;">&ldquo;{m}&rdquo; <span style="font-style:normal;color:#738a94;">— {sender_name}</span></p>"#,
+                m = esc(m),
+                sender_name = esc(sender),
+            )
+        })
+        .unwrap_or_default();
+    let html = format!(
+        r#"<!doctype html><html><head><meta name="viewport" content="width=device-width"><meta http-equiv="Content-Type" content="text/html; charset=UTF-8"><meta name="color-scheme" content="light only"></head>
+<body style="background:#f6f6f6;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;margin:0;padding:24px;color:#15212A;">
+<table role="presentation" width="100%" border="0" cellpadding="0" cellspacing="0"><tr><td align="center">
+<table role="presentation" width="100%" border="0" cellpadding="0" cellspacing="0" style="max-width:560px;background:#fff;border-radius:10px;">
+<tr><td style="padding:32px;">
+<h1 style="font-size:24px;margin:0 0 16px;line-height:1.25;">{heading}</h1>
+<p style="margin:0 0 24px;">{lead}</p>
+{message_html}
+<table role="presentation" border="0" cellpadding="0" cellspacing="0" style="margin:0 0 24px;"><tr><td align="left">
+<a href="{url}" target="_blank" rel="noopener" style="display:inline-block;background:#15212A;border-radius:6px;color:#fff;font-size:16px;font-weight:600;padding:12px 24px;text-decoration:none;">{button}</a>
+</td></tr></table>
+<p style="margin:0 0 6px;color:#738a94;font-size:14px;">Or paste this into your browser:</p>
+<p style="margin:0 0 24px;font-size:13px;word-break:break-all;"><a href="{url}" style="color:#15212A;">{url_text}</a></p>
+<p style="margin:0;color:#738a94;font-size:14px;">The gift can be redeemed at any time in the next 12 months.</p>
+</td></tr></table></td></tr></table></body></html>"#,
+        heading = esc(if to_recipient { "You have received a gift" } else { "Your gift is ready to share" }),
+        lead = esc(&lead),
+        message_html = message_html,
+        button = button,
+        url = url,
+        url_text = esc(url),
+    );
+    (subject, text, html)
+}
+
 /// The "does my configuration work?" message sent from Settings → Email.
 pub fn test_email(site_title: &str, site_url: &str) -> (String, String, String) {
     let subject = format!("Test email from {site_title}");

@@ -36,6 +36,14 @@ impl SettingsCache {
         Ok(Self { map: RwLock::new(map) })
     }
 
+    /// A cache over values that are already in hand, with no database behind
+    /// it. For tests of the code that *reads* settings — the render context in
+    /// particular, whose derived keys are worth asserting without standing up
+    /// a pool and a full seed to get at three of them.
+    pub fn from_values(values: impl IntoIterator<Item = (String, Value)>) -> Self {
+        Self { map: RwLock::new(values.into_iter().collect()) }
+    }
+
     pub fn get(&self, key: &str) -> Option<Value> {
         self.map.read().unwrap().get(key).cloned()
     }

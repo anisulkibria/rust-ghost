@@ -19,6 +19,13 @@ const PUBLIC_KEYS: &[&str] = &[
     "portal_button_style", "portal_button_signup_text", "portal_button_icon",
     "portal_signup_terms_html", "portal_signup_checkbox_required", "portal_plans",
     "portal_default_plan", "portal_name", "portal_button",
+    // The two gift promotions and the Transistor block are settings Portal
+    // reads off this payload: without them the `#/portal/gift` upsells never
+    // appear and the account page drops the private-feed row, even though
+    // Settings → Membership and Settings → Integrations both offer them.
+    "portal_signup_gift_promotion", "portal_account_gift_promotion",
+    "transistor_portal_heading", "transistor_portal_description",
+    "transistor_portal_button_text", "transistor_portal_url_template",
     "comments_enabled", "recommendations_enabled", "outbound_link_tagging",
     "default_email_address", "support_email_address",
     "editor_default_email_recipients", "labs", "site_uuid",
@@ -62,11 +69,31 @@ pub fn build_site(settings: &SettingsCache, site_url: &str, admin_url: &str) -> 
     m.insert("members_enabled".into(), json!(members_enabled));
     m.insert("members_invite_only".into(), json!(signup_access == "invite"));
     m.insert("allow_self_signup".into(), json!(signup_access == "all"));
-    // paid membership also needs Stripe, which this port does not wire up
-    m.entry("paid_members_enabled".to_string()).or_insert(json!(false));
-    m.entry("donations_enabled".to_string()).or_insert(json!(false));
+    // Paid membership and tips both mean one thing to Ghost: is Stripe
+    // connected. It calculates both keys from the credentials rather than
+    // storing them, and so does this — a stored copy can only drift from the
+    // keys it is meant to describe, and a stale `false` here is what hides
+    // paid signup, `#/portal/account/plans`, `#/portal/gift` and
+    // `#/portal/support` on a site that is perfectly able to take money.
+    let stripe_connected = ["stripe_secret_key", "stripe_connect_secret_key"]
+        .iter()
+        .any(|k| settings.get_str(k).is_some_and(|v| !v.trim().is_empty()));
+    m.insert("paid_members_enabled".into(), json!(stripe_connected));
+    m.insert("donations_enabled".into(), json!(stripe_connected));
     m.entry("comments_enabled".to_string()).or_insert(json!("off"));
     m.entry("recommendations_enabled".to_string()).or_insert(json!(false));
+
+    // Portal shows the private-podcast row when `transistor_portal_enabled` is
+    // true, which Ghost computes rather than stores: the integration has to be
+    // switched on *and* a feed template has to exist, or the button would lead
+    // nowhere. The two settings live on separate admin screens, so neither one
+    // alone is enough.
+    let transistor = settings.get_bool("transistor");
+    let has_template = m
+        .get("transistor_portal_url_template")
+        .and_then(|v| v.as_str())
+        .is_some_and(|t| !t.trim().is_empty());
+    m.insert("transistor_portal_enabled".into(), json!(transistor && has_template));
 
     // Image settings are stored without the base path; `site` is an output
     // boundary, so put them into browser-ready form here.
@@ -119,4 +146,76 @@ pub fn build_config(posts_per_page: i64, image_sizes: Value, card_assets: bool, 
         "card_assets": card_assets,
         "card_assets_version": card_assets_version,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn site_from(pairs: &[(&str, Value)]) -> Value {
+        let cache = SettingsCache::from_values(
+            pairs.iter().map(|(k, v)| ((*k).to_string(), v.clone())),
+        );
+        build_site(&cache, "https://site.test", "https://site.test/ghost")
+    }
+
+    #[test]
+    fn portal_settings_reach_the_content_api() {
+        // Every one of these is editable in Settings → Membership, and Portal
+        // reads them off this object. A key missing here is a switch in the
+        // admin that does nothing on the site.
+        let site = site_from(&[
+            ("portal_signup_gift_promotion", json!(true)),
+            ("portal_account_gift_promotion", json!(true)),
+            ("portal_plans", json!(["free", "monthly"])),
+            ("portal_default_plan", json!("yearly")),
+            ("portal_button_signup_text", json!("Join us")),
+        ]);
+        assert_eq!(site["portal_signup_gift_promotion"], json!(true));
+        assert_eq!(site["portal_account_gift_promotion"], json!(true));
+        assert_eq!(site["portal_plans"], json!(["free", "monthly"]));
+        assert_eq!(site["portal_default_plan"], json!("yearly"));
+        assert_eq!(site["portal_button_signup_text"], json!("Join us"));
+    }
+
+    #[test]
+    fn stripe_credentials_decide_paid_membership_and_tips() {
+        // Both keys are calculated, not stored: Portal hides paid signup,
+        // gifts and `#/portal/support` whenever they are false.
+        let without = site_from(&[]);
+        assert_eq!(without["paid_members_enabled"], json!(false));
+        assert_eq!(without["donations_enabled"], json!(false));
+
+        let direct = site_from(&[("stripe_secret_key", json!("sk_test_123"))]);
+        assert_eq!(direct["paid_members_enabled"], json!(true));
+        assert_eq!(direct["donations_enabled"], json!(true));
+
+        // Ghost(Pro) fills the Connect pair instead, and it counts the same.
+        let connect = site_from(&[("stripe_connect_secret_key", json!("sk_test_456"))]);
+        assert_eq!(connect["paid_members_enabled"], json!(true));
+
+        // A stale stored `true` must not outrank missing credentials.
+        let stale = site_from(&[("paid_members_enabled", json!(true))]);
+        assert_eq!(stale["paid_members_enabled"], json!(false));
+    }
+
+    #[test]
+    fn the_transistor_block_needs_both_the_switch_and_a_template() {
+        let neither = site_from(&[]);
+        assert_eq!(neither["transistor_portal_enabled"], json!(false));
+
+        let no_template = site_from(&[("transistor", json!(true))]);
+        assert_eq!(no_template["transistor_portal_enabled"], json!(false));
+
+        // A template with the integration switched off is just as useless.
+        let off = site_from(&[("transistor_portal_url_template", json!("https://x.test/{uuid}"))]);
+        assert_eq!(off["transistor_portal_enabled"], json!(false));
+
+        let both = site_from(&[
+            ("transistor", json!(true)),
+            ("transistor_portal_url_template", json!("https://x.test/{uuid}")),
+        ]);
+        assert_eq!(both["transistor_portal_enabled"], json!(true));
+        assert_eq!(both["transistor_portal_url_template"], json!("https://x.test/{uuid}"));
+    }
 }

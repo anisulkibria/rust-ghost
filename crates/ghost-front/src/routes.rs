@@ -22,6 +22,37 @@ fn sitemap_resource_name(path: &str) -> Option<String> {
     }
 }
 
+/// A redirects.yaml answer, carrying the file's own status code: Ghost sends
+/// the literal 301/302 the rule was written under
+/// (dynamic-redirect-manager.js: `res.redirect(permanent ? 301 : 302)`), not
+/// axum's `Redirect::permanent`/`temporary` 308/307 — the number is the point
+/// of the rule, not an implementation detail.
+fn redirect_response(target: String, permanent: bool) -> Response {
+    let status = if permanent {
+        StatusCode::MOVED_PERMANENTLY
+    } else {
+        StatusCode::FOUND
+    };
+    (status, [(header::LOCATION, target)]).into_response()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn redirects_answer_with_the_status_code_their_rule_was_written_under() {
+        assert_eq!(
+            redirect_response("/new/".into(), true).status(),
+            StatusCode::MOVED_PERMANENTLY
+        );
+        assert_eq!(
+            redirect_response("/new/".into(), false).status(),
+            StatusCode::FOUND
+        );
+    }
+}
+
 /// Main entrypoint for every non-asset site path.
 pub async fn entrypoint(State(state): State<AppState>, uri: Uri, headers: HeaderMap) -> Response {
     let path = uri.path().to_string();
@@ -59,7 +90,13 @@ pub async fn entrypoint(State(state): State<AppState>, uri: Uri, headers: Header
 
     // /feed/ → /rss/ (Ghost's permanent redirect)
     if path == "/feed" || path == "/feed/" {
-        return Redirect::permanent(&ghost_core::url::base("/rss/")).into_response();
+        // Ghost's own redirect is a literal 301 (rss-router.js), not the 308
+        // axum's `Redirect::permanent` would send.
+        return (
+            StatusCode::MOVED_PERMANENTLY,
+            [(header::LOCATION, ghost_core::url::base("/rss/"))],
+        )
+            .into_response();
     }
 
     // 1. redirects.yaml
@@ -68,12 +105,7 @@ pub async fn entrypoint(State(state): State<AppState>, uri: Uri, headers: Header
         if let Some((target, permanent)) = redirects.match_path(&path, query.as_deref()) {
             // targets are written in site terms, so an internal one needs the
             // base path; an absolute URL to another host is left alone
-            let target = ghost_core::url::base(&target);
-            return if permanent {
-                Redirect::permanent(&target).into_response()
-            } else {
-                Redirect::temporary(&target).into_response()
-            };
+            return redirect_response(ghost_core::url::base(&target), permanent);
         }
     }
 
@@ -595,7 +627,8 @@ pub async fn favicon(State(state): State<AppState>) -> Response {
     let icon = state.settings.get_str("icon").unwrap_or_default();
     if !icon.is_empty() {
         if icon.starts_with("http") {
-            return Redirect::temporary(&icon).into_response();
+            // Ghost redirects the favicon route with 302 (serve-favicon.js).
+            return redirect_response(icon, false);
         }
         // `icon` is stored as a site path (`/content/images/x.png`), and
         // `content_path()` is already the `content/` directory — so the

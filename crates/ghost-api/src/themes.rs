@@ -198,6 +198,23 @@ pub fn is_editable(path: &str) -> bool {
         .unwrap_or(false)
 }
 
+/// Which highlighter the code editor should paint a file with.
+///
+/// Names are the editor's own, not the extension: `.hbs`, `.html` and `.svg`
+/// are all markup with mustaches allowed, and `.yaml` has no highlighter of
+/// its own yet, so it falls back to plain text rather than being coloured by
+/// a grammar that is not its own.
+pub fn editor_language(path: &str) -> &'static str {
+    match path.rsplit('.').next().map(str::to_ascii_lowercase).as_deref() {
+        Some("hbs") | Some("html") | Some("htm") | Some("svg") | Some("xml") => "hbs",
+        Some("css") => "css",
+        Some("js") | Some("mjs") | Some("cjs") => "js",
+        Some("json") => "json",
+        Some("md") | Some("markdown") => "md",
+        _ => "txt",
+    }
+}
+
 /// A relative path inside a theme, rejected unless every segment is a plain
 /// name.
 ///
@@ -786,5 +803,37 @@ mod tests {
         assert!(is_editable("assets/screen.CSS"));
         assert!(!is_editable("assets/logo.png"));
         assert!(!is_editable("noextension"));
+    }
+}
+
+#[cfg(test)]
+mod editor_tests {
+    use super::*;
+
+    #[test]
+    fn every_editable_extension_resolves_a_highlighter() {
+        // A file the editor will open must get a language, or it opens
+        // uncoloured with no indication why.
+        for ext in EDITABLE_EXTENSIONS {
+            let lang = editor_language(&format!("thing.{ext}"));
+            assert!(
+                ["hbs", "css", "js", "json", "md", "txt"].contains(&lang),
+                "{ext} resolved to the unknown language {lang}"
+            );
+        }
+    }
+
+    #[test]
+    fn markup_shares_one_grammar_and_the_rest_fall_back() {
+        assert_eq!(editor_language("default.hbs"), "hbs");
+        assert_eq!(editor_language("partials/icons/arrow.svg"), "hbs");
+        assert_eq!(editor_language("assets/css/screen.CSS"), "css", "extensions are case-insensitive");
+        assert_eq!(editor_language("gulpfile.js"), "js");
+        assert_eq!(editor_language("package.json"), "json");
+        assert_eq!(editor_language("README.md"), "md");
+        // No YAML grammar yet, so routes.yaml is plain text rather than
+        // coloured by a grammar that is not its own.
+        assert_eq!(editor_language("routes.yaml"), "txt");
+        assert_eq!(editor_language("LICENSE"), "txt", "a file with no extension at all");
     }
 }

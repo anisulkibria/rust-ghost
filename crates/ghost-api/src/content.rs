@@ -29,6 +29,15 @@ pub fn content_router() -> Router<AppState> {
         .route("/settings/", get(read_settings))
         .route("/tiers/", get(browse_tiers))
         .route("/newsletters/", get(browse_newsletters))
+        // Portal reads an offer and the recommendation list through the
+        // Content API, not `/members/api` — `#/portal/offers/{id}` (where an
+        // offer share link lands) and `#/portal/recommendations` both 404
+        // without these. Registered with and without the trailing slash
+        // because Portal builds the URL by concatenation.
+        .route("/offers/{id}/", get(read_offer))
+        .route("/offers/{id}", get(read_offer))
+        .route("/recommendations/", get(browse_recommendations))
+        .route("/recommendations", get(browse_recommendations))
         // Sodo Search's index feeds. It requests these without a trailing
         // slash tolerance of its own, so register both spellings.
         .route("/search-index/posts/", get(search_index_posts))
@@ -592,41 +601,107 @@ async fn read_settings(State(state): State<AppState>, Query(params): Query<HashM
     ok_json(settings_envelope(site))
 }
 
+/// Every active tier, in Ghost's `tiers` content shape.
+///
+/// Portal is the demanding reader here. It turns `currency` plus
+/// `monthly_price`/`yearly_price` into the price objects its signup and
+/// account-plan screens render, derives which plans to offer from
+/// `visibility`, and needs the **free** tier in the list as well — without it
+/// `portal_plans: ["free"]` is filtered away and the signup modal offers
+/// nothing. A free tier carries no price, which is why those three fields are
+/// dropped for it rather than sent as null.
 async fn browse_tiers(State(state): State<AppState>, Query(params): Query<HashMap<String, String>>) -> Response {
     if let Err(resp) = authenticate(&state, &params).await {
         return resp;
     }
-    let rows = sqlx::query_as::<_, (String, String, String, Option<String>, Option<i64>, Option<i64>)>(
-        "SELECT id, name, slug, description, monthly_price, yearly_price FROM products WHERE active = 1",
+    type Row = (
+        String,         // id
+        String,         // name
+        String,         // slug
+        Option<String>, // description
+        String,         // type
+        String,         // visibility
+        Option<String>, // currency
+        Option<i64>,    // monthly_price
+        Option<i64>,    // yearly_price
+        i64,            // trial_days
+        Option<String>, // welcome_page_url
+        Option<String>, // created_at
+        Option<String>, // updated_at
+    );
+    let rows = sqlx::query_as::<_, Row>(
+        "SELECT id, name, slug, description, type, visibility, currency, monthly_price, \
+         yearly_price, trial_days, welcome_page_url, created_at, updated_at \
+         FROM products WHERE active = 1 ORDER BY type DESC, created_at",
     )
     .fetch_all(&state.db)
     .await
     .unwrap_or_default();
-    let items: Vec<Value> = rows
-        .into_iter()
-        .map(|r| {
-            json!({
-                "id": r.0,
-                "name": r.1,
-                "slug": r.2,
-                "description": r.3,
-                "active": true,
-                "type": "paid",
-                "monthly_price": r.4,
-                "yearly_price": r.5,
-                "benefits": [],
-            })
-        })
-        .collect();
+
+    let mut items: Vec<Value> = Vec::with_capacity(rows.len());
+    for r in rows {
+        let benefits: Vec<String> = sqlx::query_scalar(
+            "SELECT b.name FROM products_benefits pb JOIN benefits b ON b.id = pb.benefit_id \
+             WHERE pb.product_id = ? ORDER BY pb.sort_order",
+        )
+        .bind(&r.0)
+        .fetch_all(&state.db)
+        .await
+        .unwrap_or_default();
+        let mut tier = json!({
+            "id": r.0,
+            "name": r.1,
+            "slug": r.2,
+            "description": r.3,
+            "active": true,
+            "type": r.4,
+            "visibility": r.5,
+            "trial_days": r.9,
+            "welcome_page_url": r.10,
+            "created_at": r.11,
+            "updated_at": r.12,
+            "benefits": benefits,
+        });
+        if r.4 != "free" {
+            if let Value::Object(m) = &mut tier {
+                m.insert("currency".into(), json!(r.6));
+                m.insert("monthly_price".into(), json!(r.7));
+                m.insert("yearly_price".into(), json!(r.8));
+            }
+        }
+        items.push(tier);
+    }
     ok_json(json!({ "tiers": items }))
 }
 
+/// Active newsletters, in Ghost's `newsletters` content shape.
+///
+/// `subscribe_on_signup` and `visibility` are the two that matter beyond
+/// display: the first decides which boxes Portal pre-ticks on the signup and
+/// account screens, the second whether a newsletter is offered to a given
+/// visitor at all. Both are editable in Settings → Membership, so hard-coding
+/// them silently discarded the publisher's choice. `sort_order` is what Portal
+/// sorts the list by.
 async fn browse_newsletters(State(state): State<AppState>, Query(params): Query<HashMap<String, String>>) -> Response {
     if let Err(resp) = authenticate(&state, &params).await {
         return resp;
     }
-    let rows = sqlx::query_as::<_, (String, Option<String>, String, Option<String>)>(
-        "SELECT id, uuid, name, slug FROM newsletters WHERE status = 'active'",
+    type Row = (
+        String,         // id
+        Option<String>, // uuid
+        String,         // name
+        Option<String>, // description
+        String,         // slug
+        Option<String>, // sender_name
+        Option<String>, // sender_reply_to
+        String,         // visibility
+        bool,           // subscribe_on_signup
+        i64,            // sort_order
+    );
+    let rows = sqlx::query_as::<_, Row>(
+        "SELECT id, uuid, name, description, slug, sender_name, sender_reply_to, visibility, \
+         subscribe_on_signup, sort_order FROM newsletters WHERE status = 'active' \
+         ORDER BY sort_order, created_at",
     )
     .fetch_all(&state.db)
     .await
@@ -638,13 +713,82 @@ async fn browse_newsletters(State(state): State<AppState>, Query(params): Query<
                 "id": r.0,
                 "uuid": r.1,
                 "name": r.2,
-                "slug": r.3,
+                "description": r.3,
+                "slug": r.4,
+                "sender_name": r.5,
+                "sender_reply_to": r.6,
                 "status": "active",
-                "visibility": "members",
+                "visibility": r.7,
+                "subscribe_on_signup": r.8,
+                "sort_order": r.9,
             })
         })
         .collect();
     ok_json(json!({ "newsletters": items }))
+}
+
+/// One offer, as Portal reads it on `#/portal/offers/{id}`.
+///
+/// This is where an offer share link ends up: the frontend turns
+/// `site.com/<code>` into that hash, and Portal then asks the Content API for
+/// the discount to show. An archived offer must not resolve, or a withdrawn
+/// code would keep advertising its price.
+async fn read_offer(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+    Query(params): Query<HashMap<String, String>>,
+) -> Response {
+    if let Err(resp) = authenticate(&state, &params).await {
+        return resp;
+    }
+    let offer = repos::offers::find_by_id(&state.db, &id).await.ok().flatten();
+    let Some(offer) = offer.filter(|o| o.active) else {
+        return not_found("Offer");
+    };
+    ok_json(json!({ "offers": [crate::members::offer_public_json(&offer)] }))
+}
+
+/// The recommended publications Portal lists on `#/portal/recommendations`.
+///
+/// Ghost serves favicon and featured image alongside each row; this port does
+/// not store either, and Portal falls back to a blank badge when they are
+/// absent, so they go out as null rather than being omitted.
+async fn browse_recommendations(
+    State(state): State<AppState>,
+    Query(params): Query<HashMap<String, String>>,
+) -> Response {
+    if let Err(resp) = authenticate(&state, &params).await {
+        return resp;
+    }
+    let p = parse_browse(&params);
+    type Row = (String, String, String, Option<String>, bool, bool, Option<String>, Option<String>);
+    let mut sql = String::from(
+        "SELECT id, url, title, description, one_click_subscribe, featured, created_at, updated_at \
+         FROM recommendations ORDER BY featured DESC, created_at DESC",
+    );
+    if p.limit > 0 {
+        sql.push_str(&format!(" LIMIT {} OFFSET {}", p.limit, (p.page.max(1) - 1) * p.limit));
+    }
+    let rows = sqlx::query_as::<_, Row>(&sql).fetch_all(&state.db).await.unwrap_or_default();
+    let items: Vec<Value> = rows
+        .into_iter()
+        .map(|r| {
+            json!({
+                "id": r.0,
+                "url": r.1,
+                "title": r.2,
+                "description": r.3,
+                "one_click_subscribe": r.4,
+                "featured": r.5,
+                "favicon": Value::Null,
+                "featured_image": Value::Null,
+                "excerpt": Value::Null,
+                "created_at": r.6,
+                "updated_at": r.7,
+            })
+        })
+        .collect();
+    ok_json(json!({ "recommendations": items, "meta": {} }))
 }
 
 #[cfg(test)]

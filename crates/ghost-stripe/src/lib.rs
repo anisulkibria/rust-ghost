@@ -169,6 +169,133 @@ pub async fn archive_price(cfg: &StripeConfig, price_id: &str) -> Result<()> {
     Ok(())
 }
 
+/// The donation price: a one-time price whose amount the donor sets on the
+/// checkout page. Ghost creates it once per (currency, preset) through
+/// `getPriceForDonations` and reuses the id — `custom_unit_amount` with the
+/// suggested amount as the preset is what puts an editable amount box on
+/// Stripe's page. A preset under Stripe's minimum charge (100 minor units)
+/// is omitted, exactly as Ghost omits it.
+pub async fn create_donation_price(
+    cfg: &StripeConfig,
+    product_id: &str,
+    currency: &str,
+    preset_cents: Option<i64>,
+    nickname: &str,
+) -> Result<String> {
+    let mut form = vec![
+        ("product".to_string(), product_id.to_string()),
+        ("currency".to_string(), currency.to_lowercase()),
+        ("nickname".to_string(), nickname.to_string()),
+        ("custom_unit_amount[enabled]".to_string(), "true".to_string()),
+    ];
+    if let Some(cents) = preset_cents.filter(|c| *c >= 100) {
+        form.push(("custom_unit_amount[preset]".to_string(), cents.to_string()));
+    }
+    let v = post(cfg, "/prices", &form).await?;
+    Ok(v.get("id").and_then(|x| x.as_str()).unwrap_or_default().to_string())
+}
+
+/// One-time checkout parameters shared by gifts and donations.
+struct OneTimeParams<'a> {
+    customer_email: Option<&'a str>,
+    success_url: &'a str,
+    cancel_url: &'a str,
+    /// Extra session metadata, sent back verbatim on the webhook.
+    metadata: Vec<(String, String)>,
+}
+
+/// Start a gift checkout: one payment of `amount_cents` for a named product
+/// ("Gift subscription — {tier} (3 months)"), the shape Ghost's
+/// `createGiftCheckoutSession` builds. The price is inline `price_data`
+/// because a gift is a bespoke line item, not a reusable plan.
+pub async fn create_gift_checkout_session(
+    cfg: &StripeConfig,
+    amount_cents: i64,
+    currency: &str,
+    product_name: &str,
+    customer_email: Option<&str>,
+    success_url: &str,
+    cancel_url: &str,
+    gift_token: &str,
+) -> Result<String> {
+    let p = OneTimeParams {
+        customer_email,
+        success_url,
+        cancel_url,
+        metadata: vec![("ghost_gift".to_string(), gift_token.to_string())],
+    };
+    let form = one_time_form(&p, "pay");
+    let mut form = form;
+    form.push(("line_items[0][quantity]".to_string(), "1".to_string()));
+    form.push(("line_items[0][price_data][currency]".to_string(), currency.to_lowercase()));
+    form.push(("line_items[0][price_data][unit_amount]".to_string(), amount_cents.to_string()));
+    form.push((
+        "line_items[0][price_data][product_data][name]".to_string(),
+        product_name.to_string(),
+    ));
+    let v = post(cfg, "/checkout/sessions", &form).await?;
+    checkout_url(&v)
+}
+
+/// Start a donation checkout against the site's donation price. The donor
+/// picks the amount on Stripe's page; the optional personal-note field is
+/// Ghost's `donation_message` custom field.
+pub async fn create_donation_checkout_session(
+    cfg: &StripeConfig,
+    price_id: &str,
+    customer_email: Option<&str>,
+    success_url: &str,
+    cancel_url: &str,
+    member_uuid: &str,
+    note_label: &str,
+) -> Result<String> {
+    let p = OneTimeParams {
+        customer_email,
+        success_url,
+        cancel_url,
+        metadata: vec![
+            ("ghost_donation".to_string(), "true".to_string()),
+            ("member_uuid".to_string(), member_uuid.to_string()),
+        ],
+    };
+    let form = one_time_form(&p, "pay");
+    let mut form = form;
+    form.push(("line_items[0][price]".to_string(), price_id.to_string()));
+    form.push(("line_items[0][quantity]".to_string(), "1".to_string()));
+    // Ghost labels the field "Add a personal note" unless the donor typed a
+    // note into Portal, which passes it through as the label's text.
+    form.push(("custom_fields[0][key]".to_string(), "donation_message".to_string()));
+    form.push(("custom_fields[0][type]".to_string(), "text".to_string()));
+    form.push(("custom_fields[0][optional]".to_string(), "true".to_string()));
+    form.push(("custom_fields[0][label][type]".to_string(), "custom".to_string()));
+    form.push(("custom_fields[0][label][custom]".to_string(), note_label.to_string()));
+    let v = post(cfg, "/checkout/sessions", &form).await?;
+    checkout_url(&v)
+}
+
+fn one_time_form(p: &OneTimeParams<'_>, submit_type: &str) -> Vec<(String, String)> {
+    let mut form = vec![
+        ("mode".to_string(), "payment".to_string()),
+        ("submit_type".to_string(), submit_type.to_string()),
+        ("success_url".to_string(), p.success_url.to_string()),
+        ("cancel_url".to_string(), p.cancel_url.to_string()),
+    ];
+    if let Some(email) = p.customer_email.filter(|e| !e.is_empty()) {
+        form.push(("customer_email".to_string(), email.to_string()));
+    }
+    for (k, v) in &p.metadata {
+        form.push((format!("metadata[{k}]"), v.clone()));
+    }
+    form
+}
+
+fn checkout_url(v: &serde_json::Value) -> Result<String> {
+    v.get("url")
+        .and_then(|x| x.as_str())
+        .map(|s| s.to_string())
+        .ok_or_else(|| GhostError::BadRequest("Stripe did not return a checkout URL".into()))
+}
+
 /// The offer a checkout is running under: its Stripe coupon, or the trial it
 /// grants instead, plus the id to stamp on the session so the webhook can
 /// record the redemption.
