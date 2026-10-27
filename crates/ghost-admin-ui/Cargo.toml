@@ -24,3 +24,4 @@ serde_json = { workspace = true }
 tracing = { workspace = true }
 bcrypt = { workspace = true }
 form_urlencoded = { workspace = true }
+zip = { workspace = true }

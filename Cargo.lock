@@ -1464,6 +1464,7 @@ dependencies = [
  "sqlx",
  "tokio",
  "tracing",
+ "zip",
 ]
 
 [[package]]

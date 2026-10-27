@@ -91,8 +91,11 @@ pub fn admin_ui_router() -> Router<AppState> {
         .route("/design/reset/", post(design_reset))
         .route("/settings/", get(settings_page))
         .route("/settings/general/", get(general_page).post(general_save))
-        .route("/settings/metadata/", get(metadata_page).post(metadata_save))
-        .route("/settings/social/", get(social_page).post(social_save))
+        // Meta data and Social accounts are sections of General settings now.
+        // The old paths stay as redirects: they are what an existing bookmark,
+        // or a link from elsewhere in this admin, still points at.
+        .route("/settings/metadata/", get(|| async { Redirect::to("/ghost/settings/general/") }))
+        .route("/settings/social/", get(|| async { Redirect::to("/ghost/settings/general/") }))
         .route("/settings/analytics/", get(analytics_settings_page).post(analytics_settings_save))
         .route("/settings/features/", get(features_page).post(features_save))
         .route("/settings/site/", get(site_page).post(site_save))
@@ -134,8 +137,17 @@ pub fn admin_ui_router() -> Router<AppState> {
         .route("/settings/about/", get(about_page))
         .route("/settings/code-injection/", get(code_injection_page).post(code_injection_save))
         .route("/settings/advanced/", get(advanced_page))
-        .route("/settings/advanced/export/", get(advanced_export))
-        .route("/settings/advanced/import/", post(advanced_import).layer(axum::extract::DefaultBodyLimit::max(MAX_UPLOAD_BYTES)))
+        // Migration tools. Import and export used to live under Advanced;
+        // Ghost gives them a screen of their own, and so does this.
+        .route("/settings/migration/", get(migration_page))
+        .route(
+            "/settings/migration/import/",
+            post(migration_import).layer(axum::extract::DefaultBodyLimit::max(MAX_UPLOAD_BYTES)),
+        )
+        .route("/settings/migration/export/", get(migration_export_all))
+        .route("/settings/migration/export/content/", get(migration_export_content))
+        .route("/settings/migration/export/analytics/", get(migration_export_analytics))
+        .route("/settings/migration/export/themes/", get(migration_export_themes))
         .route(
             "/settings/advanced/redirects/",
             get(redirects_download).post(redirects_upload).layer(axum::extract::DefaultBodyLimit::max(ONE_MB_BYTES)),
@@ -745,6 +757,45 @@ code { font-family: var(--mono); }
 .plink > .key code { flex: 1; }
 @media (max-width: 720px) { .plink > .name { width: 100%; } }
 
+/* ---- signup form preview ----
+   The frame is given the height the embed asks for, so what is shown is the
+   same box the snippet produces on someone else's page. */
+.sf-preview { width: 100%; height: 380px; border: 1px solid var(--outline-variant);
+  border-radius: 14px; background: var(--sc-lowest); display: block; }
+.sf-preview.minimal { height: 110px; }
+
+/* ---- underline tabs ----
+   Two radios drive the panels through `:has()`, so switching tabs costs no
+   script and survives a page that has not finished loading. The radios
+   themselves are never submitted: they sit outside the forms in the panels. */
+.mtabs > input[name="mtab"] { position: absolute; opacity: 0; pointer-events: none; }
+.mtab-bar { display: flex; gap: 4px; border-bottom: 1px solid var(--outline-variant);
+  margin-bottom: 4px; }
+.mtab-bar label { padding: 10px 16px; font-size: 14px; font-weight: 600; cursor: pointer;
+  color: var(--on-surface-variant); border-bottom: 2px solid transparent; margin-bottom: -1px;
+  transition: color .15s var(--ease), border-color .15s var(--ease); }
+.mtab-bar label:hover { color: var(--on-surface); }
+.mtabs:has(#mtab-import:checked) label[for="mtab-import"],
+.mtabs:has(#mtab-export:checked) label[for="mtab-export"] { color: var(--primary); border-bottom-color: var(--primary); }
+.mtabs:has(#mtab-import:checked) [data-tab="export"],
+.mtabs:has(#mtab-export:checked) [data-tab="import"] { display: none; }
+.mtabs > input:focus-visible + input + .mtab-bar label[for="mtab-import"],
+.mtabs > input + input:focus-visible + .mtab-bar label[for="mtab-export"] { outline: 2px solid var(--primary); outline-offset: 2px; border-radius: 6px; }
+
+/* ---- export component picker ----
+   The checkbox chips carry two lines each, so they get their own grid rather
+   than the inline row `.fchip` is shaped for. */
+.expgrid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 10px; }
+.fchip.exp { height: auto; align-items: flex-start; padding: 12px 14px; border-radius: 14px;
+  text-align: left; gap: 0; }
+.fchip.exp .ck { margin-top: 2px; }
+.fchip.exp:has(input:checked) .ck { width: 19px; margin-right: 10px; }
+.fchip.exp .expl { display: block; min-width: 0; }
+.fchip.exp .expl b { display: block; font-size: 14px; font-weight: 600; }
+.fchip.exp .expl span { display: block; font-size: 12.5px; line-height: 1.45; font-weight: 400;
+  color: var(--on-surface-variant); white-space: normal; margin-top: 2px; }
+.fchip.exp:has(input:checked) .expl span { color: inherit; opacity: .8; }
+
 /* ---- file explorer ----
    A tree of <details> elements. `--d` is the row's depth, and the single
    padding rule below is what turns it into indentation, so nesting costs no
@@ -1346,20 +1397,22 @@ const JS: &str = r#"
   // preview element is tagged data-prev="<field>", and empty fields fall back
   // the way the front end does: the specific tag, then the meta tag, then the
   // site's own title/description.
-  var form = document.getElementById('metadata-form');
+  var form = document.querySelector('[data-meta-previews]');
   if (form && document.querySelector('[data-prev]')) {
     var val = function (name) {
       var el = form.elements[name];
       return el ? el.value.trim() : '';
     };
+    // The site title and description are edited on this same form now, so
+    // they are read live and the stored values are only the starting point.
     var site = { title: form.dataset.siteTitle || '', description: form.dataset.siteDescription || '' };
     var put = function (key, text) {
       var el = document.querySelector('[data-prev="' + key + '"]');
       if (el) { el.textContent = text; }
     };
     var refresh = function () {
-      var metaTitle = val('meta_title') || site.title;
-      var metaDesc = val('meta_description') || site.description;
+      var metaTitle = val('meta_title') || val('title') || site.title;
+      var metaDesc = val('meta_description') || val('description') || site.description;
       put('search-title', metaTitle);
       put('search-description', metaDesc);
       put('twitter-title', val('twitter_title') || metaTitle);
@@ -3323,11 +3376,12 @@ const MEMBER_CSV_COLUMNS: &[&str] = &[
     "stripe_customer_id", "created_at", "deleted_at", "labels", "tiers",
 ];
 
-/// Every member as CSV, as a file download.
-async fn members_export(State(state): State<AppState>, headers: HeaderMap) -> Response {
-    if let Err(r) = require_role(&state, &headers, Role::Administrator).await {
-        return r;
-    }
+/// Every member as CSV.
+///
+/// Separate from the download handler because the migration bundle puts the
+/// same bytes inside a zip: one definition of what a member export *is*, so
+/// the standalone file and the backup can never disagree.
+async fn build_members_csv(state: &AppState) -> Option<Vec<u8>> {
     let rows = sqlx::query_as::<_, (String, String, Option<String>, Option<String>, String, String, Option<String>)>(
         "SELECT m.id, m.email, m.name, m.note, m.status, m.created_at, sc.customer_id \
          FROM members m \
@@ -3339,11 +3393,9 @@ async fn members_export(State(state): State<AppState>, headers: HeaderMap) -> Re
     .unwrap_or_default();
 
     let mut w = csv::Writer::from_writer(Vec::new());
-    if w.write_record(MEMBER_CSV_COLUMNS).is_err() {
-        return members_flash("error", "Could not build the export.");
-    }
+    w.write_record(MEMBER_CSV_COLUMNS).ok()?;
     for (id, email, name, note, status, created_at, customer_id) in rows {
-        let labels = member_labels(&state, &id).await.join(",");
+        let labels = member_labels(state, &id).await.join(",");
         let tiers = sqlx::query_scalar::<_, String>(
             "SELECT p.name FROM products p JOIN members_products mp ON mp.product_id = p.id WHERE mp.member_id = ?",
         )
@@ -3372,18 +3424,17 @@ async fn members_export(State(state): State<AppState>, headers: HeaderMap) -> Re
             labels,
             tiers,
         ];
-        if w.write_record(&record).is_err() {
-            return members_flash("error", "Could not build the export.");
-        }
+        w.write_record(&record).ok()?;
     }
-    let body = match w.into_inner() {
-        Ok(b) => b,
-        Err(_) => return members_flash("error", "Could not build the export."),
-    };
-    let filename = format!(
-        "members.{}.csv",
-        ghost_core::dates::now_db().chars().take(10).collect::<String>()
-    );
+    w.into_inner().ok()
+}
+
+/// Today's date, for the dated filenames Ghost's exports carry.
+fn export_date_stamp() -> String {
+    ghost_core::dates::now_db().chars().take(10).collect()
+}
+
+fn csv_download(filename: &str, body: Vec<u8>) -> Response {
     (
         [
             (header::CONTENT_TYPE, "text/csv; charset=utf-8".to_string()),
@@ -3392,6 +3443,17 @@ async fn members_export(State(state): State<AppState>, headers: HeaderMap) -> Re
         body,
     )
         .into_response()
+}
+
+/// Every member as CSV, as a file download.
+async fn members_export(State(state): State<AppState>, headers: HeaderMap) -> Response {
+    if let Err(r) = require_role(&state, &headers, Role::Administrator).await {
+        return r;
+    }
+    match build_members_csv(&state).await {
+        Some(body) => csv_download(&format!("members.{}.csv", export_date_stamp()), body),
+        None => members_flash("error", "Could not build the export."),
+    }
 }
 
 /// Outcome of an import, reported back to the operator.
@@ -3519,7 +3581,7 @@ async fn members_import(State(state): State<AppState>, headers: HeaderMap, mut m
                 r#"<div class="row"><span class="ic tint-blue">{ic}</span>
 <div class="body"><label class="field fixed" style="margin:0;max-width:320px"><select name="map_{key}">{opts}</select><span>{label}{req}</span>{car}</label>
 <p class="muted" style="margin:6px 0 0">{preview}</p></div></div>"#,
-                ic = svg("members"),
+                ic = svg("person"),
                 key = esc(key),
                 opts = options(picked),
                 label = esc(label),
@@ -4181,6 +4243,7 @@ async fn member_edit_save(
         }
     }
 
+    fire_member_webhook(&state, "member.edited", &id, &email, form.name.trim());
     member_edit_flash(&id, "ok", "Member saved.")
 }
 
@@ -4276,6 +4339,16 @@ async fn member_delete(State(state): State<AppState>, Path(id): Path<String>, he
         Ok(a) => (a.user, a.role),
         Err(r) => return r,
     };
+    // Who they were, read before the row goes: a delete webhook carrying
+    // only an id tells a CRM nothing it can act on.
+    let gone: Option<(String, Option<String>)> =
+        sqlx::query_as("SELECT email, name FROM members WHERE id = ?")
+            .bind(&id)
+            .fetch_optional(&state.db)
+            .await
+            .ok()
+            .flatten();
+
     // clear the join tables first — FKs point at members
     for table in ["members_products", "members_newsletters", "members_labels", "members_stripe_customers", "subscriptions"] {
         let _ = sqlx::query(&format!("DELETE FROM {table} WHERE member_id = ?"))
@@ -4285,6 +4358,9 @@ async fn member_delete(State(state): State<AppState>, Path(id): Path<String>, he
     }
     let _ = sqlx::query("DELETE FROM members WHERE id = ?").bind(&id).execute(&state.db).await;
     let _ = repos::actions::record(&state.db, "members", &id, &user.id, "deleted").await;
+    if let Some((email, name)) = gone {
+        fire_member_webhook(&state, "member.deleted", &id, &email, name.as_deref().unwrap_or(""));
+    }
     members_flash("ok", "Member deleted.")
 }
 
@@ -6078,6 +6154,18 @@ async fn editor_save(State(state): State<AppState>, Path(id): Path<String>, head
     // Slack hears about a post the moment it goes live, and only then — an
     // edit to something already published is not news.
     let was_published = existing.as_ref().is_some_and(|p| p.status == "published");
+    // Kept alongside, because the scheduling webhooks need to know what the
+    // status *was*, not only whether it was published.
+    let was_status = existing.as_ref().map(|p| p.status.clone()).unwrap_or_default();
+    // The tags before this save, so attach/detach can be told apart from a
+    // plain edit. Read as ids, which is what the form posts back.
+    let tags_before: Vec<String> = sqlx::query_scalar(
+        "SELECT tag_id FROM posts_tags WHERE post_id = ? ORDER BY sort_order",
+    )
+    .bind(&id)
+    .fetch_all(&state.db)
+    .await
+    .unwrap_or_default();
     // Scheduling is settled here as well as at creation: a draft can be
     // scheduled later, and a scheduled post's date and delivery can both be
     // changed right up until it goes out.
@@ -6134,7 +6222,16 @@ async fn editor_save(State(state): State<AppState>, Path(id): Path<String>, head
     match repos::posts::update(&state.db, &id, &changes).await {
         Ok(post) => {
             let _ = repos::actions::record(&state.db, &post_type, &post.id, &user.id, "edited").await;
-            fire_post_webhooks(&state, &post_type, &post, "edited", was_published);
+            fire_post_webhooks_from(
+                &state,
+                &post_type,
+                &post,
+                "edited",
+                was_published,
+                &was_status,
+                existing.as_ref(),
+            );
+            fire_tag_link_webhooks(&state, &post_type, &post, &tags_before, &form.tags).await;
             if !was_published && post.status == "published" {
                 notify_slack_published(&state, &post).await;
             }
@@ -6512,7 +6609,10 @@ async fn tag_edit_save(
         visibility: None,
     };
     match repos::tags::update(&state.db, &id, &changes).await {
-        Ok(_) => tag_flash(&id, "ok", "Tag saved."),
+        Ok(tag) => {
+            fire_tag_webhook(&state, "tag.edited", &tag);
+            tag_flash(&id, "ok", "Tag saved.")
+        }
         Err(e) => tag_flash(&id, "error", &e.message()),
     }
 }
@@ -6526,14 +6626,17 @@ async fn tag_create(State(state): State<AppState>, headers: HeaderMap, Form(form
     if let Err(r) = require_role(&state, &headers, Role::Editor).await {
         return r;
     }
-    let _ = repos::tags::insert(
+    if let Ok(tag) = repos::tags::insert(
         &state.db,
         &repos::tags::NewTag {
             name: form.name,
             ..Default::default()
         },
     )
-    .await;
+    .await
+    {
+        fire_tag_webhook(&state, "tag.added", &tag);
+    }
     Redirect::to("/ghost/tags/").into_response()
 }
 
@@ -6541,7 +6644,13 @@ async fn tag_delete(State(state): State<AppState>, Path(id): Path<String>, heade
     if let Err(r) = require_role(&state, &headers, Role::Editor).await {
         return r;
     }
-    let _ = repos::tags::destroy(&state.db, &id).await;
+    // Read it first: once the row is gone there is nothing to describe, and
+    // a delete webhook that carries only an id is close to useless.
+    let doomed = repos::tags::find_by_id(&state.db, &id).await.ok().flatten();
+    let destroyed = repos::tags::destroy(&state.db, &id).await.is_ok();
+    if let (true, Some(tag)) = (destroyed, doomed) {
+        fire_tag_webhook(&state, "tag.deleted", &tag);
+    }
     Redirect::to("/ghost/tags/").into_response()
 }
 
@@ -7130,7 +7239,11 @@ async fn theme_activate(State(state): State<AppState>, Path(name): Path<String>,
         return r;
     }
     match ghost_api::themes::activate(&state, &name).await {
-        Ok(()) => themes_flash("ok", &format!("Theme '{name}' is now active.")),
+        Ok(()) => {
+            // A new active theme re-renders every page on the site.
+            fire_site_changed(&state);
+            themes_flash("ok", &format!("Theme '{name}' is now active."))
+        }
         Err(e) => themes_flash("error", &e.message()),
     }
 }
@@ -7524,10 +7637,8 @@ impl SettingsGroup {
 }
 
 const SETTINGS_GROUPS: &[SettingsGroup] = &[
-    SettingsGroup { slug: "general", title: "General settings", icon: "settings", tint: "pink", items: &["Title & description", "Timezone", "Publication language"] },
+    SettingsGroup { slug: "general", title: "General settings", icon: "settings", tint: "pink", items: &["Title & description", "Timezone", "Publication language", "Meta data", "Social accounts"] },
     SettingsGroup { slug: "staff", title: "Staff", icon: "ghost", tint: "teal", items: &["People", "Roles", "Invitations"] },
-    SettingsGroup { slug: "metadata", title: "Meta data", icon: "notes", tint: "purple", items: &["Search", "X card", "Facebook card"] },
-    SettingsGroup { slug: "social", title: "Social accounts", icon: "link", tint: "blue", items: &["Facebook", "X (Twitter)", "Threads", "Bluesky", "Mastodon", "TikTok", "YouTube", "Instagram", "LinkedIn"] },
     SettingsGroup { slug: "analytics", title: "Analytics", icon: "chart", tint: "green", items: &["Web analytics", "Email opens", "Email clicks", "Member sources", "Outbound link tagging"] },
     SettingsGroup { slug: "design", title: "Design & branding", icon: "tune", tint: "purple", items: &["Brand", "Site-wide colors", "Theme settings"] },
     SettingsGroup { slug: "navigation", title: "Navigation", icon: "menu", tint: "red", items: &["Primary menu", "Secondary menu"] },
@@ -7539,7 +7650,8 @@ const SETTINGS_GROUPS: &[SettingsGroup] = &[
     SettingsGroup { slug: "growth", title: "Growth", icon: "globe", tint: "slate", items: &["Network", "Ghost Explore", "Recommendations", "Signup forms", "Offers"] },
     SettingsGroup { slug: "features", title: "Features", icon: "tune", tint: "teal", items: &["Comments", "Automations", "Beta features", "Private features"] },
     SettingsGroup { slug: "integrations", title: "Integrations", icon: "integrations", tint: "red", items: &["Built-in apps", "Custom integrations", "Content API"] },
-    SettingsGroup { slug: "advanced", title: "Advanced", icon: "code", tint: "red", items: &["Import/Export", "Redirects & routes"] },
+    SettingsGroup { slug: "migration", title: "Migration tools", icon: "import", tint: "blue", items: &["Import content", "Export all data", "Members", "Post analytics", "Themes"] },
+    SettingsGroup { slug: "advanced", title: "Advanced", icon: "code", tint: "red", items: &["Redirects & routes"] },
     SettingsGroup { slug: "history", title: "History", icon: "history", tint: "slate", items: &["Site activity"] },
     SettingsGroup { slug: "danger", title: "Danger zone", icon: "delete", tint: "red", items: &["Delete all content", "Delete site"] },
 ];
@@ -7556,14 +7668,17 @@ const SETTINGS_INDEX: &[(&str, &str, &str)] = &[
     ("general", "Title & description", "Description"),
     ("general", "Timezone", "Site timezone"),
     ("general", "Publication language", "Publication language"),
-    ("metadata", "Search", "Meta title"),
-    ("metadata", "Search", "Meta description"),
-    ("metadata", "X card", "X title"),
-    ("metadata", "X card", "X description"),
-    ("metadata", "X card", "X image"),
-    ("metadata", "Facebook card", "Facebook title"),
-    ("metadata", "Facebook card", "Facebook description"),
-    ("metadata", "Facebook card", "Facebook image"),
+    // The section names stay in the haystack: "X card" and "Facebook card"
+    // are what these are called, and they are the headings on the page.
+    ("general", "Meta data · search", "Meta title"),
+    ("general", "Meta data · search", "Meta description"),
+    ("general", "Meta data · search", "Structured data for LLMs"),
+    ("general", "Meta data · X card", "X title"),
+    ("general", "Meta data · X card", "X description"),
+    ("general", "Meta data · X card", "X image"),
+    ("general", "Meta data · Facebook card", "Facebook title"),
+    ("general", "Meta data · Facebook card", "Facebook description"),
+    ("general", "Meta data · Facebook card", "Facebook image"),
     ("analytics", "Analytics", "Web analytics"),
     ("analytics", "Analytics", "Email opens"),
     ("analytics", "Analytics", "Email clicks"),
@@ -7632,6 +7747,21 @@ const SETTINGS_INDEX: &[(&str, &str, &str)] = &[
     ("code-injection", "Site foot", "Foot"),
     ("advanced", "Redirects & routes", "Redirects"),
     ("advanced", "Redirects & routes", "Routes"),
+    // What someone actually types when they are moving a site in or out.
+    ("migration", "Import", "Import content"),
+    ("migration", "Import", "Universal import"),
+    ("migration", "Import", "Ghost export file"),
+    ("migration", "Import", "WordPress"),
+    ("migration", "Import", "Substack"),
+    ("migration", "Import", "CSV"),
+    ("migration", "Import", "Migrate from another platform"),
+    ("migration", "Export", "Export all data"),
+    ("migration", "Export", "Content & settings"),
+    ("migration", "Export", "Members"),
+    ("migration", "Export", "Post analytics"),
+    ("migration", "Export", "Themes"),
+    ("migration", "Export", "Media files"),
+    ("migration", "Export", "Backup"),
 ];
 
 /// Sub-pages and on-page headings the group rows do not already carry:
@@ -7663,19 +7793,18 @@ const SOCIAL_ACCOUNTS: &[(&str, &str)] = &[
 ];
 
 /// The Ghost release this port tracks. Reported on the About page and
-/// stamped into the export file's meta, so the two cannot drift.
-pub const GHOST_VERSION: &str = "5.98.0";
+/// stamped into the export file's meta.
+///
+/// Re-exported from `ghost-core` rather than declared here: `/members/api/site`
+/// publishes the same version to Portal from another crate, and holding two
+/// copies is what let them drift from 5.98 and 6.39 apart.
+pub use ghost_core::GHOST_VERSION;
 
-/// Ghost's beta feature flags, as its Advanced → Labs → Beta features tab
-/// lists them (Ghost 6.72). Flag, title, description.
+/// Ghost's beta feature flags, as its Beta features tab lists them
+/// (Ghost 6.73's `PUBLIC_BETA_FEATURES`). Flag, title, description.
 ///
 /// Stored the way Ghost stores them: keys on the `labs` settings object.
 const BETA_FLAGS: &[(&str, &str, &str)] = &[
-    (
-        "automations",
-        "Automations (beta)",
-        "Build flows that react to what members do.",
-    ),
     (
         "superEditors",
         "Enhanced Editor role (beta)",
@@ -7702,23 +7831,23 @@ const BETA_FLAGS: &[(&str, &str, &str)] = &[
 /// only when `enableDeveloperExperiments` is configured.
 ///
 /// Titles and descriptions are Ghost's own, so a flag reads here as it does
-/// there. `automations` appears in both tabs in Ghost; it is listed with the
-/// beta flags here and left out of this table rather than offered twice.
+/// there. `automations` sat with the beta flags until 6.73 moved it here —
+/// this port's own Automations system is switched on in Settings → Features
+/// and has never been gated on the flag, so the move is cosmetic parity.
 const PRIVATE_FLAGS: &[(&str, &str, &str)] = &[
+    ("automations", "Automations", "Build flows that react to what members do."),
     ("automationsLifecycleTriggers", "Automations lifecycle triggers", "Triggers for upgrades and downgrades."),
     ("stripeAutomaticTax", "Stripe Automatic Tax (private beta)", "Use Stripe Automatic Tax at Stripe Checkout. Needs to be enabled in Stripe"),
     ("importMemberTier", "Import Member Tier", "Enables tier to be specified when importing members"),
     ("csvContentImporter", "CSV Content Importer", "Enables importing posts from CSV files in the Universal Importer"),
     ("admin7Design", "Admin 7 · Design", "Preview the floating Admin 7 sidebar and its navigation layout."),
     ("admin7CustomizeFromViewSite", "Admin 7 · Customize from View site", "Customize the site design from View site, with a live preview. Needs Admin 7 · Design."),
-    ("admin7EditorImprovements", "Admin 7 · Editor improvements", "Hide the editor’s controls while you write; move the mouse or scroll to bring them back."),
     ("emailUniqueid", "Email Unique ID", "Enables {uniqueid} variable in emails for unique image URLs to bypass ESP image caching"),
     ("themeTranslation", "Updated theme translation (beta)", "Enable theme translation using i18next instead of the old translation package."),
     ("pictureImageFormats", "Picture Element", "Use the HTML picture element to serve modern image formats (AVIF, WebP) with automatic fallbacks"),
     ("getHelperDeduplication", "Get helper deduplication", "Deduplicate identical {{#get}} helper queries within a single request to avoid redundant database calls"),
     ("membersCustomFields", "Member custom fields", "Let admins create and manage custom field definitions for members, and choose which field each Stripe checkout answer is stored in"),
     ("stripeCheckoutCollection", "Stripe checkout collection", "Let admins turn on shipping address, phone number and tax number collection for a tier, asked by Stripe checkout and stored against the member"),
-    ("stripeCheckoutDesign", "Stripe checkout design", "Let admins style the Stripe checkout page with their own button color, background color, corners and font"),
     ("paywallImprovements", "Paywall improvements", "Enables paywall usability, discoverability and email customization improvements"),
     ("machinePayments", "Machine payments", "Let AI agents pay for access to paid-members markdown (.md) URLs via Stripe Machine Payments Protocol"),
     ("apps", "Apps", "Install and manage third-party apps that run on their own servers. Early and incomplete."),
@@ -8171,7 +8300,7 @@ async fn settings_page(State(state): State<AppState>, headers: HeaderMap) -> Res
     }
     let mut fields: Vec<(&str, &str, &str)> = SETTINGS_INDEX.to_vec();
     for (_, name) in SOCIAL_ACCOUNTS {
-        fields.push(("social", "Social accounts", name));
+        fields.push(("general", "Social accounts", name));
     }
     for (slug, section, field) in &fields {
         if let Some(g) = SETTINGS_GROUPS.iter().find(|g| g.slug == *slug) {
@@ -8238,13 +8367,13 @@ async fn general_page(State(state): State<AppState>, headers: HeaderMap, Query(q
     };
     let s = |k: &str| esc(&state.settings.get_str(k).unwrap_or_default());
     let group = SETTINGS_GROUPS.iter().find(|g| g.slug == "general").unwrap();
-    page_for_role(actor_role, 
+    page_for_role(actor_role,
         "General settings",
         "settings",
         Some(&user),
         &format!(
             r#"{head}{banner}
-<form method="post" action="/ghost/settings/general/" id="general-form">
+<form method="post" action="/ghost/settings/general/" id="general-form" data-meta-previews data-site-title="{title}" data-site-description="{description}">
 <div class="section">Title &amp; description</div>
 <div class="card rows rise" style="--i:1">
 <div class="row" style="align-items:center"><span class="ic tint-pink">{title_ic}</span>
@@ -8263,7 +8392,9 @@ async fn general_page(State(state): State<AppState>, headers: HeaderMap, Query(q
 <div class="body"><label class="field fixed" style="margin:0"><select name="locale">{locale_opts}</select><span>Publication language</span>{car}</label>
 <p class="muted" style="margin:6px 0 0">Used as the site's <code>&lt;html lang&gt;</code> by themes.</p></div></div>
 </div>
-"#,
+{metadata}
+{social}
+</form>"#,
             head = group_head(group, Some("general-form")),
             banner = flash_banner(&q),
             title_ic = svg("title"),
@@ -8275,6 +8406,8 @@ async fn general_page(State(state): State<AppState>, headers: HeaderMap, Query(q
             description = s("description"),
             tz_opts = select_options(TIMEZONES, &state.settings.get_str("timezone").unwrap_or_else(|| "Etc/UTC".into())),
             locale_opts = select_options(LOCALES, &state.settings.get_str("locale").unwrap_or_else(|| "en".into())),
+            metadata = metadata_sections(&state),
+            social = social_sections(&state),
         ),
         true,
     )
@@ -8296,12 +8429,21 @@ async fn general_save(State(state): State<AppState>, headers: HeaderMap, Form(fo
     };
     let timezone = non_empty(get("timezone"), "Etc/UTC");
     let locale = non_empty(get("locale"), "en");
-    let ok = state.settings.set(&state.db, "title", &serde_json::json!(title)).await.is_ok()
+    let mut ok = state.settings.set(&state.db, "title", &serde_json::json!(title)).await.is_ok()
         && state.settings.set(&state.db, "description", &serde_json::json!(get("description"))).await.is_ok()
         && state.settings.set(&state.db, "timezone", &serde_json::json!(timezone)).await.is_ok()
         && state.settings.set(&state.db, "locale", &serde_json::json!(locale)).await.is_ok();
+
+    // Meta data and the social accounts post with this form now, so one Save
+    // covers the page.
+    for key in METADATA_KEYS.iter().chain(SOCIAL_ACCOUNTS.iter().map(|(k, _)| k)) {
+        ok &= state.settings.set(&state.db, key, &serde_json::json!(get(key))).await.is_ok();
+    }
+    let llms = form.get("llms_enabled").map(|v| v == "1").unwrap_or(false);
+    ok &= state.settings.set(&state.db, "llms_enabled", &serde_json::Value::Bool(llms)).await.is_ok();
+
     if ok {
-        settings_flash("general", "ok", "General settings saved.")
+        settings_saved(&state, "general", "General settings saved.")
     } else {
         settings_flash("general", "error", "Saving failed — check the logs.")
     }
@@ -8426,14 +8568,14 @@ fn meta_image_row(key: &str, label: &str, value: &str) -> String {
     )
 }
 
-async fn metadata_page(State(state): State<AppState>, headers: HeaderMap, Query(q): Query<HashMap<String, String>>) -> Response {
-    let (user, actor_role) = match require_role(&state, &headers, Role::Administrator).await {
-        Ok(a) => (a.user, a.role),
-        Err(r) => return r,
-    };
+/// The Meta data sections — search result, X card, Facebook card.
+///
+/// Built as a fragment rather than a page of its own: these live inside
+/// General settings, under the title and description they fall back to, so
+/// the thing being overridden is on screen beside the override.
+fn metadata_sections(state: &AppState) -> String {
     let s = |k: &str| esc(&state.settings.get_str(k).unwrap_or_default());
     let raw = |k: &str| state.settings.get_str(k).unwrap_or_default();
-    let group = SETTINGS_GROUPS.iter().find(|g| g.slug == "metadata").unwrap();
 
     // Every card falls back the way the front end does — the site title and
     // description, then the meta overrides — so the previews show what a
@@ -8451,43 +8593,32 @@ async fn metadata_page(State(state): State<AppState>, headers: HeaderMap, Query(
         if !meta.is_empty() { meta } else { site.to_string() }
     };
 
-    page_for_role(actor_role,
-        "Meta data",
-        "settings",
-        Some(&user),
-        &format!(
-            r#"{head}{banner}
-<form method="post" action="/ghost/settings/metadata/" id="metadata-form" data-site-title="{site_title_attr}" data-site-description="{site_description_attr}">
-<div class="section">Search</div>
+    format!(
+            r#"<div class="section">Meta data · search</div>
 {search_preview}
-<div class="card rows rise" style="--i:2">
+<div class="card rows rise" style="--i:4">
 {meta_title}{meta_description}
 {llms_row}
 </div>
-<div class="section">X card</div>
+<div class="section">Meta data · X card</div>
 {x_preview}
-<div class="card rows rise" style="--i:2">
+<div class="card rows rise" style="--i:5">
 {twitter_title}{twitter_description}{twitter_image}
 </div>
-<div class="section">Facebook card</div>
+<div class="section">Meta data · Facebook card</div>
 {fb_preview}
-<div class="card rows rise" style="--i:2">
+<div class="card rows rise" style="--i:6">
 {og_title}{og_description}{og_image}
-</div>
-</form>"#,
-            head = group_head(group, Some("metadata-form")),
-            banner = flash_banner(&q),
-            site_title_attr = esc(&site_title),
-            site_description_attr = esc(&site_description),
+</div>"#,
             // Ghost reads this as "on unless explicitly false", so a site that
             // has never touched it is opted in.
             llms_row = format!(
                 r#"<div class="row toggle-row"><span class="ic tint-purple">{ic}</span>
 <div class="label"><b>Enable structured data for LLMs and AI search engines</b>
 <span>Publishes <code>/llms.txt</code>, and lets any post or page URL be fetched as Markdown by appending <code>.md</code>.</span></div>
-<label class="switch"><input type="checkbox" name="llms_enabled" value="1"{on} form="metadata-form"><span class="track"><span class="thumb"></span></span></label></div>"#,
+<label class="switch"><input type="checkbox" name="llms_enabled" value="1"{on} form="general-form"><span class="track"><span class="thumb"></span></span></label></div>"#,
                 ic = svg("globe"),
-                on = if llms_enabled(&state) { " checked" } else { "" },
+                on = if llms_enabled(state) { " checked" } else { "" },
             ),
             search_preview = search_preview(
                 &site_url,
@@ -8523,33 +8654,15 @@ async fn metadata_page(State(state): State<AppState>, headers: HeaderMap, Query(
             og_title = meta_field_row(&svg("title"), "purple", "og_title", "Facebook title", &s("og_title"), "Recommended: under 70 characters."),
             og_description = meta_field_row(&svg("notes"), "purple", "og_description", "Facebook description", &s("og_description"), "Recommended: under 200 characters."),
             og_image = meta_image_row("og_image", "Facebook image", &s("og_image")),
-        ),
-        true,
     )
-    .into_response()
 }
 
-async fn metadata_save(State(state): State<AppState>, headers: HeaderMap, Form(form): Form<HashMap<String, String>>) -> Response {
-    if let Err(r) = require_role(&state, &headers, Role::Administrator).await {
-        return r;
-    }
-    let mut ok = true;
-    for key in [
-        "meta_title", "meta_description",
-        "twitter_title", "twitter_description", "twitter_image",
-        "og_title", "og_description", "og_image",
-    ] {
-        let value = form.get(key).cloned().unwrap_or_default();
-        ok &= state.settings.set(&state.db, key, &serde_json::json!(value)).await.is_ok();
-    }
-    let llms = form.get("llms_enabled").map(|v| v == "1").unwrap_or(false);
-    ok &= state.settings.set(&state.db, "llms_enabled", &serde_json::Value::Bool(llms)).await.is_ok();
-    if ok {
-        settings_flash("metadata", "ok", "Meta data saved.")
-    } else {
-        settings_flash("metadata", "error", "Saving failed — check the logs.")
-    }
-}
+/// The text keys the Meta data sections own.
+const METADATA_KEYS: &[&str] = &[
+    "meta_title", "meta_description",
+    "twitter_title", "twitter_description", "twitter_image",
+    "og_title", "og_description", "og_image",
+];
 
 // --- email: the transactional transport that carries member magic links ---
 
@@ -9723,11 +9836,9 @@ async fn newsletters_settings_save(State(state): State<AppState>, headers: Heade
 
 // --- social accounts ---
 
-async fn social_page(State(state): State<AppState>, headers: HeaderMap, Query(q): Query<HashMap<String, String>>) -> Response {
-    let (user, actor_role) = match require_role(&state, &headers, Role::Administrator).await {
-        Ok(a) => (a.user, a.role),
-        Err(r) => return r,
-    };
+/// The Social accounts section, for the same form as everything else on
+/// General settings.
+fn social_sections(state: &AppState) -> String {
     let rows: String = SOCIAL_ACCOUNTS
         .iter()
         .map(|(key, label)| {
@@ -9742,41 +9853,12 @@ async fn social_page(State(state): State<AppState>, headers: HeaderMap, Query(q)
             )
         })
         .collect();
-    let group = SETTINGS_GROUPS.iter().find(|g| g.slug == "social").unwrap();
-    page_for_role(actor_role, 
-        "Social accounts",
-        "settings",
-        Some(&user),
-        &format!(
-            r#"{head}{banner}
-<form method="post" action="/ghost/settings/social/" id="social-form">
-<div class="section">Social accounts</div>
-<div class="card rows rise" style="--i:1">{rows}</div>
-<p class="muted" style="margin:4px 0 0 16px">Full profile URLs, e.g. <code>https://x.com/ghost</code>. Themes expose these as <code>@site.facebook</code> and friends.</p>
-</form>"#,
-            head = group_head(group, Some("social-form")),
-            banner = flash_banner(&q),
-            rows = rows,
-        ),
-        true,
+    format!(
+        r#"<div class="section">Social accounts</div>
+<div class="card rows rise" style="--i:7">{rows}</div>
+<p class="muted" style="margin:4px 0 0 16px">Full profile URLs, e.g. <code>https://x.com/ghost</code>. Themes expose these as <code>@site.facebook</code> and friends.</p>"#,
+        rows = rows,
     )
-    .into_response()
-}
-
-async fn social_save(State(state): State<AppState>, headers: HeaderMap, Form(form): Form<HashMap<String, String>>) -> Response {
-    if let Err(r) = require_role(&state, &headers, Role::Administrator).await {
-        return r;
-    }
-    let mut ok = true;
-    for (key, _) in SOCIAL_ACCOUNTS {
-        let value = form.get(*key).cloned().unwrap_or_default();
-        ok &= state.settings.set(&state.db, key, &serde_json::json!(value)).await.is_ok();
-    }
-    if ok {
-        settings_flash("social", "ok", "Social accounts saved.")
-    } else {
-        settings_flash("social", "error", "Saving failed — check the logs.")
-    }
 }
 
 // --- analytics: web analytics, outbound link tagging (Ghost's `analytics`
@@ -10137,7 +10219,7 @@ async fn site_save(State(state): State<AppState>, headers: HeaderMap, form: Site
             .await
             .is_ok();
     if ok {
-        settings_flash("site", "ok", "Site settings saved.")
+        settings_saved(&state, "site", "Site settings saved.")
     } else {
         settings_flash("site", "error", "Saving failed — check the logs.")
     }
@@ -11796,6 +11878,106 @@ async fn metafield_move(
 
 // --- growth: recommendations + signup forms (network & explore come later) ---
 
+/// Everything the embeddable signup form is built from.
+struct SignupFormEmbed<'a> {
+    site_url: &'a str,
+    /// `all-in-one` or `minimal`.
+    layout: &'a str,
+    background: &'a str,
+    button: &'a str,
+    title: &'a str,
+    description: &'a str,
+    icon: &'a str,
+    locale: &'a str,
+    labels: &'a [&'a str],
+    /// A preview is the same embed sized to fill its frame instead of
+    /// sitting in a page.
+    preview: bool,
+}
+
+/// The `<script>` embed for the signup form, as Ghost's `generateCode` writes
+/// it.
+///
+/// Three things here are load-bearing and were all wrong before. The script
+/// comes from the CDN — the previous snippet pointed at
+/// `{site}/public/signup-form.min.js`, which this server does not serve, so
+/// every embed handed out was a 404 and the form never appeared. The script
+/// is wrapped in a sized `<div>`, because the form renders into its container
+/// and an unsized one collapses to nothing. And the two computed contrast
+/// colours are sent: without `text-color` the copy on a dark background is
+/// drawn dark on dark.
+///
+/// Attribute order follows Ghost's `preferredOrder` so a snippet from this
+/// screen and one from Ghost diff cleanly.
+fn signup_form_snippet(e: SignupFormEmbed<'_>) -> String {
+    let all_in_one = e.layout != "minimal";
+    let mut attrs: Vec<(String, String)> = Vec::new();
+
+    if all_in_one {
+        attrs.push(("background-color".into(), e.background.to_string()));
+        attrs.push(("text-color".into(), ghost_render::color::contrast_text_color(e.background)));
+    }
+    attrs.push(("button-color".into(), e.button.to_string()));
+    attrs.push(("button-text-color".into(), ghost_render::color::contrast_text_color(e.button)));
+    if all_in_one {
+        // Ghost sends these even when blank, so the form can tell "no title"
+        // from "title not configured by this embed".
+        attrs.push(("title".into(), e.title.to_string()));
+        attrs.push(("description".into(), e.description.to_string()));
+        if !e.icon.is_empty() {
+            // Ghost asks the image server for a 192px square rather than
+            // shipping the full-size icon to every embed.
+            attrs.push(("icon".into(), icon_at_192(&ghost_core::url::base_asset(e.icon))));
+        }
+    }
+    attrs.push(("site".into(), format!("{}/", e.site_url)));
+    attrs.push(("locale".into(), e.locale.to_string()));
+    for (i, label) in e.labels.iter().enumerate() {
+        attrs.push((format!("label-{}", i + 1), (*label).to_string()));
+    }
+
+    let style = match (e.preview, all_in_one) {
+        (false, true) => "height: 40vmin;min-height: 360px",
+        (false, false) => "min-height: 58px;max-width: 440px;margin: 0 auto;width: 100%",
+        (true, true) => "height: 100vh",
+        (true, false) => {
+            "min-height:58px;width:calc(100% - 48px);position:absolute;left:50%;top:50%;transform:translate(-50%, -50%)"
+        }
+    };
+
+    let data: String =
+        attrs.iter().map(|(k, v)| format!(r#" data-{k}="{}""#, esc(v))).collect();
+    format!(
+        r#"<div style="{style}"><script src="{src}"{data} async></script></div>"#,
+        style = esc(style),
+        src = ghost_render::apps::signup_form_script_url(),
+        data = data,
+    )
+}
+
+/// Rewrite a `/content/images/…` URL to ask for a 192px square, the way
+/// Ghost's embed code does before handing the icon to the signup form.
+///
+/// Ghost's regex is `/content/images/(?:size/[^/]+/)*` — any size segment
+/// already on the URL is dropped before the wanted one goes in, so asking
+/// twice cannot produce `size/w192h192/size/w192h192/`. Written out by hand
+/// because this workspace pulls in no regex crate, and this is the one
+/// substitution that would need it.
+fn icon_at_192(url: &str) -> String {
+    const MARKER: &str = "/content/images/";
+    let Some(at) = url.find(MARKER) else {
+        return url.to_string();
+    };
+    let (head, mut rest) = url.split_at(at + MARKER.len());
+    while let Some(stripped) = rest.strip_prefix("size/") {
+        match stripped.find('/') {
+            Some(slash) => rest = &stripped[slash + 1..],
+            None => break,
+        }
+    }
+    format!("{head}size/w192h192/{rest}")
+}
+
 async fn growth_page(State(state): State<AppState>, headers: HeaderMap, Query(q): Query<HashMap<String, String>>) -> Response {
     let (user, actor_role) = match require_role(&state, &headers, Role::Administrator).await {
         Ok(a) => (a.user, a.role),
@@ -11858,7 +12040,8 @@ async fn growth_page(State(state): State<AppState>, headers: HeaderMap, Query(q)
     //
     // Server-rendered, so the controls are a GET form that re-renders this
     // page with the snippet rebuilt — there is no client-side state to keep in
-    // step with what gets copied.
+    // step with what gets copied, and the preview below is literally the
+    // snippet above it running.
     let sf_layout = q.get("sf_layout").cloned().unwrap_or_else(|| "all-in-one".into());
     let sf_layout = if sf_layout == "minimal" { "minimal" } else { "all-in-one" };
     let accent = state
@@ -11874,51 +12057,47 @@ async fn growth_page(State(state): State<AppState>, headers: HeaderMap, Query(q)
         let site_title = state.settings.get_str("title").unwrap_or_default();
         let site_desc = state.settings.get_str("description").unwrap_or_default();
         let icon = state.settings.get_str("icon").unwrap_or_default();
+        let locale = state.settings.get_str("locale").unwrap_or_else(|| "en".into());
+        let labels: Vec<&str> =
+            sf_labels.split(',').map(str::trim).filter(|l| !l.is_empty()).take(10).collect();
 
-        // Ghost's own attribute set (apps/signup-form). The minimal layout is
-        // just the form, so the copy and icon attributes are left off it.
-        let mut attrs: Vec<String> = vec![format!(r#"data-site="{}/""#, origin.trim_end_matches('/'))];
-        if sf_layout == "all-in-one" {
-            if !site_title.is_empty() {
-                attrs.push(format!(r#"data-title="{}""#, site_title.replace('"', "&quot;")));
-            }
-            if !site_desc.is_empty() {
-                attrs.push(format!(r#"data-description="{}""#, site_desc.replace('"', "&quot;")));
-            }
-            if !icon.is_empty() {
-                attrs.push(format!(r#"data-icon="{}""#, ghost_core::url::base_asset(&icon)));
-            }
-        }
-        attrs.push(format!(r#"data-background-color="{sf_bg}""#));
-        attrs.push(format!(r#"data-button-color="{sf_btn}""#));
-        // Labels tag whoever signs up through this form, so one embed's
-        // members can be told from another's.
-        for (i, label) in sf_labels
-            .split(',')
-            .map(str::trim)
-            .filter(|l| !l.is_empty())
-            .take(10)
-            .enumerate()
-        {
-            attrs.push(format!(r#"data-label-{}="{}""#, i + 1, label.replace('"', "&quot;")));
-        }
-
-        let snippet = format!(
-            "<script src=\"{origin}/public/signup-form.min.js\"\n    {}\n    crossOrigin=\"anonymous\"></script>",
-            attrs.join("\n    "),
-            origin = origin.trim_end_matches('/'),
-        );
+        let snippet = signup_form_snippet(SignupFormEmbed {
+            site_url: origin.trim_end_matches('/'),
+            layout: sf_layout,
+            background: &sf_bg,
+            button: &sf_btn,
+            title: &site_title,
+            description: &site_desc,
+            icon: &icon,
+            locale: &locale,
+            labels: &labels,
+            preview: false,
+        });
+        let preview_snippet = signup_form_snippet(SignupFormEmbed {
+            site_url: origin.trim_end_matches('/'),
+            layout: sf_layout,
+            background: &sf_bg,
+            button: &sf_btn,
+            title: &site_title,
+            description: &site_desc,
+            icon: &icon,
+            locale: &locale,
+            labels: &labels,
+            preview: true,
+        });
 
         format!(
             r#"<div class="card padded rise" style="--i:3">
 <form method="get" action="/ghost/settings/growth/" class="inline-form" style="align-items:flex-end">
 <label class="field fixed" style="min-width:180px;margin:0"><select name="sf_layout" onchange="this.form.submit()">{layout_opts}</select><span>Layout</span>{car}</label>
-<label class="field" style="min-width:140px;margin:0"><input name="sf_bg" type="text" value="{bg}" placeholder=" "><span>Background color</span></label>
+{bg_field}
 <label class="field" style="min-width:140px;margin:0"><input name="sf_btn" type="text" value="{btn}" placeholder=" "><span>Button color</span></label>
 <label class="field" style="flex:1;min-width:180px;margin:0"><input name="sf_labels" value="{labels}" placeholder=" "><span>Labels at signup · comma separated</span></label>
 <button class="btn tonal" type="submit">Update</button>
 </form>
-<p class="muted" style="margin:14px 0 8px">Embed this on any external site to collect members for <b>{origin_disp}</b>:</p>
+<p class="muted" style="margin:14px 0 8px">Preview — this is the snippet below, running:</p>
+<iframe class="sf-preview{minimal}" title="Signup form preview" sandbox="allow-scripts allow-popups allow-forms" srcdoc="{preview_doc}"></iframe>
+<p class="muted" style="margin:16px 0 8px">Embed this on any external site to collect members for <b>{origin_disp}</b>:</p>
 <div class="key" style="align-items:flex-start"><span class="chip tonal">embed</span><pre style="margin:0;white-space:pre-wrap;word-break:break-all;font:inherit">{snippet_disp}</pre>
 <button type="button" data-copy="{snippet_copy}" title="Copy" aria-label="Copy snippet">{copy}</button></div>
 <p class="muted" style="margin:12px 0 0">{layout_note} Anyone signing up through this form is tagged with the labels above, so you can tell one embed's members from another's.</p>
@@ -11928,10 +12107,27 @@ async fn growth_page(State(state): State<AppState>, headers: HeaderMap, Query(q)
                 sf_layout,
             ),
             car = SELECT_CARET,
-            bg = esc(&sf_bg),
+            // Ghost only offers a background colour for the all-in-one
+            // layout; the minimal one is meant to sit on whatever is behind
+            // it, so the embed never sets a background at all.
+            bg_field = if sf_layout == "minimal" {
+                String::new()
+            } else {
+                format!(
+                    r#"<label class="field" style="min-width:140px;margin:0"><input name="sf_bg" type="text" value="{bg}" placeholder=" "><span>Background color</span></label>"#,
+                    bg = esc(&sf_bg),
+                )
+            },
             btn = esc(&sf_btn),
             labels = esc(&sf_labels),
             origin_disp = esc(&origin),
+            minimal = if sf_layout == "minimal" { " minimal" } else { "" },
+            // The preview runs the real CDN script against this site, inside
+            // a sandboxed frame: same-origin is withheld, so it cannot reach
+            // the admin session that rendered it.
+            preview_doc = esc(&format!(
+                r#"<!doctype html><html><head><meta charset="utf-8"><style>html,body{{margin:0;height:100%}}</style></head><body>{preview_snippet}</body></html>"#,
+            )),
             snippet_disp = esc(&snippet),
             snippet_copy = esc(&snippet),
             copy = svg("copy"),
@@ -12417,7 +12613,7 @@ async fn offer_edit_page(
             notes = svg("notes"),
             coin = svg("ghost"),
             flag = svg("flag"),
-            people = svg("members"),
+            people = svg("person"),
             car = SELECT_CARET,
             dis = dis,
             tier_opts = tier_opts,
@@ -12702,19 +12898,6 @@ async fn advanced_page(State(state): State<AppState>, headers: HeaderMap, Query(
         Some(&user),
         &format!(
             r#"{head}{banner}
-<div class="section">Import/Export</div>
-<div class="card rows rise" style="--i:1">
-<div class="row" style="align-items:flex-start"><span class="ic tint-red">{upload}</span>
-<div class="body" style="width:100%"><span class="title" style="display:block;margin-bottom:8px">Import content</span>
-<form method="post" action="/ghost/settings/advanced/import/" enctype="multipart/form-data" style="display:flex;gap:12px;align-items:center;flex-wrap:wrap">
-<input type="file" name="file" accept=".json,application/json" required class="filefield">
-<button class="btn tonal small" type="submit">Import</button>
-</form>
-<p class="muted" style="margin:10px 0 0">A Ghost export file (JSON). Posts, pages and tags are imported; markdown is re-rendered. Existing content is kept.</p></div></div>
-<div class="row"><span class="ic tint-red">{open}</span>
-<div class="body"><span class="title">Export content</span><span class="detail">Download everything as a Ghost-format JSON export</span></div>
-<div class="trailing"><a class="btn tonal small" href="/ghost/settings/advanced/export/">Export</a></div></div>
-</div>
 <div class="section">Redirects &amp; routes</div>
 <div class="card rows rise" style="--i:2">
 <div class="row" style="align-items:flex-start"><span class="ic tint-red">{redirects_ic}</span>
@@ -12734,13 +12917,168 @@ async fn advanced_page(State(state): State<AppState>, headers: HeaderMap, Query(
 <button class="btn tonal small" type="submit">Upload routes</button></form></div>
 <p class="muted" style="margin:10px 0 0">routes.yaml defines the site's URL structure — collections, channels and custom templates. Uploading rebuilds routing and the active theme immediately.</p></div></div>
 </div>
-<p class="muted" style="margin:14px 2px 0">Looking for beta and private features? They moved to <a href="/ghost/settings/features/">Settings → Features</a>.</p>"#,
+<p class="muted" style="margin:14px 2px 0">Looking for something else? Beta and private features are in <a href="/ghost/settings/features/">Settings → Features</a>, and importing and exporting moved to <a href="/ghost/settings/migration/">Settings → Migration tools</a>.</p>"#,
+            head = group_head(group, None),
+            banner = flash_banner(&q),
+            redirects_ic = svg("link"),
+            routes_ic = svg("layout"),
+        ),
+        true,
+    )
+    .into_response()
+}
+
+// --- migration tools: import and export ------------------------------------
+
+/// The platforms a publisher most often arrives from, and what to feed the
+/// universal importer with in each case.
+///
+/// Ghost answers this with a hosted service at `migrate.ghost.org`, embedded
+/// in an iframe and handed an Admin API key. A self-hosted port cannot stand
+/// that service up, and handing a third party an owner-level key to do it
+/// would be a poor trade — so these are directions to the file each platform
+/// exports, which the universal importer below reads.
+const MIGRATION_SOURCES: &[(&str, &str)] = &[
+    ("Ghost", "Settings → Migration tools → Export on the old site gives the JSON or zip this screen reads directly."),
+    ("WordPress", "Install the Ghost plugin on WordPress and use its export, which writes a Ghost-format zip."),
+    ("Substack", "Settings → Exports → New export. Unzip it; the posts CSV imports here, the rest is already HTML."),
+    ("Medium", "Settings → Account → Download your information. The archive holds one HTML file per post."),
+    ("Squarespace", "Settings → Import & Export → Export, which produces a WordPress-format file."),
+];
+
+async fn migration_page(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Query(q): Query<HashMap<String, String>>,
+) -> Response {
+    let (user, actor_role) = match require_role(&state, &headers, Role::Administrator).await {
+        Ok(a) => (a.user, a.role),
+        Err(r) => return r,
+    };
+    let group = SETTINGS_GROUPS.iter().find(|g| g.slug == "migration").unwrap();
+
+    // What the archive would actually contain, so the checkbox list can say
+    // how much there is rather than only what there is.
+    let member_count: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM members").fetch_one(&state.db).await.unwrap_or(0);
+    let post_count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM posts WHERE type = 'post'")
+        .fetch_one(&state.db)
+        .await
+        .unwrap_or(0);
+    let page_count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM posts WHERE type = 'page'")
+        .fetch_one(&state.db)
+        .await
+        .unwrap_or(0);
+    let theme_count = ghost_api::themes::list(&state).len();
+
+    let components: String = EXPORT_COMPONENTS
+        .iter()
+        .map(|(key, label, detail, default_on)| {
+            format!(
+                r#"<label class="fchip exp"><input type="checkbox" name="{key}" value="1"{on}><span class="ck">{check}</span>
+<span class="expl"><b>{label}</b><span>{detail}</span></span></label>"#,
+                key = esc(key),
+                on = if *default_on { " checked" } else { "" },
+                check = svg("check"),
+                label = esc(label),
+                detail = esc(detail),
+            )
+        })
+        .collect();
+
+    let sources: String = MIGRATION_SOURCES
+        .iter()
+        .map(|(platform, how)| {
+            format!(
+                r#"<div class="row" style="align-items:flex-start"><span class="ic tint-blue">{ic}</span>
+<div class="body"><span class="title">{platform}</span><span class="detail">{how}</span></div></div>"#,
+                ic = svg("globe"),
+                platform = esc(platform),
+                how = esc(how),
+            )
+        })
+        .collect();
+
+    page_for_role(
+        actor_role,
+        "Migration tools",
+        "settings",
+        Some(&user),
+        &format!(
+            r#"{head}{banner}
+<div class="mtabs">
+<input type="radio" name="mtab" id="mtab-import" checked>
+<input type="radio" name="mtab" id="mtab-export">
+<div class="mtab-bar"><label for="mtab-import">Import</label><label for="mtab-export">Export</label></div>
+
+<div class="mtab-panel" data-tab="import">
+<div class="section">Universal import</div>
+<div class="card padded rise" style="--i:1">
+<form method="post" action="/ghost/settings/migration/import/" enctype="multipart/form-data" class="inline-form" style="align-items:center">
+<input type="file" name="file" accept=".json,.zip,application/json,application/zip" required class="filefield">
+<button class="btn tonal" type="submit">{upload} Import</button>
+</form>
+<p class="muted" style="margin:12px 0 0">A Ghost export — either the <code>.json</code> file or a <code>.zip</code> holding one.
+A zip's <code>content/images</code> and <code>content/files</code> are restored alongside the content, so posts keep their pictures.</p>
+<p class="muted" style="margin:8px 0 0">Posts, pages and tags are added; Markdown is re-rendered on the way in. Nothing already on this
+site is replaced or removed, so importing the same file twice gives you two copies rather than one updated one.</p>
+</div>
+<div class="section">Members</div>
+<div class="card rows rise" style="--i:2">
+<div class="row"><span class="ic tint-blue">{people}</span>
+<div class="body"><span class="title">Import members from CSV</span><span class="detail">Map the columns of any CSV onto member fields, labels and tiers</span></div>
+<div class="trailing"><a class="btn tonal small" href="/ghost/members/">Go to Members</a></div></div>
+</div>
+<div class="section">Coming from another platform</div>
+<div class="card rows rise" style="--i:3">{sources}</div>
+<p class="muted" style="margin:10px 2px 0">Ghost(Pro) runs a hosted migration service for these. This is a self-hosted site, so
+the route is the same but manual: export from the old platform, then feed the file to the importer above.</p>
+</div>
+
+<div class="mtab-panel" data-tab="export">
+<div class="section">Export all data</div>
+<form class="card padded rise" style="--i:1" method="get" action="/ghost/settings/migration/export/">
+<p class="muted" style="margin:0 0 14px">Pick what to put in the archive. This is the one to take before an upgrade, or when moving the site somewhere else.</p>
+<div class="expgrid">{components}</div>
+<div style="margin-top:16px"><button class="btn" type="submit">{download} Download archive</button></div>
+</form>
+<div class="section">Individual files</div>
+<div class="card rows rise" style="--i:2">
+<div class="row"><span class="ic tint-blue">{notes}</span>
+<div class="body"><span class="title">Content &amp; settings</span><span class="detail">{posts} posts and {pages} pages, with their tags · JSON</span></div>
+<div class="trailing"><a class="btn tonal small" href="/ghost/settings/migration/export/content/">Download</a></div></div>
+<div class="row"><span class="ic tint-blue">{people}</span>
+<div class="body"><span class="title">Members</span><span class="detail">{members} members with labels, tiers and Stripe ids · CSV</span></div>
+<div class="trailing"><a class="btn tonal small" href="/ghost/members/export/">Download</a></div></div>
+<div class="row"><span class="ic tint-blue">{chart}</span>
+<div class="body"><span class="title">Post analytics</span><span class="detail">Sends, opens, views and feedback, one row per post · CSV</span></div>
+<div class="trailing"><a class="btn tonal small" href="/ghost/settings/migration/export/analytics/">Download</a></div></div>
+<div class="row"><span class="ic tint-blue">{themes_ic}</span>
+<div class="body"><span class="title">Themes</span><span class="detail">{themes} installed, including anything edited in the browser · ZIP</span></div>
+<div class="trailing"><a class="btn tonal small" href="/ghost/settings/migration/export/themes/">Download</a></div></div>
+<div class="row"><span class="ic tint-blue">{link}</span>
+<div class="body"><span class="title">Redirects &amp; routes</span><span class="detail">The two YAML files, downloadable one at a time</span></div>
+<div class="trailing"><a class="btn tonal small" href="/ghost/settings/advanced/">Go to Advanced</a></div></div>
+</div>
+<p class="muted" style="margin:10px 2px 0">An export is a copy, not a backup of the database itself — it holds your content, members and
+files, not sessions, API keys or password hashes.</p>
+</div>
+</div>"#,
             head = group_head(group, None),
             banner = flash_banner(&q),
             upload = svg("upload"),
-            open = svg("open"),
-            redirects_ic = svg("link"),
-            routes_ic = svg("layout"),
+            download = svg("import"),
+            people = svg("person"),
+            notes = svg("notes"),
+            chart = svg("chart"),
+            themes_ic = svg("themes"),
+            link = svg("link"),
+            sources = sources,
+            components = components,
+            posts = post_count,
+            pages = page_count,
+            members = member_count,
+            themes = theme_count,
         ),
         true,
     )
@@ -12797,7 +13135,7 @@ async fn code_injection_save(State(state): State<AppState>, headers: HeaderMap, 
         ok &= state.settings.set(&state.db, key, &serde_json::json!(value)).await.is_ok();
     }
     if ok {
-        settings_flash("code-injection", "ok", "Code injection saved.")
+        settings_saved(&state, "code-injection", "Code injection saved.")
     } else {
         settings_flash("code-injection", "error", "Saving failed — check the logs.")
     }
@@ -12870,10 +13208,9 @@ fn build_ghost_export(posts: &[ghost_core::models::Post], tags: &[ghost_core::mo
     })
 }
 
-async fn advanced_export(State(state): State<AppState>, headers: HeaderMap) -> Response {
-    if let Err(r) = require_role(&state, &headers, Role::Administrator).await {
-        return r;
-    }
+/// The content export as a JSON string: posts, pages and tags in Ghost's
+/// export shape. Shared by the standalone download and the backup bundle.
+async fn build_content_export(state: &AppState) -> String {
     let q = repos::posts::BrowsePosts {
         filter: None,
         order: None,
@@ -12888,18 +13225,320 @@ async fn advanced_export(State(state): State<AppState>, headers: HeaderMap) -> R
         .await
         .map(|p| p.posts)
         .unwrap_or_default();
-    let (tags, _) = repos::tags::browse(&state.db, None, None, 100_000, 1, false, true).await.unwrap_or_default();
+    let (tags, _) =
+        repos::tags::browse(&state.db, None, None, 100_000, 1, false, true).await.unwrap_or_default();
     let export = build_ghost_export(&posts, &tags, &state.site_url());
-    let body = serde_json::to_string_pretty(&export).unwrap_or_default();
+    serde_json::to_string_pretty(&export).unwrap_or_default()
+}
+
+async fn migration_export_content(State(state): State<AppState>, headers: HeaderMap) -> Response {
+    if let Err(r) = require_role(&state, &headers, Role::Administrator).await {
+        return r;
+    }
     (
         StatusCode::OK,
         [
-            (header::CONTENT_TYPE, "application/json; charset=utf-8"),
-            (header::CONTENT_DISPOSITION, "attachment; filename=\"ghost-export.json\""),
+            (header::CONTENT_TYPE, "application/json; charset=utf-8".to_string()),
+            (
+                header::CONTENT_DISPOSITION,
+                format!("attachment; filename=\"ghost-export.{}.json\"", export_date_stamp()),
+            ),
+        ],
+        build_content_export(&state).await,
+    )
+        .into_response()
+}
+
+/// Ghost's post-analytics columns, less the ones this port has no source for.
+///
+/// Ghost drops a column rather than filling it with zeroes when the site does
+/// not track that number — an empty `clicks` column reads as "nobody clicked",
+/// which is a different and wrong claim. The same rule applies here: there is
+/// no per-post click or signup attribution in this schema, so `clicks`,
+/// `signups` and `paid_conversions` are absent rather than blank. `views` is
+/// in their place because this port's own analytics does count those.
+const POST_ANALYTICS_COLUMNS: &[&str] = &[
+    "id", "title", "url", "author", "status", "created_at", "updated_at", "published_at",
+    "featured", "tags", "post_access", "email_recipients", "newsletter_name", "sends", "opens",
+    "views", "feedback_more_like_this", "feedback_less_like_this",
+];
+
+/// Per-post sends, opens, views and feedback, as a CSV.
+async fn build_post_analytics_csv(state: &AppState) -> Option<Vec<u8>> {
+    let q = repos::posts::BrowsePosts {
+        filter: None,
+        order: Some("published_at desc".into()),
+        limit: 100_000,
+        page: 1,
+        post_type: Some("post".into()),
+        public: false,
+        include_authors: true,
+        include_tags: true,
+    };
+    let posts = repos::posts::browse(&state.db, &q).await.map(|p| p.posts).unwrap_or_default();
+    let site_url = state.site_url();
+    let site_url = site_url.trim_end_matches('/');
+
+    let mut w = csv::Writer::from_writer(Vec::new());
+    w.write_record(POST_ANALYTICS_COLUMNS).ok()?;
+    for p in &posts {
+        let slug = p.slug.clone().unwrap_or_default();
+        // The email for a post, if one went out. A post reverted to draft
+        // keeps its email row, so the status check below is what stops a
+        // draft reporting last month's sends.
+        let email = sqlx::query_as::<_, (i64, i64, Option<String>, Option<String>)>(
+            "SELECT email_count, opened_count, recipient_filter, newsletter_id \
+             FROM emails WHERE post_id = ? LIMIT 1",
+        )
+        .bind(&p.id)
+        .fetch_optional(&state.db)
+        .await
+        .ok()
+        .flatten()
+        .filter(|_| p.status == "published" || p.status == "sent");
+
+        let newsletter_name = match email.as_ref().and_then(|e| e.3.clone()) {
+            Some(nid) => sqlx::query_scalar::<_, String>("SELECT name FROM newsletters WHERE id = ?")
+                .bind(&nid)
+                .fetch_optional(&state.db)
+                .await
+                .ok()
+                .flatten()
+                .unwrap_or_default(),
+            None => String::new(),
+        };
+
+        // Views are counted against the rendered path, which is the slug.
+        let views: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM page_views WHERE path = ? OR path = ?")
+            .bind(format!("/{slug}/"))
+            .bind(format!("/{slug}"))
+            .fetch_one(&state.db)
+            .await
+            .unwrap_or(0);
+
+        let feedback = |score: i64| async move {
+            sqlx::query_scalar::<_, i64>(
+                "SELECT COUNT(*) FROM members_feedback WHERE post_id = ? AND score = ?",
+            )
+            .bind(&p.id)
+            .bind(score)
+            .fetch_one(&state.db)
+            .await
+            .unwrap_or(0)
+        };
+        let (more, less) = (feedback(1).await, feedback(0).await);
+
+        let record = [
+            p.id.clone(),
+            p.title.clone().unwrap_or_default(),
+            format!("{site_url}/{slug}/"),
+            post_author_names(state, &p.id).await,
+            p.status.clone(),
+            p.created_at.clone().unwrap_or_default(),
+            p.updated_at.clone().unwrap_or_default(),
+            p.published_at.clone().unwrap_or_default(),
+            if p.featured { "true".into() } else { "false".into() },
+            post_tag_names(state, &p.id).await,
+            p.visibility.clone(),
+            email.as_ref().and_then(|e| e.2.clone()).unwrap_or_default(),
+            newsletter_name,
+            email.as_ref().map(|e| e.0.to_string()).unwrap_or_default(),
+            email.as_ref().map(|e| e.1.to_string()).unwrap_or_default(),
+            views.to_string(),
+            more.to_string(),
+            less.to_string(),
+        ];
+        w.write_record(&record).ok()?;
+    }
+    w.into_inner().ok()
+}
+
+/// The names behind a post's authors and tags, comma-joined as Ghost writes
+/// them. Queried per post rather than taken from the browse include, because
+/// the join only populates when the caller asked for it and a missing name
+/// would silently export an empty column.
+async fn post_author_names(state: &AppState, post_id: &str) -> String {
+    sqlx::query_scalar::<_, String>(
+        "SELECT u.name FROM users u JOIN posts_authors pa ON pa.author_id = u.id \
+         WHERE pa.post_id = ? ORDER BY pa.sort_order",
+    )
+    .bind(post_id)
+    .fetch_all(&state.db)
+    .await
+    .unwrap_or_default()
+    .join(", ")
+}
+
+async fn post_tag_names(state: &AppState, post_id: &str) -> String {
+    sqlx::query_scalar::<_, String>(
+        "SELECT t.name FROM tags t JOIN posts_tags pt ON pt.tag_id = t.id \
+         WHERE pt.post_id = ? ORDER BY pt.sort_order",
+    )
+    .bind(post_id)
+    .fetch_all(&state.db)
+    .await
+    .unwrap_or_default()
+    .join(", ")
+}
+
+async fn migration_export_analytics(State(state): State<AppState>, headers: HeaderMap) -> Response {
+    if let Err(r) = require_role(&state, &headers, Role::Administrator).await {
+        return r;
+    }
+    match build_post_analytics_csv(&state).await {
+        Some(body) => csv_download(&format!("posts.analytics.{}.csv", export_date_stamp()), body),
+        None => settings_flash("migration", "error", "Could not build the analytics export."),
+    }
+}
+
+// --- the export bundle -------------------------------------------------------
+
+/// The pieces an export may carry, in the order they are offered.
+///
+/// `(key, label, detail, on by default)`. Media is off by default for the
+/// reason Ghost gives: it is usually the bulk of the archive, and someone
+/// moving content between sites rarely wants to wait for it.
+const EXPORT_COMPONENTS: &[(&str, &str, &str, bool)] = &[
+    ("content", "Content & settings", "Posts, pages and tags, in Ghost's JSON export format", true),
+    ("members", "Members", "Every member with their labels and tiers (CSV)", true),
+    ("analytics", "Post analytics", "Sends, opens, views and feedback per post (CSV)", true),
+    ("themes", "Themes", "Every installed theme, including anything you edited", true),
+    ("routes", "Redirects & routes", "routes.yaml and redirects.yaml as they stand", true),
+    (
+        "media",
+        "Media files",
+        "Every uploaded image and file. Can make the archive very much larger",
+        false,
+    ),
+];
+
+/// Add a directory to the archive, recursively, under `prefix`.
+///
+/// Walked breadth-first with an explicit stack rather than by recursion
+/// because `ZipWriter` is borrowed mutably throughout, and an async recursive
+/// helper around it would need boxing for no gain.
+fn zip_add_dir<W: std::io::Write + std::io::Seek>(
+    zip: &mut zip::ZipWriter<W>,
+    base: &std::path::Path,
+    prefix: &str,
+    opts: zip::write::SimpleFileOptions,
+) -> std::io::Result<()> {
+    let mut stack = vec![base.to_path_buf()];
+    while let Some(dir) = stack.pop() {
+        let Ok(entries) = std::fs::read_dir(&dir) else { continue };
+        for entry in entries.flatten() {
+            let path = entry.path();
+            let name = entry.file_name().to_string_lossy().to_string();
+            // Dotfiles and dependency trees are never part of a backup.
+            if name.starts_with('.') || name == "node_modules" {
+                continue;
+            }
+            if path.is_dir() {
+                stack.push(path);
+                continue;
+            }
+            let Ok(rel) = path.strip_prefix(base) else { continue };
+            let Ok(bytes) = std::fs::read(&path) else { continue };
+            zip.start_file(format!("{prefix}/{}", rel.to_string_lossy().replace('\\', "/")), opts)?;
+            std::io::Write::write_all(zip, &bytes)?;
+        }
+    }
+    Ok(())
+}
+
+/// Build the export archive from the components the operator ticked.
+///
+/// Everything is assembled in memory: these are a publisher's own posts and
+/// members, which is small next to the media they may also have asked for —
+/// and media is the one component that is off by default.
+async fn build_export_archive(
+    state: &AppState,
+    want: &(dyn Fn(&str) -> bool + Send + Sync),
+) -> Option<Vec<u8>> {
+    use std::io::Write;
+    let mut buf = std::io::Cursor::new(Vec::new());
+    {
+        let mut zip = zip::ZipWriter::new(&mut buf);
+        let opts = zip::write::SimpleFileOptions::default()
+            .compression_method(zip::CompressionMethod::Deflated);
+
+        if want("content") {
+            zip.start_file("ghost-export.json", opts).ok()?;
+            zip.write_all(build_content_export(state).await.as_bytes()).ok()?;
+        }
+        if want("members") {
+            if let Some(csv) = build_members_csv(state).await {
+                zip.start_file("members.csv", opts).ok()?;
+                zip.write_all(&csv).ok()?;
+            }
+        }
+        if want("analytics") {
+            if let Some(csv) = build_post_analytics_csv(state).await {
+                zip.start_file("posts.analytics.csv", opts).ok()?;
+                zip.write_all(&csv).ok()?;
+            }
+        }
+        if want("themes") {
+            zip_add_dir(&mut zip, &state.config.themes_dir(), "themes", opts).ok()?;
+        }
+        if want("routes") {
+            for file in ["routes.yaml", "redirects.yaml"] {
+                if let Ok(bytes) = std::fs::read(state.config.content_path().join(file)) {
+                    zip.start_file(format!("settings/{file}"), opts).ok()?;
+                    zip.write_all(&bytes).ok()?;
+                }
+            }
+        }
+        if want("media") {
+            zip_add_dir(&mut zip, &state.config.images_dir(), "content/images", opts).ok()?;
+            zip_add_dir(&mut zip, &state.config.files_dir(), "content/files", opts).ok()?;
+        }
+        zip.finish().ok()?;
+    }
+    Some(buf.into_inner())
+}
+
+fn zip_download(filename: &str, body: Vec<u8>) -> Response {
+    (
+        [
+            (header::CONTENT_TYPE, "application/zip".to_string()),
+            (header::CONTENT_DISPOSITION, format!("attachment; filename=\"{filename}\"")),
         ],
         body,
     )
         .into_response()
+}
+
+/// `?content=1&members=1&…` — one archive of whatever was ticked.
+async fn migration_export_all(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Query(q): Query<HashMap<String, String>>,
+) -> Response {
+    if let Err(r) = require_role(&state, &headers, Role::Administrator).await {
+        return r;
+    }
+    let want = |key: &str| q.get(key).map(|v| v == "1").unwrap_or(false);
+    if !EXPORT_COMPONENTS.iter().any(|(k, _, _, _)| want(k)) {
+        return settings_flash("migration", "error", "Pick at least one thing to export.");
+    }
+    match build_export_archive(&state, &want).await {
+        Some(body) => {
+            zip_download(&format!("ghost-backup.{}.zip", export_date_stamp()), body)
+        }
+        None => settings_flash("migration", "error", "Could not build the archive."),
+    }
+}
+
+async fn migration_export_themes(State(state): State<AppState>, headers: HeaderMap) -> Response {
+    if let Err(r) = require_role(&state, &headers, Role::Administrator).await {
+        return r;
+    }
+    let only_themes = |key: &str| key == "themes";
+    match build_export_archive(&state, &only_themes).await {
+        Some(body) => zip_download(&format!("themes.{}.zip", export_date_stamp()), body),
+        None => settings_flash("migration", "error", "Could not build the themes archive."),
+    }
 }
 
 /// Result of walking an import file, reported back through the flash.
@@ -13054,7 +13693,101 @@ async fn run_import(state: &AppState, owner_id: &str, data: &serde_json::Value) 
     Ok(counts)
 }
 
-async fn advanced_import(State(state): State<AppState>, headers: HeaderMap, mut multipart: Multipart) -> Response {
+/// What came out of an uploaded archive.
+struct ArchiveContents {
+    /// The Ghost export JSON found inside, if there was one.
+    export: Option<Vec<u8>>,
+    /// Media restored to `content/`, counted for the report.
+    media_restored: usize,
+}
+
+/// Unpack an uploaded zip: find the export JSON, restore any media beside it.
+///
+/// Both shapes are accepted — the archive this screen produces
+/// (`ghost-export.json` + `content/images/…`) and Ghost's own, which nests
+/// everything one level down inside a named folder. Rather than guess at the
+/// layout, the first `.json` that parses as an export wins and any path under
+/// a `content/images` or `content/files` segment is treated as media.
+///
+/// Entry paths are the untrusted part: a zip may name `../../etc/passwd`, so
+/// every restored path is rebuilt from its own segments and anything with a
+/// traversal or an absolute root is skipped rather than sanitised.
+fn unpack_import_archive(
+    state: &AppState,
+    data: &[u8],
+) -> Result<ArchiveContents, ghost_core::GhostError> {
+    let mut archive = zip::ZipArchive::new(std::io::Cursor::new(data))
+        .map_err(|e| ghost_core::GhostError::BadRequest(format!("Not a readable zip: {e}")))?;
+    let mut export = None;
+    let mut media_restored = 0;
+
+    for i in 0..archive.len() {
+        let Ok(mut entry) = archive.by_index(i) else { continue };
+        if entry.is_dir() {
+            continue;
+        }
+        // `enclosed_name` is the zip crate's own traversal check: it returns
+        // None for an absolute path or one that climbs out of the archive.
+        let Some(path) = entry.enclosed_name() else { continue };
+        let rel = path.to_string_lossy().replace('\\', "/");
+        let mut bytes = Vec::new();
+        if std::io::Read::read_to_end(&mut entry, &mut bytes).is_err() {
+            continue;
+        }
+
+        if export.is_none() && rel.to_lowercase().ends_with(".json") {
+            // A theme's package.json is also a .json; only something shaped
+            // like an export counts.
+            if serde_json::from_slice::<serde_json::Value>(&bytes)
+                .ok()
+                .and_then(|v| v.get("db").cloned())
+                .is_some()
+            {
+                export = Some(bytes);
+                continue;
+            }
+        }
+
+        let target = if let Some(rest) = after_segment(&rel, "content/images/") {
+            Some(state.config.images_dir().join(rest))
+        } else {
+            after_segment(&rel, "content/files/").map(|rest| state.config.files_dir().join(rest))
+        };
+        if let Some(target) = target {
+            if let Some(parent) = target.parent() {
+                let _ = std::fs::create_dir_all(parent);
+            }
+            if std::fs::write(&target, &bytes).is_ok() {
+                media_restored += 1;
+            }
+        }
+    }
+    Ok(ArchiveContents { export, media_restored })
+}
+
+/// The part of `path` after `marker`, if the marker is a whole-segment match.
+///
+/// Used to find media inside an archive whatever it is nested under, without
+/// matching a directory that merely ends in the same letters.
+fn after_segment(path: &str, marker: &str) -> Option<String> {
+    let at = path.find(marker)?;
+    if at != 0 && !path[..at].ends_with('/') {
+        return None;
+    }
+    let rest = &path[at + marker.len()..];
+    // Rebuild from segments so nothing odd survives into a filesystem path.
+    if rest.is_empty() || rest.split('/').any(|s| s.is_empty() || s == "." || s == "..") {
+        return None;
+    }
+    Some(rest.to_string())
+}
+
+/// The universal importer: a Ghost export as JSON, or a zip holding one.
+async fn migration_import(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    mut multipart: Multipart,
+) -> Response {
     let (user, _actor_role) = match require_role(&state, &headers, Role::Administrator).await {
         Ok(a) => (a.user, a.role),
         Err(r) => return r,
@@ -13063,13 +13796,56 @@ async fn advanced_import(State(state): State<AppState>, headers: HeaderMap, mut 
         if field.name() != Some("file") {
             continue;
         }
+        let filename = field.file_name().unwrap_or_default().to_ascii_lowercase();
         let data = match field.bytes().await {
             Ok(d) => d.to_vec(),
-            Err(e) => return settings_flash("advanced", "error", &format!("Upload failed: {e}")),
+            Err(e) => return settings_flash("migration", "error", &format!("Upload failed: {e}")),
         };
-        let parsed: serde_json::Value = match serde_json::from_slice(&data) {
+        if data.is_empty() {
+            return settings_flash("migration", "error", "That file is empty.");
+        }
+
+        // A zip starts "PK\x03\x04". Sniffing the bytes rather than trusting
+        // the extension means a correctly-named file that is not a zip fails
+        // with "not valid JSON" instead of a confusing zip error.
+        let is_zip = data.starts_with(b"PK\x03\x04") || filename.ends_with(".zip");
+        let (json, media_note) = if is_zip {
+            match unpack_import_archive(&state, &data) {
+                Ok(contents) => {
+                    let note = match contents.media_restored {
+                        0 => String::new(),
+                        1 => " 1 media file was restored.".to_string(),
+                        n => format!(" {n} media files were restored."),
+                    };
+                    match contents.export {
+                        Some(bytes) => (bytes, note),
+                        None if contents.media_restored > 0 => {
+                            return settings_flash(
+                                "migration",
+                                "ok",
+                                &format!("No export file in that archive, but{note}"),
+                            )
+                        }
+                        None => {
+                            return settings_flash(
+                                "migration",
+                                "error",
+                                "That archive holds no Ghost export file and no media.",
+                            )
+                        }
+                    }
+                }
+                Err(e) => return settings_flash("migration", "error", &e.message()),
+            }
+        } else {
+            (data, String::new())
+        };
+
+        let parsed: serde_json::Value = match serde_json::from_slice(&json) {
             Ok(v) => v,
-            Err(e) => return settings_flash("advanced", "error", &format!("Not a valid JSON file: {e}")),
+            Err(e) => {
+                return settings_flash("migration", "error", &format!("Not a valid JSON file: {e}"))
+            }
         };
         let data = parsed
             .get("db")
@@ -13078,13 +13854,19 @@ async fn advanced_import(State(state): State<AppState>, headers: HeaderMap, mut 
             .and_then(|entry| entry.get("data"));
         return match data {
             Some(data) => match run_import(&state, &user.id, data).await {
-                Ok(counts) => settings_flash("advanced", "ok", &counts.message()),
-                Err(e) => settings_flash("advanced", "error", &e.message()),
+                Ok(counts) => {
+                    settings_flash("migration", "ok", &format!("{}{media_note}", counts.message()))
+                }
+                Err(e) => settings_flash("migration", "error", &e.message()),
             },
-            None => settings_flash("advanced", "error", "That file doesn't look like a Ghost export (no db[0].data)."),
+            None => settings_flash(
+                "migration",
+                "error",
+                "That file doesn't look like a Ghost export (no db[0].data).",
+            ),
         };
     }
-    settings_flash("advanced", "error", "No file was uploaded.")
+    settings_flash("migration", "error", "No file was uploaded.")
 }
 
 // --- labs: the redirects and routes files, uploadable and downloadable ---
@@ -13133,6 +13915,7 @@ async fn redirects_upload(State(state): State<AppState>, headers: HeaderMap, mut
         }
         let count = ghost_routing::redirects::rules_map(&parsed).len();
         *state.redirects.write().await = Arc::new(parsed);
+        fire_site_changed(&state);
         return settings_flash("advanced", "ok", &format!("Redirects uploaded — {count} rule{s} in force.", s = if count == 1 { "" } else { "s" }));
     }
     settings_flash("advanced", "error", "No file was uploaded.")
@@ -13196,6 +13979,7 @@ async fn routes_upload(State(state): State<AppState>, headers: HeaderMap, mut mu
                 &format!("Routes are in force, but the theme could not be rebuilt against them: {}", e.message()),
             );
         }
+        fire_site_changed(&state);
         return settings_flash("advanced", "ok", "Routes uploaded — routing and the theme have been rebuilt.");
     }
     settings_flash("advanced", "error", "No file was uploaded.")
@@ -15415,6 +16199,23 @@ fn fire_post_webhooks(
     change: &str,
     was_published: bool,
 ) {
+    fire_post_webhooks_from(state, post_type, post, change, was_published, "", None)
+}
+
+/// As above, but told what the status *was*, so the scheduling transitions
+/// can be worked out rather than guessed.
+///
+/// `previous_status` empty means "not known", which is how the delete and
+/// create paths call in — neither can schedule anything.
+fn fire_post_webhooks_from(
+    state: &AppState,
+    post_type: &str,
+    post: &ghost_core::models::Post,
+    change: &str,
+    was_published: bool,
+    previous_status: &str,
+    before: Option<&ghost_core::models::Post>,
+) {
     let is_page = post_type == "page";
     let now_published = post.status == "published";
     let body = |p: &ghost_core::models::Post| {
@@ -15432,7 +16233,15 @@ fn fire_post_webhooks(
         })
     };
     let key = if is_page { "page" } else { "post" };
-    let payload = serde_json::json!({ key: { "current": body(post), "previous": {} } });
+    // Ghost sends the prior value of each field that changed, and nothing
+    // for the fields that did not. A receiver diffing an edit needs that —
+    // "the title changed, and here is what it was" is a different message
+    // from "something about this post changed".
+    let previous = match before {
+        Some(old) => changed_fields(&body(old), &body(post)),
+        None => serde_json::json!({}),
+    };
+    let payload = serde_json::json!({ key: { "current": body(post), "previous": previous } });
 
     let mut events: Vec<&'static str> = Vec::new();
     match change {
@@ -15451,8 +16260,24 @@ fn fire_post_webhooks(
             }
             _ => {}
         }
-        if post.status == "scheduled" && change != "added" {
-            events.push("post.scheduled");
+        // Scheduling, as Ghost splits it. The old code raised a bare
+        // `post.scheduled` for pages too, so a page listener heard nothing
+        // and a post listener heard about pages — and it fired again on
+        // every edit of an already-scheduled post, which is what
+        // `rescheduled` is for.
+        let was_scheduled = previous_status == "scheduled";
+        let now_scheduled = post.status == "scheduled";
+        match (was_scheduled, now_scheduled) {
+            (false, true) if change != "added" => {
+                events.push(if is_page { "page.scheduled" } else { "post.scheduled" })
+            }
+            (true, true) => {
+                events.push(if is_page { "page.rescheduled" } else { "post.rescheduled" })
+            }
+            (true, false) => {
+                events.push(if is_page { "page.unscheduled" } else { "post.unscheduled" })
+            }
+            _ => {}
         }
     }
     for event in events {
@@ -15460,18 +16285,112 @@ fn fire_post_webhooks(
     }
 }
 
-/// The members' equivalent. Ghost's shape is the same, under `member`.
-fn fire_member_webhook(state: &AppState, event: &'static str, id: &str, email: &str, name: &str) {
+/// The entries of `before` whose value differs in `after`.
+///
+/// Ghost's `previous` is exactly this: the old values of the fields that
+/// moved, not a whole second copy of the resource. Sending the lot would
+/// make every edit look like every field changed.
+fn changed_fields(before: &serde_json::Value, after: &serde_json::Value) -> serde_json::Value {
+    let (Some(b), Some(a)) = (before.as_object(), after.as_object()) else {
+        return serde_json::json!({});
+    };
+    let mut out = serde_json::Map::new();
+    for (k, old) in b {
+        if a.get(k) != Some(old) {
+            out.insert(k.clone(), old.clone());
+        }
+    }
+    serde_json::Value::Object(out)
+}
+
+/// `post.tag.attached` / `post.tag.detached`, and the page equivalents.
+///
+/// Ghost raises one event per tag that joined or left, carrying both the
+/// entry and the tag — a listener wants to know *which* tag moved, which a
+/// bare `post.edited` cannot tell it. These four were in the picker and had
+/// no code behind them at all.
+async fn fire_tag_link_webhooks(
+    state: &AppState,
+    post_type: &str,
+    post: &ghost_core::models::Post,
+    before: &[String],
+    after: &[String],
+) {
+    let attached: Vec<&String> = after.iter().filter(|t| !before.contains(t)).collect();
+    let detached: Vec<&String> = before.iter().filter(|t| !after.contains(t)).collect();
+    if attached.is_empty() && detached.is_empty() {
+        return;
+    }
+    let is_page = post_type == "page";
+    let key = if is_page { "page" } else { "post" };
+    for (tag_ids, event) in [
+        (attached, if is_page { "page.tag.attached" } else { "post.tag.attached" }),
+        (detached, if is_page { "page.tag.detached" } else { "post.tag.detached" }),
+    ] {
+        for tag_id in tag_ids {
+            // A detached tag still exists, so it can be described in full.
+            let Ok(Some(tag)) = repos::tags::find_by_id(&state.db, tag_id).await else {
+                continue;
+            };
+            ghost_api::webhooks::fire(
+                state,
+                event,
+                serde_json::json!({
+                    key: { "current": { "id": post.id, "title": post.title, "slug": post.slug } },
+                    "tag": { "current": { "id": tag.id, "name": tag.name, "slug": tag.slug } },
+                }),
+            );
+        }
+    }
+}
+
+/// `site.changed` — Ghost's whole-site invalidation event.
+///
+/// Ghost raises it whenever a response carries `X-Cache-Invalidate: /*`,
+/// which is its way of saying the rendered site is now different. This port
+/// has no such header, so it is raised from the saves that mean the same
+/// thing: settings, navigation, code injection, the active theme and the
+/// routing files. Cache purges and static rebuilds hang off this event, so a
+/// site that never fires it serves stale pages until something else evicts
+/// them.
+fn fire_site_changed(state: &AppState) {
+    ghost_api::webhooks::fire(state, "site.changed", serde_json::json!({}));
+}
+
+/// A settings save that changed the rendered site: flash as usual, and tell
+/// the integrations.
+fn settings_saved(state: &AppState, group: &str, message: &str) -> Response {
+    fire_site_changed(state);
+    settings_flash(group, "ok", message)
+}
+
+/// Tags, in Ghost's `{tag: {current, previous}}` shape.
+///
+/// The three tag events were in the picker from the start and never fired,
+/// so a listener set up against one simply never heard anything.
+fn fire_tag_webhook(state: &AppState, event: &'static str, tag: &ghost_core::models::Tag) {
     ghost_api::webhooks::fire(
         state,
         event,
         serde_json::json!({
-            "member": {
-                "current": { "id": id, "email": email, "name": name },
+            "tag": {
+                "current": {
+                    "id": tag.id,
+                    "name": tag.name,
+                    "slug": tag.slug,
+                    "description": tag.description,
+                    "visibility": tag.visibility,
+                },
                 "previous": {}
             }
         }),
     );
+}
+
+/// The members' equivalent, delegating to the shared builder so the admin's
+/// form and Portal signup emit the identical shape.
+fn fire_member_webhook(state: &AppState, event: &'static str, id: &str, email: &str, name: &str) {
+    ghost_api::webhooks::fire_member(state, event, id, email, name, serde_json::json!({}));
 }
 
 #[derive(Debug, Deserialize, Default)]
@@ -16497,12 +17416,19 @@ mod tests {
         // Design — was taken away. Integrations and Code injection are
         // Ghost's own settings pages too; they lived under Advanced here
         // until each grew a Save button of its own.
+        //
+        // Meta data and Social accounts are no longer groups: they are
+        // sections of General settings, beside the title and description
+        // every one of their fields falls back to. Migration tools is a group
+        // in its place, holding the import and export that were under
+        // Advanced — which is Ghost's own arrangement.
         let titles: Vec<&str> = SETTINGS_GROUPS.iter().map(|g| g.title).collect();
         assert_eq!(
             titles,
-            ["General settings", "Staff", "Meta data", "Social accounts", "Analytics",
+            ["General settings", "Staff", "Analytics",
              "Design & branding", "Navigation", "Code injection", "Announcement",
-             "Membership", "Email", "Newsletters", "Growth", "Features", "Integrations", "Advanced", "History", "Danger zone"]
+             "Membership", "Email", "Newsletters", "Growth", "Features", "Integrations",
+             "Migration tools", "Advanced", "History", "Danger zone"]
         );
         // every group has a working page at its slug
         assert!(SETTINGS_GROUPS.iter().all(|g| !g.slug.is_empty() && !g.items.is_empty()));
@@ -16781,5 +17707,204 @@ mod tests {
         let html = render_file_tree(&FileTree::build(&files), "casper", "index.hbs", "", 0);
         assert!(html.contains("logo.png"), "binaries are still listed");
         assert_eq!(html.matches(r#"<span class="chip draft">binary</span>"#).count(), 1);
+    }
+
+    #[test]
+    fn the_export_bundle_offers_ghosts_components() {
+        // Media is the one that defaults off: it is usually the bulk of the
+        // archive, and a content move rarely wants to wait for it.
+        let keys: Vec<&str> = EXPORT_COMPONENTS.iter().map(|(k, _, _, _)| *k).collect();
+        assert_eq!(keys, ["content", "members", "analytics", "themes", "routes", "media"]);
+        let off: Vec<&str> = EXPORT_COMPONENTS
+            .iter()
+            .filter(|(_, _, _, on)| !on)
+            .map(|(k, _, _, _)| *k)
+            .collect();
+        assert_eq!(off, ["media"]);
+    }
+
+    #[test]
+    fn post_analytics_columns_only_promise_what_is_measured() {
+        // Ghost drops a column rather than filling it with zeroes when the
+        // site does not track it; an empty `clicks` would read as "nobody
+        // clicked", which is a different and wrong claim.
+        for absent in ["clicks", "signups", "paid_conversions"] {
+            assert!(
+                !POST_ANALYTICS_COLUMNS.contains(&absent),
+                "{absent} has no source in this schema and must not be a column"
+            );
+        }
+        for present in ["id", "title", "url", "sends", "opens", "views", "feedback_more_like_this"] {
+            assert!(POST_ANALYTICS_COLUMNS.contains(&present), "{present} is missing");
+        }
+    }
+
+    #[test]
+    fn archive_paths_cannot_escape_the_content_directory() {
+        // An uploaded zip names its own entries, so this is the check that
+        // keeps a crafted archive from writing outside content/.
+        assert_eq!(after_segment("content/images/2026/01/a.png", "content/images/"),
+                   Some("2026/01/a.png".to_string()));
+        // Nested one level down, as Ghost's own export is.
+        assert_eq!(after_segment("backup/content/images/a.png", "content/images/"),
+                   Some("a.png".to_string()));
+        for bad in [
+            "content/images/../../../etc/passwd",
+            "content/images/..",
+            "content/images/a/../../b",
+            "content/images/",
+        ] {
+            assert_eq!(after_segment(bad, "content/images/"), None, "{bad} must be refused");
+        }
+        // A directory that merely ends in the same letters is not a match.
+        assert_eq!(after_segment("mycontent/images/a.png", "content/images/"), None);
+    }
+
+    #[test]
+    fn metadata_and_social_keys_are_all_saved_by_general() {
+        // The merged page owns these; a key here that general_save does not
+        // write is a field that silently resets on every save.
+        assert!(METADATA_KEYS.contains(&"meta_title"));
+        assert!(METADATA_KEYS.contains(&"og_image"));
+        assert!(METADATA_KEYS.contains(&"twitter_description"));
+        assert_eq!(METADATA_KEYS.len(), 8);
+        // Social keys come from the same table the index and the form use.
+        assert!(SOCIAL_ACCOUNTS.iter().any(|(k, _)| *k == "bluesky"));
+    }
+
+    #[test]
+    fn no_ga_flag_is_offered_as_a_switch() {
+        // Ghost forces its GA flags true and drops them from the writable
+        // allowlist, so a toggle for one would be a control that does
+        // nothing — and that reads as a broken setting, not a no-op.
+        let offered: Vec<&str> = BETA_FLAGS
+            .iter()
+            .chain(PRIVATE_FLAGS.iter())
+            .map(|(k, _, _)| *k)
+            .collect();
+        for ga in ghost_core::LABS_GA_FLAGS {
+            assert!(!offered.contains(ga), "{ga} went GA and must not be a switch");
+        }
+    }
+
+    #[test]
+    fn labs_flags_match_ghost_6_73() {
+        // Ghost 6.73's PUBLIC_BETA_FEATURES, in its order.
+        let beta: Vec<&str> = BETA_FLAGS.iter().map(|(k, _, _)| *k).collect();
+        assert_eq!(
+            beta,
+            ["superEditors", "editorExcerpt", "additionalPaymentMethods", "navigationIcons"]
+        );
+        // `automations` moved out of the beta tab and into the private one.
+        assert!(PRIVATE_FLAGS.iter().any(|(k, _, _)| *k == "automations"));
+        assert!(!beta.contains(&"automations"));
+        // No flag is offered twice across the two tabs.
+        let mut all: Vec<&str> =
+            BETA_FLAGS.iter().chain(PRIVATE_FLAGS.iter()).map(|(k, _, _)| *k).collect();
+        let total = all.len();
+        all.sort_unstable();
+        all.dedup();
+        assert_eq!(all.len(), total, "a flag is listed in both tabs");
+    }
+
+    fn embed(layout: &str, labels: &[&str]) -> String {
+        signup_form_snippet(SignupFormEmbed {
+            site_url: "https://site.test",
+            layout,
+            background: "#ffffff",
+            button: "#15171A",
+            title: "My Site",
+            description: "A description",
+            icon: "/content/images/2026/01/icon.png",
+            locale: "en",
+            labels,
+            preview: false,
+        })
+    }
+
+    #[test]
+    fn the_signup_embed_loads_the_cdn_script_not_a_local_path() {
+        // The whole point: the snippet used to point at
+        // `{site}/public/signup-form.min.js`, which this server does not
+        // serve, so every embed handed out was a 404.
+        let html = embed("all-in-one", &[]);
+        assert!(html.contains(&ghost_render::apps::signup_form_script_url()));
+        assert!(!html.contains("/public/signup-form"));
+        // The script has to be in a sized box or the form renders into
+        // nothing, and `async` is how Ghost loads it.
+        assert!(html.starts_with(r#"<div style="height: 40vmin;min-height: 360px">"#));
+        assert!(html.contains(" async></script></div>"));
+    }
+
+    #[test]
+    fn the_embed_sends_both_computed_contrast_colours() {
+        // Without these the copy is drawn dark on a dark background.
+        let html = embed("all-in-one", &[]);
+        assert!(html.contains(r##"data-background-color="#ffffff""##));
+        assert!(html.contains(r##"data-text-color="#000000""##), "white needs dark text");
+        assert!(html.contains(r##"data-button-text-color="#FFFFFF""##), "a dark button needs light text");
+    }
+
+    #[test]
+    fn the_minimal_layout_drops_the_copy_and_the_background() {
+        // Minimal is meant to sit on whatever is behind it, so Ghost sends
+        // no background at all — and no title, description or icon.
+        let html = embed("minimal", &["a", "b"]);
+        for absent in ["data-background-color", "data-text-color", "data-title", "data-description", "data-icon"] {
+            assert!(!html.contains(absent), "{absent} does not belong on the minimal layout");
+        }
+        assert!(html.contains(r##"data-button-color="#15171A""##));
+        assert!(html.contains(r#"data-label-1="a""#) && html.contains(r#"data-label-2="b""#));
+        assert!(html.contains(r#"data-site="https://site.test/""#), "the site URL carries its trailing slash");
+    }
+
+    #[test]
+    fn embed_attributes_follow_ghosts_order() {
+        // Ghost sorts by a fixed preferred order, so a snippet from here and
+        // one from Ghost diff cleanly rather than line-by-line.
+        let html = embed("all-in-one", &["x"]);
+        let order = [
+            "data-background-color", "data-text-color", "data-button-color",
+            "data-button-text-color", "data-title", "data-description", "data-icon",
+            "data-site", "data-locale", "data-label-1",
+        ];
+        let mut last = 0;
+        for key in order {
+            let at = html.find(key).unwrap_or_else(|| panic!("{key} missing"));
+            assert!(at > last, "{key} is out of order");
+            last = at;
+        }
+    }
+
+    #[test]
+    fn the_embed_icon_is_asked_for_at_192_square() {
+        assert_eq!(
+            icon_at_192("https://s.test/content/images/2026/01/icon.png"),
+            "https://s.test/content/images/size/w192h192/2026/01/icon.png"
+        );
+        // Any size already on the URL is replaced, not stacked.
+        assert_eq!(
+            icon_at_192("https://s.test/content/images/size/w256h256/2026/01/icon.png"),
+            "https://s.test/content/images/size/w192h192/2026/01/icon.png"
+        );
+        // A URL that is not a content image is left exactly as it is.
+        assert_eq!(icon_at_192("https://cdn.test/logo.svg"), "https://cdn.test/logo.svg");
+    }
+
+    #[test]
+    fn the_preview_embed_fills_its_frame() {
+        // Same attributes, different box: the preview is the real snippet
+        // sized to the frame rather than to a page.
+        let page = embed("all-in-one", &[]);
+        let preview = signup_form_snippet(SignupFormEmbed {
+            site_url: "https://site.test", layout: "all-in-one", background: "#ffffff",
+            button: "#15171A", title: "My Site", description: "A description",
+            icon: "/content/images/2026/01/icon.png", locale: "en", labels: &[], preview: true,
+        });
+        assert!(preview.contains(r#"style="height: 100vh""#));
+        assert_ne!(page, preview);
+        // The data attributes are identical — only the wrapper differs.
+        let strip = |s: &str| s[s.find("<script").unwrap()..].to_string();
+        assert_eq!(strip(&page), strip(&preview));
     }
 }

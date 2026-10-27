@@ -24,6 +24,31 @@ pub async fn find_by_secret(pool: &SqlitePool, secret: &str) -> Result<Option<Ap
     }))
 }
 
+/// Look a key up by its row id — what the `kid` header of an Admin API JWT
+/// names. Separate from `find_by_secret` because a signed token never carries
+/// the secret itself; that is the point of signing it.
+pub async fn find_by_id(pool: &SqlitePool, id: &str) -> Result<Option<ApiKey>> {
+    let row = sqlx::query_as::<_, (String, String, String, Option<String>, Option<String>, Option<String>)>(
+        "SELECT id, type, secret, role_id, integration_id, user_id FROM api_keys WHERE id = ? LIMIT 1",
+    )
+    .bind(id)
+    .fetch_optional(pool)
+    .await
+    .map_err(super::dberr)?;
+    Ok(row.map(|r| ApiKey {
+        id: r.0,
+        key_type: r.1,
+        secret: r.2,
+        role_id: r.3,
+        integration_id: r.4,
+        user_id: r.5,
+        last_seen_at: None,
+        last_seen_version: None,
+        created_at: None,
+        updated_at: None,
+    }))
+}
+
 pub async fn find_by_integration(pool: &SqlitePool, integration_id: &str) -> Result<Vec<ApiKey>> {
     let rows = sqlx::query_as::<_, (String, String, String, Option<String>, Option<String>, Option<String>)>(
         "SELECT id, type, secret, role_id, integration_id, user_id FROM api_keys WHERE integration_id = ?",

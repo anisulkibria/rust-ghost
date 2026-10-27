@@ -307,9 +307,20 @@ fn build_app(state: AppState) -> axum::Router {
 
     let site = ghost_front::site_router(state.clone());
 
+    // The Content API answers any origin, as Ghost's does. It is public and
+    // read-only, gated by a publishable key that is meant to ship inside a
+    // browser bundle — so a headless frontend calling it from the page is
+    // the expected case, and without these headers every such call is
+    // blocked before it reaches us.
+    let content_cors = tower_http::cors::CorsLayer::new()
+        .allow_origin(tower_http::cors::Any)
+        .allow_methods([axum::http::Method::GET, axum::http::Method::HEAD, axum::http::Method::OPTIONS])
+        .allow_headers(tower_http::cors::Any)
+        .max_age(std::time::Duration::from_secs(86_400));
+
     // /ghost/api/content/* (+ legacy /vN/ prefixes tolerated like Ghost)
     let api = axum::Router::new()
-        .nest("/content", ghost_api::content::content_router())
+        .nest("/content", ghost_api::content::content_router().layer(content_cors))
         .nest("/admin", ghost_api::admin::admin_router()
             .merge(ghost_api::admin_comments::admin_comments_router())
             .merge(ghost_api::automations::automations_router())

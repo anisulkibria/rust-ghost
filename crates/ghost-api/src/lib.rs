@@ -1,5 +1,6 @@
 //! ghost-api: AppState, auth and the Content + Admin HTTP APIs.
 pub mod admin;
+pub mod apikey_auth;
 pub mod admin_comments;
 pub mod automations;
 pub mod automations_engine;

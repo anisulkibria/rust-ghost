@@ -3,20 +3,30 @@
 //!
 //! Ghost keeps these in `core/shared/config/defaults.json` under `portal`,
 //! `sodoSearch` and friends, as a URL template plus a pinned minor version
-//! that `{version}` is substituted into. The jsDelivr `@~1.8` range then
-//! floats patch releases. Mirrored here with the versions Ghost 6.39 pins, so
+//! that `{version}` is substituted into. The jsDelivr `@~1.9` range then
+//! floats patch releases. Mirrored here with the versions Ghost 6.73 pins, so
 //! themes get byte-identical script tags to a real Ghost install.
+//!
+//! Keeping these current is not cosmetic: Portal reads the Content API and
+//! `/members/api/*` shapes this port serves, and a pin several minors behind
+//! means the site loads an app written against a contract the server has
+//! already moved past.
 //!
 //! Both apps talk back to this server: Portal to `/members/api/*`, Sodo
 //! Search to `/ghost/api/content/search-index/*`.
 
 /// `portal.min.js` — renders every `data-portal` / `#/portal/*` link.
-pub const PORTAL_VERSION: &str = "2.68";
+pub const PORTAL_VERSION: &str = "2.72";
 /// `sodo-search.min.js` — renders every `data-ghost-search` / `#/search` link.
-pub const SODO_SEARCH_VERSION: &str = "1.8";
+pub const SODO_SEARCH_VERSION: &str = "1.9";
 /// `comments-ui.min.js` — the comment thread, form and moderation controls
 /// that `{{comments}}` mounts.
-pub const COMMENTS_VERSION: &str = "1.4";
+pub const COMMENTS_VERSION: &str = "1.6";
+/// `signup-form.min.js` — the embeddable signup form, for pasting onto a site
+/// that is not this one. Unlike the three above it is never injected by
+/// `ghost_head`: it only ever appears in the snippet Settings → Growth hands
+/// out, which is why it is loaded from the CDN by whoever pastes it.
+pub const SIGNUP_FORM_VERSION: &str = "0.4";
 
 pub fn portal_script_url() -> String {
     format!("https://cdn.jsdelivr.net/ghost/portal@~{PORTAL_VERSION}/umd/portal.min.js")
@@ -32,6 +42,10 @@ pub fn sodo_search_styles_url() -> String {
 
 pub fn comments_script_url() -> String {
     format!("https://cdn.jsdelivr.net/ghost/comments-ui@~{COMMENTS_VERSION}/umd/comments-ui.min.js")
+}
+
+pub fn signup_form_script_url() -> String {
+    format!("https://cdn.jsdelivr.net/ghost/signup-form@~{SIGNUP_FORM_VERSION}/umd/signup-form.min.js")
 }
 
 /// Ghost ships these in `core/frontend/helpers/tpl/styles.js` and injects them

@@ -28,6 +28,7 @@ pub const EVENT_GROUPS: &[(&str, &[(&str, &str)])] = &[
             ("post.unpublished", "Post unpublished"),
             ("post.scheduled", "Post scheduled"),
             ("post.unscheduled", "Post unscheduled"),
+            ("post.rescheduled", "Post rescheduled"),
             ("post.tag.attached", "Tag added to post"),
             ("post.tag.detached", "Tag removed from post"),
         ],
@@ -41,6 +42,9 @@ pub const EVENT_GROUPS: &[(&str, &[(&str, &str)])] = &[
             ("page.published", "Page published"),
             ("page.published.edited", "Published page updated"),
             ("page.unpublished", "Page unpublished"),
+            ("page.scheduled", "Page scheduled"),
+            ("page.unscheduled", "Page unscheduled"),
+            ("page.rescheduled", "Page rescheduled"),
             ("page.tag.attached", "Tag added to page"),
             ("page.tag.detached", "Tag removed from page"),
         ],
@@ -79,12 +83,11 @@ pub fn event_label(event: &str) -> &str {
         .unwrap_or(event)
 }
 
-/// HMAC-SHA256 of the body under the webhook's secret, hex encoded.
+/// HMAC-SHA256, hex encoded.
 ///
-/// Ghost signs deliveries so a receiver can tell a real one from anybody who
-/// learned the URL. Hand-rolled over `sha2` (block size 64) rather than adding
-/// an `hmac` dependency, matching how the member session cookie is signed.
-fn sign(secret: &str, body: &str) -> String {
+/// Hand-rolled over `sha2` (block size 64) rather than adding an `hmac`
+/// dependency, matching how the member session cookie is signed.
+fn hmac_hex(secret: &str, message: &str) -> String {
     const BLOCK: usize = 64;
     let mut key = secret.as_bytes().to_vec();
     if key.len() > BLOCK {
@@ -93,8 +96,57 @@ fn sign(secret: &str, body: &str) -> String {
     key.resize(BLOCK, 0);
     let ipad: Vec<u8> = key.iter().map(|b| b ^ 0x36).collect();
     let opad: Vec<u8> = key.iter().map(|b| b ^ 0x5c).collect();
-    let inner = Sha256::digest([&ipad[..], body.as_bytes()].concat());
+    let inner = Sha256::digest([&ipad[..], message.as_bytes()].concat());
     hex::encode(Sha256::digest([&opad[..], &inner[..]].concat()))
+}
+
+/// Ghost retries a failed delivery five times before giving up.
+const MAX_DELIVERY_RETRIES: u32 = 5;
+/// First backoff step; doubled on each further attempt.
+const RETRY_BASE_DELAY_MS: u64 = 300;
+
+/// Ghost's `X-Ghost-Signature` header value: `sha256=<hex>, t=<ms>`.
+///
+/// Two details here are the whole reason a receiver can verify a delivery,
+/// and both were wrong: the signed message is the body **with the timestamp
+/// appended**, not the body alone, and the header carries the scheme and that
+/// timestamp alongside the digest. A receiver following Ghost's documented
+/// verification — recompute `hmac(secret, body + t)` and compare — rejected
+/// every delivery this port sent.
+///
+/// The timestamp is also what makes the signature replay-resistant: it is
+/// inside the MAC, so it cannot be changed without invalidating it.
+fn signature_header(secret: &str, body: &str, timestamp_ms: i64) -> String {
+    let digest = hmac_hex(secret, &format!("{body}{timestamp_ms}"));
+    format!("sha256={digest}, t={timestamp_ms}")
+}
+
+/// Ghost's member webhook payload: the row under `current`, and what it
+/// looked like before under `previous`.
+///
+/// Lives here rather than in the admin crate because members are created on
+/// two paths — the admin's own form and Portal signup — and only the first
+/// used to fire anything. An integration listening for new members therefore
+/// never heard about the ones who actually signed up, which is the case that
+/// matters most.
+pub fn fire_member(
+    state: &AppState,
+    event: &'static str,
+    id: &str,
+    email: &str,
+    name: &str,
+    previous: Value,
+) {
+    fire(
+        state,
+        event,
+        serde_json::json!({
+            "member": {
+                "current": { "id": id, "email": email, "name": name },
+                "previous": previous,
+            }
+        }),
+    );
 }
 
 /// Fire every webhook listening for `event`.
@@ -108,45 +160,110 @@ pub fn fire(state: &AppState, event: &'static str, payload: Value) {
             Ok(h) if !h.is_empty() => h,
             _ => return,
         };
-        let body = serde_json::to_string(&payload).unwrap_or_else(|_| "{}".into());
         let client = reqwest::Client::builder()
             .timeout(std::time::Duration::from_secs(15))
             .build()
             .unwrap_or_default();
 
         for hook in hooks {
-            let mut req = client
+            // Ghost puts the event name into the payload it sends, so a
+            // receiver listening on one URL for several events can tell them
+            // apart without parsing the body for clues. Built per hook
+            // because the name comes off the row.
+            let mut hook_payload = payload.clone();
+            if let Value::Object(m) = &mut hook_payload {
+                // `event` first, as Ghost spreads it.
+                let rest = std::mem::take(m);
+                m.insert("event".into(), Value::String(hook.event.clone()));
+                m.extend(rest);
+            }
+            let body = serde_json::to_string(&hook_payload).unwrap_or_else(|_| "{}".into());
+
+            let mut req_builder = client
                 .post(&hook.target_url)
                 .header("Content-Type", "application/json")
-                .header("User-Agent", "Ghost/5.98 (https://github.com/TryGhost/Ghost)")
+                // Ghost sends the API version it is speaking, and receivers
+                // branch on it.
+                .header("Content-Version", format!("v{}", ghost_core::GHOST_VERSION_SAFE))
                 .body(body.clone());
             if let Some(secret) = hook.secret.as_deref().filter(|s| !s.is_empty()) {
-                req = req.header("X-Ghost-Signature", sign(secret, &body));
+                let ts = chrono::Utc::now().timestamp_millis();
+                req_builder =
+                    req_builder.header("X-Ghost-Signature", signature_header(secret, &body, ts));
             }
-            match req.send().await {
-                Ok(resp) => {
-                    let status = resp.status();
-                    let error = if status.is_success() {
-                        None
-                    } else {
-                        Some(status.canonical_reason().unwrap_or("request failed").to_string())
-                    };
-                    repos::webhooks::record_delivery(
-                        &state.db,
-                        &hook.id,
-                        status.as_str(),
-                        error.as_deref(),
-                    )
-                    .await;
+            // Ghost retries a delivery five times before giving up. A
+            // receiver restarting, or rate-limiting, or briefly 502-ing
+            // behind a proxy is ordinary — dropping the only notification of
+            // a new member because of a two-second blip is not acceptable to
+            // anything downstream.
+            //
+            // Only failures that might pass are retried: a connection error,
+            // a 429, or a 5xx. A 4xx is the receiver saying the request
+            // itself is wrong, and repeating it cannot change that.
+            let mut attempt = 0u32;
+            loop {
+                let Some(req) = req_builder.try_clone() else { break };
+                let outcome = req.send().await;
+                let retryable = match &outcome {
+                    Ok(resp) => {
+                        let s = resp.status();
+                        s.as_u16() == 429 || s.is_server_error()
+                    }
+                    Err(_) => true,
+                };
+
+                if !retryable || attempt >= MAX_DELIVERY_RETRIES {
+                    match outcome {
+                        Ok(resp) => {
+                            let status = resp.status();
+                            let error = if status.is_success() {
+                                None
+                            } else {
+                                Some(
+                                    status
+                                        .canonical_reason()
+                                        .unwrap_or("request failed")
+                                        .to_string(),
+                                )
+                            };
+                            repos::webhooks::record_delivery(
+                                &state.db,
+                                &hook.id,
+                                status.as_str(),
+                                error.as_deref(),
+                            )
+                            .await;
+                        }
+                        Err(e) => {
+                            // A target that cannot be reached is the common
+                            // case and not this site's fault, so it is
+                            // recorded rather than logged as an error.
+                            tracing::debug!(
+                                "webhook {} to {} failed after {} attempt(s): {e}",
+                                hook.event,
+                                hook.target_url,
+                                attempt + 1
+                            );
+                            repos::webhooks::record_delivery(
+                                &state.db,
+                                &hook.id,
+                                "error",
+                                Some(&e.to_string()),
+                            )
+                            .await;
+                        }
+                    }
+                    break;
                 }
-                Err(e) => {
-                    // A target that cannot be reached is the common case and
-                    // not this site's fault, so it is recorded rather than
-                    // logged as an error.
-                    tracing::debug!("webhook {} to {} failed: {e}", hook.event, hook.target_url);
-                    repos::webhooks::record_delivery(&state.db, &hook.id, "error", Some(&e.to_string()))
-                        .await;
-                }
+
+                // Exponential backoff, as Ghost's HTTP client does: a
+                // receiver that is struggling is not helped by five
+                // immediate retries.
+                tokio::time::sleep(std::time::Duration::from_millis(
+                    RETRY_BASE_DELAY_MS << attempt,
+                ))
+                .await;
+                attempt += 1;
             }
         }
     });
@@ -160,7 +277,13 @@ mod tests {
     fn the_catalog_matches_ghosts() {
         let all: Vec<&str> =
             EVENT_GROUPS.iter().flat_map(|(_, e)| e.iter().map(|(v, _)| *v)).collect();
-        assert_eq!(all.len(), 25);
+        // Ghost 6.73's WEBHOOKS list, all 29 of them.
+        assert_eq!(all.len(), 29);
+        for event in [
+            "post.rescheduled", "page.scheduled", "page.unscheduled", "page.rescheduled",
+        ] {
+            assert!(is_known_event(event), "{event} is in Ghost's list");
+        }
         assert!(is_known_event("post.published"));
         assert!(is_known_event("member.deleted"));
         assert!(!is_known_event("post.exploded"));
@@ -176,10 +299,35 @@ mod tests {
         // RFC 4231 test case 1
         let key = "\x0b".repeat(20);
         assert_eq!(
-            sign(&key, "Hi There"),
+            hmac_hex(&key, "Hi There"),
             "b0344c61d8db38535ca8afceaf0bf12b881dc200c9833da726e9376c2e32cff7"
         );
         // same body, different secret → different signature
-        assert_ne!(sign("a", "body"), sign("b", "body"));
+        assert_ne!(hmac_hex("a", "body"), hmac_hex("b", "body"));
+    }
+
+    /// The header a receiver actually parses, in Ghost's shape.
+    #[test]
+    fn the_signature_header_is_ghosts_scheme_digest_and_timestamp() {
+        let header = signature_header("s3cret", r#"{"a":1}"#, 1_700_000_000_000);
+
+        // `sha256=<hex>, t=<ms>` — the scheme and the timestamp are part of
+        // the contract, not decoration.
+        let (sig, t) = header.split_once(", ").expect("two comma-separated parts");
+        assert_eq!(t, "t=1700000000000");
+        let digest = sig.strip_prefix("sha256=").expect("the scheme prefix");
+        assert_eq!(digest.len(), 64, "hex SHA-256");
+
+        // The signed message is body + timestamp, which is what Ghost's
+        // documented verification recomputes. Signing the body alone — what
+        // this port used to do — produces a different digest, and every
+        // receiver following the docs rejected it.
+        assert_eq!(digest, hmac_hex("s3cret", r#"{"a":1}1700000000000"#));
+        assert_ne!(digest, hmac_hex("s3cret", r#"{"a":1}"#));
+
+        // The timestamp is inside the MAC, so a replayed delivery cannot have
+        // its `t` rewritten without invalidating the signature.
+        let later = signature_header("s3cret", r#"{"a":1}"#, 1_700_000_000_001);
+        assert_ne!(header, later);
     }
 }

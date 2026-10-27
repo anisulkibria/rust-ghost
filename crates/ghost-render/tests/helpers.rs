@@ -910,12 +910,18 @@ fn commentable() -> Value {
 }
 
 /// `{{comments}}` emits the script tag the CDN widget needs, with the data
-/// attributes it reads. Checked against Ghost 6.39's `comments` helper.
+/// attributes it reads. Checked against Ghost 6.73's `comments` helper.
 #[test]
 fn comments_emits_the_widget_script_tag() {
     let out = render("{{comments}}", &commentable());
+    // Built from the pinned version rather than spelling it out, so tracking
+    // a new Ghost release is a one-line change in `apps.rs` instead of a
+    // failing test that says nothing about the thing being tested.
     assert!(
-        out.contains(r#"<script defer src="https://cdn.jsdelivr.net/ghost/comments-ui@~1.4/umd/comments-ui.min.js""#),
+        out.contains(&format!(
+            r#"<script defer src="https://cdn.jsdelivr.net/ghost/comments-ui@~{}/umd/comments-ui.min.js""#,
+            ghost_render::apps::COMMENTS_VERSION
+        )),
         "{out}"
     );
     assert!(out.contains(r#"crossorigin="anonymous""#), "{out}");

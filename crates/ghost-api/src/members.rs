@@ -1619,7 +1619,9 @@ async fn read_site(State(state): State<AppState>) -> Response {
             // delivery date it may offer.
             "timezone": state.settings.get_str("timezone").unwrap_or_else(|| "Etc/UTC".into()),
             "url": format!("{}/", state.site_url()),
-            "version": "6.39",
+            // Ghost publishes `version.safe` here — major.minor, not the
+            // patch-level string the export file carries.
+            "version": ghost_core::GHOST_VERSION_SAFE,
             "allow_external_signup": signup_access == "all" && !terms_gated,
             "site_uuid": s("site_uuid"),
         }}),
@@ -2313,6 +2315,18 @@ async fn create_member(
     // subscriptions are written, because whether the member wants updates at
     // all is read from them.
     crate::automations_engine::trigger_for_member(state, &id).await;
+
+    // Tell the integrations. This is the signup every "new member" trigger
+    // is really waiting on — the admin's own form fired one and this path,
+    // the one real readers come through, did not.
+    crate::webhooks::fire_member(
+        state,
+        "member.added",
+        &id,
+        email,
+        name.unwrap_or_default(),
+        json!({}),
+    );
 
     member_by_email(state, email).await
 }

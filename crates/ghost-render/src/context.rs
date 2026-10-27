@@ -95,6 +95,21 @@ pub fn build_site(settings: &SettingsCache, site_url: &str, admin_url: &str) -> 
         .is_some_and(|t| !t.trim().is_empty());
     m.insert("transistor_portal_enabled".into(), json!(transistor && has_template));
 
+    // Labs flags that have gone GA are true whatever the database says —
+    // Ghost overlays them in `labs.getAll()` rather than writing them, so a
+    // site that predates the release still reports them on. Themes branch on
+    // these, so the overlay has to happen before `labs` reaches the root.
+    let mut labs = match m.get("labs") {
+        Some(Value::Object(o)) => o.clone(),
+        // Older rows hold the object as a JSON string; both shapes read here.
+        Some(Value::String(s)) => serde_json::from_str(s).unwrap_or_default(),
+        _ => serde_json::Map::new(),
+    };
+    for flag in ghost_core::LABS_GA_FLAGS {
+        labs.insert((*flag).to_string(), json!(true));
+    }
+    m.insert("labs".into(), Value::Object(labs));
+
     // Image settings are stored without the base path; `site` is an output
     // boundary, so put them into browser-ready form here.
     for key in ["logo", "icon", "cover_image", "og_image", "twitter_image"] {
@@ -197,6 +212,29 @@ mod tests {
         // A stale stored `true` must not outrank missing credentials.
         let stale = site_from(&[("paid_members_enabled", json!(true))]);
         assert_eq!(stale["paid_members_enabled"], json!(false));
+    }
+
+    #[test]
+    fn ga_labs_flags_are_true_whatever_the_database_says() {
+        // Ghost overlays these in `labs.getAll()` rather than writing them,
+        // so a site that predates the release still reports them on — and a
+        // theme branching on one must see the same answer here.
+        let site = site_from(&[("labs", json!({ "superEditors": true }))]);
+        let labs = site["labs"].as_object().expect("labs reaches the root as an object");
+        for flag in ghost_core::LABS_GA_FLAGS {
+            assert_eq!(labs[*flag], json!(true), "{flag} is GA and must read true");
+        }
+        // A stored flag that is not GA survives the overlay untouched.
+        assert_eq!(labs["superEditors"], json!(true));
+
+        // A stored `false` for a GA flag loses to the overlay, because in
+        // Ghost that flag is no longer switchable at all.
+        let stale = site_from(&[("labs", json!({ "editorReact": false }))]);
+        assert_eq!(stale["labs"]["editorReact"], json!(true));
+
+        // And a site that has never written a labs object still gets them.
+        let fresh = site_from(&[]);
+        assert_eq!(fresh["labs"]["billingReact"], json!(true));
     }
 
     #[test]

@@ -2,7 +2,7 @@
 use axum::extract::{Path, Query, State};
 use axum::http::{header, HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
-use axum::routing::{get, post};
+use axum::routing::{get, post, put};
 use axum::{Json, Router};
 use ghost_db::repos;
 use serde_json::{json, Map, Value};
@@ -41,6 +41,14 @@ pub fn admin_router() -> Router<AppState> {
         .route("/integrations/{id}", get(admin_read_integration))
         // site info (used by tooling)
         .route("/site", get(site_info))
+        .route("/site/", get(site_info))
+        // Webhooks. Zapier registers and removes its own triggers through
+        // these: without them a Zap cannot be set up at all, however correct
+        // the delivery side is.
+        .route("/webhooks", post(admin_add_webhook))
+        .route("/webhooks/", post(admin_add_webhook))
+        .route("/webhooks/{id}", put(admin_edit_webhook).delete(admin_delete_webhook))
+        .route("/webhooks/{id}/", put(admin_edit_webhook).delete(admin_delete_webhook))
 }
 
 // ---------------------------------------------------------------------------
@@ -362,14 +370,58 @@ fn session_id_from(headers: &HeaderMap) -> Option<String> {
         .map(str::to_string)
 }
 
-/// Resolve the acting user from the session cookie. None = unauthenticated.
+/// Resolve the acting user, from an Admin API key or the session cookie.
+/// None = unauthenticated.
 ///
-/// Goes through [`repos::sessions::get_user`], which only resolves a verified
-/// session — so a login still waiting on its 2FA code authenticates nothing.
+/// The cookie path goes through [`repos::sessions::get_user`], which only
+/// resolves a verified session — so a login still waiting on its 2FA code
+/// authenticates nothing.
+///
+/// The key path is what every integration uses: Zapier, the official
+/// `@tryghost/admin-api` SDK, a headless frontend publishing posts. It is
+/// checked first because a request carrying `Authorization: Ghost …` is
+/// stating which identity it wants, and silently preferring a cookie that
+/// happened to ride along would be the wrong one.
 pub(crate) async fn current_user(state: &AppState, headers: &HeaderMap) -> Option<ghost_core::models::User> {
+    if let Some(user) = user_from_api_key(state, headers).await {
+        return Some(user);
+    }
     let sid = session_id_from(headers)?;
     let user_id = repos::sessions::get_user(&state.db, &sid).await.ok()??;
     repos::users::find_by_id(&state.db, &user_id).await.ok()?
+}
+
+/// The staff user an Admin API key acts as.
+///
+/// Ghost gives an integration key its own "Admin Integration" role rather
+/// than a user. This port's Admin API gates on a user rather than a role, so
+/// a key that names no user acts as the owner — which is the authority Ghost
+/// grants an admin integration anyway. A key is only ever created from the
+/// Integrations screen, which already requires an administrator.
+async fn user_from_api_key(state: &AppState, headers: &HeaderMap) -> Option<ghost_core::models::User> {
+    let header = headers.get(axum::http::header::AUTHORIZATION)?.to_str().ok()?;
+    let token = crate::apikey_auth::token_from_header(header)?;
+    let verified = crate::apikey_auth::verify(state, token, "admin").await?;
+
+    let user = match &verified.user_id {
+        Some(uid) => repos::users::find_by_id(&state.db, uid).await.ok().flatten(),
+        None => None,
+    };
+    let user = match user {
+        Some(u) => Some(u),
+        None => repos::users::find_owner(&state.db).await.ok().flatten(),
+    }?;
+
+    // Ghost records this so the Integrations screen can say when a key was
+    // last used, which is how you tell a live integration from a stale one.
+    let _ = sqlx::query("UPDATE api_keys SET last_seen_at = ?, last_seen_version = ? WHERE id = ?")
+        .bind(ghost_core::dates::now_db())
+        .bind(ghost_core::GHOST_VERSION_SAFE)
+        .bind(&verified.key_id)
+        .execute(&state.db)
+        .await;
+
+    Some(user)
 }
 
 async fn require_user(state: &AppState, headers: &HeaderMap) -> Result<ghost_core::models::User, Response> {
@@ -1330,7 +1382,10 @@ async fn admin_add_integration(State(state): State<AppState>, headers: HeaderMap
 
 async fn site_info(State(state): State<AppState>, Query(params): Query<HashMap<String, String>>) -> Response {
     let _ = params;
-    let version = env!("CARGO_PKG_VERSION");
+    // The Ghost version, not this crate's. SDKs and integrations branch on
+    // it to decide which API shape to speak; reporting `1.0.0` told every
+    // one of them this was a pre-Ghost-5 site.
+    let version = ghost_core::GHOST_VERSION_SAFE;
     ok_json(json!({
         "site": {
             "title": state.settings.get_str("title").unwrap_or_else(|| "Ghost".into()),
@@ -1339,6 +1394,204 @@ async fn site_info(State(state): State<AppState>, Query(params): Query<HashMap<S
             "version": version,
         }
     }))
+}
+
+// ---------------------------------------------------------------------------
+// webhooks — how an integration registers its own triggers
+// ---------------------------------------------------------------------------
+
+/// Ghost's webhook response shape, which its SDKs and Zapier parse.
+fn webhook_json(w: &ghost_db::repos::webhooks::Webhook) -> Value {
+    json!({
+        "id": w.id,
+        "event": w.event,
+        "target_url": w.target_url,
+        "name": w.name,
+        "secret": w.secret,
+        // The port writes v5 rows; reported as a constant rather than
+        // selected, since nothing varies it.
+        "api_version": "v5",
+        "integration_id": w.integration_id,
+        "last_triggered_at": w.last_triggered_at,
+        "last_triggered_status": w.last_triggered_status,
+        "last_triggered_error": w.last_triggered_error,
+        "created_at": w.created_at,
+        "updated_at": w.created_at,
+    })
+}
+
+#[derive(serde::Deserialize, Default)]
+#[serde(default)]
+struct WebhookInput {
+    event: String,
+    target_url: String,
+    name: Option<String>,
+    secret: Option<String>,
+    integration_id: Option<String>,
+}
+
+/// Pull the one resource out of Ghost's `{webhooks: [{...}]}` envelope.
+fn first_of<'a>(body: &'a Value, key: &str) -> Option<&'a Value> {
+    body.get(key).and_then(|v| v.as_array()).and_then(|a| a.first())
+}
+
+/// `POST /webhooks/` — register a listener.
+///
+/// The integration is taken from the authenticating key when the body does
+/// not name one, which is exactly how Zapier calls this: it knows its own
+/// token, not the integration id behind it.
+async fn admin_add_webhook(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(body): Json<Value>,
+) -> Response {
+    if let Err(r) = require_user(&state, &headers).await {
+        return r;
+    }
+    let Some(input) = first_of(&body, "webhooks")
+        .and_then(|v| serde_json::from_value::<WebhookInput>(v.clone()).ok())
+    else {
+        return err(StatusCode::BAD_REQUEST, "No webhook was given", "BadRequestError");
+    };
+
+    if !crate::webhooks::is_known_event(&input.event) {
+        return err(
+            StatusCode::UNPROCESSABLE_ENTITY,
+            &format!("Unknown webhook event: {}", input.event),
+            "ValidationError",
+        );
+    }
+    if !input.target_url.starts_with("http://") && !input.target_url.starts_with("https://") {
+        return err(
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "target_url must be an http or https URL",
+            "ValidationError",
+        );
+    }
+
+    // The integration the webhook belongs to: the one the body named, else
+    // the one behind the authenticating key — which is how Zapier calls
+    // this, knowing its token but not the integration id behind it.
+    let integration_id = match input.integration_id.clone() {
+        Some(id) => id,
+        None => match integration_from_api_key(&state, &headers).await {
+            Some(id) => id,
+            None => match default_integration_id(&state).await {
+                Some(id) => id,
+                None => {
+                    return err(
+                        StatusCode::UNPROCESSABLE_ENTITY,
+                        "No integration to attach this webhook to",
+                        "ValidationError",
+                    )
+                }
+            },
+        },
+    };
+
+    match repos::webhooks::create(
+        &state.db,
+        &integration_id,
+        &input.event,
+        &input.target_url,
+        input.name.as_deref().unwrap_or(""),
+        input.secret.as_deref().unwrap_or(""),
+    )
+    .await
+    {
+        Ok(w) => (StatusCode::CREATED, Json(json!({ "webhooks": [webhook_json(&w)] }))).into_response(),
+        Err(e) => err(StatusCode::INTERNAL_SERVER_ERROR, &e.message(), "InternalServerError"),
+    }
+}
+
+/// `PUT /webhooks/{id}` — repoint or rename an existing listener.
+async fn admin_edit_webhook(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+    headers: HeaderMap,
+    Json(body): Json<Value>,
+) -> Response {
+    if let Err(r) = require_user(&state, &headers).await {
+        return r;
+    }
+    let Ok(Some(existing)) = repos::webhooks::find(&state.db, &id).await else {
+        return err(StatusCode::NOT_FOUND, "Webhook not found", "NotFoundError");
+    };
+    let input = first_of(&body, "webhooks").cloned().unwrap_or(Value::Null);
+    let take = |key: &str, fallback: &str| -> String {
+        input.get(key).and_then(|v| v.as_str()).unwrap_or(fallback).to_string()
+    };
+
+    let event = take("event", &existing.event);
+    if !crate::webhooks::is_known_event(&event) {
+        return err(
+            StatusCode::UNPROCESSABLE_ENTITY,
+            &format!("Unknown webhook event: {event}"),
+            "ValidationError",
+        );
+    }
+    let target_url = take("target_url", &existing.target_url);
+    let name = take("name", existing.name.as_deref().unwrap_or(""));
+
+    if sqlx::query(
+        "UPDATE webhooks SET event = ?, target_url = ?, name = ?, updated_at = ? WHERE id = ?",
+    )
+    .bind(&event)
+    .bind(&target_url)
+    .bind(&name)
+    .bind(ghost_core::dates::now_db())
+    .bind(&id)
+    .execute(&state.db)
+    .await
+    .is_err()
+    {
+        return err(StatusCode::INTERNAL_SERVER_ERROR, "Could not save", "InternalServerError");
+    }
+    match repos::webhooks::find(&state.db, &id).await {
+        Ok(Some(w)) => Json(json!({ "webhooks": [webhook_json(&w)] })).into_response(),
+        _ => err(StatusCode::NOT_FOUND, "Webhook not found", "NotFoundError"),
+    }
+}
+
+/// `DELETE /webhooks/{id}` — how an integration cleans up after itself when
+/// a trigger is switched off at the other end.
+async fn admin_delete_webhook(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+    headers: HeaderMap,
+) -> Response {
+    if let Err(r) = require_user(&state, &headers).await {
+        return r;
+    }
+    if repos::webhooks::find(&state.db, &id).await.ok().flatten().is_none() {
+        return err(StatusCode::NOT_FOUND, "Webhook not found", "NotFoundError");
+    }
+    match repos::webhooks::delete(&state.db, &id).await {
+        Ok(()) => StatusCode::NO_CONTENT.into_response(),
+        Err(e) => err(StatusCode::INTERNAL_SERVER_ERROR, &e.message(), "InternalServerError"),
+    }
+}
+
+/// The integration behind the authenticating Admin API key, if a key was
+/// used. Re-verifies the token rather than threading it down from
+/// authentication, which keeps this a plain function of the request.
+async fn integration_from_api_key(state: &AppState, headers: &HeaderMap) -> Option<String> {
+    let header = headers.get(header::AUTHORIZATION)?.to_str().ok()?;
+    let token = crate::apikey_auth::token_from_header(header)?;
+    crate::apikey_auth::verify(state, token, "admin").await?.integration_id
+}
+
+/// The integration a webhook lands on when nothing names one: the first
+/// custom integration, else any. A webhook row must belong to something —
+/// the column is a foreign key.
+async fn default_integration_id(state: &AppState) -> Option<String> {
+    sqlx::query_scalar::<_, String>(
+        "SELECT id FROM integrations ORDER BY type = 'custom' DESC, created_at LIMIT 1",
+    )
+    .fetch_optional(&state.db)
+    .await
+    .ok()
+    .flatten()
 }
 
 #[cfg(test)]
