@@ -46,7 +46,8 @@ impl Fixture {
             setup_done: Arc::new(AtomicBool::new(true)), frontend_key: Arc::new(RwLock::new(Some(content_key.clone()))),
         };
         let app = Router::new().nest("/admin", ghost_api::admin::admin_router())
-            .nest("/content", ghost_api::content::content_router()).with_state(state.clone());
+            .nest("/content", ghost_api::content::content_router())
+            .merge(ghost_api::members::members_router()).with_state(state.clone());
         Self {state, app, cookie: format!("ghost-admin-api-session={sid}"), content_key}
     }
 
@@ -279,4 +280,52 @@ async fn public_authors_and_tags_include_counts_on_reads() {
     let tag = &body["posts"][0]["tags"][0];
     let (_, body) = f.request("GET", &format!("/content/tags/{}/?key={}&include=count.posts&fields=name,count", tag["id"].as_str().unwrap(), f.content_key), Value::Null, None).await;
     assert_eq!(body["tags"][0]["count"]["posts"], 1);
+}
+
+
+#[tokio::test]
+async fn free_signup_defaults_are_visible_and_membership_controls_update_visibility() {
+    let f = Fixture::new().await;
+    let free: (String, String) = sqlx::query_as("SELECT id, visibility FROM products WHERE type = 'free'").fetch_one(&f.state.db).await.unwrap();
+    assert_eq!(free.1, "public");
+    let (_, body) = f.request("GET", &format!("/content/tiers/?key={}", f.content_key), Value::Null, None).await;
+    let tier = body["tiers"].as_array().unwrap().iter().find(|tier| tier["type"] == "free").unwrap();
+    assert_eq!(tier["visibility"], "public");
+    repos::tiers::set_free_signup_visibility(&f.state.db, false).await.unwrap();
+    let hidden: String = sqlx::query_scalar("SELECT visibility FROM products WHERE id = ?").bind(&free.0).fetch_one(&f.state.db).await.unwrap();
+    assert_eq!(hidden, "none");
+    repos::tiers::set_free_signup_visibility(&f.state.db, true).await.unwrap();
+    let visible: String = sqlx::query_scalar("SELECT visibility FROM products WHERE id = ?").bind(&free.0).fetch_one(&f.state.db).await.unwrap();
+    assert_eq!(visible, "public");
+}
+
+#[tokio::test]
+async fn stripe_sync_repairs_missing_tier_ids_and_reuses_unchanged_prices() {
+    let f = Fixture::new().await;
+    let tier: String = sqlx::query_scalar("SELECT id FROM products WHERE type = 'paid' LIMIT 1").fetch_one(&f.state.db).await.unwrap();
+    sqlx::query("INSERT INTO stripe_products (id, product_id, stripe_product_id, created_at, updated_at) VALUES ('product-map', ?, 'prod_fixture', datetime('now'), datetime('now'))").bind(&tier).execute(&f.state.db).await.unwrap();
+    for (id, amount, interval) in [("price_month_fixture", 500, "month"), ("price_year_fixture", 5000, "year")] {
+        sqlx::query("INSERT INTO stripe_prices (id, stripe_price_id, stripe_product_id, active, amount, currency, interval, type, created_at, updated_at) VALUES (?, ?, 'prod_fixture', 1, ?, 'usd', ?, 'recurring', datetime('now'), datetime('now'))")
+            .bind(id).bind(id).bind(amount).bind(interval).execute(&f.state.db).await.unwrap();
+    }
+    let cfg = ghost_stripe::StripeConfig {secret_key: "sk_test_never_sent".into(), publishable_key: String::new(), webhook_secret: String::new()};
+    for _ in 0..2 {
+        ghost_api::stripe_tiers::sync_tier(&f.state, &cfg, &tier, "Fixture", "USD", Some(500), Some(5000)).await.unwrap();
+    }
+    let ids: (Option<String>, Option<String>) = sqlx::query_as("SELECT monthly_price_id, yearly_price_id FROM products WHERE id = ?").bind(&tier).fetch_one(&f.state.db).await.unwrap();
+    assert_eq!(ids.0.as_deref(), Some("price_month_fixture"));
+    assert_eq!(ids.1.as_deref(), Some("price_year_fixture"));
+    let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM stripe_prices").fetch_one(&f.state.db).await.unwrap();
+    assert_eq!(count, 2);
+}
+
+#[tokio::test]
+async fn checkout_configuration_errors_use_portal_messages_and_persist_owner_diagnostics() {
+    let f = Fixture::new().await;
+    let (status, body) = f.request("POST", "/members/api/create-stripe-checkout-session/", json!({"tierId": "missing", "cadence": "month"}), None).await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+    assert_eq!(body["errors"][0]["message"], "This site is not accepting payments at the moment.");
+    f.state.settings.set(&f.state.db, "stripe_checkout_setup_error", &json!("Complete the Stripe business name.")).await.unwrap();
+    let stored: String = sqlx::query_scalar("SELECT value FROM settings WHERE key = 'stripe_checkout_setup_error'").fetch_one(&f.state.db).await.unwrap();
+    assert_eq!(stored, "Complete the Stripe business name.");
 }

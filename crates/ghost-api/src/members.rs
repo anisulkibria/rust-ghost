@@ -214,39 +214,62 @@ async fn create_checkout_session(
     let Some(cfg) = stripe_cfg(&state) else {
         return api_error(
             StatusCode::BAD_REQUEST,
-            "This site is not set up to take payments yet.",
+            "This site is not accepting payments at the moment.",
             "BadRequestError",
         );
     };
 
-    // Resolve the Stripe price: either given outright, or derived from the
-    // tier plus the cadence the visitor picked.
-    let price_id = match req.price_id.clone().filter(|p| p.starts_with("price_")) {
-        Some(p) => Some(p),
-        None => {
-            let column = match req.cadence.as_deref() {
-                Some("year") | Some("yearly") => "yearly_price_id",
-                _ => "monthly_price_id",
-            };
-            let sql = match &req.tier_id {
-                Some(_) => format!("SELECT {column} FROM products WHERE id = ? AND active = 1 LIMIT 1"),
-                None => format!(
-                    "SELECT {column} FROM products WHERE type = 'paid' AND active = 1 ORDER BY created_at LIMIT 1"
-                ),
-            };
-            let mut q = sqlx::query_scalar::<_, Option<String>>(&sql);
-            if let Some(t) = &req.tier_id {
-                q = q.bind(t);
-            }
-            q.fetch_optional(&state.db).await.ok().flatten().flatten()
+    // Resolve a real configured tier before talking to Stripe. Portal sends
+    // a tier id and cadence, including on sites connected before prices existed.
+    let yearly = match req.cadence.as_deref() {
+        None | Some("month" | "monthly") => false,
+        Some("year" | "yearly") => true,
+        _ => return api_error(StatusCode::BAD_REQUEST, "Unknown billing cadence.", "BadRequestError"),
+    };
+    type Tier = (String, String, Option<String>, Option<i64>, Option<i64>, Option<String>, Option<String>, i64);
+    let columns = "id, name, currency, monthly_price, yearly_price, monthly_price_id, yearly_price_id, trial_days";
+    let mut query = format!("SELECT {columns} FROM products WHERE type = 'paid' AND active = 1 AND visibility = 'public'");
+    let selector = if let Some(tier) = &req.tier_id {
+        query.push_str(" AND id = ?");
+        Some(tier.as_str())
+    } else if let Some(price) = &req.price_id {
+        query.push_str(" AND (monthly_price_id = ? OR yearly_price_id = ?)");
+        Some(price.as_str())
+    } else { None };
+    query.push_str(" ORDER BY created_at LIMIT 1");
+    let mut sql = sqlx::query_as::<_, Tier>(&query);
+    if let Some(selector) = selector {
+        sql = sql.bind(selector);
+        if req.tier_id.is_none() { sql = sql.bind(selector); }
+    }
+    let tier = match sql.fetch_optional(&state.db).await {
+        Ok(Some(tier)) => tier,
+        Ok(None) => return api_error(StatusCode::BAD_REQUEST, "That plan is not available for purchase.", "BadRequestError"),
+        Err(error) => {
+            tracing::error!("members: could not resolve checkout tier: {error}");
+            return api_error(StatusCode::INTERNAL_SERVER_ERROR, "Could not load the selected plan.", "InternalServerError");
         }
     };
-    let Some(price_id) = price_id.filter(|p| !p.is_empty()) else {
-        return api_error(
-            StatusCode::BAD_REQUEST,
-            "That plan is not available for purchase yet.",
-            "BadRequestError",
-        );
+    let yearly = if req.tier_id.is_none() && req.price_id.is_some() {
+        req.price_id.as_deref() == tier.6.as_deref()
+    } else { yearly };
+    let amount = if yearly { tier.4 } else { tier.3 };
+    if !amount.is_some_and(|amount| amount > 0) {
+        return api_error(StatusCode::BAD_REQUEST, "That billing option is not available for purchase.", "BadRequestError");
+    }
+    let mut price_id = if yearly { tier.6.clone() } else { tier.5.clone() };
+    if price_id.as_deref().is_none_or(str::is_empty) {
+        if let Err(error) = crate::stripe_tiers::sync_tier(&state, &cfg, &tier.0, &tier.1,
+            tier.2.as_deref().unwrap_or("usd"), tier.3, tier.4).await {
+            tracing::error!("stripe: tier price setup failed: {}", error.message());
+            return api_error(StatusCode::BAD_REQUEST, "This site is not accepting payments at the moment.", "BadRequestError");
+        }
+        let column = if yearly { "yearly_price_id" } else { "monthly_price_id" };
+        price_id = sqlx::query_scalar::<_, Option<String>>(&format!("SELECT {column} FROM products WHERE id = ?"))
+            .bind(&tier.0).fetch_one(&state.db).await.ok().flatten();
+    }
+    let Some(price_id) = price_id.filter(|price| price.starts_with("price_")) else {
+        return api_error(StatusCode::BAD_REQUEST, "That plan is not available for purchase yet.", "BadRequestError");
     };
 
     // An existing session identifies the buyer; otherwise Portal supplies the
@@ -271,16 +294,7 @@ async fn create_checkout_session(
         .filter(|u| u.starts_with(&site_url))
         .unwrap_or_else(|| format!("{site_url}/?stripe=cancelled"));
 
-    let trial: i64 = match &req.tier_id {
-        Some(t) => sqlx::query_scalar("SELECT trial_days FROM products WHERE id = ?")
-            .bind(t)
-            .fetch_optional(&state.db)
-            .await
-            .ok()
-            .flatten()
-            .unwrap_or(0),
-        None => 0,
-    };
+    let trial = tier.7;
     let _ = &req.identity;
     let _ = &req.metadata;
 
@@ -294,12 +308,7 @@ async fn create_checkout_session(
         },
         None => None,
     };
-    let offer = offer.filter(|o| match &req.tier_id {
-        Some(t) => o.product_id == *t,
-        // No tier named means the default paid tier, which is the one the
-        // price was resolved from above.
-        None => true,
-    });
+    let offer = offer.filter(|offer| offer.product_id == tier.0);
     let checkout_offer = offer.as_ref().map(|o| ghost_stripe::CheckoutOffer {
         offer_id: &o.id,
         coupon_id: o.stripe_coupon_id.as_deref(),
@@ -319,10 +328,21 @@ async fn create_checkout_session(
     )
     .await
     {
-        Ok(url) => private_json(StatusCode::OK, json!({ "url": url })),
+        Ok(url) => {
+            let _ = state.settings.set(&state.db, "stripe_checkout_setup_error", &json!("")).await;
+            private_json(StatusCode::OK, json!({ "url": url }))
+        },
         Err(e) => {
             tracing::error!("stripe: checkout session failed: {}", e.message());
-            api_error(StatusCode::BAD_REQUEST, &e.message(), "BadRequestError")
+            let detail = if e.message().contains("account or business name") {
+                "Stripe requires an account or business name. Set it in your Stripe dashboard's business details, then retry checkout."
+            } else {
+                "Stripe could not open checkout. Check the server log for its error and confirm your account setup is complete."
+            };
+            let _ = state.settings.set(&state.db, "stripe_checkout_setup_error", &json!(detail)).await;
+            // Portal translates a fixed set of API messages and otherwise
+            // replaces them with its generic signup failure.
+            api_error(StatusCode::BAD_REQUEST, "This site is not accepting payments at the moment.", "BadRequestError")
         }
     }
 }

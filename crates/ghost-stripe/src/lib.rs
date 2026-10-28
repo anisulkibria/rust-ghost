@@ -13,6 +13,8 @@ use ghost_core::{GhostError, Result};
 use ghost_db::SettingsCache;
 
 const API: &str = "https://api.stripe.com/v1";
+/// Matches Ghost 6.73's Stripe client and subscription payloads.
+pub const STRIPE_API_VERSION: &str = "2020-08-27";
 
 /// A connected Stripe account's credentials.
 #[derive(Debug, Clone)]
@@ -63,6 +65,7 @@ async fn post(cfg: &StripeConfig, path: &str, form: &[(String, String)]) -> Resu
     let resp = client()
         .post(format!("{API}{path}"))
         .basic_auth(&cfg.secret_key, None::<&str>)
+        .header("Stripe-Version", STRIPE_API_VERSION)
         .form(form)
         .send()
         .await
@@ -74,6 +77,7 @@ async fn get(cfg: &StripeConfig, path: &str) -> Result<serde_json::Value> {
     let resp = client()
         .get(format!("{API}{path}"))
         .basic_auth(&cfg.secret_key, None::<&str>)
+        .header("Stripe-Version", STRIPE_API_VERSION)
         .send()
         .await
         .map_err(|e| GhostError::BadRequest(format!("Stripe request failed: {e}")))?;
@@ -318,10 +322,25 @@ pub async fn create_checkout_session(
     trial_days: u32,
     offer: Option<&CheckoutOffer<'_>>,
 ) -> Result<String> {
+    let form = subscription_checkout_form(price_id, customer_email, success_url, cancel_url, member_uuid, trial_days, offer);
+    let v = post(cfg, "/checkout/sessions", &form).await?;
+    v.get("url")
+        .and_then(|x| x.as_str())
+        .map(|s| s.to_string())
+        .ok_or_else(|| GhostError::BadRequest("Stripe did not return a checkout URL".into()))
+}
+
+#[allow(clippy::too_many_arguments)]
+fn subscription_checkout_form(
+    price_id: &str, customer_email: Option<&str>, success_url: &str, cancel_url: &str,
+    member_uuid: &str, trial_days: u32, offer: Option<&CheckoutOffer<'_>>,
+) -> Vec<(String, String)> {
     let mut form = vec![
-        ("mode".to_string(), "subscription".to_string()),
-        ("line_items[0][price]".to_string(), price_id.to_string()),
-        ("line_items[0][quantity]".to_string(), "1".to_string()),
+        ("payment_method_types[0]".to_string(), "card".to_string()),
+        ("managed_payments[enabled]".to_string(), "false".to_string()),
+        ("automatic_tax[enabled]".to_string(), "false".to_string()),
+        ("subscription_data[trial_from_plan]".to_string(), "true".to_string()),
+        ("subscription_data[items][0][plan]".to_string(), price_id.to_string()),
         ("success_url".to_string(), success_url.to_string()),
         ("cancel_url".to_string(), cancel_url.to_string()),
         // Carried back on the webhook, which is how a completed payment is
@@ -336,6 +355,7 @@ pub async fn create_checkout_session(
     // offer override the tier default rather than stacking on top of it.
     let trial_days = offer.and_then(|o| o.trial_days).unwrap_or(trial_days);
     if trial_days > 0 {
+        form.retain(|(key, _)| key != "subscription_data[trial_from_plan]");
         form.push(("subscription_data[trial_period_days]".to_string(), trial_days.to_string()));
     }
     if let Some(o) = offer {
@@ -347,11 +367,7 @@ pub async fn create_checkout_session(
         form.push(("metadata[offer_id]".to_string(), o.offer_id.to_string()));
         form.push(("subscription_data[metadata][offer_id]".to_string(), o.offer_id.to_string()));
     }
-    let v = post(cfg, "/checkout/sessions", &form).await?;
-    v.get("url")
-        .and_then(|x| x.as_str())
-        .map(|s| s.to_string())
-        .ok_or_else(|| GhostError::BadRequest("Stripe did not return a checkout URL".into()))
+    form
 }
 
 /// Billing portal session, so a member can change or cancel their plan.
@@ -384,7 +400,7 @@ pub const WEBHOOK_EVENTS: &[&str] = &[
 
 /// Register a webhook endpoint and return `(id, signing_secret)`.
 pub async fn create_webhook(cfg: &StripeConfig, url: &str) -> Result<(String, String)> {
-    let mut form = vec![("url".to_string(), url.to_string())];
+    let mut form = vec![("url".to_string(), url.to_string()), ("api_version".to_string(), STRIPE_API_VERSION.to_string())];
     for (i, e) in WEBHOOK_EVENTS.iter().enumerate() {
         form.push((format!("enabled_events[{i}]"), (*e).to_string()));
     }
@@ -399,6 +415,7 @@ pub async fn delete_webhook(cfg: &StripeConfig, id: &str) -> Result<()> {
     let resp = client()
         .delete(format!("{API}/webhook_endpoints/{id}"))
         .basic_auth(&cfg.secret_key, None::<&str>)
+        .header("Stripe-Version", STRIPE_API_VERSION)
         .send()
         .await
         .map_err(|e| GhostError::BadRequest(format!("Stripe request failed: {e}")))?;
@@ -465,6 +482,7 @@ pub async fn delete_coupon(cfg: &StripeConfig, id: &str) -> Result<()> {
     let resp = client()
         .delete(format!("{API}/coupons/{id}"))
         .basic_auth(&cfg.secret_key, None::<&str>)
+        .header("Stripe-Version", STRIPE_API_VERSION)
         .send()
         .await
         .map_err(|e| GhostError::BadRequest(format!("Stripe request failed: {e}")))?;
@@ -546,6 +564,22 @@ mod tests {
 
     fn sign(secret: &str, ts: i64, body: &str) -> String {
         format!("t={ts},v1={}", hmac_sha256_hex(secret, &format!("{ts}.{body}")))
+    }
+
+    #[test]
+    fn checkout_parameters_match_the_installed_ghost_673_contract() {
+        assert_eq!(STRIPE_API_VERSION, "2020-08-27");
+        let form: std::collections::HashMap<_, _> = subscription_checkout_form("price_fixture", Some("member@example.test"),
+            "https://site.test/success", "https://site.test/cancel", "member-fixture", 0, None).into_iter().collect();
+        assert_eq!(form["subscription_data[items][0][plan]"], "price_fixture");
+        assert_eq!(form["subscription_data[trial_from_plan]"], "true");
+        assert_eq!(form["managed_payments[enabled]"], "false");
+        assert_eq!(form["payment_method_types[0]"], "card");
+        assert!(!form.keys().any(|key| key.starts_with("branding_settings")));
+        let trial: std::collections::HashMap<_, _> = subscription_checkout_form("price_fixture", None,
+            "https://site.test/success", "https://site.test/cancel", "member-fixture", 7, None).into_iter().collect();
+        assert_eq!(trial["subscription_data[trial_period_days]"], "7");
+        assert!(!trial.contains_key("subscription_data[trial_from_plan]"));
     }
 
     #[test]

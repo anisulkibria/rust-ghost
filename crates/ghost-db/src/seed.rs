@@ -310,10 +310,11 @@ async fn seed_content(pool: &SqlitePool) -> Result<()> {
         ("Free", "free", None::<i64>, None::<i64>, "free"),
         ("Default Product", "default-product", Some(500), Some(5000), "paid"),
     ] {
-        sqlx::query("INSERT INTO products (id, name, slug, active, visibility, type, currency, monthly_price, yearly_price, created_at, updated_at) VALUES (?, ?, ?, 1, 'none', ?, 'usd', ?, ?, ?, ?)")
+        sqlx::query("INSERT INTO products (id, name, slug, active, visibility, type, currency, monthly_price, yearly_price, created_at, updated_at) VALUES (?, ?, ?, 1, ?, ?, 'usd', ?, ?, ?, ?)")
             .bind(&ids::new_id())
             .bind(name)
             .bind(slug)
+            .bind(if typ == "free" { "public" } else { "none" })
             .bind(typ)
             .bind(monthly)
             .bind(yearly)

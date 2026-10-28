@@ -1446,6 +1446,7 @@ name = "ghost-admin-ui"
 version = "1.0.0"
 dependencies = [
  "axum",
+ "base64 0.22.1",
  "bcrypt",
  "csv",
  "form_urlencoded",

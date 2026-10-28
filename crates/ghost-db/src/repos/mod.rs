@@ -3,6 +3,7 @@
 //! Row structs are private to ghost-db; repos map them to domain structs.
 pub mod posts;
 pub mod tags;
+pub mod tiers;
 pub mod users;
 pub mod settings;
 pub mod staff;

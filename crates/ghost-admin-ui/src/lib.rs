@@ -101,6 +101,8 @@ pub fn admin_ui_router() -> Router<AppState> {
         .route("/settings/site/", get(site_page).post(site_save))
         .route("/settings/membership/", get(membership_page).post(membership_save))
         .route("/settings/membership/stripe/connect/", post(stripe_connect))
+        .route("/settings/membership/stripe/oauth/start/", post(stripe_oauth_start))
+        .route("/settings/membership/stripe/oauth/finish/", post(stripe_oauth_finish))
         .route("/settings/membership/stripe/disconnect/", post(stripe_disconnect))
         .route("/settings/membership/stripe/webhook/", post(stripe_set_webhook_secret))
         .route("/settings/membership/stripe/webhook/deactivate/", post(stripe_deactivate_webhook))
@@ -10841,6 +10843,14 @@ async fn tier_edit_save(
     if let Err(e) = res {
         return tier_flash(&tid, "error", &format!("Could not save: {e}"));
     }
+    if is_free {
+        let mut plans: Vec<String> = state.settings.get("portal_plans").and_then(|value| serde_json::from_value(value).ok()).unwrap_or_default();
+        plans.retain(|plan| plan != "free");
+        if form.active.is_some() && form.visibility != "none" { plans.insert(0, "free".into()); }
+        if let Err(error) = state.settings.set(&state.db, "portal_plans", &serde_json::json!(plans)).await {
+            return tier_flash(&tid, "error", &error.message());
+        }
+    }
     set_tier_benefits(&state, &tid, &form.benefits).await;
 
     // Mirror the prices into Stripe. Only when something actually changed —
@@ -10850,7 +10860,9 @@ async fn tier_edit_save(
         let changed = monthly != old_monthly
             || yearly != old_yearly
             || currency != old_currency.unwrap_or_default();
-        if changed {
+        let missing_prices: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM products WHERE id = ? AND ((monthly_price > 0 AND monthly_price_id IS NULL) OR (yearly_price > 0 AND yearly_price_id IS NULL))")
+            .bind(&tid).fetch_one(&state.db).await.unwrap_or(0);
+        if changed || missing_prices > 0 {
             if let Some(cfg) = ghost_stripe::StripeConfig::from_settings(&state.settings) {
                 if let Err(e) = sync_tier_to_stripe(&state, &cfg, &tid, name, &currency, monthly, yearly).await {
                     return tier_flash(&tid, "error", &format!("Saved, but Stripe was not updated: {}", e.message()));
@@ -10863,49 +10875,10 @@ async fn tier_edit_save(
 
 /// Create the Stripe product and prices for a tier and record their ids.
 async fn sync_tier_to_stripe(
-    state: &AppState,
-    cfg: &ghost_stripe::StripeConfig,
-    tier_id: &str,
-    name: &str,
-    currency: &str,
-    monthly: Option<i64>,
-    yearly: Option<i64>,
+    state: &AppState, cfg: &ghost_stripe::StripeConfig, tier_id: &str, name: &str,
+    currency: &str, monthly: Option<i64>, yearly: Option<i64>,
 ) -> ghost_core::Result<()> {
-    let existing_product: Option<String> =
-        sqlx::query_scalar("SELECT stripe_product_id FROM stripe_products WHERE product_id = ? LIMIT 1")
-            .bind(tier_id)
-            .fetch_optional(&state.db)
-            .await
-            .ok()
-            .flatten();
-    let product_id = ghost_stripe::ensure_product(cfg, name, existing_product.as_deref()).await?;
-    let now = ghost_core::dates::now_db();
-    if existing_product.as_deref() != Some(product_id.as_str()) {
-        let _ = sqlx::query(
-            "INSERT INTO stripe_products (id, product_id, stripe_product_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?)",
-        )
-        .bind(ghost_core::ids::new_id()).bind(tier_id).bind(&product_id).bind(&now).bind(&now)
-        .execute(&state.db).await;
-    }
-
-    for (amount, interval, column) in [
-        (monthly, "month", "monthly_price_id"),
-        (yearly, "year", "yearly_price_id"),
-    ] {
-        let Some(amount) = amount else { continue };
-        let price_id = ghost_stripe::create_price(cfg, &product_id, currency, amount, interval).await?;
-        let _ = sqlx::query(
-            "INSERT INTO stripe_prices (id, stripe_price_id, stripe_product_id, active, nickname, amount, currency, interval, type, created_at, updated_at) \
-             VALUES (?, ?, ?, 1, ?, ?, ?, ?, 'recurring', ?, ?)",
-        )
-        .bind(ghost_core::ids::new_id()).bind(&price_id).bind(&product_id)
-        .bind(interval).bind(amount).bind(currency).bind(interval).bind(&now).bind(&now)
-        .execute(&state.db).await;
-        let _ = sqlx::query(&format!("UPDATE products SET {column} = ? WHERE id = ?"))
-            .bind(&price_id).bind(tier_id)
-            .execute(&state.db).await;
-    }
-    Ok(())
+    ghost_api::stripe_tiers::sync_tier(state, cfg, tier_id, name, currency, monthly, yearly).await
 }
 
 // --- Stripe connection (Ghost's "Connect to Stripe", self-hosted flavour) ---
@@ -10922,6 +10895,76 @@ fn membership_flash(kind: &str, message: &str) -> Response {
 struct StripeConnectForm {
     secret_key: String,
     publishable_key: String,
+}
+
+/// Ghost's official Connect broker returns a secure key after Stripe onboarding.
+/// Its state is bound to this verified admin session, just as in Ghost 6.73.
+fn stripe_oauth_url(mode: &str, state: &str) -> String {
+    let client = if mode == "test" { "ca_8LBum4Ctv3mmJ1oD0ZRmxjdAhNrrBUy3" } else { "ca_8LBuZWhYshxF0A55KgCXu8PRTquCKC5x" };
+    let query = form_urlencoded::Serializer::new(String::new())
+        .append_pair("response_type", "code").append_pair("scope", "read_write")
+        .append_pair("client_id", client).append_pair("redirect_uri", "https://stripe.ghost.org")
+        .append_pair("state", state).finish();
+    format!("https://connect.stripe.com/oauth/authorize?{query}")
+}
+
+async fn stripe_oauth_start(State(state): State<AppState>, headers: HeaderMap, Form(form): Form<HashMap<String, String>>) -> Response {
+    use base64::Engine;
+    if let Err(response) = require_role(&state, &headers, Role::Administrator).await { return response; }
+    if state.config.env == "production" && !state.site_url().starts_with("https://") {
+        return membership_flash("error", "Stripe Connect requires HTTPS in production.");
+    }
+    let Some(sid) = session_id_from(&headers) else { return membership_flash("error", "Sign in again before connecting Stripe."); };
+    let mode = if form.get("mode").is_some_and(|mode| mode == "test") { "test" } else { "live" };
+    let encoded = base64::engine::general_purpose::STANDARD.encode(serde_json::json!({"mode": mode, "randomState": ghost_core::ids::random_hex(16)}).to_string());
+    let updated = sqlx::query("UPDATE sessions SET session_data = json_set(session_data, '$.stripe-connect-state', ?, '$.stripe-connect-started-at', ?) WHERE session_id = ?")
+        .bind(&encoded).bind(now_unix_seconds()).bind(&sid).execute(&state.db).await;
+    match updated {
+        Ok(result) if result.rows_affected() == 1 => Redirect::to(&stripe_oauth_url(mode, &encoded)).into_response(),
+        _ => membership_flash("error", "Could not start the Stripe connection. Sign in again and retry."),
+    }
+}
+
+fn now_unix_seconds() -> i64 { std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_secs() as i64 }
+
+#[derive(Deserialize)]
+struct StripeSecureKeyForm { secure_key: String }
+
+#[derive(Deserialize)]
+struct StripeSecureKey { a: String, p: String, s: String, l: bool, i: String }
+
+fn decode_stripe_secure_key(encoded: &str, expected: &str) -> Result<StripeSecureKey, &'static str> {
+    use base64::Engine;
+    let raw = base64::engine::general_purpose::STANDARD.decode(encoded.trim()).map_err(|_| "The Stripe secure key could not be parsed.")?;
+    let key: StripeSecureKey = serde_json::from_slice(&raw).map_err(|_| "The Stripe secure key could not be parsed.")?;
+    if expected.is_empty() || key.s != expected { return Err("The Stripe connection belongs to another session. Start the connection again."); }
+    if !key.i.starts_with("acct_") || !key.a.starts_with("sk_") || !key.p.starts_with("pk_") {
+        return Err("The Stripe secure key is incomplete.");
+    }
+    if key.l != key.a.starts_with("sk_live_") || key.l != key.p.starts_with("pk_live_") {
+        return Err("The Stripe secure key has mismatched test and live modes.");
+    }
+    Ok(key)
+}
+
+async fn stripe_oauth_finish(State(state): State<AppState>, headers: HeaderMap, Form(form): Form<StripeSecureKeyForm>) -> Response {
+    if let Err(response) = require_role(&state, &headers, Role::Administrator).await { return response; }
+    let Some(sid) = session_id_from(&headers) else { return membership_flash("error", "Sign in again before connecting Stripe."); };
+    let saved: Option<(Option<String>, Option<i64>)> = sqlx::query_as("SELECT json_extract(session_data, '$.stripe-connect-state'), json_extract(session_data, '$.stripe-connect-started-at') FROM sessions WHERE session_id = ?")
+        .bind(&sid).fetch_optional(&state.db).await.ok().flatten();
+    let Some((Some(expected), Some(started))) = saved else { return membership_flash("error", "Start Connect with Stripe before pasting its secure key."); };
+    if now_unix_seconds().saturating_sub(started) > 30 * 60 {
+        return membership_flash("error", "The Stripe connection expired. Start Connect with Stripe again.");
+    }
+    let key = match decode_stripe_secure_key(&form.secure_key, &expected) {
+        Ok(key) => key,
+        Err(message) => return membership_flash("error", message),
+    };
+    if let Err(error) = sqlx::query("UPDATE sessions SET session_data = json_remove(session_data, '$.stripe-connect-state', '$.stripe-connect-started-at') WHERE session_id = ?")
+        .bind(&sid).execute(&state.db).await {
+        return membership_flash("error", &format!("Could not complete the Stripe connection: {error}"));
+    }
+    stripe_connect(State(state), headers, Form(StripeConnectForm {secret_key: key.a, publishable_key: key.p})).await
 }
 
 /// Store Stripe keys after proving they work.
@@ -10951,18 +10994,31 @@ async fn stripe_connect(
         Err(e) => return membership_flash("error", &e.message()),
     };
 
-    // Reconnecting replaces the account, so the previous endpoint and its
-    // signing secret must go first. Leaving the old secret in place would
-    // mean accepting webhooks signed by an account we no longer use; leaving
-    // the old endpoint would have Stripe posting to us twice.
-    let swapping = ghost_stripe::StripeConfig::from_settings(&state.settings);
-    if let Some(old_cfg) = &swapping {
-        if let Some(id) = state.settings.get_str("members_stripe_webhook_id").filter(|i| !i.is_empty()) {
-            let _ = ghost_stripe::delete_webhook(old_cfg, &id).await;
-        }
+    let old_account = state.settings.get_str("stripe_connect_account_id").unwrap_or_default();
+    let old_live = ghost_stripe::StripeConfig::from_settings(&state.settings).map(|cfg| cfg.is_live());
+    let account_changed = old_account != account.id || old_live != Some(account.livemode);
+    if account_changed {
+        let reset = async {
+            let mut tx = state.db.begin().await?;
+            sqlx::query("UPDATE products SET monthly_price_id = NULL, yearly_price_id = NULL WHERE type = 'paid'").execute(&mut *tx).await?;
+            sqlx::query("DELETE FROM stripe_prices").execute(&mut *tx).await?;
+            sqlx::query("DELETE FROM stripe_products").execute(&mut *tx).await?;
+            tx.commit().await
+        }.await;
+        if let Err(error) = reset { return membership_flash("error", &format!("Could not reset Stripe price references: {error}")); }
     }
-    for k in ["members_stripe_webhook_id", "members_stripe_webhook_secret"] {
-        let _ = state.settings.set(&state.db, k, &serde_json::json!("")).await;
+
+    // Keep a working endpoint or local Stripe CLI secret when reconnecting
+    // the same account and mode. A different account must not inherit it.
+    if account_changed {
+        if let Some(old_cfg) = ghost_stripe::StripeConfig::from_settings(&state.settings) {
+            if let Some(id) = state.settings.get_str("members_stripe_webhook_id").filter(|id| !id.is_empty()) {
+                let _ = ghost_stripe::delete_webhook(&old_cfg, &id).await;
+            }
+        }
+        for key in ["members_stripe_webhook_id", "members_stripe_webhook_secret", "stripe_checkout_setup_error"] {
+            let _ = state.settings.set(&state.db, key, &serde_json::json!("")).await;
+        }
     }
 
     let set = |k: &'static str, v: String| {
@@ -10989,8 +11045,14 @@ async fn stripe_connect(
         publishable_key: String::new(),
         webhook_secret: String::new(),
     };
+    let price_note = match ghost_api::stripe_tiers::sync_active_tiers(&state, &cfg).await {
+        Ok(()) => String::new(),
+        Err(error) => format!(" Tier price setup failed: {}. Checkout will retry setup when needed.", error.message()),
+    };
     let hook_url = format!("{}/members/webhooks/stripe/", state.site_url());
-    let hook_note = match ghost_stripe::create_webhook(&cfg, &hook_url).await {
+    let hook_note = if state.settings.get_str("members_stripe_webhook_secret").is_some_and(|secret| !secret.is_empty()) {
+        String::new()
+    } else { match ghost_stripe::create_webhook(&cfg, &hook_url).await {
         Ok((id, whsec)) => {
             let _ = state.settings.set(&state.db, "members_stripe_webhook_id", &serde_json::json!(id)).await;
             let _ = state.settings.set(&state.db, "members_stripe_webhook_secret", &serde_json::json!(whsec)).await;
@@ -11000,11 +11062,11 @@ async fn stripe_connect(
             " Webhooks could not be registered ({}) — subscriptions will not update automatically until {hook_url} is reachable from the internet.",
             e.message()
         ),
-    };
+    }};
 
     let who = if account.display_name.is_empty() { account.id } else { account.display_name };
     let mode = if account.livemode { "live" } else { "test" };
-    membership_flash("ok", &format!("Connected to Stripe account “{who}” in {mode} mode.{hook_note}"))
+    membership_flash("ok", &format!("Connected to Stripe account “{who}” in {mode} mode.{price_note}{hook_note}"))
 }
 
 /// The webhook signing-secret form, shown both when nothing is set and when
@@ -11022,10 +11084,8 @@ fn stripe_webhook_secret_form(site_url: &str) -> String {
     )
 }
 
-/// The secret/publishable key form. Shown on its own when no account is
-/// attached, and again under the connected account so keys can be rotated or
-/// a different account swapped in without disconnecting first — disconnecting
-/// to change keys would also throw away the registered webhook.
+/// Direct API key setup, shown when no account is connected.
+/// Hosted onboarding stays hidden until we provide our own Stripe Connect flow.
 fn stripe_key_form(heading: &str, blurb: &str, button: &str) -> String {
     format!(
         r#"<span class="title" style="display:block;margin-bottom:6px">{heading}</span>
@@ -11037,7 +11097,7 @@ fn stripe_key_form(heading: &str, blurb: &str, button: &str) -> String {
 </div>
 <button class="btn tonal" type="submit" style="margin-top:12px">{coin} {button}</button>
 </form>
-<p class="muted" style="margin:12px 0 0">The key is checked against Stripe before it is stored, and is never shown again afterwards.</p>"#,
+<p class="muted" style="margin:12px 0 0">The key is checked against Stripe before it is stored, and is never shown again afterwards. Stripe Checkout still requires the account business details to be complete.</p>"#,
         heading = heading,
         blurb = blurb,
         button = button,
@@ -11361,14 +11421,21 @@ async fn membership_page(State(state): State<AppState>, headers: HeaderMap, Quer
 <div class="trailing"><span class="chip {chip}">{mode}</span>
 <form method="post" action="/ghost/settings/membership/stripe/disconnect/" data-confirm="Disconnect from Stripe|New paid signups will stop. Existing subscriptions stay active on Stripe and resume if you reconnect the same account.">
 <button class="btn tonal small danger" type="submit">Disconnect from Stripe</button></form></div></div>
+{checkout_notice}
 {hook_row}
 </div>"#,
+                checkout_notice = {
+                    let error = state.settings.get_str("stripe_checkout_setup_error").unwrap_or_default();
+                    if error.is_empty() { String::new() } else {
+                        format!(r#"<div class="row"><span class="ic tint-amber">{}</span><div class="body"><span class="title">Checkout setup required</span><span class="detail">{}</span><a href="https://dashboard.stripe.com/settings/business-details" target="_blank" rel="noopener">Open Stripe business details</a></div></div>"#, svg("flag"), esc(&error))
+                    }
+                },
                 check_ic = svg("check"),
                 named = if who.is_empty() { String::new() } else { format!(" · {}", esc(&who)) },
                 account = esc(&account),
                 mode = if live { "live" } else { "test" },
                 chip = if live { "published" } else { "draft" },
-                hook_row = if !hook.is_empty() {
+                hook_row = if !hook.trim().is_empty() {
                     // Active: deactivating comes first, the way disconnecting
                     // precedes connecting above. Setting a replacement is
                     // still possible directly, for rotating a secret.
@@ -11401,9 +11468,9 @@ async fn membership_page(State(state): State<AppState>, headers: HeaderMap, Quer
 </div>"#,
             coin = svg("chart"),
             key_form = stripe_key_form(
-                "Connect with Stripe",
-                "Paid tiers need Stripe to take payment. Copy your API keys from the Stripe dashboard under Developers → API keys. Use test keys (<code>sk_test_…</code>) until you are ready to charge real cards.",
-                "Connect with Stripe",
+                "Connect Stripe",
+                "Enter your Stripe secret and publishable keys to offer paid tiers. Use test keys until you are ready to accept payments.",
+                "Save API keys",
             ),
         ),
     };
@@ -11968,6 +12035,7 @@ async fn membership_save(State(state): State<AppState>, headers: HeaderMap, Form
     } else {
         default_plan
     };
+    ok &= ghost_db::repos::tiers::set_free_signup_visibility(&state.db, plans.iter().any(|plan| plan == "free")).await.is_ok();
     ok &= state.settings.set(&state.db, "portal_plans", &serde_json::json!(plans)).await.is_ok();
     ok &= state
         .settings
@@ -17241,6 +17309,30 @@ async fn unsplash_save(
 #[cfg(test)]
 mod tests {
     use super::{recommendation_title, recommendation_url};
+
+    #[test]
+    fn stripe_connect_secure_keys_are_bound_to_the_starting_session_and_mode() {
+        use base64::Engine;
+        let encode = |value: serde_json::Value| base64::engine::general_purpose::STANDARD.encode(value.to_string());
+        let key = encode(serde_json::json!({"a":"sk_test_fixture", "p":"pk_test_fixture", "i":"acct_fixture", "l":false, "s":"session-state", "n":"A site title"}));
+        assert!(super::decode_stripe_secure_key(&key, "session-state").is_ok());
+        assert!(super::decode_stripe_secure_key(&key, "another-session").is_err());
+        assert!(super::decode_stripe_secure_key(&key, "").is_err());
+        let wrong_mode = encode(serde_json::json!({"a":"sk_test_fixture", "p":"pk_live_fixture", "i":"acct_fixture", "l":false, "s":"session-state"}));
+        assert!(super::decode_stripe_secure_key(&wrong_mode, "session-state").is_err());
+        assert!(super::decode_stripe_secure_key("not-base64", "session-state").is_err());
+    }
+
+    #[test]
+    fn stripe_connect_uses_the_same_provider_and_mode_as_ghost_673() {
+        let test = reqwest::Url::parse(&super::stripe_oauth_url("test", "bound-state")).unwrap();
+        assert_eq!(test.host_str(), Some("connect.stripe.com"));
+        let params: std::collections::HashMap<_, _> = test.query_pairs().into_owned().collect();
+        assert_eq!(params["client_id"], "ca_8LBum4Ctv3mmJ1oD0ZRmxjdAhNrrBUy3");
+        assert_eq!(params["redirect_uri"], "https://stripe.ghost.org");
+        assert_eq!(params["state"], "bound-state");
+        assert_eq!(params["scope"], "read_write");
+    }
 
     #[test]
     fn a_recommended_url_gets_a_scheme_but_must_be_a_real_host() {

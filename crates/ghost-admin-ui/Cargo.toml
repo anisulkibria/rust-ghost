@@ -26,3 +26,4 @@ bcrypt = { workspace = true }
 form_urlencoded = { workspace = true }
 zip = { workspace = true }
 reqwest = { workspace = true }
+base64 = "0.22"

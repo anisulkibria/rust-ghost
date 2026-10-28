@@ -105,6 +105,34 @@ External accounts, licences, deployed webhook receivers, and provider-specific
 credentials are still required. The automated checks cover the local API and
 webhook protocols; they do not certify every external service in the directory.
 
+## Membership signup and Stripe
+
+The free tier must be active with public signup visibility. The membership plan
+selector and the free tier editor now keep that choice synchronized. Fresh
+installs offer the free tier by default.
+
+For paid subscriptions, open **Settings → Membership → Stripe**, enter your
+Stripe secret and publishable keys, and click **Save API keys**. Use matching
+test keys for testing and live keys to accept payments. The hosted Ghost
+connection flow is hidden pending our own Stripe Connect integration.
+
+Existing paid tiers are synchronized after connection. Checkout also repairs
+missing Stripe price references, and unchanged prices are reused. Reconnecting
+the same account and mode preserves the configured webhook, including a local
+Stripe CLI signing secret.
+
+Portal reads the current site title from publication settings. As in Ghost,
+Stripe supplies Checkout's business identity from the connected account; the
+app does not hard-code a publication name or overwrite the Stripe account name.
+Stripe can refuse Checkout until that account's business details are complete,
+even with test keys. Such failures appear as an administrator-facing diagnostic
+in Membership settings and a payment-unavailable message in Portal.
+
+Free signup can be tested with MailHog: receive the confirmation email and
+follow its link to create and sign in the free member. Stripe Checkout testing
+is a separate flow; successful payment fulfillment also requires Stripe's
+webhooks to reach the application.
+
 ## Verify locally
 
 ```sh
