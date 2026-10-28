@@ -1,9 +1,11 @@
 # Ghost-rust
 
 A Rust port of the [Ghost](https://ghost.org) publishing platform, converted
-from the Node.js source in `Ghost-main`. It runs real Ghost themes (verified
-against the `flux` theme), exposes the Content and Admin REST APIs, and ships
+from the Node.js source in `Ghost-main`. It runs real Ghost themes, exposes the Content and Admin REST APIs, and ships
 a built-in server-rendered admin UI.
+
+SQLite is the default database. MySQL and Docker are not required to build or
+run this project. Any future MySQL backend must remain optional.
 
 ## Install
 

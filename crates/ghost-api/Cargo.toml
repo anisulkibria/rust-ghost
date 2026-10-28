@@ -19,11 +19,17 @@ ghost-mail = { workspace = true }
 ghost-stripe = { workspace = true }
 serde_json = { workspace = true }
 chrono = { workspace = true }
+chrono-tz = { workspace = true }
 bcrypt = { workspace = true }
 jsonwebtoken = { workspace = true }
 rand = { workspace = true }
 hex = { workspace = true }
-sha2 = { workspace = true }
+sha2 = { workspace = true, features = ["oid"] }
+rsa = { version = "0.9", features = ["sha2", "pem"] }
+rand_08 = { package = "rand", version = "0.8" }
+httpdate = "1"
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
+mpp = { version = "0.17.1", default-features = false, features = ["server", "stripe", "tempo", "reqwest-rustls-tls-no-provider"] }
 percent-encoding = { workspace = true }
 tracing = { workspace = true }
 futures = { workspace = true }
@@ -31,4 +37,5 @@ walkdir = { workspace = true }
 zip = { workspace = true }
 reqwest = { workspace = true }
 regex = { workspace = true }
+base64 = "0.22"
 tower-http = { workspace = true }

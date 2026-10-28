@@ -51,6 +51,7 @@ pub async fn render_rss(state: AppState, kind: RssKind, name: String, path: &str
         let tags = rel.tags_for(&p.id);
         let mut j = ghost_core::models::post_to_json(p, &authors, &tags, "");
         j["url"] = serde_json::json!(resolver(&j));
+        ghost_core::models::apply_post_access(&mut j, None, &[]);
         let url = j.get("url").and_then(|u| u.as_str()).unwrap_or("");
         let title = j.get("title").and_then(|t| t.as_str()).unwrap_or("");
         let desc = j.get("excerpt").and_then(|t| t.as_str()).unwrap_or("");

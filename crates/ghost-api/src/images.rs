@@ -180,6 +180,10 @@ async fn upload(State(state): State<AppState>, headers: HeaderMap, mut multipart
         // write path puts it back into stored form, so what the editor saves
         // does not carry the base path into the database.
         let url = ghost_core::url::base(&format!("{}/{month}/{filename}", kind.url_prefix()));
+        let object_key=format!("{}/{month}/{filename}",kind.url_prefix().trim_start_matches("/content/"));
+        let url=match crate::storage::publish_upload(&state,&object_key,&content_type,&data,url).await {
+            Ok(url)=>url,Err(e)=>return error(StatusCode::BAD_GATEWAY,&e.message(),"StorageError")
+        };
         // The bare array is what this server has always answered with; the
         // named envelope is Ghost's. Both are sent so either client works.
         return (

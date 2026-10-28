@@ -261,7 +261,7 @@ pub async fn automation_page(
         .and_then(TriggerScope::parse)
         .unwrap_or(TriggerScope::Free);
 
-    let chain = chain_markup(&id, &ordered, &automation);
+    let chain = format!(r#"{}<script src="{}/react.js" defer></script><script src="{}/react-jsx.js" defer></script><script src="{}/react-dom.js" defer></script><script src="{}/koenig-lexical.js" defer></script><script src="{}/automation-editor.js" defer></script>"#,chain_markup(&id,&ordered,&automation),crate::ASSETS,crate::ASSETS,crate::ASSETS,crate::ASSETS,crate::ASSETS);
     let runs = runs_panel(&state, &id).await;
     let tiers = tier_checkboxes(&state, &automation).await;
 
@@ -451,7 +451,7 @@ async fn tier_checkboxes(state: &AppState, automation: &repo::Automation) -> Str
 fn chain_markup(id: &str, ordered: &[repo::StoredAction], automation: &repo::Automation) -> String {
     let mut out = String::new();
     out.push_str(&format!(
-        r#"<div class="card rows rise" style="--i:3">
+        r#"<div class="card rows rise native-flow" style="--i:3">
 <div class="row"><span class="ic tint-green">{bolt}</span>
 <div class="body"><span class="title">Trigger</span><span class="detail">{trigger}</span></div></div>"#,
         bolt = svg("flow"),
@@ -564,7 +564,8 @@ fn step_markup(id: &str, index: usize, total: usize, action: &repo::StoredAction
                 r#"<div class="row" style="align-items:flex-start"><span class="ic tint-pink">{mail}</span>
 <div class="body" style="width:100%"><span class="title" style="display:block;margin-bottom:8px">Send email</span>
 <label class="field" style="margin:0"><input name="subject__{aid}" form="automation-form" value="{subject}" placeholder=" " maxlength="300"><span>Subject line</span></label>
-<label class="field" style="margin:12px 0 0"><textarea name="markdown__{aid}" form="automation-form" rows="6" placeholder=" ">{markdown}</textarea><span>Message · Markdown</span></label>
+<label class="field" style="margin:12px 0 0"><textarea data-automation-markdown name="markdown__{aid}" form="automation-form" rows="6" placeholder=" ">{markdown}</textarea><span>Message · Markdown</span></label>
+<input type="hidden" data-automation-lexical name="lexical__{aid}" form="automation-form" value="{lexical}" disabled>
 <div style="display:flex;gap:10px;align-items:center;margin-top:10px;flex-wrap:wrap">
 <form method="post" action="/ghost/automations/{id}/actions/{aid}/test/" style="display:flex;gap:8px;align-items:center">
 <input class="inline-input" type="email" name="email" placeholder="you@example.com" aria-label="Send a test to">
@@ -578,6 +579,7 @@ fn step_markup(id: &str, index: usize, total: usize, action: &repo::StoredAction
                 aid = esc(&action.id),
                 subject = esc(subject),
                 markdown = esc(&markdown),
+                lexical = esc(lexical),
                 stats = stats,
                 moves = move_buttons,
             )
@@ -727,7 +729,10 @@ pub async fn automation_save(
                             Some((_, v)) => v.clone(),
                             None => subject.clone(),
                         },
-                        lexical: ghost_render::lexical::wrap_existing(Some(&markdown), None)
+                        lexical: form.iter().find(|(key,_)|*key==format!("lexical__{}",stored.id))
+                            .and_then(|(_,value)|serde_json::from_str::<serde_json::Value>(value).ok().filter(|v|v.get("root").is_some()).map(|_|value.clone()))
+                            .or_else(||(markdown==markdown_of(lexical)).then(||lexical.clone()))
+                            .or_else(||ghost_render::lexical::wrap_existing(Some(&markdown), None))
                             // An emptied body keeps its shape as an empty
                             // Lexical document rather than becoming invalid.
                             .unwrap_or_else(|| {
@@ -1075,7 +1080,7 @@ pub async fn action_test(
         name: actor.user.name.as_deref(),
         status: "free",
     };
-    match ghost_api::automations_engine::send_automation_email(&state, &recipient, subject, lexical)
+    match ghost_api::automations_engine::send_automation_email_with_design(&state, &recipient, subject, lexical,action.email_design_setting_id.as_deref())
         .await
     {
         Ok(()) => flash_to(&id, "ok", &format!("Test email sent to {to}.")),

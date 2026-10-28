@@ -74,16 +74,18 @@ pub async fn entrypoint(State(state): State<AppState>, uri: Uri, headers: Header
                 _ => repos::posts::find_by_slug(&state.db, &slug, "page", true).await,
             };
             if let Ok(Some(post)) = found {
-                let source = post
-                    .markdown
-                    .clone()
-                    .filter(|m| !m.is_empty())
-                    .unwrap_or_else(|| post.plaintext.clone().unwrap_or_default());
-                return (
-                    [(header::CONTENT_TYPE, "text/markdown; charset=UTF-8")],
-                    source,
-                )
-                    .into_response();
+                if let Some(response)=ghost_api::machine_payments::serve(&state,&post,&uri,&headers).await{return response}
+                // Markdown is a public representation, like Ghost's LLM feed:
+                // browser membership must never put private bodies into it.
+                let html = ghost_api::content::public_html(&post);
+                let gated = post.visibility != "public";
+                let status = if gated && html.trim().is_empty() { StatusCode::FORBIDDEN } else { StatusCode::OK };
+                let mut source = if !gated && html == post.html.as_deref().unwrap_or("") {
+                    post.markdown.clone().filter(|m| !m.is_empty()).unwrap_or_else(|| ghost_render::markdown::html_to_plaintext(&html))
+                } else { ghost_render::markdown::html_to_plaintext(&html) };
+                if gated { source.push_str("\n\nThis content requires a subscription.\n"); }
+                return (status, [(header::CONTENT_TYPE, "text/markdown; charset=UTF-8"),
+                    (header::CACHE_CONTROL, "private, no-store"), (header::VARY, "Cookie")], source).into_response();
             }
         }
     }
@@ -136,8 +138,8 @@ pub async fn entrypoint(State(state): State<AppState>, uri: Uri, headers: Header
         RouteMatch::Channel { name, filter, order, limit, templates, page, .. } => {
             render_collection(state, name, filter, order, limit, templates, None, page, &path, headers).await
         }
-        RouteMatch::CollectionEntry { slug, .. } => render_entry(state, slug, &path, headers).await,
-        RouteMatch::StaticPage { slug } => render_entry(state, slug, &path, headers).await,
+        RouteMatch::CollectionEntry { slug, .. } => render_entry(state, slug, &path, query.as_deref(), headers).await,
+        RouteMatch::StaticPage { slug } => render_entry(state, slug, &path, query.as_deref(), headers).await,
         RouteMatch::Taxonomy { kind, slug, page, .. } => {
             render_taxonomy(state, kind, slug, page, &path, headers).await
         }
@@ -160,6 +162,7 @@ async fn posts_page_json(
     let rel = repos::posts::load_relations(&state.db, posts).await.unwrap_or_default();
     let resolver = resolver_now(state).await;
     let status = crate::render::member_status(member);
+    let tiers = crate::render::member_tiers(member);
     posts
         .iter()
         .map(|p| {
@@ -168,7 +171,7 @@ async fn posts_page_json(
             let mut j = models::post_to_json(p, &authors, &tags, "");
             j["url"] = json!(resolver(&j));
             ghost_render::util::resolve_nested_urls(&mut j, &*resolver);
-            crate::render::apply_member_access(&mut j, status);
+            crate::render::apply_member_tier_access(&mut j, status, &tiers);
             j
         })
         .collect()
@@ -191,7 +194,7 @@ async fn post_json(
         j["url"] = json!(resolver(&j));
     }
     ghost_render::util::resolve_nested_urls(&mut j, &*resolver);
-    crate::render::apply_member_access(&mut j, crate::render::member_status(member));
+    crate::render::apply_member_tier_access(&mut j, crate::render::member_status(member), &crate::render::member_tiers(member));
     j
 }
 
@@ -316,7 +319,7 @@ async fn resolve_data_entry(state: &AppState, short: &str, member: &Value) -> Op
     }
 }
 
-async fn render_entry(state: AppState, slug: String, path: &str, headers: HeaderMap) -> Response {
+async fn render_entry(state: AppState, slug: String, path: &str, query: Option<&str>, headers: HeaderMap) -> Response {
     // posts first, then pages (Ghost's router fallthrough)
     let (post, post_type) = match repos::posts::find_by_slug(&state.db, &slug, "post", true).await {
         Ok(Some(p)) => (p, "post"),
@@ -343,7 +346,10 @@ async fn render_entry(state: AppState, slug: String, path: &str, headers: Header
     };
 
     let member = crate::render::member_context(&state, &headers).await;
-    let post_json = post_json(&state, &post, None, &member).await;
+    let gift_token = form_urlencoded::parse(query.unwrap_or("").as_bytes()).find(|(key,_)|key=="gift").map(|(_,value)|value.into_owned());
+    let gifted = if let Some(token) = &gift_token { ghost_api::publishing::valid_gift(&state,&post.id,token).await } else { false };
+    let post_member = if gifted { json!({"status":"paid","tiers":post.tier_ids}) } else { member.clone() };
+    let post_json = post_json(&state, &post, None, &post_member).await;
     let mut context = vec![post_type.to_string()];
     if post_type == "page" {
         context.push("page".into());
@@ -375,7 +381,14 @@ async fn render_entry(state: AppState, slug: String, path: &str, headers: Header
         member,
     };
     match render_template(&state, &theme, &candidates, Value::Object(root), &rctx).await {
-        Ok(html) => html_response(html),
+        Ok(html) => {
+            let mut response = html_response(html);
+            if gift_token.is_some() {
+                response.headers_mut().insert(header::CACHE_CONTROL, "private, no-store".parse().unwrap());
+                response.headers_mut().insert("referrer-policy", "no-referrer".parse().unwrap());
+            }
+            response
+        },
         Err(e) => error_response(e),
     }
 }
@@ -509,7 +522,9 @@ async fn render_custom(
 /// for a visitor and "Account" for a member. `Vary: Cookie` is what stops a
 /// shared cache in front of this server from handing one visitor's variant to
 /// another.
-fn html_response(html: String) -> Response {
+fn html_response(mut html: String) -> Response {
+    let script=format!("<script src=\"{}\" defer></script>",ghost_core::url::base("/public/staff-toolbar.js"));
+    if let Some(index)=html.rfind("</body>"){html.insert_str(index,&script);}else{html.push_str(&script);}
     (
         [(header::VARY, header::COOKIE.as_str())],
         Html(html),
@@ -526,7 +541,8 @@ async fn render_preview(state: AppState, uuid: String, path: &str, headers: Head
     // here the way the resolver would have
     let preview_url = ghost_core::url::base(&format!("/p/{uuid}/"));
     let member = crate::render::member_context(&state, &headers).await;
-    let post_json = post_json(&state, &post, Some(&preview_url), &member).await;
+    let preview_member=json!({"status":"paid","tiers":post.tier_ids});
+    let post_json = post_json(&state, &post, Some(&preview_url), &preview_member).await;
 
     let mut context = vec!["preview".to_string()];
     let label = if post.post_type == "page" { "page" } else { "post" };
@@ -597,9 +613,8 @@ pub async fn theme_asset(State(state): State<AppState>, Path(path): Path<String>
 
 /// /content/images/... — accepts Ghost's `/size/WxH/` notation (serves the
 /// original image; resizing is a later-phase enhancement).
-pub async fn content_image(State(state): State<AppState>, Path(path): Path<String>) -> Response {
-    let cleaned = strip_size_prefix(&path);
-    serve_file(&state.config.images_dir(), &cleaned, None)
+pub(crate) fn original_image(state: &AppState, path: &str) -> Response {
+    serve_file(&state.config.images_dir(), path, None)
 }
 
 pub async fn content_media(State(state): State<AppState>, Path(path): Path<String>) -> Response {
@@ -610,14 +625,6 @@ pub async fn content_file(State(state): State<AppState>, Path(path): Path<String
     serve_file(&state.config.files_dir(), &path, None)
 }
 
-fn strip_size_prefix(path: &str) -> String {
-    let mut parts: Vec<&str> = path.split('/').collect();
-    if parts.len() > 2 && parts[0] == "size" {
-        parts.drain(0..2);
-        return parts.join("/");
-    }
-    path.to_string()
-}
 
 pub async fn public_file(State(state): State<AppState>, Path(path): Path<String>) -> Response {
     serve_file(&state.config.content_path().join("public"), &path, None)

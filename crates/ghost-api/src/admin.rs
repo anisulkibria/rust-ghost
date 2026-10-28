@@ -12,6 +12,16 @@ use crate::state::AppState;
 
 pub fn admin_router() -> Router<AppState> {
     Router::new()
+        .merge(crate::snippets::router())
+        .merge(crate::newsletter_events::admin_router())
+        .merge(crate::publishing::router())
+        .merge(crate::admin_members::router())
+        .merge(crate::password_reset::router())
+        .merge(crate::management::router())
+        .merge(crate::federation::admin_router())
+        .merge(crate::machine_payments::admin_router())
+        .merge(crate::automation_designs::router())
+        .merge(crate::checkout_design::router())
         // setup + auth
         .route("/authentication/setup", get(setup_status).post(complete_setup))
         .route("/authentication/setup/", get(setup_status).post(complete_setup))
@@ -150,7 +160,7 @@ fn newsletter_json(n: &ghost_db::repos::newsletters::Newsletter) -> Value {
 }
 
 async fn admin_browse_newsletters(State(state): State<AppState>, headers: HeaderMap) -> Response {
-    if let Err(r) = require_user(&state, &headers).await {
+    if let Err(r) = crate::permissions::require(&state, &headers, crate::permissions::Role::Administrator).await {
         return r;
     }
     match repos::newsletters::list(&state.db).await {
@@ -166,7 +176,7 @@ async fn admin_read_newsletter(
     Path(id): Path<String>,
     headers: HeaderMap,
 ) -> Response {
-    if let Err(r) = require_user(&state, &headers).await {
+    if let Err(r) = crate::permissions::require(&state, &headers, crate::permissions::Role::Administrator).await {
         return r;
     }
     match repos::newsletters::find_by_id(&state.db, &id).await {
@@ -181,7 +191,7 @@ async fn admin_add_newsletter(
     headers: HeaderMap,
     Json(body): Json<Value>,
 ) -> Response {
-    if let Err(r) = require_user(&state, &headers).await {
+    if let Err(r) = crate::permissions::require(&state, &headers, crate::permissions::Role::Administrator).await {
         return r;
     }
     let name = body
@@ -207,7 +217,7 @@ async fn admin_edit_newsletter(
     headers: HeaderMap,
     Json(body): Json<Value>,
 ) -> Response {
-    if let Err(r) = require_user(&state, &headers).await {
+    if let Err(r) = crate::permissions::require(&state, &headers, crate::permissions::Role::Administrator).await {
         return r;
     }
     let Some(patch) = body
@@ -405,7 +415,7 @@ pub(crate) async fn current_user(state: &AppState, headers: &HeaderMap) -> Optio
     }
     let sid = session_id_from(headers)?;
     let user_id = repos::sessions::get_user(&state.db, &sid).await.ok()??;
-    repos::users::find_by_id(&state.db, &user_id).await.ok()?
+    repos::users::find_by_id(&state.db, &user_id).await.ok()?.filter(|user| user.status.as_deref() == Some("active"))
 }
 
 /// The staff user an Admin API key acts as.
@@ -440,9 +450,7 @@ async fn user_from_api_key(state: &AppState, headers: &HeaderMap) -> Option<ghos
 }
 
 async fn require_user(state: &AppState, headers: &HeaderMap) -> Result<ghost_core::models::User, Response> {
-    current_user(state, headers).await.ok_or_else(|| {
-        err(StatusCode::UNAUTHORIZED, "Authentication required", "NoPermissionError")
-    })
+    crate::permissions::require(state, headers, crate::permissions::Role::Contributor).await
 }
 
 fn session_cookie_header(sid: &str, max_age_secs: i64) -> String {
@@ -636,9 +644,7 @@ fn markdown_pipeline(markdown: &str) -> (String, String, i64) {
 }
 
 async fn admin_browse_posts_impl(state: AppState, params: HashMap<String, String>, post_type: &str, headers: HeaderMap) -> Response {
-    if let Err(r) = require_user(&state, &headers).await {
-        return r;
-    }
+    let user = match require_user(&state, &headers).await { Ok(user) => user, Err(r) => return r };
     let q = crate::content::parse_browse(&params);
     let filter = match q.filter.as_deref().map(ghost_nql::parse).transpose() {
         Ok(f) => f,
@@ -653,6 +659,10 @@ async fn admin_browse_posts_impl(state: AppState, params: HashMap<String, String
         )),
         _ => filter,
     };
+    let filter = if crate::permissions::role(&state, &user).await.unwrap_or(crate::permissions::Role::Contributor) < crate::permissions::Role::Editor {
+        let own = ghost_nql::Expr::Cond(ghost_nql::Cond { key: "authors.slug".into(), cmp: ghost_nql::Cmp::Eq, value: ghost_nql::NqlValue::Str(user.slug.clone().unwrap_or_default()) });
+        ghost_nql::and(filter, Some(own))
+    } else { filter };
     let result = repos::posts::browse(
         &state.db,
         &repos::posts::BrowsePosts {
@@ -733,7 +743,7 @@ fn validate_post_input(input: &Value, existing: Option<&ghost_core::models::Post
     Ok(())
 }
 
-async fn resolve_tags(state: &AppState, values: &[Value]) -> Result<Vec<String>, ghost_core::GhostError> {
+async fn resolve_tags(state: &AppState, values: &[Value], allow_create: bool) -> Result<Vec<String>, ghost_core::GhostError> {
     let mut ids = Vec::new();
     for value in values {
         let id = if let Some(id) = value.get("id").and_then(Value::as_str) {
@@ -742,6 +752,7 @@ async fn resolve_tags(state: &AppState, values: &[Value]) -> Result<Vec<String>,
             let slug = ghost_core::slug::safe_string(name);
             match repos::tags::find_by_slug(&state.db, &slug).await? {
                 Some(tag) => tag.id,
+                None if !allow_create => return Err(ghost_core::GhostError::NoPermissionError { message: "You do not have permission to create tags.".into(), context: None }),
                 None => repos::tags::insert(&state.db, &repos::tags::NewTag {name: name.into(), ..Default::default()}).await?.id,
             }
         } else {
@@ -750,6 +761,19 @@ async fn resolve_tags(state: &AppState, values: &[Value]) -> Result<Vec<String>,
         if !ids.contains(&id) { ids.push(id); }
     }
     Ok(ids)
+}
+
+fn post_tiers(input: &Value) -> Result<Option<Vec<String>>, Response> {
+    let Some(value) = input.get("tiers") else { return Ok(None); };
+    let Some(values) = value.as_array() else { return Err(err(StatusCode::UNPROCESSABLE_ENTITY, "Tiers must be an array of paid tier IDs", "ValidationError")); };
+    let mut ids = Vec::new();
+    for value in values {
+        let Some(id) = value.as_str().or_else(|| value.get("id").and_then(Value::as_str)).filter(|id| !id.is_empty()) else {
+            return Err(err(StatusCode::UNPROCESSABLE_ENTITY, "Each tier needs an ID", "ValidationError"));
+        };
+        if !ids.iter().any(|existing| existing == id) { ids.push(id.to_string()); }
+    }
+    Ok(Some(ids))
 }
 
 fn post_input_to_new(body: &Value, post_type: &str) -> repos::posts::NewPost {
@@ -814,6 +838,7 @@ fn post_input_to_new(body: &Value, post_type: &str) -> repos::posts::NewPost {
         author_ids: posts.get("authors").and_then(|a| a.as_array()).map(|a| {
             a.iter().filter_map(|x| x.get("id").and_then(|i| i.as_str()).map(str::to_string)).collect()
         }).unwrap_or_default(),
+        tier_ids: Vec::new(),
         tag_ids: posts.get("tags").and_then(|a| a.as_array()).map(|a| {
             a.iter().filter_map(|x| x.get("id").and_then(|i| i.as_str()).map(str::to_string)).collect()
         }).unwrap_or_default(),
@@ -824,9 +849,11 @@ fn post_input_to_new(body: &Value, post_type: &str) -> repos::posts::NewPost {
 async fn admin_add_post_impl(state: AppState, user: ghost_core::models::User, body: Value, post_type: &str, params: HashMap<String, String>) -> Response {
     let mut new = post_input_to_new(&body, post_type);
     let input = first_of(&body, if post_type == "page" { "pages" } else { "posts" }).unwrap_or(&body);
+    if let Err(response) = crate::permissions::post_input(&state, &user, input, None).await { return response; }
     if let Err(response) = validate_post_input(input, None) { return response; }
+    new.tier_ids = match post_tiers(input) { Ok(ids) => ids.unwrap_or_default(), Err(r) => return r };
     if let Some(tags) = input.get("tags").and_then(Value::as_array) {
-        new.tag_ids = match resolve_tags(&state, tags).await { Ok(ids) => ids, Err(error) => return from_ghost(error) };
+        new.tag_ids = match resolve_tags(&state, tags, crate::permissions::role(&state, &user).await.unwrap_or(crate::permissions::Role::Contributor) >= crate::permissions::Role::Author).await { Ok(ids) => ids, Err(error) => return from_ghost(error) };
     }
     match repos::posts::insert(&state.db, &new, &user.id).await {
         Ok(post) => {
@@ -870,12 +897,13 @@ async fn admin_add_page(State(state): State<AppState>, headers: HeaderMap, Query
 }
 
 async fn admin_read_post(State(state): State<AppState>, Path(id): Path<String>, headers: HeaderMap, Query(params): Query<HashMap<String, String>>) -> Response {
-    let _user = match require_user(&state, &headers).await {
+    let user = match require_user(&state, &headers).await {
         Ok(u) => u,
         Err(r) => return r,
     };
     match repos::posts::find_by_id(&state.db, &id).await {
         Ok(Some(post)) => {
+            if let Err(r) = crate::permissions::post_access(&state, &user, &post).await { return r; }
             let resolver = crate::content::resolve(&state).await;
             let rel = repos::posts::load_relations(&state.db, std::slice::from_ref(&post))
                 .await
@@ -902,6 +930,7 @@ async fn admin_edit_post(State(state): State<AppState>, Path(id): Path<String>, 
         _ => return err(StatusCode::NOT_FOUND, "Post not found", "NotFoundError"),
     };
     let post_type = before.post_type.clone();
+    if let Err(r) = crate::permissions::post_access(&state, &user, &before).await { return r; }
     let before_rel = repos::posts::load_relations(&state.db, std::slice::from_ref(&before)).await.unwrap_or_default();
 
     let posts = body.get(if post_type == "page" { "pages" } else { "posts" })
@@ -910,9 +939,10 @@ async fn admin_edit_post(State(state): State<AppState>, Path(id): Path<String>, 
         .cloned()
         .unwrap_or_else(|| body.clone());
 
+    if let Err(r) = crate::permissions::post_input(&state, &user, &posts, Some(&before)).await { return r; }
     if let Err(response) = validate_post_input(&posts, Some(&before)) { return response; }
     let tag_ids = match posts.get("tags").and_then(Value::as_array) {
-        Some(values) => match resolve_tags(&state, values).await { Ok(ids) => Some(ids), Err(error) => return from_ghost(error) },
+        Some(values) => match resolve_tags(&state, values, crate::permissions::role(&state, &user).await.unwrap_or(crate::permissions::Role::Contributor) >= crate::permissions::Role::Author).await { Ok(ids) => Some(ids), Err(error) => return from_ghost(error) },
         None => None,
     };
     let str_field = |key: &str| posts.get(key).and_then(|v| v.as_str()).map(str::to_string);
@@ -970,6 +1000,7 @@ async fn admin_edit_post(State(state): State<AppState>, Path(id): Path<String>, 
         feature_image_caption: str_field("feature_image_caption"),
         reading_time,
         tag_ids,
+        tier_ids: match post_tiers(&posts) { Ok(ids) => ids, Err(r) => return r },
         author_ids: posts.get("authors").and_then(|a| a.as_array()).map(|a| {
             a.iter().filter_map(|x| x.get("id").and_then(|i| i.as_str()).map(str::to_string)).collect()
         }),
@@ -1006,6 +1037,8 @@ async fn admin_delete_post(State(state): State<AppState>, Path(id): Path<String>
         Ok(Some(post)) => post,
         _ => return err(StatusCode::NOT_FOUND, "Post not found", "NotFoundError"),
     };
+    if let Err(r) = crate::permissions::post_access(&state, &user, &before).await { return r; }
+    if let Err(r) = crate::permissions::post_input(&state, &user, &json!({}), Some(&before)).await { return r; }
     let rel = repos::posts::load_relations(&state.db, std::slice::from_ref(&before)).await.unwrap_or_default();
     let mut payload = ghost_core::models::post_to_json(&before, &rel.authors_for(&id), &rel.tags_for(&id), "");
     let resolver = crate::content::resolve(&state).await;
@@ -1075,7 +1108,7 @@ async fn admin_read_tag(State(state): State<AppState>, Path(id): Path<String>, h
 }
 
 async fn admin_add_tag(State(state): State<AppState>, headers: HeaderMap, Json(body): Json<Value>) -> Response {
-    let user = match require_user(&state, &headers).await {
+    let user = match crate::permissions::require(&state, &headers, crate::permissions::Role::Editor).await {
         Ok(u) => u,
         Err(r) => return r,
     };
@@ -1101,7 +1134,7 @@ async fn admin_add_tag(State(state): State<AppState>, headers: HeaderMap, Json(b
 }
 
 async fn admin_edit_tag(State(state): State<AppState>, Path(id): Path<String>, headers: HeaderMap, Json(body): Json<Value>) -> Response {
-    if let Err(r) = require_user(&state, &headers).await {
+    if let Err(r) = crate::permissions::require(&state, &headers, crate::permissions::Role::Editor).await {
         return r;
     }
     let before = match repos::tags::find_by_id(&state.db, &id).await {
@@ -1142,7 +1175,7 @@ async fn admin_edit_tag(State(state): State<AppState>, Path(id): Path<String>, h
 }
 
 async fn admin_delete_tag(State(state): State<AppState>, Path(id): Path<String>, headers: HeaderMap) -> Response {
-    if let Err(r) = require_user(&state, &headers).await {
+    if let Err(r) = crate::permissions::require(&state, &headers, crate::permissions::Role::Editor).await {
         return r;
     }
     let before = match repos::tags::find_by_id(&state.db, &id).await {
@@ -1163,13 +1196,13 @@ async fn admin_delete_tag(State(state): State<AppState>, Path(id): Path<String>,
 // ---------------------------------------------------------------------------
 
 async fn admin_browse_users(State(state): State<AppState>, headers: HeaderMap) -> Response {
-    if let Err(r) = require_user(&state, &headers).await {
-        return r;
-    }
+    let actor = match require_user(&state, &headers).await { Ok(user) => user, Err(r) => return r };
+    let own_only = crate::permissions::role(&state, &actor).await.unwrap_or(crate::permissions::Role::Contributor) < crate::permissions::Role::Editor;
     match repos::users::list(&state.db, false).await {
         Ok(users) => {
             let items: Vec<Value> = users
                 .iter()
+                .filter(|user| !own_only || user.id == actor.id)
                 .map(|u| {
                     let mut j = admin_user_json(u);
                     if let Value::Object(m) = &mut j {
@@ -1200,6 +1233,7 @@ async fn admin_read_user(
         Ok(u) => u,
         Err(r) => return r,
     };
+    if id != "me" && id != actor.id && crate::permissions::role(&state, &actor).await.unwrap_or(crate::permissions::Role::Contributor) < crate::permissions::Role::Editor { return crate::permissions::denied(); }
     let found = if id == "me" {
         Some(actor)
     } else {
@@ -1230,10 +1264,14 @@ async fn admin_read_user(
 }
 
 async fn admin_edit_user(State(state): State<AppState>, Path(id): Path<String>, headers: HeaderMap, Json(body): Json<Value>) -> Response {
-    if let Err(r) = require_user(&state, &headers).await {
-        return r;
-    }
+    let actor = match require_user(&state, &headers).await { Ok(user) => user, Err(r) => return r };
+    if headers.contains_key(header::AUTHORIZATION) { return crate::permissions::denied(); }
+    let id = if id == "me" { actor.id.clone() } else { id };
+    let target = match repos::users::find_by_id(&state.db, &id).await {
+        Ok(Some(user)) => user, _ => return err(StatusCode::NOT_FOUND, "User not found", "NotFoundError"),
+    };
     let user = body.get("users").and_then(|u| u.as_array()).and_then(|a| a.first()).cloned().unwrap_or(body);
+    if let Err(r) = crate::permissions::edit_user(&state, &actor, &target, &user).await { return r; }
     let changes = repos::users::UserChanges {
         name: user.get("name").and_then(|v| v.as_str()).map(str::to_string),
         email: user.get("email").and_then(|v| v.as_str()).map(str::to_string),
@@ -1277,6 +1315,11 @@ async fn change_password(State(state): State<AppState>, headers: HeaderMap, Json
         Ok(u) => u,
         Err(r) => return r,
     };
+    if headers.contains_key(header::AUTHORIZATION) { return crate::permissions::denied(); }
+    let old = body.get("password").and_then(|p| p.get("oldPassword")).or_else(|| body.get("oldPassword")).and_then(Value::as_str).unwrap_or("").to_string();
+    let hash = user.password.clone().unwrap_or_default();
+    let verified = tokio::task::spawn_blocking(move || bcrypt::verify(old, &hash)).await;
+    if !matches!(verified, Ok(Ok(true))) { return crate::permissions::denied(); }
     let pw = body.get("password").and_then(|p| p.get("newPassword")).or_else(|| body.get("newPassword")).and_then(|v| v.as_str()).unwrap_or("");
     if pw.len() < 10 {
         return err(StatusCode::UNPROCESSABLE_ENTITY, "Password must be at least 10 characters", "ValidationError");
@@ -1305,16 +1348,19 @@ pub fn is_secret_setting(key: &str) -> bool {
         || key.ends_with("_api_key")
         || key.ends_with("_secret")
         || key.ends_with("_private_key")
+        || key.ends_with("_signing_key")
+        || key.ends_with("_secret_key")
 }
 
 async fn admin_browse_settings(State(state): State<AppState>, headers: HeaderMap) -> Response {
-    if let Err(r) = require_user(&state, &headers).await {
-        return r;
-    }
+    let actor = match require_user(&state, &headers).await { Ok(user) => user, Err(r) => return r };
+    let public_only = crate::permissions::role(&state, &actor).await.unwrap_or(crate::permissions::Role::Contributor) < crate::permissions::Role::Administrator;
+    let public = ghost_render::context::build_site(&state.settings, &state.site_url(), &state.admin_url());
     match repos::settings::all(&state.db).await {
         Ok(all) => {
             let items: Vec<Value> = all
                 .iter()
+                .filter(|s| !public_only || public.get(&s.key).is_some())
                 .map(|s| {
                     // Credentials are write-only over the API too: an admin
                     // token is for administering the site, not for reading
@@ -1344,7 +1390,7 @@ async fn admin_browse_settings(State(state): State<AppState>, headers: HeaderMap
 }
 
 async fn admin_edit_settings(State(state): State<AppState>, headers: HeaderMap, Json(body): Json<Value>) -> Response {
-    if let Err(r) = require_user(&state, &headers).await {
+    if let Err(r) = crate::permissions::require(&state, &headers, crate::permissions::Role::Administrator).await {
         return r;
     }
     let Some(list) = body.get("settings").and_then(|s| s.as_array()).cloned() else {

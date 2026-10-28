@@ -1,18 +1,32 @@
 //! ghost-api: AppState, auth and the Content + Admin HTTP APIs.
 pub mod admin;
+pub mod admin_members;
 pub mod apikey_auth;
 pub mod admin_comments;
 pub mod automations;
+pub mod automation_designs;
 pub mod automations_engine;
 pub mod comments;
+pub mod checkout_design;
 pub mod comments_mail;
 pub mod content;
 pub mod images;
+pub mod explore;
+pub mod federation;
 pub mod members;
+pub mod management;
+pub mod machine_payments;
+pub mod newsletter_events;
+pub mod newsletter_audience;
 pub mod oembed;
+pub mod permissions;
+pub mod publishing;
+pub mod password_reset;
 pub mod slack;
+pub mod snippets;
 pub mod stripe_tiers;
 pub mod state;
+pub mod storage;
 pub mod themes;
 pub mod webhooks;
 

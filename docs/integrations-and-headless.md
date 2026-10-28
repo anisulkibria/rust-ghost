@@ -67,6 +67,20 @@ or `formats=html,plaintext` to read rendered formats. Explicit null metadata
 values clear those fields; omitted fields retain their current values.
 Scheduled posts require a future ISO8601 `published_at` date.
 
+Staff API requests enforce role and authorship restrictions: contributors can
+save their own drafts, authors can publish their own posts, editors can manage
+other authors' posts, and site-wide settings require an administrator. Lower
+staff roles receive only public settings. Staff password changes require the
+current password; integration keys cannot change staff profiles or passwords.
+
+Use `"visibility":"tiers"` with `"tiers":[{"id":"PAID_TIER_ID"}]` to limit
+a post to selected paid tiers. Publishing requires at least one valid tier.
+The same tier grants protect frontend content, comments, and newsletter sends.
+Drafts may be saved before choosing a tier. Tier-restricted legacy imports
+without mapped tiers are kept as drafts until their access is configured.
+Markdown exports and the LLM index expose only public text or public previews,
+even when the browser has a member session.
+
 The standard paths work with or without a trailing slash. The server also
 accepts legacy `/ghost/api/v5/content/` and `/ghost/api/v5/admin/` prefixes.
 Content responses allow cross-origin reads, including `Accept-Version`
@@ -104,6 +118,26 @@ in the external service.
 External accounts, licences, deployed webhook receivers, and provider-specific
 credentials are still required. The automated checks cover the local API and
 webhook protocols; they do not certify every external service in the directory.
+
+## Publication name
+
+The separate publication **Name** is editable in **Settings → General** and
+available in every theme as `{{@site.name}}` (also `name` in Content API settings).
+It controls the admin sidebar and browser tab branding. A blank name falls back
+to the current title; `{{@site.title}}` continues to use the title field.
+
+## Editor snippets
+
+Select text or a card in the editor, choose **Save as snippet**, and give it a
+name. Type `/` and the snippet's name to insert a copy in another post or page.
+Saving under an existing name asks before replacing it. The card menu's remove
+action also asks before deleting a snippet; existing posts keep their copies.
+Owners, administrators, and editors can manage snippets. Authors and
+contributors can insert existing snippets.
+
+The authenticated Admin API supports `GET`/`POST /snippets/` and
+`GET`/`PUT`/`DELETE /snippets/{id}/`, using the `snippets` envelope. Request
+`formats=lexical,mobiledoc` for both content representations.
 
 ## Membership signup and Stripe
 

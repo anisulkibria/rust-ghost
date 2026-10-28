@@ -19,8 +19,11 @@ pub struct RenderCtx {
 /// Resolve `@member` from the request's session cookie.
 pub async fn member_context(state: &AppState, headers: &HeaderMap) -> Value {
     match ghost_api::members::current_member(state, headers).await {
-        Some(m) => serde_json::json!({
+        Some(m) => {
+            let tiers = ghost_db::repos::tiers::member_tier_ids(&state.db, &m.id).await.unwrap_or_default();
+            serde_json::json!({
             "uuid": m.uuid,
+            "tiers": tiers,
             "email": m.email,
             "name": m.name,
             "firstname": m.name.as_deref().and_then(|n| n.split_whitespace().next()),
@@ -28,7 +31,8 @@ pub async fn member_context(state: &AppState, headers: &HeaderMap) -> Value {
             "status": m.status,
             "paid": m.status != "free",
             "created_at": m.created_at,
-        }),
+        })
+        },
         None => Value::Null,
     }
 }
@@ -49,14 +53,12 @@ pub fn member_status(member: &Value) -> Option<&str> {
 /// upgrade CTA when it is false, and `{{comments}}` renders nothing at all.
 /// So without this a signed-in member sees a paywall on a post they have
 /// access to, and no comment form under it.
-pub fn apply_member_access(post: &mut Value, member_status: Option<&str>) {
-    let Some(visibility) = post.get("visibility").and_then(|v| v.as_str()) else {
-        return;
-    };
-    let allowed = ghost_core::comments::check_post_access(visibility, member_status);
-    if let Value::Object(m) = post {
-        m.insert("access".into(), Value::Bool(allowed));
-    }
+pub fn member_tiers(member: &Value) -> Vec<String> {
+    member.get("tiers").and_then(Value::as_array).map(|tiers| tiers.iter().filter_map(Value::as_str).map(str::to_string).collect()).unwrap_or_default()
+}
+
+pub fn apply_member_tier_access(post: &mut Value, member_status: Option<&str>, member_tiers: &[String]) {
+    ghost_core::models::apply_post_access(post, member_status, member_tiers);
 }
 
 /// Whether `{{comments}}` would render anything, as a root-level flag.

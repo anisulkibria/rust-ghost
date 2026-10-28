@@ -54,6 +54,7 @@ pub fn build_site(settings: &SettingsCache, site_url: &str, admin_url: &str) -> 
     d("secondary_navigation", Value::Array(vec![]));
     d("codeinjection_head", json!(""));
     d("codeinjection_foot", json!(""));
+    m.insert("name".into(), json!(settings.site_name()));
     // Ghost stores no separate `lang`; publication language is `locale`
     let locale = m.get("locale").cloned().unwrap_or(json!("en"));
     m.entry("lang".to_string()).or_insert(locale);
@@ -179,6 +180,18 @@ mod tests {
             pairs.iter().map(|(k, v)| ((*k).to_string(), v.clone())),
         );
         build_site(&cache, "https://site.test", "https://site.test/ghost")
+    }
+
+    #[test]
+    fn site_name_is_independent_of_title_with_a_title_fallback() {
+        let site = site_from(&[("name", json!(" Daily News ")), ("title", json!("News and analysis"))]);
+        assert_eq!(site["name"], "Daily News");
+        assert_eq!(site["title"], "News and analysis");
+        for name in [json!(""), json!("   "), Value::Null] {
+            let site = site_from(&[("name", name), ("title", json!("Existing publication"))]);
+            assert_eq!(site["name"], "Existing publication");
+        }
+        assert_eq!(site_from(&[("title", json!("Existing publication"))])["name"], "Existing publication");
     }
 
     #[test]

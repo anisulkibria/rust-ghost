@@ -79,6 +79,7 @@ pub struct StoredAction {
     pub id: String,
     pub kind: ActionKind,
     pub stats: EmailStats,
+    pub email_design_setting_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, Default)]
@@ -149,7 +150,7 @@ pub struct Run {
 
 /// `(id, type, wait_hours, email_subject, email_lexical)` — the latest
 /// revision of one action, joined to its owning action row.
-type ActionRow = (String, String, Option<i64>, Option<String>, Option<String>);
+type ActionRow = (String, String, Option<i64>, Option<String>, Option<String>, Option<String>);
 
 /// A recorded step joined to the revision it ran, plus the earliest send
 /// timestamp recorded against it.
@@ -325,7 +326,7 @@ pub async fn find(pool: &SqlitePool, id: &str) -> Result<Option<Automation>> {
 /// ones excluded — in creation order.
 async fn load_actions(pool: &SqlitePool, automation_id: &str) -> Result<Vec<StoredAction>> {
     let rows: Vec<ActionRow> = sqlx::query_as(
-        "SELECT a.id, a.type, r.wait_hours, r.email_subject, r.email_lexical \
+        "SELECT a.id, a.type, r.wait_hours, r.email_subject, r.email_lexical, r.email_design_setting_id \
          FROM automation_actions a \
          JOIN automation_action_revisions r ON r.action_id = a.id \
          WHERE a.automation_id = ? AND a.deleted_at IS NULL \
@@ -339,7 +340,7 @@ async fn load_actions(pool: &SqlitePool, automation_id: &str) -> Result<Vec<Stor
     .map_err(dberr)?;
 
     let mut out = Vec::with_capacity(rows.len());
-    for (id, action_type, wait_hours, subject, lexical) in rows {
+    for (id, action_type, wait_hours, subject, lexical, email_design_setting_id) in rows {
         // Counters are summed across every revision, so editing an email
         // does not reset the numbers it has already earned.
         let stats: (Option<i64>, Option<i64>, Option<i64>) = sqlx::query_as(
@@ -355,6 +356,7 @@ async fn load_actions(pool: &SqlitePool, automation_id: &str) -> Result<Vec<Stor
         out.push(StoredAction {
             id,
             kind,
+            email_design_setting_id,
             stats: EmailStats {
                 sent: stats.0.unwrap_or(0),
                 opened: stats.1.unwrap_or(0),
@@ -759,7 +761,7 @@ async fn insert_revision(
         "INSERT INTO automation_action_revisions \
          (id, created_at, action_id, wait_hours, email_subject, email_lexical, email_design_setting_id, \
           email_sent_count, email_opened_count, email_clicked_count) \
-         VALUES (?, ?, ?, ?, ?, ?, NULL, 0, 0, 0)",
+         VALUES (?, ?, ?, ?, ?, ?, (SELECT email_design_setting_id FROM automation_action_revisions WHERE action_id=? ORDER BY created_at DESC LIMIT 1), 0, 0, 0)",
     )
     .bind(ids::new_id())
     .bind(created_at)
@@ -767,6 +769,7 @@ async fn insert_revision(
     .bind(wait_hours)
     .bind(subject)
     .bind(lexical)
+    .bind(action_id)
     .execute(pool)
     .await
     .map_err(dberr)?;

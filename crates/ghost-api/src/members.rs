@@ -27,6 +27,8 @@ use sha2::{Digest, Sha256};
 use std::collections::HashMap;
 
 use crate::AppState;
+#[path = "member_subscriptions.rs"]
+mod subscriptions;
 
 /// Ghost's cookie name — Portal does not read it (it is `httpOnly`), but
 /// keeping the name identical means an existing Ghost install's debugging
@@ -106,8 +108,10 @@ pub fn members_router() -> Router<AppState> {
         // Ghost mounts it at /members/webhooks/stripe.
         .route("/members/webhooks/stripe", post(stripe_webhook))
         .route("/members/webhooks/stripe/", post(stripe_webhook))
-        .route("/members/api/subscriptions/{id}", put(stripe_unavailable))
-        .route("/members/api/subscriptions/{id}/", put(stripe_unavailable))
+        .route("/members/api/subscriptions/{id}", put(subscriptions::update))
+        .route("/members/api/subscriptions/{id}/", put(subscriptions::update))
+        .route("/members/api/subscriptions/{id}/apply-offer", post(subscriptions::apply_offer))
+        .route("/members/api/subscriptions/{id}/apply-offer/", post(subscriptions::apply_offer))
 }
 
 // ---------------------------------------------------------------------------
@@ -176,6 +180,8 @@ struct CheckoutRequest {
     duration: Option<u32>,
     #[serde(rename = "deliveryMethod")]
     delivery_method: Option<String>,
+    #[serde(rename = "deliveryDate")]
+    delivery_date: Option<String>,
     #[serde(rename = "recipientEmail")]
     recipient_email: Option<String>,
     #[serde(rename = "recipientName")]
@@ -478,6 +484,8 @@ struct Gift {
     personal_message: Option<String>,
     /// `link` (buyer shares it themselves) or `email` (we deliver it).
     delivery: String,
+    #[serde(default)]
+    delivery_at: Option<String>,
     /// `payment_pending` → `paid` → `redeemed`.
     status: String,
     #[serde(default)]
@@ -653,6 +661,9 @@ async fn gift_checkout(state: &AppState, headers: &HeaderMap, req: &CheckoutRequ
         _ => "link",
     };
 
+    let delivery_at = match scheduled_gift_date(req.delivery_date.as_deref(), &state.settings.get_str("timezone").unwrap_or_else(||"Etc/UTC".into())) {
+        Ok(date)=>date, Err(message)=>return api_error(StatusCode::BAD_REQUEST,&message,"BadRequestError")
+    };
     let token = gift_token();
     let site_url = state.site_url();
     let success = req
@@ -709,6 +720,7 @@ async fn gift_checkout(state: &AppState, headers: &HeaderMap, req: &CheckoutRequ
                 recipient_name: req.recipient_name.clone().filter(|n| !n.trim().is_empty()),
                 personal_message: req.personal_message.clone().filter(|m| !m.trim().is_empty()),
                 delivery: delivery.to_string(),
+                delivery_at,
                 status: "payment_pending".to_string(),
                 ..Default::default()
             };
@@ -727,31 +739,23 @@ async fn gift_checkout(state: &AppState, headers: &HeaderMap, req: &CheckoutRequ
 /// Payment landed for a gift: mark it redeemable and deliver it. Email
 /// delivery sends the recipient their gift; link delivery confirms to the
 /// buyer, repeating the link so it cannot be lost with the browser tab.
-async fn gift_payment_completed(state: &AppState, token: &str) {
-    let Some(mut gift) = find_gift(state, token).await else {
-        tracing::warn!("stripe: paid gift checkout for unknown token {token}");
-        return;
+async fn gift_payment_completed(state: &AppState, token: &str) -> ghost_core::Result<()> {
+    let mut tx=state.db.begin().await.map_err(|e|ghost_core::GhostError::Db(e.to_string()))?;
+    let data:Option<String>=sqlx::query_scalar("SELECT data FROM tokens WHERE token=? LIMIT 1").bind(token).fetch_optional(&mut *tx).await.map_err(|e|ghost_core::GhostError::Db(e.to_string()))?;
+    let Some(mut gift)=data.and_then(|data|serde_json::from_str::<Gift>(&data).ok()).filter(|gift|gift.gift) else {
+        return Err(ghost_core::GhostError::BadRequest("Gift checkout token was not found".into()));
     };
-    if gift.status != "payment_pending" {
-        return;
+    if gift.status=="payment_pending" {
+        gift.status="paid".into(); gift.purchased_at=Some(now_rfc3339());
+        sqlx::query("UPDATE tokens SET data=?,updated_at=? WHERE token=?").bind(serde_json::to_string(&gift).map_err(|e|ghost_core::GhostError::Internal(e.to_string()))?).bind(now_rfc3339()).bind(token).execute(&mut *tx).await.map_err(|e|ghost_core::GhostError::Db(e.to_string()))?;
     }
-    gift.status = "paid".to_string();
-    gift.purchased_at = Some(now_rfc3339());
-    update_gift(state, &gift).await;
-
-    let link = format!("{}/#/portal/gift/redeem/{}", state.site_url(), gift.token);
-    let bg = state.clone();
-    let gift_bg = gift.clone();
-    let link_bg = link;
-    tokio::spawn(async move {
-        if let Err(e) = send_gift_email(&bg, &gift_bg, &link_bg).await {
-            tracing::error!(
-                "members: could not send gift email for token {}: {}",
-                gift_bg.token,
-                e.message()
-            );
-        }
-    });
+    if matches!(gift.status.as_str(),"paid"|"redeemed") {
+        let deliver_at=gift.delivery_at.as_deref().or(gift.purchased_at.as_deref()).unwrap_or("");
+        sqlx::query("INSERT OR IGNORE INTO scheduled_gift_deliveries (token,deliver_at) VALUES (?,?)").bind(token).bind(deliver_at).execute(&mut *tx).await.map_err(|e|ghost_core::GhostError::Db(e.to_string()))?;
+    }
+    tx.commit().await.map_err(|e|ghost_core::GhostError::Db(e.to_string()))?;
+    deliver_due_gifts(state).await;
+    Ok(())
 }
 
 async fn send_gift_email(
@@ -1128,20 +1132,24 @@ async fn stripe_webhook(State(state): State<AppState>, headers: HeaderMap, body:
     let kind = event.get("type").and_then(|t| t.as_str()).unwrap_or("");
     let object = event.pointer("/data/object").cloned().unwrap_or(Value::Null);
 
-    match kind {
+    let result=match kind {
         "checkout.session.completed" => handle_checkout_completed(&state, &cfg, &object).await,
         "customer.subscription.created" | "customer.subscription.updated" | "customer.subscription.deleted" => {
             handle_subscription_change(&state, &object).await
         }
-        _ => {}
+        _ => Ok(())
+    };
+    if let Err(error)=result {
+        tracing::error!("Stripe event could not be persisted: {}",error.message());
+        return (StatusCode::SERVICE_UNAVAILABLE,"Please retry the event").into_response();
     }
-    // Always 200 for a signed event: a non-2xx makes Stripe retry, and a
-    // payload we do not handle is not an error.
+    // Acknowledge only after local persistence succeeds.
     (StatusCode::OK, "ok").into_response()
 }
 
 /// A completed checkout: find or create the member, attach the customer.
-async fn handle_checkout_completed(state: &AppState, cfg: &ghost_stripe::StripeConfig, obj: &Value) {
+async fn handle_checkout_completed(state: &AppState, cfg: &ghost_stripe::StripeConfig, obj: &Value) -> ghost_core::Result<()> {
+    if obj.pointer("/metadata/ghost_checkout_preview").is_some_and(|value|value=="true"||value==true){return Ok(())}
     // A gift's buyer is not necessarily becoming a member — the gift itself
     // is the product — so it never reaches the member logic below.
     if let Some(token) = obj
@@ -1149,8 +1157,7 @@ async fn handle_checkout_completed(state: &AppState, cfg: &ghost_stripe::StripeC
         .and_then(|t| t.as_str())
         .filter(|t| !t.is_empty())
     {
-        gift_payment_completed(state, token).await;
-        return;
+        return gift_payment_completed(state, token).await;
     }
     // A donation is recorded like any checkout — the donor becomes a free
     // member when an email is known, and the customer is attached — but
@@ -1176,7 +1183,7 @@ async fn handle_checkout_completed(state: &AppState, cfg: &ghost_stripe::StripeC
     };
     let Some(member) = member else {
         tracing::error!("stripe: completed checkout for {email} but no member could be resolved");
-        return;
+        return Err(ghost_core::GhostError::Internal("Checkout member could not be resolved".into()));
     };
 
     if !customer_id.is_empty() {
@@ -1184,12 +1191,10 @@ async fn handle_checkout_completed(state: &AppState, cfg: &ghost_stripe::StripeC
             sqlx::query_scalar("SELECT id FROM members_stripe_customers WHERE customer_id = ?")
                 .bind(&customer_id)
                 .fetch_optional(&state.db)
-                .await
-                .ok()
-                .flatten();
+                .await.map_err(|e|ghost_core::GhostError::Db(e.to_string()))?;
         if existing.is_none() {
             let now = now_rfc3339();
-            let _ = sqlx::query(
+            sqlx::query(
                 "INSERT INTO members_stripe_customers (id, member_id, customer_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?)",
             )
             .bind(ids::new_id())
@@ -1198,7 +1203,7 @@ async fn handle_checkout_completed(state: &AppState, cfg: &ghost_stripe::StripeC
             .bind(&now)
             .bind(&now)
             .execute(&state.db)
-            .await;
+            .await.map_err(|e|ghost_core::GhostError::Db(e.to_string()))?;
         }
     }
 
@@ -1207,130 +1212,32 @@ async fn handle_checkout_completed(state: &AppState, cfg: &ghost_stripe::StripeC
     // later purchase must not rewrite that history.
     if let Some(offer_id) = obj.pointer("/metadata/offer_id").and_then(|o| o.as_str()) {
         if !offer_id.is_empty() {
-            let _ = sqlx::query(
+            sqlx::query(
                 "UPDATE members SET offer_id = ? WHERE id = ? AND (offer_id IS NULL OR offer_id = '')",
             )
             .bind(offer_id)
             .bind(&member.id)
             .execute(&state.db)
-            .await;
+            .await.map_err(|e|ghost_core::GhostError::Db(e.to_string()))?;
         }
     }
 
     // The session carries only the subscription id, so fetch the real thing
     // rather than guessing its state.
     if let Some(sub_id) = obj.get("subscription").and_then(|s| s.as_str()) {
-        if let Ok(sub) = ghost_stripe::get_subscription(cfg, sub_id).await {
-            handle_subscription_change(state, &sub).await;
-        }
+        let sub=ghost_stripe::get_subscription(cfg, sub_id).await?;
+        handle_subscription_change(state, &sub).await?;
     }
+    Ok(())
 }
 
 /// A subscription was created, changed or cancelled: record it and move the
 /// member between free and paid accordingly.
-async fn handle_subscription_change(state: &AppState, sub: &Value) {
-    let sub_id = sub.get("id").and_then(|s| s.as_str()).unwrap_or("").to_string();
-    let customer_id = sub.get("customer").and_then(|c| c.as_str()).unwrap_or("").to_string();
-    let status = sub.get("status").and_then(|s| s.as_str()).unwrap_or("").to_string();
-    if sub_id.is_empty() || customer_id.is_empty() {
-        return;
+async fn handle_subscription_change(state: &AppState, sub: &Value) -> ghost_core::Result<()> {
+    if let Some(member)=ghost_db::repos::subscriptions::sync(&state.db,sub).await? {
+        if matches!(sub["status"].as_str(),Some("active"|"trialing")) {crate::automations_engine::trigger_for_member(state,&member).await;}
     }
-    let member_id: Option<String> =
-        sqlx::query_scalar("SELECT member_id FROM members_stripe_customers WHERE customer_id = ? LIMIT 1")
-            .bind(&customer_id)
-            .fetch_optional(&state.db)
-            .await
-            .ok()
-            .flatten();
-    let Some(member_id) = member_id else {
-        tracing::warn!("stripe: subscription {sub_id} for unknown customer {customer_id}");
-        return;
-    };
-
-    let price = sub.pointer("/items/data/0/price").cloned().unwrap_or(Value::Null);
-    let amount = price.get("unit_amount").and_then(|a| a.as_i64());
-    let currency = price.get("currency").and_then(|c| c.as_str()).unwrap_or("usd").to_string();
-    let interval = price.pointer("/recurring/interval").and_then(|i| i.as_str()).unwrap_or("month").to_string();
-    let stripe_price_id = price.get("id").and_then(|i| i.as_str()).unwrap_or("").to_string();
-    let cancel_at_period_end = sub.get("cancel_at_period_end").and_then(|c| c.as_bool()).unwrap_or(false);
-    let period_end = sub.get("current_period_end").and_then(|e| e.as_i64()).unwrap_or(0);
-    let period_end = chrono::DateTime::from_timestamp(period_end, 0)
-        .map(|d| d.format("%Y-%m-%d %H:%M:%S").to_string())
-        .unwrap_or_default();
-    let now = now_rfc3339();
-
-    let existing: Option<String> = sqlx::query_scalar("SELECT id FROM subscriptions WHERE subscription_id = ?")
-        .bind(&sub_id)
-        .fetch_optional(&state.db)
-        .await
-        .ok()
-        .flatten();
-    if existing.is_some() {
-        let _ = sqlx::query(
-            "UPDATE subscriptions SET status = ?, cancel_at_period_end = ?, current_period_end = ?, \
-             stripe_price_id = ?, plan_interval = ?, plan_currency = ?, plan_amount = ?, updated_at = ? \
-             WHERE subscription_id = ?",
-        )
-        .bind(&status).bind(cancel_at_period_end).bind(&period_end)
-        .bind(&stripe_price_id).bind(&interval).bind(&currency).bind(amount)
-        .bind(&now).bind(&sub_id)
-        .execute(&state.db).await;
-    } else {
-        let _ = sqlx::query(
-            "INSERT INTO subscriptions (id, customer_id, subscription_id, status, cancel_at_period_end, \
-             current_period_end, start_date, stripe_price_id, plan_interval, plan_currency, plan_amount, created_at, updated_at) \
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-        )
-        .bind(ids::new_id()).bind(&customer_id).bind(&sub_id).bind(&status)
-        .bind(cancel_at_period_end).bind(&period_end).bind(&now)
-        .bind(&stripe_price_id).bind(&interval).bind(&currency).bind(amount)
-        .bind(&now).bind(&now)
-        .execute(&state.db).await;
-    }
-
-    // `active` and `trialing` are the states that grant access. Anything else
-    // — cancelled, unpaid, incomplete — drops the member back to free.
-    let paid = matches!(status.as_str(), "active" | "trialing");
-    let _ = sqlx::query("UPDATE members SET status = ?, updated_at = ? WHERE id = ?")
-        .bind(if paid { "paid" } else { "free" })
-        .bind(&now)
-        .bind(&member_id)
-        .execute(&state.db)
-        .await;
-
-    // Mirror the tier membership so content gating can use it.
-    if let Some(tier_id) = sqlx::query_scalar::<_, String>(
-        "SELECT id FROM products WHERE monthly_price_id = ? OR yearly_price_id = ? LIMIT 1",
-    )
-    .bind(&stripe_price_id)
-    .bind(&stripe_price_id)
-    .fetch_optional(&state.db)
-    .await
-    .ok()
-    .flatten()
-    {
-        let _ = sqlx::query("DELETE FROM members_products WHERE member_id = ?")
-            .bind(&member_id)
-            .execute(&state.db)
-            .await;
-        if paid {
-            let _ = sqlx::query(
-                "INSERT INTO members_products (id, member_id, product_id, sort_order) VALUES (?, ?, ?, 0)",
-            )
-            .bind(ids::new_id()).bind(&member_id).bind(&tier_id)
-            .execute(&state.db).await;
-        }
-    }
-    tracing::info!("stripe: subscription {sub_id} is {status}; member {member_id} is now {}", if paid { "paid" } else { "free" });
-
-    // Starting a paid subscription is the other event automations trigger on.
-    // It runs after the tier mirror above, because a tier-scoped automation
-    // matches on exactly those rows. Dropping back to free triggers nothing —
-    // there is no "cancelled" trigger — but the next poll will notice the
-    // status change and stop any paid chain they were partway through.
-    if paid {
-        crate::automations_engine::trigger_for_member(state, &member_id).await;
-    }
+    Ok(())
 }
 
 async fn stripe_unavailable() -> Response {
@@ -1351,7 +1258,7 @@ fn theme_secret(state: &AppState) -> String {
 
 /// HMAC-SHA256, hex-encoded. Hand-rolled over `sha2` (block size 64) rather
 /// than pulling in an `hmac` dependency for two call sites.
-fn hmac_sha256_hex(key: &str, msg: &str) -> String {
+pub(crate) fn hmac_sha256_hex(key: &str, msg: &str) -> String {
     const BLOCK: usize = 64;
     let mut k = key.as_bytes().to_vec();
     if k.len() > BLOCK {
@@ -1375,7 +1282,7 @@ fn hmac_sha256_hex(key: &str, msg: &str) -> String {
 }
 
 /// Constant-time compare, so a signature check cannot be narrowed by timing.
-fn secure_eq(a: &str, b: &str) -> bool {
+pub(crate) fn secure_eq(a: &str, b: &str) -> bool {
     if a.len() != b.len() {
         return false;
     }
@@ -1586,7 +1493,7 @@ async fn member_json(state: &AppState, m: &Member) -> Value {
         "avatar_image": avatar_image(),
         "unsubscribe_url": format!("{site_url}/unsubscribe/?uuid={}&key={}", m.uuid, newsletter_key(state, &m.uuid)),
         "subscribed": !newsletters.is_empty(),
-        "subscriptions": [],
+        "subscriptions": subscriptions::list(state, &m.id).await,
         "status": m.status,
         "paid": m.status != "free",
         "created_at": m.created_at,
@@ -1594,7 +1501,7 @@ async fn member_json(state: &AppState, m: &Member) -> Value {
         "can_comment": can_comment(state, m),
         "commenting": m.commenting.to_json(),
         "newsletters": newsletters,
-        "email_suppression": { "suppressed": false, "info": Value::Null },
+        "email_suppression": crate::newsletter_events::suppression(state, &m.email).await,
     })
 }
 
@@ -2224,12 +2131,13 @@ async fn magic_link_landing(
 
     // Burn the token before issuing the session, so a double-click cannot
     // race two signups through.
-    let _ = sqlx::query("UPDATE tokens SET used_count = used_count + 1, first_used_at = ?, updated_at = ? WHERE id = ?")
+    let consumed = sqlx::query("UPDATE tokens SET used_count = used_count + 1, first_used_at = ?, updated_at = ? WHERE id = ? AND used_count = 0")
         .bind(now_rfc3339())
         .bind(now_rfc3339())
         .bind(&token_id)
         .execute(&state.db)
         .await;
+    if !consumed.is_ok_and(|result|result.rows_affected()==1) { return fail("TokenExpired"); }
 
     let member = match member_by_email(&state, &email).await {
         Some(m) => m,
@@ -2570,8 +2478,11 @@ async fn put_member_newsletters(
 /// is no suppression list in this port, so report success — the member's
 /// subscriptions are already the only thing gating delivery.
 async fn delete_suppression(State(state): State<AppState>, headers: HeaderMap) -> Response {
-    if current_member(&state, &headers).await.is_none() {
+    let Some(member) = current_member(&state, &headers).await else {
         return api_error(StatusCode::UNAUTHORIZED, "You must be signed in.", "UnauthorizedError");
+    };
+    if crate::newsletter_events::remove_suppression(&state, &member.email).await.is_err() {
+        return api_error(StatusCode::INTERNAL_SERVER_ERROR, "Could not remove suppression.", "InternalServerError");
     }
     private_json(StatusCode::OK, json!({}))
 }
@@ -2705,6 +2616,7 @@ mod tests {
             amount: 1500,
             buyer_email: "buyer@test".into(),
             delivery: "link".into(),
+            delivery_at: None,
             status: "payment_pending".into(),
             ..Default::default()
         };
@@ -2740,4 +2652,34 @@ mod tests {
         assert!(check_redeemable(&fresh, None).is_ok());
     }
 
+}
+
+fn scheduled_gift_date(date:Option<&str>,timezone:&str)->std::result::Result<Option<String>,String>{
+    use chrono::TimeZone;
+    let Some(date)=date.filter(|d|!d.is_empty())else{return Ok(None)};
+    let zone:chrono_tz::Tz=timezone.parse().unwrap_or(chrono_tz::UTC);
+    let selected=chrono::NaiveDate::parse_from_str(date,"%Y-%m-%d").map_err(|_|"Choose a valid gift delivery date".to_string())?;
+    let today=chrono::Utc::now().with_timezone(&zone).date_naive();
+    let days=selected.signed_duration_since(today).num_days();
+    if !(0..=365).contains(&days){return Err("Choose today or a date within the next 365 days".into())}
+    if days==0{return Ok(None)}
+    let at=zone.from_local_datetime(&selected.and_hms_opt(9,0,0).unwrap()).earliest().ok_or_else(||"Invalid local delivery time".to_string())?;
+    Ok(Some(at.with_timezone(&chrono::Utc).format("%Y-%m-%d %H:%M:%S").to_string()))
+}
+/// Native worker with persistent retry state. A process restart does not lose a delivery.
+pub fn spawn_gift_delivery(state:AppState){tokio::spawn(async move{loop{deliver_due_gifts(&state).await;tokio::time::sleep(std::time::Duration::from_secs(30)).await;}});}
+async fn deliver_due_gifts(state:&AppState){
+    let due=sqlx::query_scalar::<_,String>("SELECT token FROM scheduled_gift_deliveries WHERE sent_at IS NULL AND attempts<12 AND datetime(deliver_at)<=datetime('now') AND (last_attempt_at IS NULL OR datetime(last_attempt_at)<datetime('now','-5 minutes')) LIMIT 50")
+        .fetch_all(&state.db).await.unwrap_or_default();
+    for token in due{
+        let claimed=sqlx::query("UPDATE scheduled_gift_deliveries SET attempts=attempts+1,last_attempt_at=? WHERE token=? AND sent_at IS NULL AND (last_attempt_at IS NULL OR datetime(last_attempt_at)<datetime('now','-5 minutes'))")
+            .bind(now_rfc3339()).bind(&token).execute(&state.db).await.is_ok_and(|r|r.rows_affected()==1);
+        if !claimed{continue}
+        let Some(gift)=find_gift(state,&token).await.filter(|g|g.status=="paid"||g.status=="redeemed")else{continue};
+        let link=format!("{}/#/portal/gift/redeem/{}",state.site_url(),gift.token);
+        match send_gift_email(state,&gift,&link).await{
+            Ok(())=>{let _=sqlx::query("UPDATE scheduled_gift_deliveries SET sent_at=?,last_error=NULL WHERE token=?").bind(now_rfc3339()).bind(&token).execute(&state.db).await;},
+            Err(error)=>{let _=sqlx::query("UPDATE scheduled_gift_deliveries SET last_error=? WHERE token=?").bind(error.message()).bind(&token).execute(&state.db).await;}
+        }
+    }
 }

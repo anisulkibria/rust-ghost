@@ -16,6 +16,8 @@ hex = { workspace = true }
 ghost-render = { workspace = true }
 ghost-nql = { workspace = true }
 ghost-api = { workspace = true }
+ghost-front = { workspace = true }
+tower = { workspace = true }
 tokio = { workspace = true }
 axum = { workspace = true }
 serde = { workspace = true }

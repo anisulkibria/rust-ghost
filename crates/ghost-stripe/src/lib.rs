@@ -24,6 +24,7 @@ pub struct StripeConfig {
     /// `whsec_…`, set when the webhook endpoint is registered. Without it
     /// incoming webhooks cannot be verified and are refused.
     pub webhook_secret: String,
+    pub checkout_design: Option<serde_json::Value>,
 }
 
 impl StripeConfig {
@@ -46,6 +47,7 @@ impl StripeConfig {
             secret_key: secret,
             publishable_key: publishable,
             webhook_secret: s("members_stripe_webhook_secret"),
+            checkout_design: settings.get("stripe_checkout_config").and_then(|config|config.get("design").cloned()).filter(|design|design.get("customize").and_then(|value|value.as_bool())==Some(true)),
         })
     }
 
@@ -61,7 +63,25 @@ fn client() -> reqwest::Client {
 }
 
 /// POST a form-encoded request and parse Stripe's JSON reply.
-async fn post(cfg: &StripeConfig, path: &str, form: &[(String, String)]) -> Result<serde_json::Value> {
+async fn post(cfg: &StripeConfig, path: &str, form: &[(String,String)]) -> Result<serde_json::Value> {
+    if path=="/checkout/sessions" {
+        if let Some(design)=&cfg.checkout_design {
+            let mut decorated=form.to_vec();
+            for key in ["button_color","background_color","border_style","font_family"] {if let Some(value)=design[key].as_str(){decorated.push((format!("branding_settings[{key}]"),value.into()));}}
+            let response=client().post(format!("{API}{path}")).basic_auth(&cfg.secret_key,None::<&str>).header("Stripe-Version",STRIPE_API_VERSION).form(&decorated).send().await.map_err(|e|GhostError::BadRequest(e.to_string()))?;
+            let status=response.status();let body:serde_json::Value=response.json().await.map_err(|_|GhostError::BadRequest("Stripe returned invalid JSON".into()))?;
+            if status.is_success(){return Ok(body)}
+            if status==reqwest::StatusCode::BAD_REQUEST && body.pointer("/error/param").and_then(|value|value.as_str()).is_some_and(|param|param.starts_with("branding_settings")) {
+                // A rejected design must not prevent a buyer from checking out.
+                return post_raw(cfg,path,form).await;
+            }
+            return Err(GhostError::BadRequest(body.pointer("/error/message").and_then(|value|value.as_str()).unwrap_or("Stripe Checkout failed").into()));
+        }
+    }
+    post_raw(cfg,path,form).await
+}
+
+async fn post_raw(cfg: &StripeConfig, path: &str, form: &[(String, String)]) -> Result<serde_json::Value> {
     let resp = client()
         .post(format!("{API}{path}"))
         .basic_auth(&cfg.secret_key, None::<&str>)
@@ -118,6 +138,7 @@ pub async fn verify_account(secret_key: &str) -> Result<AccountInfo> {
         secret_key: secret_key.trim().to_string(),
         publishable_key: String::new(),
         webhook_secret: String::new(),
+        checkout_design: None,
     };
     let v = get(&cfg, "/account").await?;
     Ok(AccountInfo {
@@ -427,6 +448,18 @@ pub async fn get_subscription(cfg: &StripeConfig, id: &str) -> Result<serde_json
     get(cfg, &format!("/subscriptions/{id}")).await
 }
 
+/// Update an existing subscription using Stripe's pinned API contract.
+pub async fn update_subscription(cfg: &StripeConfig, id: &str, form: &[(String, String)]) -> Result<serde_json::Value> {
+    post(cfg, &format!("/subscriptions/{id}"), form).await
+}
+
+pub async fn cancel_subscription(cfg: &StripeConfig, id: &str) -> Result<serde_json::Value> {
+    let response = client().delete(format!("{API}/subscriptions/{id}"))
+        .basic_auth(&cfg.secret_key, None::<&str>).header("Stripe-Version", STRIPE_API_VERSION)
+        .send().await.map_err(|e| GhostError::BadRequest(format!("Stripe request failed: {e}")))?;
+    parse(response).await
+}
+
 /// The discount an offer applies, in Stripe's vocabulary.
 #[derive(Debug, Clone, Copy)]
 pub enum Discount<'a> {
@@ -621,8 +654,35 @@ mod tests {
             secret_key: k.into(),
             publishable_key: String::new(),
             webhook_secret: String::new(),
+        checkout_design: None,
         };
         assert!(mk("sk_live_abc").is_live());
         assert!(!mk("sk_test_abc").is_live());
     }
+}
+
+/// Preview endpoints are isolated from the pinned membership API version.
+pub async fn machine_deposit_address(cfg:&StripeConfig,network:&str)->Result<serde_json::Value>{
+    if !matches!(network,"base"|"tempo"){return Err(GhostError::BadRequest("Unsupported settlement network".into()))}
+    let response=client().post(format!("{API}/crypto/deposit_addresses")).basic_auth(&cfg.secret_key,None::<&str>)
+        .header("Stripe-Version","2026-05-27.preview").form(&[("network",network)]).send().await.map_err(|e|GhostError::BadRequest(e.to_string()))?;parse(response).await
+}
+pub async fn machine_payment_intent(cfg:&StripeConfig,token:&str,amount:i64,currency:&str,idempotency_key:&str,post_id:&str)->Result<serde_json::Value>{
+    let form=vec![("amount".to_string(),amount.to_string()),("currency".into(),currency.to_lowercase()),("confirm".into(),"true".into()),("automatic_payment_methods[enabled]".into(),"true".into()),("automatic_payment_methods[allow_redirects]".into(),"never".into()),("shared_payment_granted_token".into(),token.into()),("metadata[ghost_machine_payment_post_id]".into(),post_id.into())];
+    let response=client().post(format!("{API}/payment_intents")).basic_auth(&cfg.secret_key,None::<&str>).header("Stripe-Version","2026-05-27.preview").header("Idempotency-Key",idempotency_key).form(&form).send().await.map_err(|_|GhostError::BadRequest("Payment processor could not be reached".into()))?;
+    // The persistent receipt constraint in the caller permits recovery after a
+    // timeout while still granting an individual settlement only once.
+    parse(response).await
+}
+
+pub async fn checkout_branding(cfg:&StripeConfig,site_url:&str)->Result<serde_json::Value>{
+    let form=vec![("mode".into(),"setup".into()),("managed_payments[enabled]".into(),"false".into()),("payment_method_types[0]".into(),"card".into()),("success_url".into(),site_url.into()),("metadata[ghost_checkout_preview]".into(),"true".into())];
+    let session=post_raw(cfg,"/checkout/sessions",&form).await?;
+    if let Some(id)=session["id"].as_str(){let _=post_raw(cfg,&format!("/checkout/sessions/{id}/expire"),&[]).await;}
+    session.get("branding_settings").cloned().ok_or_else(||GhostError::BadRequest("Stripe did not return checkout branding".into()))
+}
+pub async fn checkout_preview(cfg:&StripeConfig,price_id:&str,site_url:&str)->Result<String>{
+    let mut form=subscription_checkout_form(price_id,None,site_url,site_url,"",0,None);
+    form.push(("metadata[ghost_checkout_preview]".into(),"true".into()));form.push(("expires_at".into(),(chrono::Utc::now().timestamp()+31*60).to_string()));
+    let session=post(cfg,"/checkout/sessions",&form).await?;session["url"].as_str().map(str::to_owned).ok_or_else(||GhostError::BadRequest("Stripe returned no checkout page".into()))
 }

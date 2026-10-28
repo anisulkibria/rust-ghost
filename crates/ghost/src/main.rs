@@ -212,6 +212,9 @@ async fn main() {
     // of the process: a member waiting three days for the next email in a
     // chain has nobody making a request when it comes due.
     ghost_api::automations_engine::spawn(state.clone());
+    ghost_api::members::spawn_gift_delivery(state.clone());
+    ghost_api::explore::spawn(state.clone());
+    ghost_api::federation::spawn(state.clone());
     let app = mount(build_app(state), subdir);
 
     // 9. listen
@@ -342,7 +345,7 @@ fn build_app(state: AppState) -> axum::Router {
     let backend = axum::Router::new().nest("/api", compatible_api).merge(auth_frame);
 
     // built-in admin UI at /ghost
-    let admin_ui = ghost_admin_ui::admin_ui_router().with_state(state.clone());
+    let admin_ui = ghost_admin_ui::admin_ui_router(state.clone()).with_state(state.clone());
 
     // /members/* — Portal's backend. Merged (not nested) at the site root,
     // since Portal builds these URLs from the site origin and carries the

@@ -2,6 +2,9 @@
 //!
 //! Row structs are private to ghost-db; repos map them to domain structs.
 pub mod posts;
+pub mod publishing;
+pub mod members;
+pub mod subscriptions;
 pub mod tags;
 pub mod tiers;
 pub mod users;
@@ -47,6 +50,8 @@ pub(crate) struct PostRow {
     pub published_at: Option<String>,
     pub published_by: Option<String>,
     pub custom_excerpt: Option<String>,
+    pub email_recipient_filter: Option<String>,
+    pub newsletter_id: Option<String>,
     pub reading_time: Option<i64>,
     pub codeinjection_head: Option<String>,
     pub codeinjection_foot: Option<String>,
@@ -55,7 +60,7 @@ pub(crate) struct PostRow {
     pub show_title_and_feature_image: Option<bool>,
 }
 
-pub(crate) const POST_COLS: &str = "id, uuid, title, slug, mobiledoc, lexical, markdown, html, plaintext, feature_image, featured, type, status, visibility, created_at, updated_at, published_at, published_by, custom_excerpt, reading_time, codeinjection_head, codeinjection_foot, custom_template, canonical_url, show_title_and_feature_image";
+pub(crate) const POST_COLS: &str = "id, uuid, title, slug, mobiledoc, lexical, markdown, html, plaintext, feature_image, featured, type, status, visibility, created_at, updated_at, published_at, published_by, custom_excerpt, reading_time, codeinjection_head, codeinjection_foot, custom_template, canonical_url, show_title_and_feature_image, email_recipient_filter, newsletter_id";
 
 impl From<PostRow> for Post {
     fn from(r: PostRow) -> Self {
@@ -74,6 +79,7 @@ impl From<PostRow> for Post {
             post_type: r.post_type.unwrap_or_else(|| "post".into()),
             status: r.status.unwrap_or_else(|| "draft".into()),
             visibility: r.visibility.unwrap_or_else(|| "public".into()),
+            tier_ids: Vec::new(),
             created_at: r.created_at,
             updated_at: r.updated_at,
             published_at: r.published_at,
@@ -86,11 +92,11 @@ impl From<PostRow> for Post {
             canonical_url: r.canonical_url,
             show_title_and_feature_image: r.show_title_and_feature_image.unwrap_or(true),
             meta: None,
-            email_recipient_filter: None,
+            email_recipient_filter: r.email_recipient_filter,
             auto_excerpt: None,
             locale: None,
             comment_id: None,
-            newsletter_id: None,
+            newsletter_id: r.newsletter_id,
         }
     }
 }
@@ -279,6 +285,7 @@ impl From<UserRow> for User {
 /// Batch-loaded relations for a set of posts.
 #[derive(Debug, Default)]
 pub struct PostRelations {
+    pub post_tiers: Vec<(String, String)>,
     pub authors: Vec<User>,
     pub tags: Vec<Tag>,
     /// (post_id, author_id) / (post_id, tag_id) pairs in sort order
@@ -313,5 +320,6 @@ impl PostRelations {
 pub fn attach_meta(posts: &mut [Post], rel: &PostRelations) {
     for p in posts {
         p.meta = rel.meta_for(&p.id).cloned();
+        p.tier_ids = rel.post_tiers.iter().filter(|(id, _)| id == &p.id).map(|(_, tier)| tier.clone()).collect();
     }
 }

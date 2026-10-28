@@ -210,6 +210,9 @@ pub async fn load_relations(pool: &SqlitePool, posts: &[Post]) -> Result<PostRel
         rel.tags = super::tags::find_by_ids(pool, &tag_ids).await?;
     }
 
+    rel.post_tiers = sqlx::query_as::<_, (String, String)>("SELECT post_id, product_id FROM posts_products ORDER BY sort_order")
+        .fetch_all(pool).await.map_err(dberr)?.into_iter().filter(|(id, _)| post_ids.contains(id.as_str())).collect();
+
     let meta_rows = sqlx::query_as::<_, super::MetaRow>(
         "SELECT post_id, og_image, og_title, og_description, twitter_image, twitter_title, twitter_description, meta_title, meta_description, email_subject, email_preview, frontmatter, feature_image_alt, feature_image_caption FROM posts_meta",
     )
@@ -238,7 +241,7 @@ pub async fn find_by_slug(pool: &SqlitePool, slug_: &str, post_type: &str, publi
     .map(Into::into);
     let Some(mut post) = post else { return Ok(None) };
     let rel = load_relations(pool, std::slice::from_ref(&post)).await?;
-    post.meta = rel.meta_for(&post.id).cloned();
+    attach_meta(std::slice::from_mut(&mut post), &rel);
     Ok(Some(post))
 }
 
@@ -251,7 +254,7 @@ pub async fn find_by_id(pool: &SqlitePool, id: &str) -> Result<Option<Post>> {
         .map(Into::into);
     let Some(mut post) = post else { return Ok(None) };
     let rel = load_relations(pool, std::slice::from_ref(&post)).await?;
-    post.meta = rel.meta_for(&post.id).cloned();
+    attach_meta(std::slice::from_mut(&mut post), &rel);
     Ok(Some(post))
 }
 
@@ -264,7 +267,7 @@ pub async fn find_by_uuid(pool: &SqlitePool, uuid: &str) -> Result<Option<Post>>
         .map(Into::into);
     let Some(mut post) = post else { return Ok(None) };
     let rel = load_relations(pool, std::slice::from_ref(&post)).await?;
-    post.meta = rel.meta_for(&post.id).cloned();
+    attach_meta(std::slice::from_mut(&mut post), &rel);
     Ok(Some(post))
 }
 
@@ -307,6 +310,7 @@ pub struct NewPost {
     pub feature_image_caption: Option<String>,
     pub author_ids: Vec<String>,
     pub tag_ids: Vec<String>,
+    pub tier_ids: Vec<String>,
     pub reading_time: i64,
 }
 
@@ -407,6 +411,11 @@ pub async fn insert(pool: &SqlitePool, new: &NewPost, author_id: &str) -> Result
 
     let reading_time = if new.reading_time > 0 { new.reading_time } else { 1 };
 
+    super::tiers::validate_post_tiers(pool, if new.visibility.is_empty() { "public" } else { &new.visibility }, &new.tier_ids).await?;
+    if new.visibility == "tiers" && new.tier_ids.is_empty() && status != "draft" {
+        return Err(GhostError::ValidationError { message: "Choose at least one paid tier before publishing.".into(), context: Some("tiers".into()) });
+    }
+    let mut tx = pool.begin().await.map_err(dberr)?;
     sqlx::query("INSERT INTO posts (id, uuid, title, slug, lexical, markdown, html, plaintext, type, status, visibility, featured, feature_image, custom_excerpt, reading_time, codeinjection_head, codeinjection_foot, custom_template, canonical_url, created_at, updated_at, published_at, published_by, show_title_and_feature_image) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
         .bind(&id)
         .bind(&ids::random_hex(16))
@@ -432,7 +441,7 @@ pub async fn insert(pool: &SqlitePool, new: &NewPost, author_id: &str) -> Result
         .bind(&published_at)
         .bind(author_id)
         .bind(new.show_title_and_feature_image.unwrap_or(true))
-        .execute(pool)
+        .execute(&mut *tx)
         .await
         .map_err(dberr)?;
 
@@ -464,7 +473,7 @@ pub async fn insert(pool: &SqlitePool, new: &NewPost, author_id: &str) -> Result
             .bind(&new.email_subject)
             .bind(&new.feature_image_alt)
             .bind(&new.feature_image_caption)
-            .execute(pool)
+            .execute(&mut *tx)
             .await
             .map_err(dberr)?;
     }
@@ -479,7 +488,7 @@ pub async fn insert(pool: &SqlitePool, new: &NewPost, author_id: &str) -> Result
             .bind(&id)
             .bind(aid)
             .bind(i as i64)
-            .execute(pool)
+            .execute(&mut *tx)
             .await
             .map_err(dberr)?;
     }
@@ -490,11 +499,16 @@ pub async fn insert(pool: &SqlitePool, new: &NewPost, author_id: &str) -> Result
             .bind(&id)
             .bind(tid)
             .bind(i as i64)
-            .execute(pool)
+            .execute(&mut *tx)
             .await
             .map_err(dberr)?;
     }
 
+    for (order, tier) in new.tier_ids.iter().collect::<BTreeSet<_>>().into_iter().enumerate() {
+        sqlx::query("INSERT INTO posts_products (id, post_id, product_id, sort_order) VALUES (?, ?, ?, ?)")
+            .bind(ids::new_id()).bind(&id).bind(tier).bind(order as i64).execute(&mut *tx).await.map_err(dberr)?;
+    }
+    tx.commit().await.map_err(dberr)?;
     find_by_id(pool, &id).await?.ok_or_else(|| GhostError::Internal("post vanished after insert".into()))
 }
 
@@ -531,6 +545,7 @@ pub struct PostChanges {
     pub feature_image_caption: Option<String>,
     pub reading_time: Option<i64>,
     pub tag_ids: Option<Vec<String>>,
+    pub tier_ids: Option<Vec<String>>,
     pub author_ids: Option<Vec<String>>,
     /// Fields the caller is editing: a key listed here is written even when
     /// its value is `None`, which is how a settings field gets *cleared*.
@@ -574,6 +589,19 @@ pub async fn update(pool: &SqlitePool, id: &str, changes: &PostChanges) -> Resul
         }
     };
 
+    let visibility = changes.visibility.as_deref().unwrap_or(&existing.visibility);
+    let tiers = changes.tier_ids.as_ref().unwrap_or(&existing.tier_ids);
+    super::tiers::validate_post_tiers(pool, visibility, tiers).await?;
+    if visibility == "tiers" && tiers.is_empty() && status != "draft" {
+        return Err(GhostError::ValidationError { message: "Choose at least one paid tier before publishing.".into(), context: Some("tiers".into()) });
+    }
+    let snapshot = super::publishing::snapshot(pool, existing.clone()).await?;
+    let snapshot_json = serde_json::to_string(&snapshot).map_err(|e| GhostError::Internal(e.to_string()))?;
+    let mut tx = pool.begin().await.map_err(dberr)?;
+    sqlx::query("INSERT INTO post_revisions (id,post_id,lexical,created_at_ts,created_at,reason,feature_image,feature_image_caption,snapshot) VALUES (?,?,?,?,?,'edit',?,?,?)")
+        .bind(ids::new_id()).bind(id).bind(&existing.lexical).bind(chrono::Utc::now().timestamp_millis())
+        .bind(&now).bind(&existing.feature_image).bind(existing.meta.as_ref().and_then(|m|m.feature_image_caption.as_ref()))
+        .bind(snapshot_json).execute(&mut *tx).await.map_err(dberr)?;
     sqlx::query("UPDATE posts SET title = ?, slug = ?, lexical = ?, markdown = ?, html = ?, plaintext = ?, custom_excerpt = ?, feature_image = ?, featured = ?, status = ?, visibility = ?, published_at = ?, codeinjection_head = ?, codeinjection_foot = ?, custom_template = ?, canonical_url = ?, show_title_and_feature_image = ?, reading_time = ?, updated_at = ? WHERE id = ?")
         .bind(&title)
         .bind(&slug_)
@@ -595,7 +623,7 @@ pub async fn update(pool: &SqlitePool, id: &str, changes: &PostChanges) -> Resul
         .bind(changes.reading_time.unwrap_or(existing.reading_time))
         .bind(&now)
         .bind(id)
-        .execute(pool)
+        .execute(&mut *tx)
         .await
         .map_err(dberr)?;
 
@@ -637,38 +665,46 @@ pub async fn update(pool: &SqlitePool, id: &str, changes: &PostChanges) -> Resul
         .bind(&resolved[8])
         .bind(pick(&changes.feature_image_alt, &old_meta.feature_image_alt, "feature_image_alt"))
         .bind(pick(&changes.feature_image_caption, &old_meta.feature_image_caption, "feature_image_caption"))
-        .execute(pool)
+        .execute(&mut *tx)
         .await
         .map_err(dberr)?;
     }
 
     if let Some(tag_ids) = &changes.tag_ids {
-        sqlx::query("DELETE FROM posts_tags WHERE post_id = ?").bind(id).execute(pool).await.map_err(dberr)?;
+        sqlx::query("DELETE FROM posts_tags WHERE post_id = ?").bind(id).execute(&mut *tx).await.map_err(dberr)?;
         for (i, tid) in tag_ids.iter().enumerate() {
             sqlx::query("INSERT INTO posts_tags (id, post_id, tag_id, sort_order) VALUES (?, ?, ?, ?)")
                 .bind(&ids::new_id())
                 .bind(id)
                 .bind(tid)
                 .bind(i as i64)
-                .execute(pool)
+                .execute(&mut *tx)
                 .await
                 .map_err(dberr)?;
         }
     }
     if let Some(author_ids) = &changes.author_ids {
-        sqlx::query("DELETE FROM posts_authors WHERE post_id = ?").bind(id).execute(pool).await.map_err(dberr)?;
+        sqlx::query("DELETE FROM posts_authors WHERE post_id = ?").bind(id).execute(&mut *tx).await.map_err(dberr)?;
         for (i, aid) in author_ids.iter().enumerate() {
             sqlx::query("INSERT INTO posts_authors (id, post_id, author_id, sort_order) VALUES (?, ?, ?, ?)")
                 .bind(&ids::new_id())
                 .bind(id)
                 .bind(aid)
                 .bind(i as i64)
-                .execute(pool)
+                .execute(&mut *tx)
                 .await
                 .map_err(dberr)?;
         }
     }
 
+    if let Some(tiers) = &changes.tier_ids {
+        sqlx::query("DELETE FROM posts_products WHERE post_id = ?").bind(id).execute(&mut *tx).await.map_err(dberr)?;
+        for (order, tier) in tiers.iter().collect::<BTreeSet<_>>().into_iter().enumerate() {
+            sqlx::query("INSERT INTO posts_products (id, post_id, product_id, sort_order) VALUES (?, ?, ?, ?)")
+                .bind(ids::new_id()).bind(id).bind(tier).bind(order as i64).execute(&mut *tx).await.map_err(dberr)?;
+        }
+    }
+    tx.commit().await.map_err(dberr)?;
     find_by_id(pool, id).await?.ok_or_else(|| GhostError::Internal("post vanished after update".into()))
 }
 

@@ -48,6 +48,13 @@ impl SettingsCache {
         self.map.read().unwrap().get(key).cloned()
     }
 
+    /// A request-local settings copy for previews; never changes persisted or live settings.
+    pub fn with_overrides(&self, values: impl IntoIterator<Item = (String, Value)>) -> Self {
+        let mut map = self.map.read().unwrap().clone();
+        map.extend(values);
+        Self { map: RwLock::new(map) }
+    }
+
     pub fn get_str(&self, key: &str) -> Option<String> {
         match self.get(key) {
             Some(Value::String(s)) => Some(s),
@@ -55,6 +62,14 @@ impl SettingsCache {
             Some(v) => Some(v.to_string()),
             None => None,
         }
+    }
+
+    /// The publication's short name, with the title as an existing-site fallback.
+    pub fn site_name(&self) -> String {
+        ["name", "title"].iter()
+            .filter_map(|key| self.get(key).and_then(|value| value.as_str().map(|value| value.trim().to_string())))
+            .find(|value| !value.is_empty())
+            .unwrap_or_else(|| "Ghost".into())
     }
 
     pub fn get_bool(&self, key: &str) -> bool {

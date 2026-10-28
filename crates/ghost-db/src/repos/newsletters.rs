@@ -16,7 +16,7 @@ use sqlx::SqlitePool;
 use super::dberr;
 
 /// One newsletter. Field order follows the table, not Ghost's API output.
-#[derive(Debug, Clone, sqlx::FromRow)]
+#[derive(Debug, Clone, sqlx::FromRow, serde::Serialize, serde::Deserialize)]
 pub struct Newsletter {
     pub id: String,
     pub uuid: Option<String>,

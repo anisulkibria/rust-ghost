@@ -1,5 +1,6 @@
 //! ghost-front: the public site — routing → fetch → render.
 mod analytics;
+mod images;
 pub mod cards;
 pub mod comment_counts;
 mod llms;
@@ -17,14 +18,17 @@ pub use ghost_api::themes::url_resolver;
 
 pub fn site_router(state: AppState) -> Router {
     Router::new()
+        .merge(ghost_api::newsletter_events::public_router())
+        .merge(ghost_api::federation::public_router())
         .route("/assets/{*path}", get(routes::theme_asset))
-        .route("/content/images/{*path}", get(routes::content_image))
+        .route("/content/images/{*path}", get(images::serve))
         .route("/content/media/{*path}", get(routes::content_media))
         .route("/content/files/{*path}", get(routes::content_file))
         // the Koenig card assets are served from the binary; everything else
         // under /public/ comes off disk
         .route("/public/cards.min.css", get(cards::cards_css))
         .route("/public/cards.min.js", get(cards::cards_js))
+        .route("/public/staff-toolbar.js", get(||async {([(axum::http::header::CONTENT_TYPE,"text/javascript; charset=utf-8")],include_str!("staff_toolbar.js"))}))
         .route("/public/comment-counts.min.js", get(comment_counts::comment_counts_js))
         .route("/public/{*path}", get(routes::public_file))
         .route("/favicon.ico", get(routes::favicon))

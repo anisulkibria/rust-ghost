@@ -428,6 +428,18 @@ pub fn column_for(resource: &str, key: &str) -> Result<Col> {
     };
 
     match resource {
+        "members" => match key {
+            "id" | "uuid" | "name" | "email" | "status" | "created_at" | "updated_at" | "last_seen_at" | "note" => simple("members", key, ColKind::Text),
+            "email_count" | "email_opened_count" | "email_open_rate" => simple("members", key, ColKind::Numeric),
+            "email_disabled" | "enable_comment_notifications" => simple("members",key,ColKind::Bool),
+            "label" | "labels" | "labels.slug" => exists("EXISTS (SELECT 1 FROM members_labels ml JOIN labels l ON l.id=ml.label_id WHERE ml.member_id=members.id AND l.slug {op} {v})"),
+            "labels.id" => exists("EXISTS (SELECT 1 FROM members_labels ml WHERE ml.member_id=members.id AND ml.label_id {op} {v})"),
+            "tier" | "tiers" | "tiers.id" => exists("EXISTS (SELECT 1 FROM members_products mp WHERE mp.member_id=members.id AND (mp.expiry_at IS NULL OR datetime(mp.expiry_at)>datetime('now')) AND mp.product_id {op} {v})"),
+            "newsletters" | "newsletters.id" => exists("EXISTS (SELECT 1 FROM members_newsletters mn WHERE mn.member_id=members.id AND mn.newsletter_id {op} {v})"),
+            "subscriptions.status" => exists("EXISTS (SELECT 1 FROM members_stripe_customers mc JOIN subscriptions s ON s.customer_id=mc.customer_id WHERE mc.member_id=members.id AND s.status {op} {v})"),
+            "subscriptions.cancel_at_period_end" => exists("EXISTS (SELECT 1 FROM members_stripe_customers mc JOIN subscriptions s ON s.customer_id=mc.customer_id WHERE mc.member_id=members.id AND s.cancel_at_period_end {op} {v})"),
+            _ => Err(unknown(key)),
+        },
         "posts" | "pages" => {
             if let Some(c) = expanded.strip_prefix("posts_meta.") {
                 let mcol = match c {

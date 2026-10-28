@@ -20,6 +20,13 @@ impl GetHelper {
     }
 }
 
+fn apply_context_access(post: &mut Value, ctx: &Context) {
+    let member = ctx.data().get("member").unwrap_or(&Value::Null);
+    let status = member.get("status").and_then(Value::as_str);
+    let tiers = member.get("tiers").and_then(Value::as_array).map(|tiers| tiers.iter().filter_map(Value::as_str).map(str::to_string).collect::<Vec<_>>()).unwrap_or_default();
+    ghost_core::models::apply_post_access(post, status, &tiers);
+}
+
 impl HelperDef for GetHelper {
     fn call<'reg: 'rc, 'rc>(
         &self,
@@ -56,7 +63,12 @@ impl HelperDef for GetHelper {
         });
 
         match result {
-            Ok((items, pagination)) => {
+            Ok((mut items, pagination)) => {
+                if matches!(resource.as_str(), "posts" | "pages") {
+                    if let Some(items) = items.as_array_mut() {
+                        for item in items { apply_context_access(item, ctx); }
+                    }
+                }
                 let mut data = Map::new();
                 data.insert(resource.clone(), items);
                 data.insert("pagination".into(), pagination);
@@ -325,7 +337,8 @@ impl HelperDef for PrevNextPost {
             items.as_array().and_then(|a| a.first().cloned())
         });
 
-        if let Some(post) = found {
+        if let Some(mut post) = found {
+            apply_context_access(&mut post, ctx);
             let mut block = handlebars::BlockContext::new();
             block.set_base_value(post);
             rc.push_block(block);

@@ -55,6 +55,7 @@ where
     S: AppService,
     S::Future: Send,
 {
+    install_crypto_provider();
     if let Some(port) = plan.redirect_http {
         spawn_http_redirect(&plan.host, port, canonical_url.to_string()).await?;
     }
@@ -74,8 +75,10 @@ where
     S::Future: Send,
 {
     let listener = bind(&plan.bind_addr()).await?;
-    axum::serve(listener, <S as axum::ServiceExt<axum::extract::Request>>::into_make_service(app))
-        .await
+    loop {
+        let (stream, peer) = listener.accept().await?;
+        tokio::spawn(serve_connection(stream, app.clone(), Some(peer)));
+    }
 }
 
 async fn serve_manual_tls<S>(plan: &ServePlan, app: S, cert: &Path, key: &Path) -> io::Result<()>
@@ -90,7 +93,7 @@ where
     tracing::info!("TLS enabled using {} and {}", cert.display(), key.display());
 
     loop {
-        let (tcp, _peer) = listener.accept().await?;
+        let (tcp, peer) = listener.accept().await?;
         let acceptor = acceptor.clone();
         let app = app.clone();
         tokio::spawn(async move {
@@ -98,7 +101,7 @@ where
                 // a failed handshake is one client's problem, not the
                 // server's: a port scanner or an HTTP request on the HTTPS
                 // port lands here constantly
-                Ok(stream) => serve_connection(stream, app).await,
+                Ok(stream) => serve_connection(stream, app, Some(peer)).await,
                 Err(e) => tracing::debug!("TLS handshake failed: {e}"),
             }
         });
@@ -157,7 +160,8 @@ where
         match stream {
             Ok(stream) => {
                 let app = app.clone();
-                tokio::spawn(serve_connection(stream, app));
+                let peer = stream.get_ref().get_ref().0.get_ref().peer_addr().ok();
+                tokio::spawn(serve_connection(stream, app, peer));
             }
             Err(e) => tracing::debug!("TLS connection failed: {e}"),
         }
@@ -167,13 +171,14 @@ where
 
 /// Serve one accepted connection, letting hyper negotiate HTTP/1.1 or HTTP/2
 /// from what ALPN settled on.
-async fn serve_connection<I, S>(stream: I, app: S)
+async fn serve_connection<I, S>(stream: I, app: S, peer: Option<std::net::SocketAddr>)
 where
     I: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin + Send + 'static,
     S: AppService,
     S::Future: Send,
 {
-    let service = hyper::service::service_fn(move |req: hyper::Request<hyper::body::Incoming>| {
+    let service = hyper::service::service_fn(move |mut req: hyper::Request<hyper::body::Incoming>| {
+        if let Some(peer) = peer { req.extensions_mut().insert(axum::extract::ConnectInfo(peer)); }
         // `oneshot` takes care of readiness; the app is always ready, but the
         // Service contract still has to be honoured
         app.clone().oneshot(req.map(axum::body::Body::new))

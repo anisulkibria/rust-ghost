@@ -27,6 +27,8 @@ pub struct Post {
     pub status: String,    // published | draft | scheduled | sent
     pub locale: Option<String>,
     pub visibility: String, // public | members | paid | tiers
+    #[serde(default)]
+    pub tier_ids: Vec<String>,
     pub email_recipient_filter: Option<String>,
     pub created_at: Option<String>,
     pub updated_at: Option<String>,
@@ -211,6 +213,57 @@ fn public_image(v: &Option<String>) -> Value {
     }
 }
 
+/// The body safe for anonymous readers, including segment-gated cards.
+pub fn public_html(post: &Post) -> String {
+    let mut html = post.html.clone().unwrap_or_default();
+    if post.visibility != "public" {
+        html = html.split_once("<!--members-only-->").map(|(preview, _)| preview.to_owned()).unwrap_or_default();
+    }
+    segment_html(&html,None)
+}
+
+/// Resolve Koenig audience blocks before exporting or sending any body.
+pub fn segment_html(html:&str,status:Option<&str>)->String {
+    static BLOCKS: std::sync::LazyLock<regex::Regex> = std::sync::LazyLock::new(||
+        regex::Regex::new(r"(?s)<!--kg-gated-block:begin ([^\n]+?)\s*-->(.*?)<!--kg-gated-block:end-->").unwrap());
+    let paid=matches!(status,Some("paid"|"comped"|"gift"));
+    BLOCKS.replace_all(html, |caps: &regex::Captures<'_>| {
+        let show=caps[1].split_whitespace().any(|param|match param {
+            "nonMember:true"=>status.is_none(),"member:true"=>status.is_some(),
+            "freeMember:true"=>status==Some("free"),"paidMember:true"=>paid,_=>false
+        });
+        if show{caps[2].to_string()}else{String::new()}
+    }).into_owned()
+}
+
+/// Apply membership access to every theme-visible body representation.
+pub fn apply_post_access(value: &mut Value, member_status: Option<&str>, member_tiers: &[String]) {
+    let Some(visibility) = value.get("visibility").and_then(Value::as_str) else { return; };
+    let tiers: Vec<String> = value.get("tiers").and_then(Value::as_array).map(|tiers| tiers.iter().filter_map(|tier| tier.get("id").and_then(Value::as_str)).map(str::to_string).collect()).unwrap_or_default();
+    let access = crate::comments::check_post_tier_access(visibility, member_status, &tiers, member_tiers);
+    if !access {
+        let html = public_html(&Post { visibility: visibility.into(), html: value.get("html").and_then(Value::as_str).map(str::to_string), ..Default::default() });
+        let plain = crate::comments::to_plaintext(&html);
+        value["excerpt"] = value.get("custom_excerpt").and_then(Value::as_str).filter(|s| !s.is_empty()).map(|s| json!(s))
+            .unwrap_or_else(|| json!(excerpt_from_plaintext(Some(&plain), 50).unwrap_or_default()));
+        value["plaintext"] = json!(plain);
+        value["html"] = json!(html);
+        for key in ["lexical", "mobiledoc", "markdown", "auto_excerpt"] { value.as_object_mut().unwrap().remove(key); }
+    }
+    if access {
+        if let Some(html)=value.get("html").and_then(Value::as_str) {
+            let filtered=segment_html(html,member_status);
+            if filtered!=html {
+                let plain=crate::comments::to_plaintext(&filtered);
+                value["html"]=json!(filtered);value["plaintext"]=json!(plain);
+                if value.get("custom_excerpt").and_then(Value::as_str).is_none_or(|s|s.is_empty()) {value["excerpt"]=json!(excerpt_from_plaintext(Some(&plain),50).unwrap_or_default());}
+                for key in ["lexical","mobiledoc","markdown","auto_excerpt"]{value.as_object_mut().unwrap().remove(key);}
+            }
+        }
+    }
+    value["access"] = json!(access);
+}
+
 pub fn post_to_json(p: &Post, authors: &[User], tags: &[Tag], url: &str) -> Value {
     let mut m = Map::new();
     m.insert("id".into(), json!(p.id));
@@ -225,6 +278,7 @@ pub fn post_to_json(p: &Post, authors: &[User], tags: &[Tag], url: &str) -> Valu
     m.insert("status".into(), json!(p.status));
     m.insert("type".into(), json!(p.post_type));
     m.insert("visibility".into(), json!(p.visibility));
+    m.insert("tiers".into(), json!(p.tier_ids.iter().map(|id| json!({"id": id})).collect::<Vec<_>>()));
     m.insert("reading_time".into(), json!(p.reading_time));
     m.insert("access".into(), json!(p.visibility == "public"));
     m.insert("url".into(), json!(url));

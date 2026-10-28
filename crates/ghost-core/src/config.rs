@@ -19,6 +19,8 @@ pub struct Config {
     pub mail: serde_json::Value,
     #[serde(default)]
     pub admin: serde_json::Value,
+    #[serde(default)]
+    pub storage: serde_json::Value,
     /// HTTPS. `true` means "get certificates from Let's Encrypt and serve
     /// them"; see [`Ssl`].
     #[serde(default)]
@@ -516,6 +518,7 @@ mod tests {
             paths: PathsConfig::default(),
             mail: serde_json::Value::Null,
             admin: serde_json::Value::Null,
+            storage: serde_json::Value::Null,
             ssl: Ssl::default(),
             env: "test".into(),
             base_dir: PathBuf::from("/tmp"),

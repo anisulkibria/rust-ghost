@@ -168,6 +168,8 @@ pub(crate) fn select_fields(value: &mut Value, q: &BrowseParams) {
     }
 }
 
+pub use ghost_core::models::public_html;
+
 fn content_post(
     post: &ghost_core::models::Post,
     authors: &[ghost_core::models::User],
@@ -180,17 +182,8 @@ fn content_post(
     let mut value = ghost_core::models::post_to_json(post, authors, &public_tags, "");
     value["url"] = json!(resolver(&value));
     // Public Content keys never grant access to a members-only body.
-    let mut html = post.html.clone().unwrap_or_default();
     let access = post.visibility == "public";
-    if !access {
-        html = html.split_once("<!--members-only-->").map(|(preview, _)| preview.to_owned()).unwrap_or_default();
-    }
-    // Segment-gated blocks are also private even on otherwise public posts.
-    static BLOCKS: std::sync::LazyLock<regex::Regex> = std::sync::LazyLock::new(||
-        regex::Regex::new(r"(?s)<!--kg-gated-block:begin ([^\n]+?)\s*-->(.*?)<!--kg-gated-block:end-->").unwrap());
-    html = BLOCKS.replace_all(&html, |caps: &regex::Captures<'_>| {
-        if caps[1].split_whitespace().any(|param| param == "nonMember:true") { caps[2].to_string() } else { String::new() }
-    }).into_owned();
+    let html = public_html(post);
     let plain = ghost_render::markdown::html_to_plaintext(&html);
     value["access"] = json!(access);
     value["html"] = json!(ghost_core::url::absolutize_html(site_url, &html));

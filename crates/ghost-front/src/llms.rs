@@ -96,7 +96,7 @@ pub async fn llms_txt(State(state): State<AppState>) -> Response {
                     .custom_excerpt
                     .clone()
                     .filter(|e| !e.is_empty())
-                    .or_else(|| p.plaintext.clone())
+                    .or_else(|| Some(ghost_render::markdown::html_to_plaintext(&ghost_api::content::public_html(p))))
                     .unwrap_or_default();
                 index_line(p.title.as_deref().unwrap_or("Untitled"), &url, &one_line(&desc))
             })

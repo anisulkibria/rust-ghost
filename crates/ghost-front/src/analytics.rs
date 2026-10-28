@@ -1,8 +1,8 @@
 //! Page-view tracking — this port's take on Ghost's `web_analytics`.
 //!
 //! A middleware around the public site records one row per successful HTML
-//! response, tagged with an anonymous viewer cookie (the basis for the
-//! visitor count on the admin Analytics page). Collection is gated on the
+//! response, tagged with a daily salted fingerprint (the basis for the
+//! visitor count on the admin Analytics page). No analytics cookie is issued. Collection is gated on the
 //! `web_analytics` setting; the insert is fire-and-forget so it never adds
 //! latency to a page.
 use axum::extract::{Request, State};
@@ -10,9 +10,9 @@ use axum::http::{header, HeaderMap, StatusCode};
 use axum::middleware::Next;
 use axum::response::Response;
 use ghost_api::AppState;
+use sha2::{Digest,Sha256};
 
-/// The anonymous viewer cookie Ghost-adjacent analytics counts uniques by.
-const VIEWER_COOKIE: &str = "ghost_vid";
+
 
 pub async fn track_views(State(state): State<AppState>, req: Request, next: Next) -> Response {
     // not tracking? don't even issue a cookie
@@ -22,10 +22,17 @@ pub async fn track_views(State(state): State<AppState>, req: Request, next: Next
     let path = req.uri().path().to_string();
     let method_get = req.method() == axum::http::Method::GET;
     let headers = req.headers().clone();
-    let viewer = viewer_id(&headers);
+    if headers.get("dnt").is_some_and(|v|v=="1") || headers.get("sec-gpc").is_some_and(|v|v=="1") { return next.run(req).await; }
+    let agent=headers.get(header::USER_AGENT).and_then(|v|v.to_str().ok()).unwrap_or("").to_string();
+    if ["bot","crawler","spider","preview"].iter().any(|bot|agent.to_lowercase().contains(bot)) { return next.run(req).await; }
+    let peer=req.extensions().get::<axum::extract::ConnectInfo<std::net::SocketAddr>>().map(|p|p.0.ip().to_string()).unwrap_or_default();
+    let viewer = viewer_id(&peer,&agent,&state.settings.get_str("theme_session_secret").unwrap_or_default(),&chrono::Utc::now().format("%Y-%m-%d").to_string());
+    let lower=agent.to_lowercase();
+    let device=if lower.contains("ipad")||lower.contains("tablet"){ "tablet" }else if lower.contains("mobile") {"mobile"}else{"desktop"};
+    let browser=if lower.contains("firefox"){ "Firefox" }else if lower.contains("edg/"){ "Edge" }else if lower.contains("chrome"){ "Chrome" }else if lower.contains("safari"){ "Safari" }else{"Other"};
     let referrer = referrer_source(&headers, &state.site_url());
 
-    let mut res = next.run(req).await;
+    let res = next.run(req).await;
     if !method_get || res.status() != StatusCode::OK {
         return res;
     }
@@ -38,8 +45,7 @@ pub async fn track_views(State(state): State<AppState>, req: Request, next: Next
     if !is_html {
         return res;
     }
-    if let Some(viewer) = viewer {
-        let viewer_for_cookie = viewer.clone();
+    {
         // fire-and-forget: never make the page wait on the insert
         let db = state.db.clone();
         let state = state.clone();
@@ -53,7 +59,7 @@ pub async fn track_views(State(state): State<AppState>, req: Request, next: Next
                 None => "public",
             };
             let _ = sqlx::query(
-                "INSERT INTO page_views (id, path, viewer, referrer, audience, created_at) VALUES (?, ?, ?, ?, ?, ?)",
+                "INSERT INTO page_views (id, path, viewer, referrer, audience, created_at, device, browser) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
             )
             .bind(ghost_core::ids::new_id())
             .bind(&path)
@@ -61,15 +67,11 @@ pub async fn track_views(State(state): State<AppState>, req: Request, next: Next
             .bind(referrer.as_deref())
             .bind(audience)
             .bind(ghost_core::dates::now_db())
+            .bind(device).bind(browser)
             .execute(&db)
             .await;
         });
-        res.headers_mut().append(
-            header::SET_COOKIE,
-            format!("{VIEWER_COOKIE}={viewer_for_cookie}; Path={}/; HttpOnly; SameSite=Lax; Max-Age={}", ghost_core::url::subdir(), 60 * 60 * 24 * 365)
-                .parse()
-                .unwrap(),
-        );
+
     }
     res
 }
@@ -101,14 +103,9 @@ fn host_of(url: &str) -> Option<String> {
     (!host.is_empty()).then_some(host)
 }
 
-/// The viewer's existing cookie id, or a fresh one to set on the response.
-fn viewer_id(headers: &HeaderMap) -> Option<String> {
-    if let Some(cookie) = headers.get(header::COOKIE).and_then(|c| c.to_str().ok()) {
-        if let Some(existing) = cookie.split(';').find_map(|c| c.trim().strip_prefix(&format!("{VIEWER_COOKIE}="))) {
-            return Some(existing.to_string());
-        }
-    }
-    Some(ghost_core::ids::random_hex(16))
+/// Daily salted fingerprint. Neither the IP nor a persistent browser id is stored.
+fn viewer_id(peer:&str,agent:&str,secret:&str,day:&str)->String {
+    hex::encode(Sha256::digest(format!("{secret}\0{day}\0{peer}\0{agent}").as_bytes()))
 }
 
 #[cfg(test)]
@@ -116,13 +113,11 @@ mod tests {
     use super::*;
 
     #[test]
-    fn viewer_id_reuses_the_cookie_value() {
-        let mut headers = HeaderMap::new();
-        headers.insert(
-            header::COOKIE,
-            "other=1; ghost_vid=abc123; more=2".parse().unwrap(),
-        );
-        assert_eq!(viewer_id(&headers).as_deref(), Some("abc123"));
+    fn daily_fingerprints_are_stable_and_rotate_without_cookies() {
+        let same=viewer_id("192.0.2.1","Browser","secret","2026-10-28");
+        assert_eq!(same,viewer_id("192.0.2.1","Browser","secret","2026-10-28"));
+        assert_ne!(same,viewer_id("192.0.2.1","Browser","secret","2026-10-29"));
+        assert_ne!(same,viewer_id("192.0.2.2","Browser","secret","2026-10-28"));
     }
 
     #[test]
@@ -155,11 +150,4 @@ mod tests {
         assert_eq!(host_of("not a url").as_deref(), Some("not a url"));
     }
 
-    #[test]
-    fn viewer_id_mints_a_stable_shape_without_a_cookie() {
-        let headers = HeaderMap::new();
-        let id = viewer_id(&headers).unwrap();
-        assert_eq!(id.len(), 32);
-        assert!(id.chars().all(|c| c.is_ascii_hexdigit()));
-    }
 }

@@ -254,7 +254,9 @@ async fn check_post_access(state: &AppState, post_id: &str, m: &Member) -> ghost
             context: None,
         });
     };
-    if rules::check_post_access(&visibility, Some(&m.status)) {
+    let post_tiers = ghost_db::repos::tiers::post_tier_ids(&state.db, post_id).await?;
+    let member_tiers = ghost_db::repos::tiers::member_tier_ids(&state.db, &m.id).await?;
+    if rules::check_post_tier_access(&visibility, Some(&m.status), &post_tiers, &member_tiers) {
         return Ok(());
     }
     Err(ghost_core::GhostError::NoPermissionError {

@@ -88,9 +88,7 @@ async fn require_user(
     state: &AppState,
     headers: &HeaderMap,
 ) -> Result<ghost_core::models::User, Response> {
-    crate::admin::current_user(state, headers)
-        .await
-        .ok_or_else(|| err(StatusCode::UNAUTHORIZED, "Authentication required", "NoPermissionError"))
+    crate::permissions::require(state, headers, crate::permissions::Role::Administrator).await
 }
 
 // ---------------------------------------------------------------------------
@@ -131,7 +129,7 @@ pub fn action_json(action: &repo::StoredAction) -> Value {
                 json!({
                     "email_subject": subject,
                     "email_lexical": lexical,
-                    "email_design_setting_id": Value::Null,
+                    "email_design_setting_id": action.email_design_setting_id,
                 }),
             );
             o.insert(
@@ -713,7 +711,7 @@ async fn send_test_email(
         matches!(a.kind, ActionKind::SendEmail { .. })
             && action_id.map(|want| want == a.id).unwrap_or(true)
     });
-    let Some(repo::StoredAction { kind: ActionKind::SendEmail { subject, lexical }, .. }) = email
+    let Some(repo::StoredAction { kind: ActionKind::SendEmail { subject, lexical }, email_design_setting_id, .. }) = email
     else {
         return err(
             StatusCode::UNPROCESSABLE_ENTITY,
@@ -737,7 +735,7 @@ async fn send_test_email(
         name: user.name.as_deref(),
         status: "free",
     };
-    match crate::automations_engine::send_automation_email(&state, &recipient, subject, lexical)
+    match crate::automations_engine::send_automation_email_with_design(&state, &recipient, subject, lexical,email_design_setting_id.as_deref())
         .await
     {
         Ok(()) => ok_json(json!({ "sent": true, "email": to })),
@@ -833,6 +831,7 @@ mod tests {
             id: "a".into(),
             kind: ActionKind::Wait { wait_hours: 24 },
             stats: Default::default(),
+            email_design_setting_id: None,
         };
         let j = action_json(&wait);
         assert_eq!(j["data"]["wait_hours"], json!(24));
@@ -842,6 +841,7 @@ mod tests {
             id: "b".into(),
             kind: ActionKind::SendEmail { subject: "Hi".into(), lexical: "{}".into() },
             stats: repo::EmailStats { sent: 4, opened: 1, clicked: 0 },
+            email_design_setting_id: None,
         };
         let j = action_json(&email);
         assert_eq!(j["stats"]["email_sent_count"], json!(4));

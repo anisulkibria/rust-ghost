@@ -24,5 +24,7 @@ tracing = { workspace = true }
 percent-encoding = { workspace = true }
 mime_guess = { workspace = true }
 regex = { workspace = true }
+form_urlencoded = { workspace = true }
 hex = { workspace = true }
 sha2 = { workspace = true }
+image = { version = "0.25", default-features = false, features = ["jpeg", "png", "webp", "gif"] }

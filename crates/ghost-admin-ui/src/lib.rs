@@ -26,17 +26,53 @@ const MAX_UPLOAD_BYTES: usize = 100 * 1024 * 1024;
 /// generous and keeps a mistaken upload of something else from being read.
 const ONE_MB_BYTES: usize = 1024 * 1024;
 
-pub fn admin_ui_router() -> Router<AppState> {
+tokio::task_local! {
+    static ADMIN_SETTINGS: Arc<ghost_db::SettingsCache>;
+}
+
+async fn with_admin_settings(
+    State(state): State<AppState>,
+    req: axum::extract::Request,
+    next: axum::middleware::Next,
+) -> Response {
+    ADMIN_SETTINGS.scope(state.settings, next.run(req)).await
+}
+
+fn admin_site_name() -> String {
+    ADMIN_SETTINGS.try_with(|settings| settings.site_name()).unwrap_or_else(|_| "Ghost".into())
+}
+
+fn admin_brand_mark() -> String {
+    let image = ADMIN_SETTINGS.try_with(|settings| {
+        ["logo", "icon"].iter().find_map(|key| {
+            settings.get_str(key).filter(|value| !value.trim().is_empty())
+        })
+    }).ok().flatten();
+    match image {
+        Some(url) => format!(
+            r#"<span class="mark brand-image"><img src="{}" alt=""></span>"#,
+            esc(&ghost_core::url::base_asset(url.trim())),
+        ),
+        None => format!(r#"<span class="mark brand-admin">{}</span>"#, include_str!("../assets/admin-panel.svg")),
+    }
+}
+
+pub fn admin_ui_router(state: AppState) -> Router<AppState> {
     Router::new()
         .route("/", get(index))
         .route("/setup/", get(setup_page).post(setup_submit))
         .route("/signin/", get(login_page).post(login_submit))
+        .route("/forgot-password/", get(forgot_password_page))
         // Static ahead of nothing in particular, but kept together: the code
         // screen a login lands on when email 2FA is required.
         .route("/signin/verify/", get(verify_page).post(verify_submit))
         .route("/signin/resend/", post(verify_resend))
         .route("/signout/", get(logout))
         .route("/analytics/", get(analytics_page))
+        .route("/modules/", get(modules_page))
+        .route("/social/", get(social_page))
+        .route("/machine-payments/", get(machine_payments_page))
+        .route("/settings/checkout/", get(checkout_design_page))
         .route("/members/", get(members_page).post(member_create))
         .route("/members/export/", get(members_export))
         .route("/members/import/", post(members_import).layer(axum::extract::DefaultBodyLimit::max(MAX_UPLOAD_BYTES)))
@@ -88,6 +124,7 @@ pub fn admin_ui_router() -> Router<AppState> {
         .route("/themes/{name}/activate/", post(theme_activate))
         .route("/themes/{name}/delete/", post(theme_delete))
         .route("/design/", get(design_page).post(design_save))
+        .route("/design/preview/", post(design_preview))
         .route("/design/reset/", post(design_reset))
         .route("/settings/", get(settings_page))
         .route("/settings/general/", get(general_page).post(general_save))
@@ -217,6 +254,7 @@ pub fn admin_ui_router() -> Router<AppState> {
         // binary and cached hard behind the version in the path
         .route("/assets/{version}/{file}", get(admin_asset))
         .layer(axum::middleware::from_fn(apply_base_path))
+        .layer(axum::middleware::from_fn_with_state(state, with_admin_settings))
 }
 
 /// The admin landing route, bound outside the `/ghost` nest.
@@ -424,10 +462,15 @@ svg.i { width: 22px; height: 22px; flex: none; display: block; }
   background: var(--sc-low); position: sticky; top: 0; height: 100vh; overflow-y: auto;
   scrollbar-width: thin; scrollbar-color: var(--outline-variant) transparent;
   border-right: 1px solid color-mix(in srgb, var(--outline-variant) 55%, transparent); }
-.brand { display: flex; align-items: center; gap: 10px; padding: 10px 10px 14px; }
-.brand .mark { width: 32px; height: 32px; border-radius: 10px; background: var(--primary-container);
-  color: var(--on-primary-container); display: grid; place-items: center; }
-.brand .mark svg { width: 20px; height: 20px; }
+.brand { display: flex; align-items: center; gap: 10px; padding: 10px 10px 14px;
+  color: inherit; text-decoration: none; border-radius: 12px; }
+.brand:hover { background: color-mix(in srgb, var(--on-surface) 6%, transparent); }
+.brand:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
+.brand .mark { width: 40px; height: 40px; flex: none; color: var(--primary); display: grid; place-items: center; }
+.brand .brand-image { width: 64px; height: 52px; }
+.brand .mark img { display: block; width: 100%; height: 100%; object-fit: contain; }
+.brand .brand-admin svg { width: 32px; height: 32px; }
+.brand .brand-name { min-width: 0; overflow-wrap: anywhere; color: inherit; }
 .brand b { font-size: 14px; font-weight: 600; letter-spacing: .1px; display: block; line-height: 1.2; }
 .brand span { font-size: 11px; color: var(--on-surface-variant); }
 .nav-item { display: flex; align-items: center; gap: 10px; padding: 6px 10px; border-radius: 10px;
@@ -473,6 +516,24 @@ svg.i { width: 22px; height: 22px; flex: none; display: block; }
 
 .main { flex: 1; min-width: 0; }
 .content { max-width: 1120px; margin: 0 auto; padding: 0 24px 64px; }
+
+/* Material 3 filled cards for the publication's modules. */
+.module-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 20px; margin-top: 20px; }
+.module-card { display: flex; flex-direction: column; align-items: flex-start; gap: 20px; min-width: 0;
+  padding: 28px; border-radius: 28px; background: var(--sc-low); color: var(--on-surface);
+  text-decoration: none; border: 1px solid var(--outline-variant);
+  transition: background var(--dur) var(--ease), box-shadow var(--dur) var(--ease); }
+.module-card:hover { background: var(--sc-high); box-shadow: var(--shadow-1); }
+.module-card:focus-visible { outline: 3px solid var(--primary); outline-offset: 4px; }
+.module-card .ic { width: 56px; height: 56px; border-radius: 18px; }
+.module-card .ic svg { width: 28px; height: 28px; }
+.module-card h2 { margin: 0 0 10px; font-size: 22px; font-weight: 600; letter-spacing: -.3px; }
+.module-card p { margin: 0; color: var(--on-surface-variant); font-size: 14px; line-height: 1.65; }
+.module-open { display: flex; align-items: center; gap: 8px; margin-top: auto; padding-top: 8px;
+  color: var(--primary); font-size: 14px; font-weight: 600; }
+.module-open svg { width: 18px; height: 18px; }
+@media (max-width: 1100px) { .module-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 700px) { .module-grid { grid-template-columns: minmax(0, 1fr); gap: 16px; } }
 
 /* ---- page head (sticky top app bar per page) ---- */
 .page-head { position: sticky; top: 0; z-index: 20; display: flex; align-items: center; gap: 16px;
@@ -977,7 +1038,7 @@ code { font-family: var(--mono); }
 .editor-title { width: 100%; border: none; outline: none; background: transparent; resize: none; overflow: hidden;
   font-family: var(--font); font-size: 30px; font-weight: 700; line-height: 1.2; letter-spacing: -.3px;
   color: var(--on-surface); padding: 0; margin: 2px 0 10px; caret-color: var(--primary); display: block; }
-.editor-title::placeholder { color: var(--on-surface-variant); opacity: .45; }
+.editor-title::placeholder { color: color-mix(in srgb, var(--on-surface-variant) 42%, var(--surface)); opacity: 1; font-weight: 500; }
 #koenig-mount { min-height: 52vh; }
 /* Koenig paints its own surface; this only gives the canvas somewhere to sit
    and keeps its floating toolbars above the sticky page head. */
@@ -1046,6 +1107,7 @@ code { font-family: var(--mono); }
 #koenig-mount .koenig-lexical { overflow-x: clip; }
 /* The "Begin writing…" placeholder is a separate element with its own font. */
 #koenig-mount .koenig-lexical .font-serif { font-family: var(--font); }
+#koenig-mount .editor-body-placeholder { color: color-mix(in srgb, var(--on-surface-variant) 42%, var(--surface)); font-weight: 400; }
 /* The card menu's rows are left exactly as Koenig draws them — the icon,
    label and spacing are Ghost's. Only the panel around them is resized: each
    row is a label on the left and a keyboard hint on the right, and this
@@ -1150,39 +1212,50 @@ body:has(#side-toggle:checked) .editor-main { max-width: none; }
    The shared `dialog` rule above clamps confirm dialogs to 420px; the picker
    is a different animal, so every clamp it sets is restated here. */
 dialog.unsplash { width: min(1920px, calc(100vw - 24px)); height: calc(100vh - 24px);
+  height: calc(100dvh - 24px); max-height: none;
   min-width: 0; max-width: none; border: none; border-radius: 16px; padding: 0;
   background: var(--sc-lowest); color: var(--on-surface); box-shadow: var(--shadow-2);
   overflow: hidden; }
+dialog.unsplash[open] { display: grid; grid-template-rows: auto minmax(0, 1fr); }
+dialog.unsplash [hidden] { display: none !important; }
 dialog.unsplash::backdrop { background: rgba(0,0,0,.6); }
-.u-close { position: absolute; top: 18px; right: 22px; z-index: 3; border: none; background: transparent;
-  color: var(--on-surface-variant); cursor: pointer; padding: 6px; border-radius: 50%; }
+.u-close { display: grid; place-items: center; width: 40px; height: 40px; border: none; background: transparent;
+  color: var(--on-surface-variant); cursor: pointer; padding: 0; border-radius: 50%; }
 .u-close:hover { background: color-mix(in srgb, var(--on-surface) 8%, transparent); color: var(--on-surface); }
 .u-close svg.i { width: 18px; height: 18px; display: block; }
-.u-head { display: flex; align-items: center; justify-content: space-between; gap: 20px;
-  padding: 22px clamp(20px, 3vw, 48px); }
+.u-head { display: grid; grid-template-columns: 1fr minmax(240px, 480px) 40px; align-items: center; gap: 20px;
+  padding: 20px 24px; border-bottom: 1px solid var(--outline-variant); }
 .u-head h3 { margin: 0; font-size: 22px; font-weight: 700; letter-spacing: -.3px; white-space: nowrap; }
-.u-searchbox { position: relative; width: min(384px, 60vw); }
+.u-searchbox { position: relative; min-width: 0; }
 .u-searchbox svg.i { position: absolute; left: 15px; top: 50%; transform: translateY(-50%);
   width: 17px; height: 17px; color: var(--on-surface-variant); pointer-events: none; }
 .u-searchbox input { width: 100%; height: 40px; border-radius: 999px; border: 1px solid var(--outline);
   background: transparent; color: var(--on-surface); font: inherit; font-size: 14px;
   padding: 0 16px 0 42px; outline: none; }
-.u-searchbox input:focus { border-color: var(--on-surface-variant); }
+.u-searchbox input:focus { border-color: var(--primary); box-shadow: 0 0 0 2px color-mix(in srgb, var(--primary) 15%, transparent); }
 .u-searchbox input::placeholder { color: var(--on-surface-variant); }
-.u-body { position: relative; height: calc(100% - 86px); overflow-y: auto; overscroll-behavior: contain;
-  padding: 4px clamp(20px, 3vw, 48px) 24px; scrollbar-width: thin;
+.u-body { position: relative; min-height: 0; overflow-y: auto; overscroll-behavior: contain;
+  padding: 24px; scrollbar-width: thin;
   scrollbar-color: var(--outline-variant) transparent; }
-/* Show three photos per row on desktop, with smaller-screen fallbacks. */
-.u-grid { columns: 3; column-gap: 22px; }
-@media (max-width: 900px) { .u-grid { columns: 2; } }
-@media (max-width: 600px) { .u-grid { columns: 1; } }
-.u-tile { position: relative; break-inside: avoid; margin: 0 0 22px; border-radius: 10px;
+/* Four masonry columns keep each photograph's original proportions. */
+.u-grid { columns: 4; column-gap: 16px; }
+@media (max-width: 1100px) { .u-grid { columns: 3; } }
+@media (max-width: 800px) { .u-grid { columns: 2; } }
+@media (max-width: 500px) { .u-grid { columns: 1; } }
+@media (max-width: 600px) {
+  .u-head { grid-template-columns: minmax(0, 1fr) 40px; padding: 16px; gap: 12px; }
+  .u-searchbox { grid-row: 2; grid-column: 1 / -1; }
+  .u-close { grid-row: 1; grid-column: 2; }
+  .u-body { padding: 16px; }
+}
+.u-tile { position: relative; min-width: 0; break-inside: avoid; margin-bottom: 16px; border-radius: 10px;
   overflow: hidden; cursor: zoom-in; }
-.u-tile img { display: block; width: 100%; height: auto; }
+.u-tile > img { display: block; width: 100%; height: auto; }
 .u-hover { position: absolute; inset: 0; display: flex; flex-direction: column; justify-content: space-between;
-  padding: 14px; opacity: 0; transition: opacity .15s var(--ease);
-  background: linear-gradient(180deg, rgba(0,0,0,.05), rgba(0,0,0,.05) 55%, rgba(0,0,0,.3)); }
+  padding: 12px; opacity: 0; transition: opacity .15s var(--ease);
+  background: linear-gradient(180deg, rgba(0,0,0,.15), transparent 40%, rgba(0,0,0,.65)); }
 .u-tile:hover .u-hover, .u-tile:focus-within .u-hover { opacity: 1; }
+@media (hover: none) { .u-hover { opacity: 1; } }
 .u-top { display: flex; justify-content: flex-end; gap: 8px; }
 .u-chip { display: inline-flex; align-items: center; gap: 6px; height: 30px; padding: 0 12px;
   border-radius: 999px; background: rgba(255,255,255,.85); color: #201A1B; font-size: 12.5px;
@@ -1192,15 +1265,18 @@ dialog.unsplash::backdrop { background: rgba(0,0,0,.6); }
 .u-bottom { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
 .u-credit { display: inline-flex; align-items: center; gap: 8px; color: #fff; font-size: 13px;
   font-weight: 500; min-width: 0; text-shadow: 0 1px 3px rgba(0,0,0,.5); }
-.u-avatar { width: 30px; height: 30px; border-radius: 50%; flex: none; }
-.u-insert { border: none; height: 34px; padding: 0 18px; border-radius: 999px; background: #fff;
+.u-credit-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.u-credit > img.u-avatar { display: block; width: 26px; height: 26px; min-width: 26px; max-width: 26px;
+  object-fit: cover; border-radius: 50%; flex: none; }
+.u-insert { border: none; height: 34px; padding: 0 12px; border-radius: 999px; background: #fff;
   color: #201A1B; font: inherit; font-size: 13px; font-weight: 600; cursor: pointer; flex: none; }
 .u-insert:hover { box-shadow: var(--shadow-1); }
+dialog.unsplash button:focus-visible, .u-chip:focus-visible { outline: 2px solid var(--primary); outline-offset: 3px; }
 .u-empty { column-span: all; padding: 9vh 0; text-align: center; color: var(--on-surface-variant);
   font-size: 14px; }
 .u-zoom { display: flex; justify-content: center; align-items: center; height: 100%; cursor: zoom-out; }
-.u-zoom .u-tile { cursor: zoom-out; margin: 0; max-width: 100%; max-height: 100%; }
-.u-zoom .u-tile img { max-height: calc(100vh - 200px); width: auto; max-width: 100%; }
+.u-zoom .u-tile { cursor: zoom-out; aspect-ratio: auto; margin: 0; max-width: 100%; max-height: 100%; }
+.u-zoom .u-tile > img { max-height: calc(100dvh - 220px); height: auto; width: auto; max-width: 100%; object-fit: contain; }
 /* Ghost's spinner: a ring with a dot, hung in the middle of the gallery. */
 .u-loading { position: absolute; inset: 0; display: grid; place-items: center; pointer-events: none; }
 .u-loading i { display: block; width: 46px; height: 46px; border-radius: 50%;
@@ -1466,6 +1542,80 @@ dialog .d-actions { display: flex; justify-content: flex-end; gap: 8px; }
 /// Tiny progressive-enhancement script: confirm dialogs, list filtering,
 /// copy-to-clipboard with a snackbar. Everything works without it too.
 const JS: &str = r#"
+(function () {
+  document.querySelectorAll('[data-brand-image]').forEach(function (row) {
+    var url = row.querySelector('[data-image-url]');
+    var file = row.querySelector('input[type="file"]');
+    var preview = row.querySelector('img');
+    var upload = row.querySelector('[data-image-upload]');
+    var remove = row.querySelector('[data-image-remove]');
+    var status = row.querySelector('[role="status"]');
+    var form = url.form;
+    var unsplash = row.querySelector('[data-image-unsplash]');
+    if (unsplash) unsplash.addEventListener('click', function () {
+      window.GhostUnsplash.open({
+        headers: JSON.parse(form.dataset.unsplash || 'null'),
+        onSelect: function (src) {
+          url.value = src;
+          refresh();
+          status.textContent = 'Cover selected. Save to apply.';
+        }
+      });
+    });
+    function refresh() {
+      var value = url.value.trim();
+      preview.hidden = !value;
+      if (value) preview.src = value;
+      else preview.removeAttribute('src');
+      remove.hidden = !value;
+    }
+    url.addEventListener('input', refresh);
+    upload.addEventListener('click', function () { file.click(); });
+    remove.addEventListener('click', function () {
+      url.value = '';
+      refresh();
+      status.textContent = 'Image removed. Save to apply.';
+    });
+    file.addEventListener('change', async function () {
+      var image = file.files[0];
+      if (!image) return;
+      var pending = Number(form.dataset.pendingUploads || 0) + 1;
+      form.dataset.pendingUploads = String(pending);
+      upload.disabled = remove.disabled = url.disabled = true;
+      if (unsplash) unsplash.disabled = true;
+      status.textContent = 'Uploading…';
+      try {
+        var data = new FormData();
+        data.append('file', image);
+        var response = await fetch(row.dataset.uploadUrl, {method: 'POST', credentials: 'same-origin', body: data});
+        var result = await response.json().catch(function () { return {}; });
+        if (!response.ok) throw new Error(result.errors?.[0]?.message || 'Upload failed. Please try again.');
+        var uploadedUrl = result.images?.[0]?.url;
+        if (!uploadedUrl) throw new Error('The upload did not return an image URL.');
+        url.value = uploadedUrl;
+        refresh();
+        status.textContent = 'Image uploaded. Save to apply.';
+      } catch (error) {
+        status.textContent = error.message || 'Upload failed. Please try again.';
+      } finally {
+        upload.disabled = remove.disabled = url.disabled = false;
+        if (unsplash) unsplash.disabled = false;
+        file.value = '';
+        form.dataset.pendingUploads = String(Number(form.dataset.pendingUploads) - 1);
+      }
+    });
+    refresh();
+  });
+  var form = document.getElementById('design-form');
+  if (form) form.addEventListener('submit', function (event) {
+    if (Number(form.dataset.pendingUploads) > 0) {
+      event.preventDefault();
+      form.querySelectorAll('[data-brand-image] [role="status"]').forEach(function (status) {
+        if (status.textContent === 'Uploading…') status.textContent = 'Please wait for the upload to finish before saving.';
+      });
+    }
+  });
+})();
 (function () {
   // M3 confirm dialog for forms carrying data-confirm.
   //
@@ -1898,18 +2048,20 @@ const JS: &str = r#"
 /// Side navigation. `active` is the nav key of the current page ("" for none),
 /// `user` supplies the account block at the bottom of the rail.
 fn rail(active: &str, user: Option<&ghost_core::models::User>, role: Role) -> String {
+    let active = match active {
+        "analytics" | "comments" | "automations" => "modules",
+        other => other,
+    };
     // Showing a link that only leads to "Not allowed" is worse than not
     // showing it, so the rail is filtered by the same capabilities the
     // handlers enforce.
     let items: &[(&str, &str, &str, &str, &str)] = &[
-        ("analytics", "/ghost/analytics/", "Analytics", "chart", "green"),
         ("posts", "/ghost/posts/", "Posts", "posts", "blue"),
         ("pages", "/ghost/pages/", "Pages", "pages", "green"),
         ("tags", "/ghost/tags/", "Tags", "tags", "amber"),
         ("themes", "/ghost/themes/", "Themes", "themes", "slate"),
         ("members", "/ghost/members/", "Members", "ghost", "blue"),
-        ("comments", "/ghost/comments/", "Comments", "comment", "purple"),
-        ("automations", "/ghost/automations/", "Automations", "flow", "green"),
+        ("modules", "/ghost/modules/", "Modules", "integrations", "purple"),
         // Integrations is not a rail item: like Ghost, it lives under
         // Settings → Integrations.
         ("settings", "/ghost/settings/", "Settings", "settings", "pink"),
@@ -1919,8 +2071,7 @@ fn rail(active: &str, user: Option<&ghost_core::models::User>, role: Role) -> St
         .filter(|(key, _, _, _, _)| match *key {
             // Ghost grants the `comment` permission set to Administrator and
             // above only, so moderation is not offered below that.
-            "analytics" | "themes" | "design" | "navigation" | "members" | "settings"
-            | "comments" | "automations" => role.is_admin(),
+            "modules" | "themes" | "design" | "navigation" | "members" | "settings" => role.is_admin(),
             "tags" => role.can_manage_tags(),
             _ => true,
         })
@@ -1972,14 +2123,15 @@ fn rail(active: &str, user: Option<&ghost_core::models::User>, role: Role) -> St
     };
     format!(
         r#"<aside class="rail">
-<div class="brand"><span class="mark">{ghost}</span><div><b>Admin</b><span>Ghost</span></div></div>
+<a class="brand" href="/ghost/analytics/" title="Analytics">{brand_mark}<span class="brand-name"><b>{site_name}</b></span></a>
 <div class="nav-scroll">{links}</div>
 <div class="rail-foot">
 <div class="who">{who}
 <a class="icon-btn" href="/ghost/signout/" title="Sign out">{logout}</a></div>
 </div>
 </aside>"#,
-        ghost = svg("ghost"),
+        brand_mark = admin_brand_mark(),
+        site_name = esc(&admin_site_name()),
         links = links,
         who = who,
         logout = svg("logout"),
@@ -2009,12 +2161,13 @@ fn page_for(title: &str, active: &str, user: Option<&ghost_core::models::User>, 
     };
     Html(format!(
         r#"<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
-<title>{title} — Ghost Admin</title>
+<title>{title} — {site_name}</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='%23984059'%3E%3Cpath d='M12 2a8 8 0 0 0-8 8v10.6c0 .7.85 1.05 1.35.55l1.9-1.9 2.2 2.2c.3.3.78.3 1.08 0L12 20l1.47 1.45c.3.3.78.3 1.08 0l2.2-2.2 1.9 1.9c.5.5 1.35.15 1.35-.55V10a8 8 0 0 0-8-8z'/%3E%3C/svg%3E">
 <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700&family=Fraunces:opsz,wght@9..144,500..700&family=Roboto+Mono:wght@400;500&display=swap">
-<style>{css}</style></head><body>{shell}<script>{js}</script></body></html>"#,
+<style>{css}</style></head><body>{shell}<script>{js}</script><script src="/ghost/assets/1.8.14/publishing-workflows.js" defer></script></body></html>"#,
         title = esc(title),
+        site_name = esc(&admin_site_name()),
         css = CSS,
         shell = shell,
         js = JS,
@@ -2300,6 +2453,7 @@ async fn login_page(State(state): State<AppState>, headers: HeaderMap, Query(q):
 <label class="field"><input name="email" type="email" placeholder=" " required autofocus autocomplete="username"><span>Email</span></label>
 <label class="field"><input name="password" type="password" placeholder=" " required autocomplete="current-password"><span>Password</span></label>
 <button class="btn" type="submit">Sign in</button>
+<a class="btn text" href="/ghost/forgot-password/">Forgot password?</a>
 </form></div>
 </div></div>"#,
             logo = svg("ghost"),
@@ -2529,6 +2683,38 @@ async fn logout(State(state): State<AppState>, headers: HeaderMap) -> Response {
 }
 
 // ---------------------------------------------------------------------------
+// Modules: a single entry point for the publication's administrative tools.
+const MODULES: &[(&str, &str, &str, &str, &str)] = &[
+    ("Analytics", "/ghost/analytics/", "chart", "green", "Track visitors, content performance, and member growth."),
+    ("Comments", "/ghost/comments/", "comment", "purple", "Review discussions and manage comments across your posts."),
+    ("Automations", "/ghost/automations/", "flow", "blue", "Manage automated workflows and their activity."),
+    ("Social web", "/ghost/social/", "share", "teal", "Read, publish notes and connect with the fediverse."),
+    ("Machine payments", "/ghost/machine-payments/", "integrations", "pink", "Offer per-article paid Markdown access to AI agents."),
+];
+
+async fn modules_page(State(state): State<AppState>, headers: HeaderMap) -> Response {
+    let actor = match require_role(&state, &headers, Role::Administrator).await {
+        Ok(actor) => actor,
+        Err(response) => return response,
+    };
+    let cards: String = MODULES.iter().map(|(name, href, icon, tint, description)| {
+        format!(
+            r#"<a class="module-card" href="{href}">
+<span class="ic tint-{tint}">{icon}</span>
+<div><h2>{name}</h2><p>{description}</p></div>
+<span class="module-open">Open {name} {arrow}</span>
+</a>"#,
+            href = href, tint = tint, icon = svg(icon), name = esc(name),
+            description = esc(description), arrow = svg("chevron"),
+        )
+    }).collect();
+    page_for_role(actor.role, "Modules", "modules", Some(&actor.user), &format!(
+        r#"<header class="page-head rise"><div><h1>Modules</h1>
+<p class="sub">Insights, conversations, and workflows for your publication.</p></div></header>
+<div class="module-grid rise" style="--i:1">{cards}</div>"#,
+    ), true).into_response()
+}
+
 // analytics (Ghost's Dashboard: page views recorded by ghost-front's
 // web_analytics middleware, members, and content counts)
 // ---------------------------------------------------------------------------
@@ -3358,8 +3544,7 @@ async fn analytics_newsletters_tab(state: &AppState, range: &AnalyticsRange) -> 
 <div class="section">Newsletters sent</div>
 <div class="card rows rise" style="--i:2">{rows}</div>
 <p class="muted" style="margin:10px 2px 0">Open rates need <strong>Email opens</strong> switched on in
-<a href="/ghost/settings/analytics/">Settings &rsaquo; Analytics</a>. Click rates are not tracked yet —
-that needs link redirection this port does not do, so no click figure is shown rather than a misleading zero.</p>"#,
+<a href="/ghost/settings/analytics/">Settings &rsaquo; Analytics</a>. Enable <strong>Email clicks</strong> to track links. Open <strong>Newsletter links</strong> in the post editor to view clicks and update destinations after sending.</p>"#,
         subscribers = compact(subscribers),
         sent = compact(sent),
         open_rate = open_rate,
@@ -3386,13 +3571,13 @@ async fn members_page(State(state): State<AppState>, headers: HeaderMap, Query(q
         .fetch_one(&state.db)
         .await
         .unwrap_or(0);
-    if let Ok(members) = sqlx::query_as::<_, (String, Option<String>, String, String, Option<String>, String)>(
-        "SELECT id, name, email, status, note, substr(created_at, 1, 10) FROM members ORDER BY created_at DESC LIMIT 500",
-    )
-    .fetch_all(&state.db)
-    .await
+    let page = q.get("page").and_then(|v|v.parse::<i64>().ok()).unwrap_or(1).max(1);
+    let (members, filtered_count) = match repos::members::browse(&state.db,q.get("nql").map(String::as_str),100,page).await {
+        Ok(result)=>result,Err(e)=>return (StatusCode::UNPROCESSABLE_ENTITY,e.message()).into_response()
+    };
     {
-        for (id, name, email, status, note, created) in members {
+        for member in members {
+            let (id,name,email,status,note,created) = (member.id,member.name,member.email,member.status,member.note,member.created_at.chars().take(10).collect::<String>());
             let initial = name.as_deref().unwrap_or(&email).chars().next().unwrap_or('?').to_uppercase().to_string();
             rows.push_str(&format!(
                 r#"<div class="row" data-filterable>
@@ -3428,6 +3613,11 @@ async fn members_page(State(state): State<AppState>, headers: HeaderMap, Query(q
             rows = rows,
         )
     };
+    let filter_query = form_urlencoded::Serializer::new(String::new()).append_pair("nql",q.get("nql").map(String::as_str).unwrap_or("")).finish();
+    let pagination = format!(r#"<div style="display:flex;gap:16px;align-items:center;margin:16px 0"><span>{filtered_count} matching members · page {page}</span>{previous}{next}</div>"#,
+        previous=if page>1 {format!(r#"<a class="btn tonal small" href="?{filter_query}&amp;page={}">Previous</a>"#,page-1)} else {String::new()},
+        next=if page*100<filtered_count {format!(r#"<a class="btn tonal small" href="?{filter_query}&amp;page={}">Next</a>"#,page+1)} else {String::new()});
+    let list=format!("{list}{pagination}");
     page_for_role(actor_role, 
         "Members",
         "members",
@@ -4496,8 +4686,11 @@ async fn posts_list_impl(state: &AppState, headers: &HeaderMap, post_type: &str,
         Err(r) => return r,
     };
     let user = &actor.user;
+    let filter = match flash.get("nql").filter(|s|!s.is_empty()).map(|s|ghost_nql::parse(s)).transpose() {
+        Ok(filter)=>filter, Err(e)=>return (StatusCode::UNPROCESSABLE_ENTITY,e.message()).into_response()
+    };
     let q = repos::posts::BrowsePosts {
-        filter: None,
+        filter,
         order: None,
         limit: 100,
         page: 1,
@@ -4646,6 +4839,7 @@ struct Editor<'a> {
     delivery: repos::posts::Delivery,
     /// False for Contributors, who may only save drafts.
     can_publish: bool,
+    all_tiers: Vec<(String, String)>,
     members_enabled: bool,
     /// Request headers for api.unsplash.com, or `Null` when the Unsplash app
     /// is off or has no access key. Koenig uses this object verbatim.
@@ -5125,18 +5319,18 @@ fn editor_html(ed: &Editor<'_>) -> String {
         false,
     ));
 
-    // Access. Tier-by-tier visibility is Ghost's fourth option; this schema
-    // records only the three levels, so only those are offered.
+    // Access includes explicit paid-tier entitlements.
     let visibility = ed.post.map(|p| p.visibility.as_str()).unwrap_or("public");
     let access_body = if ed.members_enabled {
         select_field(
             "visibility",
             "Who can read this",
             &format!(
-                "{}{}{}",
+                "{}{}{}{}",
                 option_row("public", "Everyone", visibility == "public"),
                 option_row("members", "Members only", visibility == "members"),
                 option_row("paid", "Paid members only", visibility == "paid"),
+                option_row("tiers", "Specific paid tiers", visibility == "tiers"),
             ),
         )
     } else {
@@ -5145,6 +5339,10 @@ fn editor_html(ed: &Editor<'_>) -> String {
             visibility = esc(visibility),
         )
     };
+    let access_body = if ed.members_enabled {
+        format!("{}<input type=\"hidden\" name=\"_tiers\" value=\"1\"><p class=\"hint\">Allowed tiers · used when access is set to Specific paid tiers.</p>{}", access_body,
+            chip_set("tiers", &ed.all_tiers, ed.post.map(|p| p.tier_ids.as_slice()).unwrap_or(&[]), "Create a paid tier under Membership to restrict access by tier."))
+    } else { access_body };
     side.push_str(&panel("lock", "slate", "Access", &access_body, false));
 
     // Email, when this post can still become one.
@@ -5314,6 +5512,7 @@ html {{ font-size: 62.5%; }}
 <script src="{assets}/react-jsx.js" defer></script>
 <script src="{assets}/react-dom.js" defer></script>
 <script src="{assets}/koenig-lexical.js" defer></script>
+<script src="{assets}/unsplash-picker.js" defer></script>
 <script src="{assets}/koenig-bridge.js" defer></script>
 <script>
 /* Hide the Markdown fallback before anything is painted, and disable it so a
@@ -5374,10 +5573,10 @@ html {{ font-size: 62.5%; }}
 /// script changes with this admin rather than with Koenig, so the number
 /// moves for either: a browser holding a stale bridge would keep a broken
 /// editor (and a word count that never counts) until its cache expired.
-const KOENIG_VERSION: &str = "1.8.10";
+const KOENIG_VERSION: &str = "1.8.14";
 
 /// Where the editor's scripts live, version-stamped.
-const ASSETS: &str = concat!("/ghost/assets/", "1.8.10");
+const ASSETS: &str = concat!("/ghost/assets/", "1.8.14");
 
 /// Vendored editor runtime. Serving these from the binary keeps the admin a
 /// single self-contained process — no CDN, and no network at all once the
@@ -5393,6 +5592,12 @@ async fn admin_asset(Path((version, file)): Path<(String, String)>) -> Response 
         // Ships its own stylesheet, which it injects into <head> on load.
         "koenig-lexical.js" => include_str!("../assets/koenig-lexical.umd.js"),
         "koenig-bridge.js" => include_str!("../assets/koenig-bridge.js"),
+        "unsplash-picker.js" => include_str!("../assets/unsplash-picker.js"),
+        "publishing-workflows.js" => include_str!("../assets/publishing-workflows.js"),
+        "automation-editor.js" => include_str!("../assets/automation-editor.js"),
+        "native-social.js" => include_str!("../assets/native-social.js"),
+        "machine-payments.js" => include_str!("../assets/machine-payments.js"),
+        "checkout-design.js" => include_str!("../assets/checkout-design.js"),
         _ => return (StatusCode::NOT_FOUND, "not found").into_response(),
     };
     (
@@ -5459,6 +5664,7 @@ async fn editor_context<'a>(
         already_sent,
         delivery,
         can_publish,
+        all_tiers: sqlx::query_as("SELECT id, name FROM products WHERE type = 'paid' ORDER BY name").fetch_all(&state.db).await.unwrap_or_default(),
         members_enabled: state.settings.get_str("members_signup_access").as_deref() != Some("none"),
         unsplash_headers: unsplash_headers(state),
         pintura_config: pintura_config(&state.settings),
@@ -5557,6 +5763,8 @@ struct EditorForm {
     /// One entry per ticked checkbox — they all post under the same name.
     tags: Vec<String>,
     authors: Vec<String>,
+    tiers: Vec<String>,
+    tiers_present: bool,
     custom_template: Option<String>,
     canonical_url: Option<String>,
     codeinjection_head: Option<String>,
@@ -5572,6 +5780,8 @@ struct EditorForm {
     email_subject: Option<String>,
     /// `publish_only` | `publish_email` | `email_only`.
     publish_action: String,
+    audience: ghost_api::newsletter_audience::Audience,
+    audience_present: bool,
 }
 
 impl EditorForm {
@@ -5597,6 +5807,10 @@ impl EditorForm {
                 "published_at" => form.published_at = from_datetime_local(&value),
                 "visibility" => form.visibility = keep(value),
                 "publish_action" => form.publish_action = value,
+                "newsletter_id" => {form.audience.newsletter_id=keep(value);form.audience_present=true;},
+                "audience_filter" => {form.audience.filter=keep(value);form.audience_present=true;},
+                "newsletter_include_preview" => form.audience.include_preview=value=="1",
+                "_audience" => form.audience_present=true,
                 "featured" => form.featured = true,
                 "show_title_and_feature_image" => form.show_title_and_feature_image = true,
                 "feature_image" => form.feature_image = keep(value),
@@ -5621,6 +5835,8 @@ impl EditorForm {
                         form.tags.push(value);
                     }
                 }
+                "_tiers" => form.tiers_present = true,
+                "tiers" => { form.tiers_present = true; if !value.trim().is_empty() { form.tiers.push(value); } },
                 "authors" => {
                     if !value.trim().is_empty() {
                         form.authors.push(value);
@@ -5712,6 +5928,7 @@ fn form_to_new(form: &EditorForm, post_type: &str) -> repos::posts::NewPost {
         feature_image_caption: form.feature_image_caption.clone(),
         author_ids: form.authors.clone(),
         tag_ids: form.tags.clone(),
+        tier_ids: form.tiers.clone(),
         reading_time,
     }
 }
@@ -5848,6 +6065,7 @@ async fn editor_create_impl(state: &AppState, headers: &HeaderMap, mut form: Edi
         form.status = "draft".into();
     }
     let user = actor.user;
+    if form.audience_present {if let Err(e)=ghost_api::newsletter_audience::validate(state,&form.audience).await{return editor_error_json(&e.message(),StatusCode::UNPROCESSABLE_ENTITY)}}
     let action = PublishAction::parse(&form.publish_action);
     let schedule = scheduling(&form, post_type, action);
     if matches!(schedule, Scheduling::Undated) {
@@ -5868,6 +6086,7 @@ async fn editor_create_impl(state: &AppState, headers: &HeaderMap, mut form: Edi
     let json_mode = wants_json(headers);
     match repos::posts::insert(&state.db, &new, &user.id).await {
         Ok(post) => {
+            if form.audience_present {if let Err(e)=ghost_api::newsletter_audience::save(state,&post.id,&form.audience).await{return editor_error_json(&e.message(),StatusCode::UNPROCESSABLE_ENTITY)}}
             let _ = repos::actions::record(&state.db, post_type, &post.id, &user.id, "added").await;
             fire_post_webhooks(state, post_type, &post, "added", false);
             if post.status == "published" {
@@ -5996,23 +6215,26 @@ struct Subscriber {
 /// Who a post goes to, from its visibility. Ghost derives the recipient
 /// filter the same way: a paid-members post is not emailed to free members.
 async fn newsletter_recipients(
-    state: &AppState,
+    pool: &sqlx::SqlitePool,
     newsletter_id: &str,
     visibility: &str,
+    post_id: &str,
 ) -> Vec<Subscriber> {
     let paid_only = matches!(visibility, "paid" | "tiers");
     let base = "SELECT DISTINCT m.email, coalesce(m.name, ''), coalesce(m.uuid, ''), m.status, \
                 coalesce(m.created_at, '') FROM members m \
                 JOIN members_newsletters mn ON mn.member_id = m.id \
-                WHERE mn.newsletter_id = ? AND m.email_disabled = 0";
-    let sql = if paid_only {
+                WHERE mn.newsletter_id = ? AND m.email_disabled = 0 AND NOT EXISTS(SELECT 1 FROM email_suppressions es WHERE es.email=m.email)";
+    let sql = if visibility == "tiers" {
+        format!("{base} AND m.status IN ('paid', 'comped', 'gift') AND EXISTS(SELECT 1 FROM members_products mp JOIN posts_products pp ON pp.product_id = mp.product_id WHERE mp.member_id = m.id AND pp.post_id = ? AND (mp.expiry_at IS NULL OR datetime(mp.expiry_at) > datetime('now')))")
+    } else if paid_only {
         format!("{base} AND m.status IN ('paid', 'comped', 'gift')")
     } else {
         base.to_string()
     };
-    sqlx::query_as::<_, (String, String, String, String, String)>(&sql)
-        .bind(newsletter_id)
-        .fetch_all(&state.db)
+    let query = sqlx::query_as::<_, (String, String, String, String, String)>(&sql).bind(newsletter_id);
+    let query = if visibility == "tiers" { query.bind(post_id) } else { query };
+    query.fetch_all(pool)
         .await
         .unwrap_or_default()
         .into_iter()
@@ -6156,7 +6378,13 @@ async fn send_post_as_newsletter(state: &AppState, post_id: &str) -> Result<usiz
         }
     };
 
-    let recipients = newsletter_recipients(state, &newsletter.id, &post.visibility).await;
+    let audience=ghost_api::newsletter_audience::load(state,&post.id).await.map_err(|e|e.message())?;
+    let mut recipients = newsletter_recipients(&state.db, &newsletter.id, if audience.include_preview {"public"} else {&post.visibility}, &post.id).await;
+    if let Some(filter)=audience.filter.as_deref().filter(|s|!s.is_empty()) {
+        let (members,_)=repos::members::browse(&state.db,Some(filter),-1,1).await.map_err(|e|e.message())?;
+        let emails:std::collections::HashSet<String>=members.into_iter().map(|member|member.email.to_lowercase()).collect();
+        recipients.retain(|member|emails.contains(&member.email.to_lowercase()));
+    }
     if recipients.is_empty() {
         return Err("No subscribers to send to.".into());
     }
@@ -6264,7 +6492,7 @@ async fn send_post_as_newsletter(state: &AppState, post_id: &str) -> Result<usiz
                 excerpt: p
                     .custom_excerpt
                     .clone()
-                    .or_else(|| p.plaintext.clone())
+                    .or_else(|| Some(ghost_mail::newsletter::plaintext(&ghost_core::models::public_html(&p))))
                     .map(|e| truncate_chars(&e, 120))
                     .filter(|e| !e.is_empty()),
             });
@@ -6283,14 +6511,8 @@ async fn send_post_as_newsletter(state: &AppState, post_id: &str) -> Result<usiz
             .unwrap_or(false),
     };
 
-    // Rendered once; only the `%%{…}%%` tokens differ per member. Compiling
-    // 3,000 lines of template per subscriber would be the slowest part of a
-    // send by a wide margin.
-    let template_html = match rendered.render() {
-        Ok(h) => h,
-        Err(e) => return Err(format!("could not render the newsletter: {}", e.message())),
-    };
-    let template_text = ghost_mail::newsletter::plaintext(&template_html);
+    let template_html=rendered.render().map_err(|e|e.message())?;
+    let template_text=ghost_mail::newsletter::plaintext(&template_html);
 
     // Ghost lets the editor override the subject without changing the title.
     let subject = email_subject
@@ -6299,7 +6521,21 @@ async fn send_post_as_newsletter(state: &AppState, post_id: &str) -> Result<usiz
 
     let mut sent = 0usize;
     let mut last_error: Option<String> = None;
+    let mut variants:HashMap<String,(String,String)>=HashMap::new();
     for sub in &recipients {
+        let tiers=ghost_db::repos::tiers::member_tier_ids(&state.db,&sqlx::query_scalar::<_,String>("SELECT id FROM members WHERE uuid=?").bind(&sub.uuid).fetch_one(&state.db).await.map_err(|e|e.to_string())?).await.map_err(|e|e.message())?;
+        let access=ghost_core::comments::check_post_tier_access(&post.visibility,Some(&sub.status),&post.tier_ids,&tiers);
+        let variant_key=format!("{}:{access}",sub.status);
+        if !variants.contains_key(&variant_key){
+            let mut variant=post_ctx.clone();
+            let raw=if access{post.html.as_deref().unwrap_or("")}else{post.html.as_deref().unwrap_or("").split_once("<!--members-only-->").map(|(preview,_)|preview).unwrap_or("")};
+            variant.html=ghost_core::url::absolutize_html(&site_url,&ghost_core::models::segment_html(raw,Some(&sub.status)));
+            variant.plaintext=ghost_mail::newsletter::plaintext(&variant.html);variant.paywall=!access;
+            let body=ghost_mail::newsletter::NewsletterEmail{site:&site_ctx,newsletter:&newsletter,post:&variant,latest_posts:&latest,comments_enabled:rendered.comments_enabled}.render().map_err(|e|e.message())?;
+            let body=ghost_api::newsletter_events::track_links(state,&post.id,&body).await.map_err(|e|e.message())?;
+            variants.insert(variant_key.clone(),(body.clone(),ghost_mail::newsletter::plaintext(&body)));
+        }
+        let (template_html,template_text)=variants.get(&variant_key).unwrap();
         // Per-recipient unsubscribe link, same HMAC the members API verifies.
         let key = hmac_hex(&secret, &sub.uuid);
         let member = ghost_mail::newsletter::Recipient {
@@ -6431,6 +6667,7 @@ async fn editor_save(State(state): State<AppState>, Path(id): Path<String>, head
         form.status = "draft".into();
     }
     let user = actor.user;
+    if form.audience_present {if let Err(e)=ghost_api::newsletter_audience::validate(&state,&form.audience).await{return editor_error_json(&e.message(),StatusCode::UNPROCESSABLE_ENTITY)}}
     let existing = repos::posts::find_by_id(&state.db, &id).await.ok().flatten();
     let post_type = existing
         .as_ref()
@@ -6502,6 +6739,7 @@ async fn editor_save(State(state): State<AppState>, Path(id): Path<String>, head
         feature_image_caption: form.feature_image_caption.clone(),
         reading_time,
         tag_ids: Some(form.tags.clone()),
+        tier_ids: if form.tiers_present { Some(form.tiers.clone()) } else { None },
         // Authors are only rewritten when the form offered a choice;
         // emptying the list would otherwise orphan the post.
         author_ids: if form.authors.is_empty() { None } else { Some(form.authors.clone()) },
@@ -6510,6 +6748,7 @@ async fn editor_save(State(state): State<AppState>, Path(id): Path<String>, head
     let json_mode = wants_json(&headers);
     match repos::posts::update(&state.db, &id, &changes).await {
         Ok(post) => {
+            if form.audience_present {if let Err(e)=ghost_api::newsletter_audience::save(&state,&post.id,&form.audience).await{return editor_error_json(&e.message(),StatusCode::UNPROCESSABLE_ENTITY)}}
             let _ = repos::actions::record(&state.db, &post_type, &post.id, &user.id, "edited").await;
             fire_post_webhooks_from(
                 &state,
@@ -7713,7 +7952,7 @@ fn design_field_row(f: &CustomField, value: &serde_json::Value) -> String {
             format!(
                 r#"<div class="row" style="align-items:flex-start"><div class="body" style="width:100%">
 <div style="display:flex;gap:14px;align-items:center">{preview}
-<label class="field" style="margin:0;flex:1"><input name="{key}" value="{v}" placeholder=" "><span>{title} · URL</span></label></div></div></div>"#,
+<label class="field" style="margin:0;flex:1"><input data-theme-image name="{key}" value="{v}" placeholder=" "><span>{title} · URL</span></label></div></div></div>"#,
                 key = esc(&f.key),
                 v = esc(v),
                 title = title,
@@ -7733,6 +7972,37 @@ fn design_field_row(f: &CustomField, value: &serde_json::Value) -> String {
             body = body,
         ),
     }
+}
+
+fn brand_image_field(key: &str, label: &str, value: &str) -> String {
+    let preview_size = match key {
+        "icon" => "max-width:48px;max-height:48px;",
+        "logo" => "max-width:min(160px,100%);max-height:48px;",
+        _ => "max-width:100%;max-height:120px;",
+    };
+    format!(
+        r#"<div class="row" style="align-items:flex-start" data-brand-image data-upload-url="{upload_url}">
+<span class="ic tint-pink">{image}</span>
+<div class="body" style="min-width:0;width:100%">
+<img alt="{label} preview" hidden style="{preview_size}width:auto;object-fit:contain;border-radius:8px;margin-bottom:12px">
+<label class="field" style="margin:0"><input name="{key}" value="{value}" placeholder=" " data-image-url><span>{label} · URL</span></label>
+<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:12px">
+<input type="file" accept="image/jpeg,image/png,image/gif,image/webp,image/svg+xml,image/avif" aria-label="Upload {label}" hidden>
+<button class="btn tonal small" type="button" data-image-upload>{upload} Upload image</button>
+{unsplash}
+<button class="btn text small" type="button" data-image-remove hidden>Remove</button></div>
+<p class="muted" role="status" aria-live="polite" style="margin:8px 0 0"></p>
+</div></div>"#,
+        upload_url = esc(&ghost_core::url::base("/ghost/api/admin/images/upload/")),
+        image = svg("image"),
+        upload = svg("upload"),
+        key = esc(key),
+        label = esc(label),
+        value = esc(&ghost_core::url::base_asset(value)),
+        unsplash = if key == "cover_image" {
+            format!(r#"<button class="btn tonal small" type="button" data-image-unsplash>{} Unsplash</button>"#, svg("search"))
+        } else { String::new() },
+    )
 }
 
 async fn design_page(State(state): State<AppState>, headers: HeaderMap, Query(q): Query<HashMap<String, String>>) -> Response {
@@ -7816,7 +8086,7 @@ async fn design_page(State(state): State<AppState>, headers: HeaderMap, Query(q)
 <div class="actions"><button class="btn text danger" type="submit" form="reset-form">Reset to defaults</button>
 <button class="btn" type="submit" form="design-form">{check} Save</button></div></header>
 {banner}
-<form method="post" action="/ghost/design/" id="design-form">
+<form method="post" action="/ghost/design/" id="design-form" data-unsplash="{unsplash_headers}">
 <div class="section">Brand</div>
 <div class="card rows rise" style="--i:2">
 <div class="row"><span class="ic tint-pink">{palette}</span>
@@ -7824,12 +8094,9 @@ async fn design_page(State(state): State<AppState>, headers: HeaderMap, Query(q)
 <input type="color" name="accent_color" value="{accent}" aria-label="Accent color">
 <div><span class="title" style="display:block">Accent color</span><span class="detail">{accent}</span></div>
 </div></div></div>
-<div class="row" style="align-items:center"><span class="ic tint-pink">{img}</span>
-<div class="body"><label class="field" style="margin:0"><input name="icon" value="{icon}" placeholder=" "><span>Publication icon · URL</span></label></div></div>
-<div class="row" style="align-items:center"><span class="ic tint-pink">{title_ic}</span>
-<div class="body"><label class="field" style="margin:0"><input name="logo" value="{logo}" placeholder=" "><span>Publication logo · URL</span></label></div></div>
-<div class="row" style="align-items:center"><span class="ic tint-pink">{cover}</span>
-<div class="body"><label class="field" style="margin:0"><input name="cover_image" value="{cover_image}" placeholder=" "><span>Publication cover · URL</span></label></div></div>
+{icon_field}
+{logo_field}
+{cover_field}
 <div class="row" style="align-items:center"><span class="ic tint-pink">{type_ic}</span>
 <div class="body"><span class="title">Typography</span><span class="detail">Fonts used across the site</span></div></div>
 <div class="row" style="align-items:center"><span class="ic tint-pink">{title_ic}</span>
@@ -7839,20 +8106,21 @@ async fn design_page(State(state): State<AppState>, headers: HeaderMap, Query(q)
 </div>
 {custom_html}
 </form>
-<form method="post" action="/ghost/design/reset/" id="reset-form" data-confirm="Reset theme settings|Custom settings for {name} go back to the theme's defaults."></form>"#,
+<form method="post" action="/ghost/design/reset/" id="reset-form" data-confirm="Reset theme settings|Custom settings for {name} go back to the theme's defaults."></form>
+<script src="{assets}/unsplash-picker.js" defer></script>"#,
             name = esc(&theme.name),
+            assets = ASSETS,
+            unsplash_headers = esc(&unsplash_headers(&state).to_string()),
             back = svg("chevron"),
             check = svg("check"),
             title_ic = svg("title"),
-            img = svg("image"),
-            cover = svg("pages"),
             palette = svg("themes"),
             type_ic = svg("tune"),
             notes = svg("notes"),
             car = SELECT_CARET,
-            logo = s("logo"),
-            icon = s("icon"),
-            cover_image = s("cover_image"),
+            logo_field = brand_image_field("logo", "Publication logo", &state.settings.get_str("logo").unwrap_or_default()),
+            icon_field = brand_image_field("icon", "Publication icon", &state.settings.get_str("icon").unwrap_or_default()),
+            cover_field = brand_image_field("cover_image", "Publication cover", &state.settings.get_str("cover_image").unwrap_or_default()),
             accent = s("accent_color"),
             heading_opts = select_options(FONT_STACKS, &state.settings.get_str("heading_font").unwrap_or_default()),
             body_opts = select_options(FONT_STACKS, &state.settings.get_str("body_font").unwrap_or_default()),
@@ -7876,6 +8144,26 @@ const FONT_STACKS: &[(&str, &str)] = &[
     ("'Iowan Old Style', 'Palatino Linotype', 'Book Antiqua', Palatino, serif", "Elegant serif"),
     ("'SF Mono', 'Cascadia Code', Consolas, 'Courier New', monospace", "Monospace"),
 ];
+
+async fn design_preview(State(state): State<AppState>, headers: HeaderMap, axum::Json(form): axum::Json<HashMap<String,String>>) -> Response {
+    if let Err(r)=require_role(&state,&headers,Role::Administrator).await{return r}
+    let theme=state.theme.read().await.clone();
+    let mut values=Vec::new();
+    for key in ["logo","icon","cover_image","accent_color","heading_font","body_font"] {
+        if let Some(value)=form.get(key){values.push((key.into(),serde_json::json!(value)));}
+    }
+    let mut custom=state.settings.get("custom_theme_settings").and_then(|value|value.as_object().cloned()).unwrap_or_default();
+    custom.insert(theme.name.clone(),serde_json::Value::Object(coerce_custom_values(&theme.pkg.config.custom,&form)));
+    values.push(("custom_theme_settings".into(),serde_json::Value::Object(custom)));
+    values.push(("web_analytics".into(),serde_json::json!(false)));
+    values.push(("is_private".into(),serde_json::json!(false)));
+    let mut preview=state.clone();preview.settings=std::sync::Arc::new(state.settings.with_overrides(values));
+    use tower::ServiceExt;
+    match ghost_front::site_router(preview).oneshot(axum::http::Request::builder().uri("/").body(axum::body::Body::empty()).unwrap()).await {
+        Ok(mut response)=>{response.headers_mut().insert(header::CACHE_CONTROL,"private, no-store".parse().unwrap());response},
+        Err(_)=>(StatusCode::INTERNAL_SERVER_ERROR,"Could not render preview").into_response()
+    }
+}
 
 async fn design_save(State(state): State<AppState>, headers: HeaderMap, Form(form): Form<HashMap<String, String>>) -> Response {
     if let Err(r) = require_role(&state, &headers, Role::Administrator).await {
@@ -7958,7 +8246,7 @@ impl SettingsGroup {
 }
 
 const SETTINGS_GROUPS: &[SettingsGroup] = &[
-    SettingsGroup { slug: "general", title: "General settings", icon: "settings", tint: "pink", items: &["Title & description", "Timezone", "Publication language", "Meta data", "Social accounts"] },
+    SettingsGroup { slug: "general", title: "General settings", icon: "settings", tint: "pink", items: &["Name, title & description", "Timezone", "Publication language", "Meta data", "Social accounts"] },
     SettingsGroup { slug: "staff", title: "Staff", icon: "ghost", tint: "teal", items: &["People", "Roles", "Invitations"] },
     SettingsGroup { slug: "analytics", title: "Analytics", icon: "chart", tint: "green", items: &["Web analytics", "Email opens", "Email clicks", "Member sources", "Outbound link tagging"] },
     SettingsGroup { slug: "design", title: "Design & branding", icon: "tune", tint: "purple", items: &["Brand", "Site-wide colors", "Theme settings"] },
@@ -7985,8 +8273,9 @@ const SETTINGS_GROUPS: &[SettingsGroup] = &[
 /// rather than repeated here.
 const SETTINGS_INDEX: &[(&str, &str, &str)] = &[
     // (page slug, section, field)
-    ("general", "Title & description", "Title"),
-    ("general", "Title & description", "Description"),
+    ("general", "Name, title & description", "Name"),
+    ("general", "Name, title & description", "Title"),
+    ("general", "Name, title & description", "Description"),
     ("general", "Timezone", "Site timezone"),
     ("general", "Publication language", "Publication language"),
     // The section names stay in the haystack: "X card" and "Facebook card"
@@ -8544,16 +8833,6 @@ fn group_head(g: &SettingsGroup, form_id: Option<&str>) -> String {
 
 /// A settings row that isn't built yet (kept visible so the hub shows
 /// Ghost's full structure while pages are completed one by one).
-fn planned_row(title: &str, detail: &str) -> String {
-    format!(
-        r#"<div class="row" style="opacity:.55"><span class="ic tint-slate">{soon}</span>
-<div class="body"><span class="title">{title}</span><span class="detail">{detail}</span></div>
-<div class="trailing"><span class="chip draft">Planned</span></div></div>"#,
-        soon = svg("history"),
-        title = esc(title),
-        detail = esc(detail),
-    )
-}
 
 async fn settings_page(State(state): State<AppState>, headers: HeaderMap) -> Response {
     let (user, actor_role) = match require_role(&state, &headers, Role::Administrator).await {
@@ -8695,8 +8974,11 @@ async fn general_page(State(state): State<AppState>, headers: HeaderMap, Query(q
         &format!(
             r#"{head}{banner}
 <form method="post" action="/ghost/settings/general/" id="general-form" data-meta-previews data-site-title="{title}" data-site-description="{description}">
-<div class="section">Title &amp; description</div>
+<div class="section">Name, title &amp; description</div>
 <div class="card rows rise" style="--i:1">
+<div class="row" style="align-items:center"><span class="ic tint-pink">{title_ic}</span>
+<div class="body"><label class="field" style="margin:0"><input name="name" value="{name}" placeholder=" "><span>Name</span></label>
+<p class="muted" style="margin:6px 0 0">Shown in the admin panel and available to themes as <code>{{{{@site.name}}}}</code>. Defaults to the title when blank.</p></div></div>
 <div class="row" style="align-items:center"><span class="ic tint-pink">{title_ic}</span>
 <div class="body"><label class="field" style="margin:0"><input name="title" value="{title}" placeholder=" " required><span>Title</span></label></div></div>
 <div class="row" style="align-items:center"><span class="ic tint-pink">{notes}</span>
@@ -8724,6 +9006,7 @@ async fn general_page(State(state): State<AppState>, headers: HeaderMap, Query(q
             lang = svg("notes"),
             car = SELECT_CARET,
             title = s("title"),
+            name = s("name"),
             description = s("description"),
             tz_opts = select_options(TIMEZONES, &state.settings.get_str("timezone").unwrap_or_else(|| "Etc/UTC".into())),
             locale_opts = select_options(LOCALES, &state.settings.get_str("locale").unwrap_or_else(|| "en".into())),
@@ -8754,6 +9037,9 @@ async fn general_save(State(state): State<AppState>, headers: HeaderMap, Form(fo
         && state.settings.set(&state.db, "description", &serde_json::json!(get("description"))).await.is_ok()
         && state.settings.set(&state.db, "timezone", &serde_json::json!(timezone)).await.is_ok()
         && state.settings.set(&state.db, "locale", &serde_json::json!(locale)).await.is_ok();
+    if let Some(name) = form.get("name") {
+        ok &= state.settings.set(&state.db, "name", &serde_json::json!(name.trim())).await.is_ok();
+    }
 
     // Meta data and the social accounts post with this form now, so one Save
     // covers the page.
@@ -8991,7 +9277,7 @@ const METADATA_KEYS: &[&str] = &[
 /// the page (the field shows a "saved" placeholder instead), are masked by
 /// the Admin API, and are absent from the theme/Content API allowlist — so a
 /// password typed here cannot leak back out through any read path.
-pub const SECRET_SETTINGS: &[&str] = &["mail_smtp_pass", "mailgun_api_key"];
+pub const SECRET_SETTINGS: &[&str] = &["mail_smtp_pass", "mailgun_api_key", "mailgun_webhook_signing_key"];
 
 /// A posted credential field. An empty box means "leave what is stored"
 /// rather than "clear it", because the form never shows the current value —
@@ -10064,6 +10350,7 @@ async fn newsletters_settings_page(State(state): State<AppState>, headers: Heade
 <div class="row" style="align-items:flex-start"><span class="ic tint-purple">{send}</span>
 <div class="body" style="width:100%"><div class="grid2" style="gap:12px">
 <label class="field" style="margin:0"><input name="mailgun_api_key" type="password" value="" placeholder=" " autocomplete="off"><span>API key</span></label>
+<label class="field" style="margin:0"><input name="mailgun_webhook_signing_key" type="password" value="" placeholder=" " autocomplete="off"><span>Webhook signing key</span></label>
 <label class="field" style="margin:0"><input name="mailgun_domain" value="{domain}" placeholder=" " autocomplete="off"><span>Sending domain · e.g. mg.example.com</span></label>
 <label class="field fixed" style="margin:0"><select name="mailgun_base_url">{region_opts}</select><span>Region</span>{car}</label>
 <label class="field" style="margin:0"><input name="bulk_email_from_address" value="{bulk_from}" placeholder=" "><span>From address · defaults to the transactional one</span></label>
@@ -10110,6 +10397,7 @@ async fn newsletters_settings_save(State(state): State<AppState>, headers: Heade
         ok &= state.settings.set(&state.db, key, &serde_json::json!(value)).await.is_ok();
     }
     ok &= save_secret(&state, "mailgun_api_key", form.get("mailgun_api_key")).await;
+    ok &= save_secret(&state, "mailgun_webhook_signing_key", form.get("mailgun_webhook_signing_key")).await;
 
     // Newsletter sending and the default audience share two settings, the way
     // Ghost encodes them: `disabled` turns sending off, anything else names
@@ -11044,6 +11332,7 @@ async fn stripe_connect(
         secret_key: secret,
         publishable_key: String::new(),
         webhook_secret: String::new(),
+        checkout_design: None,
     };
     let price_note = match ghost_api::stripe_tiers::sync_active_tiers(&state, &cfg).await {
         Ok(()) => String::new(),
@@ -11783,6 +12072,7 @@ addresses like <code>hello@spam.xyz</code>. Members who already signed up are no
         &format!(
             r#"{head}{banner}
 <form method="post" action="/ghost/settings/membership/" id="membership-form"></form>
+<div class="card"><a class="row" href="/ghost/settings/checkout/"><div class="body"><span class="title">Checkout design</span><span class="desc">Customize colors, typography and button corners for paid signups.</span></div></a></div>
 <div class="section">Access</div>
 <div class="card rows rise" style="--i:1">
 <div class="row"><span class="ic tint-amber">{private_ic}</span>
@@ -12595,8 +12885,8 @@ async fn growth_page(State(state): State<AppState>, headers: HeaderMap, Query(q)
 <div style="padding:10px 4px 0"><button class="btn tonal small" type="submit">Save</button></div>
 </form>
 <p class="muted" style="margin:10px 2px 0">Ghost Explore is a directory of publications at <a href="https://ghost.org/explore/" target="_blank" rel="noopener">ghost.org/explore</a>.
-This port stores your choice but does not yet announce the site to it, so nothing leaves your server either way.</p>
-<div class="section">Coming later</div>
+When enabled, the publication synchronizes public publication details with Explore. Growth statistics are shared only when separately enabled. Private sites and local addresses are excluded.</p>
+<div class="section">Social web</div>
 <div class="card rows rise" style="--i:6">
 {network}
 </div>"#,
@@ -12608,10 +12898,7 @@ This port stores your choice but does not yet announce the site to it, so nothin
             rec_rows = rec_rows,
             rec_add = rec_add,
             signup_builder = signup_builder,
-            network = planned_row(
-                "Network",
-                "Federation between Ghost sites over ActivityPub — needs a service this port does not run yet",
-            ),
+            network = format!(r#"<a class="row" href="/ghost/social/"><span class="ic tint-teal">{}</span><div class="body"><span class="title">Social web</span><span class="detail">Reader, notes, follows and publication federation</span></div>{}</a>"#,svg("share"),svg("chevron")),
             explore_rows = format!(
                 "{}{}",
                 toggle_row(
@@ -14035,6 +14322,7 @@ async fn run_import(state: &AppState, owner_id: &str, data: &serde_json::Value) 
                 }
             };
             let new = repos::posts::NewPost {
+                tier_ids: Vec::new(),
                 title,
                 slug: p.get("slug").and_then(|v| v.as_str()).map(str::to_string),
                 lexical,
@@ -14045,7 +14333,7 @@ async fn run_import(state: &AppState, owner_id: &str, data: &serde_json::Value) 
                 feature_image: p.get("feature_image").and_then(|v| v.as_str()).map(str::to_string),
                 featured: p.get("featured").and_then(|v| v.as_bool()).unwrap_or(false),
                 post_type: post_type.to_string(),
-                status: p.get("status").and_then(|v| v.as_str()).unwrap_or("draft").to_string(),
+                status: if p.get("visibility").and_then(|v| v.as_str()) == Some("tiers") { "draft".to_string() } else { p.get("status").and_then(|v| v.as_str()).unwrap_or("draft").to_string() },
                 visibility: p.get("visibility").and_then(|v| v.as_str()).unwrap_or("public").to_string(),
                 published_at: None,
                 codeinjection_head: p.get("codeinjection_head").and_then(|v| v.as_str()).map(str::to_string),
@@ -16604,6 +16892,7 @@ fn fire_post_webhooks_from(
     previous_status: &str,
     before: Option<&ghost_core::models::Post>,
 ) {
+    ghost_api::federation::post_changed(state,&post.id,change=="deleted");
     let is_page = post_type == "page";
     let now_published = post.status == "published";
     let body = |p: &ghost_core::models::Post| {
@@ -17309,6 +17598,81 @@ async fn unsplash_save(
 #[cfg(test)]
 mod tests {
     use super::{recommendation_title, recommendation_url};
+
+    #[tokio::test]
+    async fn tier_newsletters_require_a_current_matching_entitlement() {
+        let pool = sqlx::sqlite::SqlitePoolOptions::new().max_connections(1)
+            .connect("sqlite::memory:").await.unwrap();
+        sqlx::migrate!("../../migrations").run(&pool).await.unwrap();
+        ghost_db::seed::seed_if_empty(&pool).await.unwrap();
+        let owner = ghost_db::repos::users::setup_owner(&pool, "Test owner", "owner@example.test", "unused-test-hash")
+            .await.unwrap();
+        sqlx::query("INSERT INTO newsletters (id, name, slug, created_at) VALUES ('newsletter', 'Test', 'test', datetime('now'))")
+            .execute(&pool).await.unwrap();
+        for id in ["selected", "other"] {
+            sqlx::query("INSERT INTO products (id, name, slug, created_at) VALUES (?, ?, ?, datetime('now'))")
+                .bind(id).bind(id).bind(id).execute(&pool).await.unwrap();
+        }
+        let post = ghost_db::repos::posts::insert(&pool, &ghost_db::repos::posts::NewPost {
+            title: "Tier newsletter".into(), status: "published".into(),
+            visibility: "tiers".into(), post_type: "post".into(),
+            tier_ids: vec!["selected".into()], ..Default::default()
+        }, &owner.id).await.unwrap();
+        for (id, status, tier, expiry, disabled, subscribed) in [
+            ("matching", "paid", "selected", None, false, true),
+            ("comped", "comped", "selected", None, false, true),
+            ("wrong", "paid", "other", None, false, true),
+            ("expired", "paid", "selected", Some("2000-01-01"), false, true),
+            ("free", "free", "selected", None, false, true),
+            ("disabled", "paid", "selected", None, true, true),
+            ("unsubscribed", "paid", "selected", None, false, false),
+        ] {
+            sqlx::query("INSERT INTO members (id, transient_id, email, status, email_disabled, created_at) VALUES (?, ?, ?, ?, ?, datetime('now'))")
+                .bind(id).bind(id).bind(format!("{id}@example.test")).bind(status).bind(disabled)
+                .execute(&pool).await.unwrap();
+            sqlx::query("INSERT INTO members_products (id, member_id, product_id, expiry_at) VALUES (?, ?, ?, ?)")
+                .bind(id).bind(id).bind(tier).bind(expiry).execute(&pool).await.unwrap();
+            if subscribed {
+                sqlx::query("INSERT INTO members_newsletters (id, member_id, newsletter_id) VALUES (?, ?, 'newsletter')")
+                    .bind(id).bind(id).execute(&pool).await.unwrap();
+            }
+        }
+        let mut emails: Vec<_> = super::newsletter_recipients(&pool, "newsletter", "tiers", &post.id)
+            .await.into_iter().map(|member| member.email).collect();
+        emails.sort();
+        assert_eq!(emails, ["comped@example.test", "matching@example.test"]);
+        assert!(super::newsletter_recipients(&pool, "newsletter", "tiers", "missing-post").await.is_empty());
+    }
+
+    #[test]
+    fn module_pages_share_one_admin_only_sidebar_entry() {
+        for active in ["modules", "analytics", "comments", "automations"] {
+            let nav = super::rail(active, None, super::Role::Administrator);
+            assert!(nav.contains(r#"class="nav-item active" href="/ghost/modules/""#));
+            for href in ["analytics", "comments", "automations"] {
+                assert!(!nav.contains(&format!(r#"class="nav-item" href="/ghost/{href}/""#)));
+                assert!(!nav.contains(&format!(r#"class="nav-item active" href="/ghost/{href}/""#)));
+            }
+        }
+        for role in [super::Role::Contributor, super::Role::Author, super::Role::Editor] {
+            assert!(!super::rail("posts", None, role).contains("/ghost/modules/"));
+        }
+    }
+
+    #[tokio::test]
+    async fn admin_branding_uses_the_current_site_name_and_escapes_html() {
+        let settings = std::sync::Arc::new(ghost_db::SettingsCache::from_values([
+            ("title".into(), serde_json::json!("A different title")),
+            ("name".into(), serde_json::json!("News <&>")),
+        ]));
+        super::ADMIN_SETTINGS.scope(settings, async {
+            let html = super::page_u("Posts", "posts", None, "", true).0;
+            assert!(html.contains("<b>News &lt;&amp;&gt;</b>"));
+            assert!(html.contains("<title>Posts — News &lt;&amp;&gt;</title>"));
+            assert!(!html.contains("<b>Admin</b>"));
+            assert!(!html.contains("<span>Ghost</span>"));
+        }).await;
+    }
 
     #[test]
     fn stripe_connect_secure_keys_are_bound_to_the_starting_session_and_mode() {
@@ -18331,4 +18695,23 @@ mod tests {
         let strip = |s: &str| s[s.find("<script").unwrap()..].to_string();
         assert_eq!(strip(&page), strip(&preview));
     }
+}
+
+async fn forgot_password_page() -> Response {
+    page_u("Reset password", "", None, r#"<div class="auth-box"><h1>Reset password</h1><div class="card padded"><form id="password-recovery"><div id="recovery-fields"></div><button class="btn" type="submit">Continue</button><p role="status" id="recovery-message"></p></form><a href="/ghost/signin/">Back to sign in</a></div></div>"#,false).into_response()
+}
+
+async fn social_page(State(state):State<AppState>,headers:HeaderMap)->Response{
+    let actor=match require_role(&state,&headers,Role::Editor).await{Ok(actor)=>actor,Err(response)=>return response};
+    page_for_role(actor.role,"Social web","modules",Some(&actor.user),r#"<header class="page-head"><div><h1>Social web</h1><p class="sub">Your publication on the fediverse</p></div></header><div id="native-social" class="card padded"><p role="status">Loading your social web…</p></div><script src="/ghost/assets/1.8.14/native-social.js" defer></script>"#,true).into_response()
+}
+
+async fn machine_payments_page(State(state):State<AppState>,headers:HeaderMap)->Response{
+    let actor=match require_role(&state,&headers,Role::Administrator).await{Ok(actor)=>actor,Err(response)=>return response};
+    page_for_role(actor.role,"Machine payments","modules",Some(&actor.user),r#"<header class="page-head"><div><h1>Machine payments</h1><p class="sub">Paid access to individual articles for AI agents</p></div></header><div class="card padded" id="machine-payments"><p role="status">Loading payment settings…</p></div><script src="/ghost/assets/1.8.14/machine-payments.js" defer></script>"#,true).into_response()
+}
+
+async fn checkout_design_page(State(state):State<AppState>,headers:HeaderMap)->Response {
+    let actor=match require_role(&state,&headers,Role::Administrator).await {Ok(actor)=>actor,Err(response)=>return response};
+    page_for_role(actor.role,"Checkout design","settings",Some(&actor.user),r#"<header class="page-head"><div><h1>Checkout design</h1><p class="sub">Style the payment page for paid memberships</p></div></header><div class="card padded" id="checkout-design"><p role="status">Loading checkout design…</p></div><script src="/ghost/assets/1.8.14/checkout-design.js" defer></script>"#,true).into_response()
 }

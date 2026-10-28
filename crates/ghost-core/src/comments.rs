@@ -650,9 +650,8 @@ fn collapse_whitespace(s: &str) -> String {
 /// member may read a post and — via the comments service — whether they may
 /// comment on it.
 ///
-/// `tiers` visibility needs the post's tier list, which this port does not
-/// model yet; it is treated as paid-only, the access level every tier a site
-/// can currently create sits at.
+/// Tier-restricted posts require explicit entitlements; callers without them
+/// fail closed. Use `check_post_tier_access` when the tier lists are available.
 pub fn check_post_access(visibility: &str, member_status: Option<&str>) -> bool {
     if visibility == "public" {
         return true;
@@ -662,9 +661,14 @@ pub fn check_post_access(visibility: &str, member_status: Option<&str>) -> bool 
     };
     match visibility {
         "members" => true,
-        "paid" | "tiers" => status != "free",
+        "paid" => matches!(status, "paid" | "comped" | "gift"),
         _ => false,
     }
+}
+
+pub fn check_post_tier_access(visibility: &str, member_status: Option<&str>, post_tiers: &[String], member_tiers: &[String]) -> bool {
+    if visibility != "tiers" { return check_post_access(visibility, member_status); }
+    check_post_access("paid", member_status) && post_tiers.iter().any(|id| member_tiers.contains(id))
 }
 
 /// The initials Ghost puts in the avatar bubble of a notification email:

@@ -134,7 +134,7 @@ async fn load_member(state: &AppState, member_id: &str) -> Option<MemberSnapshot
     let row: (String, Option<String>, String, Option<String>, String, Option<bool>) =
         sqlx::query_as(
             "SELECT id, uuid, email, name, status, enable_updates_and_announcements \
-             FROM members WHERE id = ?",
+             FROM members WHERE id = ? AND email_disabled=0 AND NOT EXISTS(SELECT 1 FROM email_suppressions es WHERE es.email=members.email)",
         )
         .bind(member_id)
         .fetch_optional(&state.db)
@@ -152,7 +152,7 @@ async fn load_member(state: &AppState, member_id: &str) -> Option<MemberSnapshot
     .unwrap_or(0);
 
     let tier_ids: Vec<String> =
-        sqlx::query_scalar("SELECT product_id FROM members_products WHERE member_id = ?")
+        sqlx::query_scalar("SELECT product_id FROM members_products WHERE member_id = ? AND (expiry_at IS NULL OR datetime(expiry_at)>datetime('now'))")
             .bind(member_id)
             .fetch_all(&state.db)
             .await
@@ -220,7 +220,7 @@ async fn process_step(state: &AppState, step: &StepToRun) {
                 let _ = repo::finish_step(&state.db, step, "member unsubscribed").await;
                 return;
             }
-            match send_automation_email_for(state, &member, subject, lexical).await {
+            match send_automation_email_for(state, &member, subject, lexical,&step.automation_action_revision_id).await {
                 Ok(()) => {
                     // Recording is best-effort: the email is already gone, and
                     // losing a statistic is not worth re-sending it.
@@ -293,16 +293,20 @@ async fn handle_failure(state: &AppState, step: &StepToRun, error: &str) {
 ///
 /// The body is Lexical from the editor; it is rendered to HTML and dropped
 /// into the newsletter shell, so an automation email carries the same header,
-/// footer, typography and colours as the site's newsletter. Ghost keeps a
-/// separate `email_design_settings` row for this; the port has one design, on
-/// the newsletter, and reusing it is what stops automation emails looking
-/// like they came from somewhere else.
+/// footer, typography and colours as the site's newsletter. A saved email
+/// design overrides that shell using the immutable design referenced by the
+/// run's action revision.
 pub async fn send_automation_email(
     state: &AppState,
     member: &MemberSnapshotLike<'_>,
     subject: &str,
     lexical: &str,
 ) -> Result<(), String> {
+    send_automation_email_with_design(state,member,subject,lexical,None).await
+}
+pub async fn send_automation_email_with_design(
+    state:&AppState,member:&MemberSnapshotLike<'_>,subject:&str,lexical:&str,design_id:Option<&str>,
+)->Result<(),String>{
     let site_url = state.site_url();
     let title = state.settings.get_str("title").unwrap_or_else(|| "Ghost".into());
     let timezone = state.settings.get_str("timezone").unwrap_or_else(|| "Etc/UTC".into());
@@ -314,6 +318,8 @@ pub async fn send_automation_email(
         .ok_or_else(|| {
             "No newsletter to send on. Create one in Settings → Newsletters.".to_string()
         })?;
+
+    let newsletter=crate::automation_designs::apply(state,newsletter,design_id).await.map_err(|e|e.message())?;
 
     // The newsletter supplies the design, but not its post-shaped furniture.
     // An automation email has no post behind it, so the title block, byline,
@@ -446,8 +452,10 @@ async fn send_automation_email_for(
     member: &MemberSnapshot,
     subject: &str,
     lexical: &str,
+    revision_id:&str,
 ) -> Result<(), String> {
-    send_automation_email(state, &member.borrowed(), subject, lexical).await
+    let design_id:Option<String>=sqlx::query_scalar("SELECT email_design_setting_id FROM automation_action_revisions WHERE id=?").bind(revision_id).fetch_one(&state.db).await.map_err(|e|e.to_string())?;
+    send_automation_email_with_design(state, &member.borrowed(), subject, lexical,design_id.as_deref()).await
 }
 
 // ---------------------------------------------------------------------------

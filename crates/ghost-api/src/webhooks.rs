@@ -334,6 +334,7 @@ mod tests {
 
 /// API-originated changes must notify the same integrations as editor changes.
 pub fn fire_post_change(state: &AppState, current: &Value, before: Option<&Value>, change: &str) {
+    if let Some(id)=current["id"].as_str(){crate::federation::post_changed(state,id,change=="deleted");}
     let page = current["type"] == "page";
     let prefix = if page { "page" } else { "post" };
     let old_status = before.and_then(|p| p["status"].as_str()).unwrap_or("");
