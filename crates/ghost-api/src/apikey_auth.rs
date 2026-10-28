@@ -77,32 +77,7 @@ pub async fn verify(state: &AppState, token: &str, api_path: &str) -> Option<Ver
     }
 
     let claims: Value = serde_json::from_slice(&b64url::decode(claims_b64)?).ok()?;
-    let now = chrono::Utc::now().timestamp();
-
-    // `exp` is honoured when present, and `iat` is held to Ghost's five
-    // minute ceiling. A token with neither is refused rather than treated as
-    // eternal.
-    let iat = claims.get("iat").and_then(|v| v.as_i64());
-    let exp = claims.get("exp").and_then(|v| v.as_i64());
-    match (iat, exp) {
-        (None, None) => return None,
-        _ => {
-            if exp.is_some_and(|e| now > e) {
-                return None;
-            }
-            // A little slack for clock skew, in the same spirit as the
-            // leeway Ghost's JWT library allows.
-            if iat.is_some_and(|i| now - i > MAX_AGE_SECS || i - now > CLOCK_SKEW_SECS) {
-                return None;
-            }
-        }
-    }
-
-    // `aud` names the API the token was minted for. Ghost matches it as
-    // `/?<api>/?$`, so `/admin/`, `admin` and `/v5/admin/` all pass for the
-    // Admin API while a Content API token does not.
-    let aud = claims.get("aud").and_then(|v| v.as_str()).unwrap_or_default();
-    if !audience_matches(aud, api_path) {
+    if !claims_valid_at(&claims, api_path, chrono::Utc::now().timestamp()) {
         return None;
     }
 
@@ -121,6 +96,25 @@ const CLOCK_SKEW_SECS: i64 = 60;
 /// Whether `aud` names `api` — the tail of the path, slashes optional.
 pub fn audience_matches(aud: &str, api: &str) -> bool {
     aud.trim_end_matches('/').rsplit('/').next().map(|last| last == api).unwrap_or(false)
+}
+
+fn claims_valid_at(claims: &Value, api: &str, now: i64) -> bool {
+    // jsonwebtoken's maxAge requires iat even when an expiration is supplied.
+    let Some(iat) = claims.get("iat").and_then(Value::as_i64) else { return false };
+    if now.saturating_sub(iat) >= MAX_AGE_SECS || iat.saturating_sub(now) > CLOCK_SKEW_SECS {
+        return false;
+    }
+    for (key, expired) in [("exp", true), ("nbf", false)] {
+        if let Some(value) = claims.get(key) {
+            let Some(time) = value.as_i64() else { return false };
+            if (expired && now >= time) || (!expired && now < time) { return false; }
+        }
+    }
+    match claims.get("aud") {
+        Some(Value::String(aud)) => audience_matches(aud, api),
+        Some(Value::Array(audiences)) => audiences.iter().any(|v| v.as_str().is_some_and(|a| audience_matches(a, api))),
+        _ => false,
+    }
 }
 
 fn hmac_sha256(key: &[u8], msg: &[u8]) -> Vec<u8> {

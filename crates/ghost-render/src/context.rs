@@ -83,6 +83,13 @@ pub fn build_site(settings: &SettingsCache, site_url: &str, admin_url: &str) -> 
     m.entry("comments_enabled".to_string()).or_insert(json!("off"));
     m.entry("recommendations_enabled".to_string()).or_insert(json!(false));
 
+    // Portal loads FirstPromoter from this derived account field, not the
+    // separate toggle and id that the settings screen stores.
+    let firstpromoter = settings.get_bool("firstpromoter")
+        .then(|| settings.get_str("firstpromoter_id"))
+        .flatten().map(|id| id.trim().to_string()).filter(|id| !id.is_empty());
+    m.insert("firstpromoter_account".into(), json!(firstpromoter));
+
     // Portal shows the private-podcast row when `transistor_portal_enabled` is
     // true, which Ghost computes rather than stores: the integration has to be
     // switched on *and* a feed template has to exist, or the button would lead
@@ -235,6 +242,14 @@ mod tests {
         // And a site that has never written a labs object still gets them.
         let fresh = site_from(&[]);
         assert_eq!(fresh["labs"]["billingReact"], json!(true));
+    }
+
+    #[test]
+    fn firstpromoter_account_is_derived_from_the_enabled_integration() {
+        assert_eq!(site_from(&[])["firstpromoter_account"], Value::Null);
+        assert_eq!(site_from(&[("firstpromoter_id", json!("account"))])["firstpromoter_account"], Value::Null);
+        assert_eq!(site_from(&[("firstpromoter", json!(true)), ("firstpromoter_id", json!(" account "))])["firstpromoter_account"], json!("account"));
+        assert_eq!(site_from(&[("firstpromoter", json!(true))])["firstpromoter_account"], Value::Null);
     }
 
     #[test]

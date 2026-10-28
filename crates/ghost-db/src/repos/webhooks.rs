@@ -16,10 +16,12 @@ pub struct Webhook {
     pub last_triggered_status: Option<String>,
     pub last_triggered_error: Option<String>,
     pub created_at: Option<String>,
+    pub updated_at: Option<String>,
+    pub api_version: String,
 }
 
 const COLS: &str = "id, event, target_url, name, secret, integration_id, last_triggered_at, \
-     last_triggered_status, last_triggered_error, created_at";
+     last_triggered_status, last_triggered_error, created_at, updated_at, api_version";
 
 /// Every webhook an integration has registered.
 pub async fn list_for_integration(pool: &SqlitePool, integration_id: &str) -> Result<Vec<Webhook>> {

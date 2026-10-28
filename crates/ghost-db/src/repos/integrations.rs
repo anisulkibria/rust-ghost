@@ -89,22 +89,13 @@ pub async fn list_custom(pool: &SqlitePool) -> Result<Vec<Integration>> {
 }
 
 pub async fn find_by_id(pool: &SqlitePool, id: &str) -> Result<Option<Integration>> {
-    let row = sqlx::query_as::<_, (String, String, String, Option<String>, Option<String>, Option<String>)>(
-        "SELECT id, type, name, slug, description, created_at FROM integrations WHERE id = ? LIMIT 1",
+    let row = sqlx::query_as::<_, (String, String, String, Option<String>, Option<String>, Option<String>, Option<String>, Option<String>)>(
+        "SELECT id, type, name, slug, description, created_at, updated_at, icon_image FROM integrations WHERE id = ? LIMIT 1",
     )
-    .bind(id)
-    .fetch_optional(pool)
-    .await
-    .map_err(super::dberr)?;
+    .bind(id).fetch_optional(pool).await.map_err(super::dberr)?;
     Ok(row.map(|r| Integration {
-        id: r.0,
-        integration_type: r.1,
-        name: r.2,
-        slug: r.3,
-        icon_image: None,
-        description: r.4,
-        created_at: r.5,
-        updated_at: None,
+        id: r.0, integration_type: r.1, name: r.2, slug: r.3,
+        description: r.4, created_at: r.5, updated_at: r.6, icon_image: r.7,
     }))
 }
 
@@ -126,6 +117,7 @@ pub async fn create_custom(pool: &SqlitePool, name: &str, description: Option<&s
     let id = ids::new_id();
     let slug = unique_slug(pool, &ghost_core::slug::safe_string(name)).await?;
 
+    let mut tx = pool.begin().await.map_err(super::dberr)?;
     sqlx::query(
         "INSERT INTO integrations (id, type, name, slug, description, created_at, updated_at) \
          VALUES (?, 'custom', ?, ?, ?, ?, ?)",
@@ -136,12 +128,12 @@ pub async fn create_custom(pool: &SqlitePool, name: &str, description: Option<&s
     .bind(description.map(str::trim).filter(|d| !d.is_empty()))
     .bind(&now)
     .bind(&now)
-    .execute(pool)
+    .execute(&mut *tx)
     .await
     .map_err(super::dberr)?;
 
     let admin_role: Option<String> = sqlx::query_scalar("SELECT id FROM roles WHERE name = 'Admin Integration'")
-        .fetch_optional(pool)
+        .fetch_optional(&mut *tx)
         .await
         .map_err(super::dberr)?;
     // Lengths match Ghost's: a 26-char content key, and an admin key that is
@@ -161,11 +153,12 @@ pub async fn create_custom(pool: &SqlitePool, name: &str, description: Option<&s
         .bind(&id)
         .bind(&now)
         .bind(&now)
-        .execute(pool)
+        .execute(&mut *tx)
         .await
         .map_err(super::dberr)?;
     }
 
+    tx.commit().await.map_err(super::dberr)?;
     Ok(Integration {
         id,
         integration_type: "custom".into(),
@@ -244,21 +237,23 @@ pub async fn delete_custom(pool: &SqlitePool, id: &str) -> Result<()> {
             })
         }
     }
+    let mut tx = pool.begin().await.map_err(super::dberr)?;
     sqlx::query("DELETE FROM api_keys WHERE integration_id = ?")
         .bind(id)
-        .execute(pool)
+        .execute(&mut *tx)
         .await
         .map_err(super::dberr)?;
     sqlx::query("DELETE FROM webhooks WHERE integration_id = ?")
         .bind(id)
-        .execute(pool)
+        .execute(&mut *tx)
         .await
         .map_err(super::dberr)?;
     sqlx::query("DELETE FROM integrations WHERE id = ?")
         .bind(id)
-        .execute(pool)
+        .execute(&mut *tx)
         .await
         .map_err(super::dberr)?;
+    tx.commit().await.map_err(super::dberr)?;
     Ok(())
 }
 

@@ -1260,3 +1260,23 @@ fn price_formats_the_way_intl_does() {
     let tier = json!({"tier": {"amount": 500, "currency": "GBP"}});
     assert_eq!(render("{{price tier}}", &tier), "£5");
 }
+
+#[test]
+fn feature_image_caption_renders_html_in_theme_contexts() {
+    let data = json!({
+        "feature_image_caption": "Photo by <a href=\"https://unsplash.com/@author\">Author &amp; Co</a>",
+        "title": "<b>Title</b>",
+        "post": {"feature_image_caption": "<em>Credit</em>"},
+        "posts": [{"feature_image_caption": "<strong>Nested credit</strong>"}]
+    });
+    assert_eq!(
+        render("{{#if feature_image_caption}}<figcaption>{{feature_image_caption}}</figcaption>{{/if}}", &data),
+        "<figcaption>Photo by <a href=\"https://unsplash.com/@author\">Author &amp; Co</a></figcaption>"
+    );
+    assert_eq!(render("{{post.feature_image_caption}}", &data), "<em>Credit</em>");
+    assert_eq!(render("{{#foreach posts}}{{feature_image_caption}} / {{../feature_image_caption}}{{/foreach}}", &data),
+        "<strong>Nested credit</strong> / Photo by <a href=\"https://unsplash.com/@author\">Author &amp; Co</a>");
+    assert_eq!(render("{{{feature_image_caption}}}", &data), data["feature_image_caption"].as_str().unwrap());
+    assert_eq!(render("{{title}}", &data), "&lt;b&gt;Title&lt;/b&gt;");
+    assert_eq!(render("{{! feature_image_caption}}", &data), "");
+}

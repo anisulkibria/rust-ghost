@@ -21,7 +21,8 @@ static QUOTED_PARTIAL: Lazy<Regex> =
 
 /// Apply every source rewrite a theme template needs before compiling.
 pub fn prepare(src: &str) -> String {
-    let src = rewrite_partial_names(src);
+    let src = rewrite_feature_image_captions(src);
+    let src = rewrite_partial_names(&src);
     let src = rewrite_dynamic_partial_blocks(&src);
     // before the inverted-section pass, so a `{{^../x}}` arrives there as an
     // ordinary named block
@@ -56,6 +57,29 @@ fn tags(src: &str) -> Vec<(usize, usize, &str)> {
         }
         i += 1;
     }
+    out
+}
+
+/// Ghost exposes feature image captions as HTML SafeStrings. serde_json
+/// cannot carry that marker, so render caption field expressions unescaped
+/// while keeping ordinary fields and helper arguments escaped as usual.
+fn rewrite_feature_image_captions(src: &str) -> String {
+    let mut out = String::with_capacity(src.len());
+    let mut last = 0;
+    for (start, end, inner) in tags(src) {
+        let path = inner.trim_matches('~').trim();
+        if path.rsplit(['.', '/']).next() != Some("feature_image_caption")
+            || path.chars().any(|c| !(c.is_alphanumeric() || "_./".contains(c)))
+        {
+            continue;
+        }
+        out.push_str(&src[last..start]);
+        out.push_str("{{{");
+        out.push_str(inner);
+        out.push_str("}}}");
+        last = end;
+    }
+    out.push_str(&src[last..]);
     out
 }
 

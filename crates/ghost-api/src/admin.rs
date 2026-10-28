@@ -14,31 +14,46 @@ pub fn admin_router() -> Router<AppState> {
     Router::new()
         // setup + auth
         .route("/authentication/setup", get(setup_status).post(complete_setup))
+        .route("/authentication/setup/", get(setup_status).post(complete_setup))
         .route("/session", post(login).delete(logout))
+        .route("/session/", post(login).delete(logout))
         // posts / pages
         .route("/posts/", get(admin_browse_posts).post(admin_add_post))
+        .route("/posts", get(admin_browse_posts).post(admin_add_post))
         .route("/posts/{id}", get(admin_read_post).put(admin_edit_post).delete(admin_delete_post))
+        .route("/posts/{id}/", get(admin_read_post).put(admin_edit_post).delete(admin_delete_post))
         .route("/pages/", get(admin_browse_pages).post(admin_add_page))
+        .route("/pages", get(admin_browse_pages).post(admin_add_page))
         .route("/pages/{id}", get(admin_read_post).put(admin_edit_post).delete(admin_delete_post))
+        .route("/pages/{id}/", get(admin_read_post).put(admin_edit_post).delete(admin_delete_post))
         // tags
         .route("/tags/", get(admin_browse_tags).post(admin_add_tag))
+        .route("/tags", get(admin_browse_tags).post(admin_add_tag))
         .route("/tags/{id}", get(admin_read_tag).put(admin_edit_tag).delete(admin_delete_tag))
+        .route("/tags/{id}/", get(admin_read_tag).put(admin_edit_tag).delete(admin_delete_tag))
         // users
         .route("/users/", get(admin_browse_users))
+        .route("/users", get(admin_browse_users))
         .route("/users/{id}", get(admin_read_user).put(admin_edit_user))
         // The trailing-slash form too: the comments widget's auth frame asks
         // for `/users/me/?include=roles`, and Ghost's `prettyUrls` middleware
         // makes both spellings resolve there.
         .route("/users/{id}/", get(admin_read_user).put(admin_edit_user))
         .route("/users/password", post(change_password))
+        .route("/users/password/", post(change_password))
         // newsletters
         .route("/newsletters/", get(admin_browse_newsletters).post(admin_add_newsletter))
+        .route("/newsletters", get(admin_browse_newsletters).post(admin_add_newsletter))
         .route("/newsletters/{id}", get(admin_read_newsletter).put(admin_edit_newsletter))
+        .route("/newsletters/{id}/", get(admin_read_newsletter).put(admin_edit_newsletter))
         // settings
         .route("/settings/", get(admin_browse_settings).put(admin_edit_settings))
+        .route("/settings", get(admin_browse_settings).put(admin_edit_settings))
         // integrations
         .route("/integrations/", get(admin_browse_integrations).post(admin_add_integration))
-        .route("/integrations/{id}", get(admin_read_integration))
+        .route("/integrations", get(admin_browse_integrations).post(admin_add_integration))
+        .route("/integrations/{id}", get(admin_read_integration).put(admin_edit_integration).delete(admin_delete_integration))
+        .route("/integrations/{id}/", get(admin_read_integration).put(admin_edit_integration).delete(admin_delete_integration))
         // site info (used by tooling)
         .route("/site", get(site_info))
         .route("/site/", get(site_info))
@@ -49,7 +64,9 @@ pub fn admin_router() -> Router<AppState> {
         .route("/webhooks/", post(admin_add_webhook))
         .route("/webhooks/{id}", put(admin_edit_webhook).delete(admin_delete_webhook))
         .route("/webhooks/{id}/", put(admin_edit_webhook).delete(admin_delete_webhook))
+        .layer(axum::middleware::from_fn(crate::api_headers))
 }
+
 
 // ---------------------------------------------------------------------------
 // error helpers
@@ -383,8 +400,8 @@ fn session_id_from(headers: &HeaderMap) -> Option<String> {
 /// stating which identity it wants, and silently preferring a cookie that
 /// happened to ride along would be the wrong one.
 pub(crate) async fn current_user(state: &AppState, headers: &HeaderMap) -> Option<ghost_core::models::User> {
-    if let Some(user) = user_from_api_key(state, headers).await {
-        return Some(user);
+    if headers.contains_key(header::AUTHORIZATION) {
+        return user_from_api_key(state, headers).await;
     }
     let sid = session_id_from(headers)?;
     let user_id = repos::sessions::get_user(&state.db, &sid).await.ok()??;
@@ -404,13 +421,11 @@ async fn user_from_api_key(state: &AppState, headers: &HeaderMap) -> Option<ghos
     let verified = crate::apikey_auth::verify(state, token, "admin").await?;
 
     let user = match &verified.user_id {
-        Some(uid) => repos::users::find_by_id(&state.db, uid).await.ok().flatten(),
-        None => None,
+        Some(uid) => repos::users::find_by_id(&state.db, uid).await.ok().flatten()?,
+        None if verified.integration_id.is_some() => repos::users::find_owner(&state.db).await.ok().flatten()?,
+        None => return None,
     };
-    let user = match user {
-        Some(u) => Some(u),
-        None => repos::users::find_owner(&state.db).await.ok().flatten(),
-    }?;
+    if user.status.as_deref() != Some("active") { return None; }
 
     // Ghost records this so the Integrations screen can say when a key was
     // last used, which is how you tell a live integration from a stale one.
@@ -666,6 +681,7 @@ async fn admin_browse_posts_impl(state: AppState, params: HashMap<String, String
                     j["url"] = json!(resolver(&j));
                     j["type"] = json!(post_type);
                     j["status"] = json!(p.status);
+                    apply_post_options(&mut j, p, &params);
                     j
                 })
                 .collect();
@@ -683,6 +699,57 @@ async fn admin_browse_posts(State(state): State<AppState>, Query(params): Query<
 
 async fn admin_browse_pages(State(state): State<AppState>, Query(params): Query<HashMap<String, String>>, headers: HeaderMap) -> Response {
     admin_browse_posts_impl(state, params, "page", headers).await
+}
+
+fn apply_post_options(value: &mut Value, post: &ghost_core::models::Post, params: &HashMap<String, String>) {
+    let q = crate::content::parse_browse(params);
+    for (format, body) in [("lexical", &post.lexical), ("mobiledoc", &post.mobiledoc), ("plaintext", &post.plaintext), ("markdown", &post.markdown)] {
+        if q.formats.iter().any(|f| f == format) { value[format] = json!(body); }
+    }
+    if !q.formats.iter().any(|f| f == "html") { value.as_object_mut().unwrap().remove("html"); }
+    value["created_at"] = json!(ghost_core::dates::db_to_api(post.created_at.as_deref()));
+    crate::content::select_fields(value, &q);
+}
+
+fn validate_post_input(input: &Value, existing: Option<&ghost_core::models::Post>) -> Result<(), Response> {
+    if let Some(value) = input.get("status") {
+        if !matches!(value.as_str(), Some("draft" | "published" | "scheduled" | "sent")) {
+            return Err(err(StatusCode::UNPROCESSABLE_ENTITY, "Invalid post status", "ValidationError"));
+        }
+    }
+    if let Some(value) = input.get("published_at").filter(|value| !value.is_null()) {
+        if value.as_str().and_then(ghost_core::dates::from_api_string).is_none() {
+            return Err(err(StatusCode::UNPROCESSABLE_ENTITY, "Invalid published_at date", "ValidationError"));
+        }
+    }
+    let status = input.get("status").and_then(Value::as_str).or_else(|| existing.map(|p| p.status.as_str()));
+    if status == Some("scheduled") {
+        let date = input.get("published_at").and_then(Value::as_str).and_then(ghost_core::dates::from_api_string)
+            .or_else(|| existing.and_then(|p| p.published_at.as_deref()).and_then(ghost_core::dates::from_api_string));
+        if !date.is_some_and(|date| date > chrono::Utc::now()) {
+            return Err(err(StatusCode::UNPROCESSABLE_ENTITY, "Scheduled posts need a future published_at date", "ValidationError"));
+        }
+    }
+    Ok(())
+}
+
+async fn resolve_tags(state: &AppState, values: &[Value]) -> Result<Vec<String>, ghost_core::GhostError> {
+    let mut ids = Vec::new();
+    for value in values {
+        let id = if let Some(id) = value.get("id").and_then(Value::as_str) {
+            id.to_string()
+        } else if let Some(name) = value.as_str().or_else(|| value.get("name").and_then(Value::as_str)) {
+            let slug = ghost_core::slug::safe_string(name);
+            match repos::tags::find_by_slug(&state.db, &slug).await? {
+                Some(tag) => tag.id,
+                None => repos::tags::insert(&state.db, &repos::tags::NewTag {name: name.into(), ..Default::default()}).await?.id,
+            }
+        } else {
+            return Err(ghost_core::GhostError::ValidationError {message: "Tags need an id or name".into(), context: None});
+        };
+        if !ids.contains(&id) { ids.push(id); }
+    }
+    Ok(ids)
 }
 
 fn post_input_to_new(body: &Value, post_type: &str) -> repos::posts::NewPost {
@@ -727,7 +794,7 @@ fn post_input_to_new(body: &Value, post_type: &str) -> repos::posts::NewPost {
         post_type: post_type.to_string(),
         status: posts.get("status").and_then(|v| v.as_str()).unwrap_or("draft").to_string(),
         visibility: posts.get("visibility").and_then(|v| v.as_str()).unwrap_or("public").to_string(),
-        published_at: None,
+        published_at: str_field("published_at").and_then(|s| ghost_core::dates::from_api_string(&s)).map(|dt| ghost_core::dates::to_db_string(&dt)),
         codeinjection_head: str_field("codeinjection_head"),
         codeinjection_foot: str_field("codeinjection_foot"),
         custom_template: str_field("custom_template"),
@@ -754,34 +821,12 @@ fn post_input_to_new(body: &Value, post_type: &str) -> repos::posts::NewPost {
     }
 }
 
-async fn admin_add_post_impl(state: AppState, user: ghost_core::models::User, body: Value, post_type: &str) -> Response {
+async fn admin_add_post_impl(state: AppState, user: ghost_core::models::User, body: Value, post_type: &str, params: HashMap<String, String>) -> Response {
     let mut new = post_input_to_new(&body, post_type);
-    // tags may arrive as {name} (create-or-find, like Ghost) or {id}
-    if let Some(tags) = body.get(if post_type == "page" { "pages" } else { "posts" })
-        .and_then(|p| p.as_array()).and_then(|a| a.first())
-        .and_then(|p| p.get("tags")).and_then(|t| t.as_array()).cloned()
-    {
-        let mut ids = Vec::new();
-        for t in tags {
-            if let Some(id) = t.get("id").and_then(|i| i.as_str()) {
-                ids.push(id.to_string());
-            } else if let Some(name) = t.get("name").and_then(|n| n.as_str()) {
-                let slug = ghost_core::slug::safe_string(name);
-                let existing = repos::tags::find_by_slug(&state.db, &slug).await.ok().flatten();
-                let tag = match existing {
-                    Some(t) => t,
-                    None => match repos::tags::insert(&state.db, &repos::tags::NewTag {
-                        name: name.to_string(),
-                        ..Default::default()
-                    }).await {
-                        Ok(t) => t,
-                        Err(e) => return from_ghost(e),
-                    },
-                };
-                ids.push(tag.id);
-            }
-        }
-        new.tag_ids = ids;
+    let input = first_of(&body, if post_type == "page" { "pages" } else { "posts" }).unwrap_or(&body);
+    if let Err(response) = validate_post_input(input, None) { return response; }
+    if let Some(tags) = input.get("tags").and_then(Value::as_array) {
+        new.tag_ids = match resolve_tags(&state, tags).await { Ok(ids) => ids, Err(error) => return from_ghost(error) };
     }
     match repos::posts::insert(&state.db, &new, &user.id).await {
         Ok(post) => {
@@ -799,6 +844,8 @@ async fn admin_add_post_impl(state: AppState, user: ghost_core::models::User, bo
             j["url"] = json!(resolver(&j));
             j["type"] = json!(post_type);
             let _ = repos::actions::record(&state.db, post_type, &post.id, &user.id, "added").await;
+            crate::webhooks::fire_post_change(&state, &j, None, "added");
+            apply_post_options(&mut j, &post, &params);
             let doc = if post_type == "page" { "pages" } else { "posts" };
             (StatusCode::CREATED, Json(json!({ doc: [j] }))).into_response()
         }
@@ -806,23 +853,23 @@ async fn admin_add_post_impl(state: AppState, user: ghost_core::models::User, bo
     }
 }
 
-async fn admin_add_post(State(state): State<AppState>, headers: HeaderMap, Json(body): Json<Value>) -> Response {
+async fn admin_add_post(State(state): State<AppState>, headers: HeaderMap, Query(params): Query<HashMap<String, String>>, Json(body): Json<Value>) -> Response {
     let user = match require_user(&state, &headers).await {
         Ok(u) => u,
         Err(r) => return r,
     };
-    admin_add_post_impl(state, user, body, "post").await
+    admin_add_post_impl(state, user, body, "post", params).await
 }
 
-async fn admin_add_page(State(state): State<AppState>, headers: HeaderMap, Json(body): Json<Value>) -> Response {
+async fn admin_add_page(State(state): State<AppState>, headers: HeaderMap, Query(params): Query<HashMap<String, String>>, Json(body): Json<Value>) -> Response {
     let user = match require_user(&state, &headers).await {
         Ok(u) => u,
         Err(r) => return r,
     };
-    admin_add_post_impl(state, user, body, "page").await
+    admin_add_post_impl(state, user, body, "page", params).await
 }
 
-async fn admin_read_post(State(state): State<AppState>, Path(id): Path<String>, headers: HeaderMap) -> Response {
+async fn admin_read_post(State(state): State<AppState>, Path(id): Path<String>, headers: HeaderMap, Query(params): Query<HashMap<String, String>>) -> Response {
     let _user = match require_user(&state, &headers).await {
         Ok(u) => u,
         Err(r) => return r,
@@ -836,6 +883,7 @@ async fn admin_read_post(State(state): State<AppState>, Path(id): Path<String>, 
             let mut j = ghost_core::models::post_to_json(&post, &rel.authors_for(&post.id), &rel.tags_for(&post.id), "");
             j["url"] = json!(resolver(&j));
             j["type"] = json!(post.post_type);
+            apply_post_options(&mut j, &post, &params);
             let mut m = Map::new();
             m.insert(if post.post_type == "page" { "pages" } else { "posts" }.to_string(), Value::Array(vec![j]));
             ok_json(Value::Object(m))
@@ -844,17 +892,17 @@ async fn admin_read_post(State(state): State<AppState>, Path(id): Path<String>, 
     }
 }
 
-async fn admin_edit_post(State(state): State<AppState>, Path(id): Path<String>, headers: HeaderMap, Json(body): Json<Value>) -> Response {
+async fn admin_edit_post(State(state): State<AppState>, Path(id): Path<String>, headers: HeaderMap, Query(params): Query<HashMap<String, String>>, Json(body): Json<Value>) -> Response {
     let user = match require_user(&state, &headers).await {
         Ok(u) => u,
         Err(r) => return r,
     };
-    let post_type = repos::posts::find_by_id(&state.db, &id)
-        .await
-        .ok()
-        .flatten()
-        .map(|p| p.post_type)
-        .unwrap_or_else(|| "post".into());
+    let before = match repos::posts::find_by_id(&state.db, &id).await {
+        Ok(Some(post)) => post,
+        _ => return err(StatusCode::NOT_FOUND, "Post not found", "NotFoundError"),
+    };
+    let post_type = before.post_type.clone();
+    let before_rel = repos::posts::load_relations(&state.db, std::slice::from_ref(&before)).await.unwrap_or_default();
 
     let posts = body.get(if post_type == "page" { "pages" } else { "posts" })
         .and_then(|p| p.as_array())
@@ -862,6 +910,11 @@ async fn admin_edit_post(State(state): State<AppState>, Path(id): Path<String>, 
         .cloned()
         .unwrap_or_else(|| body.clone());
 
+    if let Err(response) = validate_post_input(&posts, Some(&before)) { return response; }
+    let tag_ids = match posts.get("tags").and_then(Value::as_array) {
+        Some(values) => match resolve_tags(&state, values).await { Ok(ids) => Some(ids), Err(error) => return from_ghost(error) },
+        None => None,
+    };
     let str_field = |key: &str| posts.get(key).and_then(|v| v.as_str()).map(str::to_string);
     let markdown = str_field("markdown");
     let lexical = str_field("lexical").filter(|l| !l.trim().is_empty());
@@ -898,7 +951,7 @@ async fn admin_edit_post(State(state): State<AppState>, Path(id): Path<String>, 
         featured: posts.get("featured").and_then(|v| v.as_bool()),
         status: str_field("status"),
         visibility: str_field("visibility"),
-        published_at: None,
+        published_at: str_field("published_at").and_then(|s| ghost_core::dates::from_api_string(&s)).map(|dt| ghost_core::dates::to_db_string(&dt)),
         codeinjection_head: str_field("codeinjection_head"),
         codeinjection_foot: str_field("codeinjection_foot"),
         custom_template: str_field("custom_template"),
@@ -916,14 +969,12 @@ async fn admin_edit_post(State(state): State<AppState>, Path(id): Path<String>, 
         feature_image_alt: str_field("feature_image_alt"),
         feature_image_caption: str_field("feature_image_caption"),
         reading_time,
-        tag_ids: posts.get("tags").and_then(|a| a.as_array()).map(|a| {
-            a.iter().filter_map(|x| x.get("id").and_then(|i| i.as_str()).map(str::to_string)).collect()
-        }),
+        tag_ids,
         author_ids: posts.get("authors").and_then(|a| a.as_array()).map(|a| {
             a.iter().filter_map(|x| x.get("id").and_then(|i| i.as_str()).map(str::to_string)).collect()
         }),
-        // A PATCH-shaped API: absent means unchanged, so nothing is cleared.
-        clearing: vec![],
+        clearing: ["custom_excerpt", "feature_image", "canonical_url", "custom_template", "codeinjection_head", "codeinjection_foot", "meta_title", "meta_description", "og_title", "og_description", "og_image", "twitter_title", "twitter_description", "twitter_image", "email_subject", "feature_image_alt", "feature_image_caption"]
+            .into_iter().filter(|key| posts.get(*key).is_some_and(Value::is_null)).collect(),
     };
 
     match repos::posts::update(&state.db, &id, &changes).await {
@@ -935,6 +986,10 @@ async fn admin_edit_post(State(state): State<AppState>, Path(id): Path<String>, 
             let mut j = ghost_core::models::post_to_json(&post, &rel.authors_for(&post.id), &rel.tags_for(&post.id), "");
             j["url"] = json!(resolver(&j));
             let _ = repos::actions::record(&state.db, &post_type, &post.id, &user.id, "edited").await;
+            let mut previous = ghost_core::models::post_to_json(&before, &before_rel.authors_for(&id), &before_rel.tags_for(&id), "");
+            previous["url"] = json!(resolver(&previous));
+            crate::webhooks::fire_post_change(&state, &j, Some(&previous), "edited");
+            apply_post_options(&mut j, &post, &params);
             let doc = if post.post_type == "page" { "pages" } else { "posts" };
             ok_json(json!({ doc: [j] }))
         }
@@ -947,9 +1002,18 @@ async fn admin_delete_post(State(state): State<AppState>, Path(id): Path<String>
         Ok(u) => u,
         Err(r) => return r,
     };
+    let before = match repos::posts::find_by_id(&state.db, &id).await {
+        Ok(Some(post)) => post,
+        _ => return err(StatusCode::NOT_FOUND, "Post not found", "NotFoundError"),
+    };
+    let rel = repos::posts::load_relations(&state.db, std::slice::from_ref(&before)).await.unwrap_or_default();
+    let mut payload = ghost_core::models::post_to_json(&before, &rel.authors_for(&id), &rel.tags_for(&id), "");
+    let resolver = crate::content::resolve(&state).await;
+    payload["url"] = json!(resolver(&payload));
     match repos::posts::destroy(&state.db, &id).await {
         Ok(()) => {
-            let _ = repos::actions::record(&state.db, "post", &id, &user.id, "deleted").await;
+            crate::webhooks::fire_post_change(&state, &payload, None, "deleted");
+            let _ = repos::actions::record(&state.db, &before.post_type, &id, &user.id, "deleted").await;
             (StatusCode::NO_CONTENT, Json(json!({ "posts": [] }))).into_response()
         }
         Err(e) => from_ghost(e),
@@ -1028,6 +1092,7 @@ async fn admin_add_tag(State(state): State<AppState>, headers: HeaderMap, Json(b
     };
     match repos::tags::insert(&state.db, &new).await {
         Ok(t) => {
+            crate::webhooks::fire_tag_change(&state, &ghost_core::models::tag_to_json(&t, None), None, "tag.added");
             let _ = repos::actions::record(&state.db, "tag", &t.id, &user.id, "added").await;
             (StatusCode::CREATED, Json(json!({ "tags": [ghost_core::models::tag_to_json(&t, None)] }))).into_response()
         }
@@ -1039,6 +1104,10 @@ async fn admin_edit_tag(State(state): State<AppState>, Path(id): Path<String>, h
     if let Err(r) = require_user(&state, &headers).await {
         return r;
     }
+    let before = match repos::tags::find_by_id(&state.db, &id).await {
+        Ok(Some(tag)) => tag,
+        _ => return err(StatusCode::NOT_FOUND, "Tag not found", "NotFoundError"),
+    };
     let tag = body.get("tags").and_then(|t| t.as_array()).and_then(|a| a.first()).cloned().unwrap_or(body);
     // Absent key means "leave it alone"; a present key (even empty) is a
     // change, which is what lets a client clear a field.
@@ -1063,7 +1132,11 @@ async fn admin_edit_tag(State(state): State<AppState>, Path(id): Path<String>, h
         codeinjection_foot: f("codeinjection_foot"),
     };
     match repos::tags::update(&state.db, &id, &changes).await {
-        Ok(t) => ok_json(json!({ "tags": [ghost_core::models::tag_to_json(&t, None)] })),
+        Ok(t) => {
+            let current = ghost_core::models::tag_to_json(&t, None);
+            crate::webhooks::fire_tag_change(&state, &current, Some(&ghost_core::models::tag_to_json(&before, None)), "tag.edited");
+            ok_json(json!({ "tags": [current] }))
+        },
         Err(e) => from_ghost(e),
     }
 }
@@ -1072,8 +1145,15 @@ async fn admin_delete_tag(State(state): State<AppState>, Path(id): Path<String>,
     if let Err(r) = require_user(&state, &headers).await {
         return r;
     }
+    let before = match repos::tags::find_by_id(&state.db, &id).await {
+        Ok(Some(tag)) => tag,
+        _ => return err(StatusCode::NOT_FOUND, "Tag not found", "NotFoundError"),
+    };
     match repos::tags::destroy(&state.db, &id).await {
-        Ok(()) => (StatusCode::NO_CONTENT, Json(json!({ "tags": [] }))).into_response(),
+        Ok(()) => {
+            crate::webhooks::fire_tag_change(&state, &ghost_core::models::tag_to_json(&before, None), None, "tag.deleted");
+            StatusCode::NO_CONTENT.into_response()
+        },
         Err(e) => from_ghost(e),
     }
 }
@@ -1278,6 +1358,7 @@ async fn admin_edit_settings(State(state): State<AppState>, headers: HeaderMap, 
             updated.push(json!({ "key": { "key": key, "value": value } }));
         }
     }
+    crate::webhooks::fire(&state, "site.changed", json!({}));
     ok_json(json!({ "settings": updated }))
 }
 
@@ -1285,100 +1366,108 @@ async fn admin_edit_settings(State(state): State<AppState>, headers: HeaderMap, 
 // integrations
 // ---------------------------------------------------------------------------
 
-async fn admin_browse_integrations(State(state): State<AppState>, headers: HeaderMap) -> Response {
-    if let Err(r) = require_user(&state, &headers).await {
-        return r;
+async fn require_integration_admin(state: &AppState, headers: &HeaderMap) -> Result<ghost_core::models::User, Response> {
+    let user = require_user(state, headers).await?;
+    if headers.contains_key(header::AUTHORIZATION)
+        || !matches!(repos::users::role_name(&state.db, &user.id).await.ok().flatten().as_deref(), Some("Owner" | "Administrator"))
+    {
+        return Err(err(StatusCode::FORBIDDEN, "Only administrators can manage integrations", "NoPermissionError"));
     }
-    match repos::integrations::list(&state.db).await {
-        Ok(ints) => {
-            let mut items = Vec::new();
-            for i in ints {
-                let mut j = json!({
-                    "id": i.id, "name": i.name, "slug": i.slug,
-                    "type": i.integration_type, "description": i.description,
-                });
-                if let Ok(keys) = repos::api_keys::find_by_integration(&state.db, &i.id).await {
-                    j["api_keys"] = Value::Array(
-                        keys.iter()
-                            .map(|k| {
-                                json!({ "id": k.id, "type": k.key_type, "secret": k.secret })
-                            })
-                            .collect(),
-                    );
-                }
-                items.push(j);
-            }
-            ok_json(json!({ "integrations": items }))
+    Ok(user)
+}
+
+async fn integration_json(state: &AppState, integration: &ghost_core::models::Integration) -> Result<Value, ghost_core::GhostError> {
+    let mut value = serde_json::to_value(integration)?;
+    value["api_keys"] = json!(repos::api_keys::find_by_integration(&state.db, &integration.id).await?);
+    value["webhooks"] = json!(repos::webhooks::list_for_integration(&state.db, &integration.id).await?
+        .iter().map(webhook_json).collect::<Vec<_>>());
+    Ok(value)
+}
+
+async fn admin_browse_integrations(State(state): State<AppState>, headers: HeaderMap) -> Response {
+    if let Err(response) = require_integration_admin(&state, &headers).await { return response; }
+    let result = async {
+        let mut items = Vec::new();
+        for item in repos::integrations::list_custom(&state.db).await? {
+            let Some(item) = repos::integrations::find_by_id(&state.db, &item.id).await? else { continue };
+            items.push(integration_json(&state, &item).await?);
         }
-        Err(e) => from_ghost(e),
+        Ok::<_, ghost_core::GhostError>(items)
+    }.await;
+    match result {
+        Ok(items) => ok_json(json!({"integrations": items})),
+        Err(error) => from_ghost(error),
     }
 }
 
 async fn admin_read_integration(State(state): State<AppState>, Path(id): Path<String>, headers: HeaderMap) -> Response {
-    if let Err(r) = require_user(&state, &headers).await {
-        return r;
-    }
-    let rows = sqlx::query_as::<_, (String, String, String, Option<String>)>(
-        "SELECT id, type, name, slug FROM integrations WHERE id = ? OR slug = ? LIMIT 1",
-    )
-    .bind(&id)
-    .bind(&id)
-    .fetch_optional(&state.db)
-    .await
-    .ok()
-    .flatten();
-    match rows {
-        Some((id, typ, name, slug)) => {
-            let mut j = json!({ "id": id, "name": name, "slug": slug, "type": typ });
-            if let Ok(keys) = repos::api_keys::find_by_integration(&state.db, &id).await {
-                j["api_keys"] = Value::Array(
-                    keys.iter().map(|k| json!({ "id": k.id, "type": k.key_type, "secret": k.secret })).collect(),
-                );
-            }
-            ok_json(json!({ "integrations": [j] }))
-        }
-        None => err(StatusCode::NOT_FOUND, "Integration not found", "NotFoundError"),
+    if let Err(response) = require_integration_admin(&state, &headers).await { return response; }
+    match repos::integrations::find_by_id(&state.db, &id).await {
+        Ok(Some(item)) => match integration_json(&state, &item).await {
+            Ok(value) => ok_json(json!({"integrations": [value]})),
+            Err(error) => from_ghost(error),
+        },
+        Ok(None) => err(StatusCode::NOT_FOUND, "Integration not found", "NotFoundError"),
+        Err(error) => from_ghost(error),
     }
 }
 
 async fn admin_add_integration(State(state): State<AppState>, headers: HeaderMap, Json(body): Json<Value>) -> Response {
-    let user = match require_user(&state, &headers).await {
-        Ok(u) => u,
-        Err(r) => return r,
-    };
-    let name = body.get("integrations").and_then(|i| i.as_array()).and_then(|a| a.first())
-        .and_then(|i| i.get("name")).and_then(|n| n.as_str())
-        .or_else(|| body.get("name").and_then(|n| n.as_str()))
-        .unwrap_or("Unnamed integration");
-    let key_type = body.get("integrations").and_then(|i| i.as_array()).and_then(|a| a.first())
-        .and_then(|i| i.get("api_keys")).and_then(|k| k.as_array()).and_then(|a| a.first())
-        .and_then(|k| k.get("type")).and_then(|t| t.as_str())
-        .or_else(|| body.get("type").and_then(|t| t.as_str()))
-        .unwrap_or("content");
-    match repos::api_keys::create_integration(&state.db, name, key_type).await {
-        Ok((integration, key)) => {
-            let _ = repos::actions::record(&state.db, "integration", &integration.id, &user.id, "added").await;
-            (
-                StatusCode::CREATED,
-                Json(json!({
-                    "integrations": [{
-                        "id": integration.id,
-                        "name": integration.name,
-                        "slug": integration.slug,
-                        "type": integration.integration_type,
-                        "api_keys": [{ "id": key.id, "type": key.key_type, "secret": key.secret }],
-                    }]
-                })),
-            )
-                .into_response()
+    let user = match require_integration_admin(&state, &headers).await { Ok(user) => user, Err(response) => return response };
+    let Some(input) = first_of(&body, "integrations") else { return err(StatusCode::BAD_REQUEST, "No integration was given", "BadRequestError") };
+    let name = input.get("name").and_then(Value::as_str).unwrap_or("");
+    match repos::integrations::create_custom(&state.db, name, input.get("description").and_then(Value::as_str)).await {
+        Ok(item) => {
+            if let Some(icon) = input.get("icon_image").and_then(Value::as_str) {
+                if let Err(error) = sqlx::query("UPDATE integrations SET icon_image = ? WHERE id = ?").bind(icon).bind(&item.id).execute(&state.db).await {
+                    return from_ghost(ghost_core::GhostError::Db(error.to_string()));
+                }
+            }
+            let item = match repos::integrations::find_by_id(&state.db, &item.id).await {
+                Ok(Some(item)) => item,
+                Ok(None) => return err(StatusCode::NOT_FOUND, "Integration not found", "NotFoundError"),
+                Err(error) => return from_ghost(error),
+            };
+            let _ = repos::actions::record(&state.db, "integration", &item.id, &user.id, "added").await;
+            match integration_json(&state, &item).await {
+                Ok(value) => (StatusCode::CREATED, Json(json!({"integrations": [value]}))).into_response(),
+                Err(error) => from_ghost(error),
+            }
         }
-        Err(e) => from_ghost(e),
+        Err(error) => from_ghost(error),
     }
 }
 
-// ---------------------------------------------------------------------------
-// site
-// ---------------------------------------------------------------------------
+async fn admin_edit_integration(State(state): State<AppState>, Path(id): Path<String>, headers: HeaderMap, Json(body): Json<Value>) -> Response {
+    let user = match require_integration_admin(&state, &headers).await { Ok(user) => user, Err(response) => return response };
+    let item = match repos::integrations::find_by_id(&state.db, &id).await {
+        Ok(Some(item)) if item.integration_type == "custom" => item,
+        Ok(_) => return err(StatusCode::NOT_FOUND, "Custom integration not found", "NotFoundError"),
+        Err(error) => return from_ghost(error),
+    };
+    let Some(input) = first_of(&body, "integrations") else { return err(StatusCode::BAD_REQUEST, "No integration was given", "BadRequestError") };
+    let name = input.get("name").and_then(Value::as_str).unwrap_or(&item.name);
+    let description = input.get("description").map(|v| v.as_str()).unwrap_or(item.description.as_deref());
+    if let Err(error) = repos::integrations::update_custom(&state.db, &id, name, description).await { return from_ghost(error); }
+    if let Some(icon) = input.get("icon_image") {
+        if let Err(error) = sqlx::query("UPDATE integrations SET icon_image = ? WHERE id = ?").bind(icon.as_str()).bind(&id).execute(&state.db).await {
+            return from_ghost(ghost_core::GhostError::Db(error.to_string()));
+        }
+    }
+    let _ = repos::actions::record(&state.db, "integration", &id, &user.id, "edited").await;
+    admin_read_integration(State(state), Path(id), headers).await
+}
+
+async fn admin_delete_integration(State(state): State<AppState>, Path(id): Path<String>, headers: HeaderMap) -> Response {
+    let user = match require_integration_admin(&state, &headers).await { Ok(user) => user, Err(response) => return response };
+    match repos::integrations::delete_custom(&state.db, &id).await {
+        Ok(()) => {
+            let _ = repos::actions::record(&state.db, "integration", &id, &user.id, "deleted").await;
+            StatusCode::NO_CONTENT.into_response()
+        },
+        Err(error) => from_ghost(error),
+    }
+}
 
 async fn site_info(State(state): State<AppState>, Query(params): Query<HashMap<String, String>>) -> Response {
     let _ = params;
@@ -1408,15 +1497,14 @@ fn webhook_json(w: &ghost_db::repos::webhooks::Webhook) -> Value {
         "target_url": w.target_url,
         "name": w.name,
         "secret": w.secret,
-        // The port writes v5 rows; reported as a constant rather than
-        // selected, since nothing varies it.
-        "api_version": "v5",
+        // Preserve the stored version when editing a webhook.
+        "api_version": w.api_version,
         "integration_id": w.integration_id,
         "last_triggered_at": w.last_triggered_at,
         "last_triggered_status": w.last_triggered_status,
         "last_triggered_error": w.last_triggered_error,
         "created_at": w.created_at,
-        "updated_at": w.created_at,
+        "updated_at": w.updated_at,
     })
 }
 
@@ -1433,6 +1521,18 @@ struct WebhookInput {
 /// Pull the one resource out of Ghost's `{webhooks: [{...}]}` envelope.
 fn first_of<'a>(body: &'a Value, key: &str) -> Option<&'a Value> {
     body.get(key).and_then(|v| v.as_array()).and_then(|a| a.first())
+}
+
+fn valid_webhook_url(url: &str) -> bool {
+    reqwest::Url::parse(url).is_ok_and(|url| matches!(url.scheme(), "http" | "https") && url.host_str().is_some())
+}
+
+async fn require_webhook_access(state: &AppState, headers: &HeaderMap, integration: &str) -> Result<(), Response> {
+    if let Some(owner) = integration_from_api_key(state, headers).await {
+        if owner == integration { return Ok(()); }
+        return Err(err(StatusCode::FORBIDDEN, "Cannot modify another integration's webhooks", "NoPermissionError"));
+    }
+    require_integration_admin(state, headers).await.map(|_| ())
 }
 
 /// `POST /webhooks/` — register a listener.
@@ -1461,7 +1561,7 @@ async fn admin_add_webhook(
             "ValidationError",
         );
     }
-    if !input.target_url.starts_with("http://") && !input.target_url.starts_with("https://") {
+    if !valid_webhook_url(&input.target_url) {
         return err(
             StatusCode::UNPROCESSABLE_ENTITY,
             "target_url must be an http or https URL",
@@ -1489,6 +1589,10 @@ async fn admin_add_webhook(
         },
     };
 
+    if let Err(response) = require_webhook_access(&state, &headers, &integration_id).await { return response; }
+    if !matches!(repos::integrations::find_by_id(&state.db, &integration_id).await, Ok(Some(_))) {
+        return err(StatusCode::UNPROCESSABLE_ENTITY, "Integration not found", "ValidationError");
+    }
     match repos::webhooks::create(
         &state.db,
         &integration_id,
@@ -1517,6 +1621,7 @@ async fn admin_edit_webhook(
     let Ok(Some(existing)) = repos::webhooks::find(&state.db, &id).await else {
         return err(StatusCode::NOT_FOUND, "Webhook not found", "NotFoundError");
     };
+    if let Err(response) = require_webhook_access(&state, &headers, &existing.integration_id).await { return response; }
     let input = first_of(&body, "webhooks").cloned().unwrap_or(Value::Null);
     let take = |key: &str, fallback: &str| -> String {
         input.get(key).and_then(|v| v.as_str()).unwrap_or(fallback).to_string()
@@ -1532,13 +1637,18 @@ async fn admin_edit_webhook(
     }
     let target_url = take("target_url", &existing.target_url);
     let name = take("name", existing.name.as_deref().unwrap_or(""));
+    let secret = take("secret", existing.secret.as_deref().unwrap_or(""));
+    if !valid_webhook_url(&target_url) {
+        return err(StatusCode::UNPROCESSABLE_ENTITY, "target_url must be an http or https URL", "ValidationError");
+    }
 
     if sqlx::query(
-        "UPDATE webhooks SET event = ?, target_url = ?, name = ?, updated_at = ? WHERE id = ?",
+        "UPDATE webhooks SET event = ?, target_url = ?, name = ?, secret = ?, updated_at = ? WHERE id = ?",
     )
     .bind(&event)
     .bind(&target_url)
     .bind(&name)
+    .bind(&secret)
     .bind(ghost_core::dates::now_db())
     .bind(&id)
     .execute(&state.db)
@@ -1563,9 +1673,11 @@ async fn admin_delete_webhook(
     if let Err(r) = require_user(&state, &headers).await {
         return r;
     }
-    if repos::webhooks::find(&state.db, &id).await.ok().flatten().is_none() {
-        return err(StatusCode::NOT_FOUND, "Webhook not found", "NotFoundError");
-    }
+    let existing = match repos::webhooks::find(&state.db, &id).await {
+        Ok(Some(existing)) => existing,
+        _ => return err(StatusCode::NOT_FOUND, "Webhook not found", "NotFoundError"),
+    };
+    if let Err(response) = require_webhook_access(&state, &headers, &existing.integration_id).await { return response; }
     match repos::webhooks::delete(&state.db, &id).await {
         Ok(()) => StatusCode::NO_CONTENT.into_response(),
         Err(e) => err(StatusCode::INTERNAL_SERVER_ERROR, &e.message(), "InternalServerError"),

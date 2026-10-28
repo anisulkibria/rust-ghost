@@ -730,7 +730,7 @@ be set as an environment variable with `GHOST_` and `__` for nesting —
 |---|---|
 | Theme engine (Handlebars) | ✅ layouts (`{{!< default}}`), theme partials override builtins, `@site`/`@config` data, `{{^helper}}` inverted sections, ~40 helpers incl. `foreach`, `content`, `excerpt`, `img_url`, `date`, `is`, `has`, `pagination`, `ghost_head`/`ghost_foot`, `asset` fingerprinting, `tags`/`authors`, `navigation`, `{{#get}}` with NQL filters + `{{path}}` interpolation, `prev_post`/`next_post`, `match`, `plural`, `t` |
 | Dynamic routing | ✅ `content/routes.yaml` (routes/collections/taxonomies, permalinks, `/page/N/`, RSS mounts), `content/redirects.yaml` (301/302 + regex + `$n` captures) |
-| Content API | ✅ `/ghost/api/content/{posts,pages,tags,authors,settings,tiers,newsletters}` browse + read by id/slug, `?key=` auth (anonymous = public only), NQL `filter=`/`include=`/`order=`/`limit=`/`fields=`, Ghost envelope shapes |
+| Content API | ✅ `/ghost/api/content/{posts,pages,tags,authors,settings,tiers,newsletters}` browse + read by id/slug, `?key=` auth (required Content key), NQL `filter=`/`include=`/`order=`/`limit=`/`fields=`/`formats=`, Ghost envelope shapes |
 | Admin API | ✅ setup flow, bcrypt session login (DB-backed, `ghost-admin-api-session` cookie), posts/pages/tags/users/settings/integrations CRUD, actions audit log, image/media upload |
 | Admin UI | ✅ server-rendered: setup wizard, sign in/out, posts/pages list, markdown editor (tags, featured, status), tags, full Ghost-style settings hub — general, meta data, social accounts, analytics, site (announcement bar w/ server-rendered bar), membership (access, tiers, signup portal, newsletters), growth (recommendations, signup forms; Network & Explore deferred), advanced (integrations, Ghost-format import/export, code injection, labs), history (audit log), danger zone — plus navigation editor (primary + secondary menus) |
 | Integrations | ✅ built-in apps — Zapier (Admin API key + URL), Slack (incoming webhook, test send, notify on publish), Unsplash (editor picker, own access key) — plus custom integrations with a Content and Admin API key each |
@@ -742,6 +742,13 @@ be set as an environment variable with `GHOST_` and `__` for nesting —
 Deferred (extension points exist): members/newsletters/emails, comments,
 Stripe offers, oEmbed, Koenig/Lexical editor format (admin uses markdown),
 image resizing (`/content/images/size/WxH/…` URLs serve the original).
+
+## Integrations and headless
+
+See [Integrations and headless frontends](docs/integrations-and-headless.md) for
+Content and Admin API usage, custom integration keys, signed webhooks, frontend
+builds, and provider configuration. The guide also describes what the automated
+compatibility checks cover.
 
 ## Architecture
 

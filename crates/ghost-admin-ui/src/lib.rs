@@ -971,7 +971,7 @@ code { font-family: var(--mono); }
    positions outside the text column. Without the room it would hang off the
    edge of the editor; with it, the button sits inside and the title stays
    aligned with the body text. */
-.editor-main { min-width: 0; padding-left: 72px; }
+.editor-main { min-width: 0; padding-left: 72px; position: relative; }
 .editor-title { width: 100%; border: none; outline: none; background: transparent; resize: none; overflow: hidden;
   font-family: var(--font); font-size: 30px; font-weight: 700; line-height: 1.2; letter-spacing: -.3px;
   color: var(--on-surface); padding: 0; margin: 2px 0 10px; caret-color: var(--primary); display: block; }
@@ -980,8 +980,23 @@ code { font-family: var(--mono); }
 /* Koenig paints its own surface; this only gives the canvas somewhere to sit
    and keeps its floating toolbars above the sticky page head. */
 .koenig-react-editor { position: relative; z-index: 1; }
-.editor-foot { display: flex; align-items: center; gap: 14px; padding: 16px 2px 0; font-size: 13px;
-  color: var(--on-surface-variant); border-top: 1px solid var(--outline-variant); margin-top: 20px; }
+/* The word count, as Ghost has it since its own editor's redesign: a quiet
+   pill floating in the bottom corner of the canvas, not a footer that has to
+   be scrolled to. It says nothing until there are words to count. */
+.wc-pill { position: absolute; right: 0; bottom: 10px; z-index: 6; padding: 6px 14px; border-radius: 999px;
+  background: color-mix(in srgb, var(--sc-lowest) 82%, transparent); backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px); color: var(--on-surface-variant); font-size: 12.5px;
+  font-weight: 500; pointer-events: none; box-shadow: var(--shadow-1); }
+.wc-pill:empty { display: none; }
+#editor-view[hidden] { display: none; }
+
+/* The save state beside the header's Save button: "Saving…", "Saved", "*
+   Unsaved changes" while the autosave is beaten only by the typing. */
+.save-state { font-size: 12.5px; color: var(--on-surface-variant); align-self: center; white-space: nowrap; }
+.save-state:empty { display: none; }
+.save-state.saved { color: var(--green-fg); }
+.save-state.error { color: var(--error); }
+.save-state.unsaved { font-style: italic; }
 
 /* Koenig ships Ghost's own typography — Inter headings over a Georgia body,
    sized for Ghost's admin. Here it reads as a foreign document dropped into
@@ -1095,6 +1110,103 @@ body:has(#side-toggle:checked) .editor-main { max-width: none; }
 .panel .toggle-row .label span { font-size: 12px; }
 .panel .chips { max-height: 220px; overflow-y: auto; }
 .editor-side .btn.text.danger { width: 100%; justify-content: center; }
+/* ---- the feature image box ---- */
+.fimg-drop { position: relative; border-radius: 14px; overflow: hidden; background: var(--sc);
+  margin-bottom: 11px; }
+.fimg-empty { display: grid; place-items: center; aspect-ratio: 16 / 10; padding: 12px; }
+.fimg-btns { display: flex; gap: 8px; }
+/* Ghost draws its image actions over the picture as translucent pills. The
+   fixed light surface keeps them legible over any photograph, in either
+   colour scheme — the danger variant keeps the red only for Remove. */
+.btn.ghosted { background: rgba(255,255,255,.86); color: #201A1B; backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px); }
+.btn.ghosted:hover { box-shadow: var(--shadow-1); }
+.btn.ghosted.danger { color: #BA1A1A; }
+.fimg-drop img { display: none; width: 100%; aspect-ratio: 16 / 10; object-fit: cover; }
+.fimg-drop.is-set img { display: block; }
+.fimg-drop.is-set .fimg-empty { display: none; }
+.fimg-acts { display: none; position: absolute; left: 0; right: 0; bottom: 10px; justify-content: center; gap: 6px; }
+.fimg-drop.is-set .fimg-acts { display: flex; }
+.fimg-prog { display: none; position: absolute; inset: auto 0 0 0; height: 4px; background: color-mix(in srgb, var(--on-surface) 12%, transparent); }
+.fimg-prog.on { display: block; }
+.fimg-prog i { display: block; height: 100%; width: 0; background: var(--primary); transition: width .15s linear; }
+
+/* The feature image's own fields, folded behind one line: the box above is
+   what the panel is opened for; the alt text, caption and URL are set once
+   and rarely revisited. */
+.panel-sub { border-top: 1px solid var(--outline-variant); margin-top: 12px; }
+.panel-sub > summary { display: flex; align-items: center; gap: 6px; padding: 9px 0 2px; cursor: pointer;
+  list-style: none; font-size: 12.5px; font-weight: 600; color: var(--on-surface-variant); user-select: none; }
+.panel-sub > summary::-webkit-details-marker { display: none; }
+.panel-sub > summary .twist { margin-left: auto; }
+.panel-sub > summary .twist svg { width: 15px; height: 15px; display: block; transition: transform .2s var(--ease); }
+.panel-sub[open] > summary .twist svg { transform: rotate(180deg); }
+.panel-sub .panel-sub-body { padding-top: 10px; }
+.panel-sub .field:last-child { margin-bottom: 2px; }
+
+/* ---- the Unsplash picker — laid out like the one in Ghost's editor ----.
+   The shared `dialog` rule above clamps confirm dialogs to 420px; the picker
+   is a different animal, so every clamp it sets is restated here. */
+dialog.unsplash { width: min(1920px, calc(100vw - 24px)); height: calc(100vh - 24px);
+  min-width: 0; max-width: none; border: none; border-radius: 16px; padding: 0;
+  background: var(--sc-lowest); color: var(--on-surface); box-shadow: var(--shadow-2);
+  overflow: hidden; }
+dialog.unsplash::backdrop { background: rgba(0,0,0,.6); }
+.u-close { position: absolute; top: 18px; right: 22px; z-index: 3; border: none; background: transparent;
+  color: var(--on-surface-variant); cursor: pointer; padding: 6px; border-radius: 50%; }
+.u-close:hover { background: color-mix(in srgb, var(--on-surface) 8%, transparent); color: var(--on-surface); }
+.u-close svg.i { width: 18px; height: 18px; display: block; }
+.u-head { display: flex; align-items: center; justify-content: space-between; gap: 20px;
+  padding: 22px clamp(20px, 3vw, 48px); }
+.u-head h3 { margin: 0; font-size: 22px; font-weight: 700; letter-spacing: -.3px; white-space: nowrap; }
+.u-searchbox { position: relative; width: min(384px, 60vw); }
+.u-searchbox svg.i { position: absolute; left: 15px; top: 50%; transform: translateY(-50%);
+  width: 17px; height: 17px; color: var(--on-surface-variant); pointer-events: none; }
+.u-searchbox input { width: 100%; height: 40px; border-radius: 999px; border: 1px solid var(--outline);
+  background: transparent; color: var(--on-surface); font: inherit; font-size: 14px;
+  padding: 0 16px 0 42px; outline: none; }
+.u-searchbox input:focus { border-color: var(--on-surface-variant); }
+.u-searchbox input::placeholder { color: var(--on-surface-variant); }
+.u-body { position: relative; height: calc(100% - 86px); overflow-y: auto; overscroll-behavior: contain;
+  padding: 4px clamp(20px, 3vw, 48px) 24px; scrollbar-width: thin;
+  scrollbar-color: var(--outline-variant) transparent; }
+/* Show three photos per row on desktop, with smaller-screen fallbacks. */
+.u-grid { columns: 3; column-gap: 22px; }
+@media (max-width: 900px) { .u-grid { columns: 2; } }
+@media (max-width: 600px) { .u-grid { columns: 1; } }
+.u-tile { position: relative; break-inside: avoid; margin: 0 0 22px; border-radius: 10px;
+  overflow: hidden; cursor: zoom-in; }
+.u-tile img { display: block; width: 100%; height: auto; }
+.u-hover { position: absolute; inset: 0; display: flex; flex-direction: column; justify-content: space-between;
+  padding: 14px; opacity: 0; transition: opacity .15s var(--ease);
+  background: linear-gradient(180deg, rgba(0,0,0,.05), rgba(0,0,0,.05) 55%, rgba(0,0,0,.3)); }
+.u-tile:hover .u-hover, .u-tile:focus-within .u-hover { opacity: 1; }
+.u-top { display: flex; justify-content: flex-end; gap: 8px; }
+.u-chip { display: inline-flex; align-items: center; gap: 6px; height: 30px; padding: 0 12px;
+  border-radius: 999px; background: rgba(255,255,255,.85); color: #201A1B; font-size: 12.5px;
+  font-weight: 600; text-decoration: none; backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px); }
+.u-chip svg.i { width: 15px; height: 15px; }
+.u-chip:hover { background: #fff; }
+.u-bottom { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.u-credit { display: inline-flex; align-items: center; gap: 8px; color: #fff; font-size: 13px;
+  font-weight: 500; min-width: 0; text-shadow: 0 1px 3px rgba(0,0,0,.5); }
+.u-avatar { width: 30px; height: 30px; border-radius: 50%; flex: none; }
+.u-insert { border: none; height: 34px; padding: 0 18px; border-radius: 999px; background: #fff;
+  color: #201A1B; font: inherit; font-size: 13px; font-weight: 600; cursor: pointer; flex: none; }
+.u-insert:hover { box-shadow: var(--shadow-1); }
+.u-empty { column-span: all; padding: 9vh 0; text-align: center; color: var(--on-surface-variant);
+  font-size: 14px; }
+.u-zoom { display: flex; justify-content: center; align-items: center; height: 100%; cursor: zoom-out; }
+.u-zoom .u-tile { cursor: zoom-out; margin: 0; max-width: 100%; max-height: 100%; }
+.u-zoom .u-tile img { max-height: calc(100vh - 200px); width: auto; max-width: 100%; }
+/* Ghost's spinner: a ring with a dot, hung in the middle of the gallery. */
+.u-loading { position: absolute; inset: 0; display: grid; place-items: center; pointer-events: none; }
+.u-loading i { display: block; width: 46px; height: 46px; border-radius: 50%;
+  border: 1px solid color-mix(in srgb, var(--on-surface) 10%, transparent); position: relative;
+  animation: u-spin 1s linear infinite; }
+.u-loading i::before { content: ""; position: absolute; top: 6px; left: 50%; margin-left: -3.5px;
+  width: 7px; height: 7px; border-radius: 50%; background: var(--on-surface-variant); }
+@keyframes u-spin { to { transform: rotate(360deg); } }
 
 /* Below this the two columns leave the editor too narrow to write in — the
    rail, the gutter and the settings take ~680px before any text — so the
@@ -1293,11 +1405,11 @@ dialog::backdrop { background: rgba(0,0,0,.4); }
 dialog h3 { margin: 0 0 8px; font-size: 20px; font-weight: 600; }
 dialog p { margin: 0 0 22px; font-size: 14px; color: var(--on-surface-variant); }
 dialog .d-actions { display: flex; justify-content: flex-end; gap: 8px; }
-#toast { position: fixed; left: 50%; bottom: 24px; transform: translate(-50%, 80px); background: var(--inverse-surface);
+#toast, #publish-toast { position: fixed; left: 50%; bottom: 24px; transform: translate(-50%, 80px); background: var(--inverse-surface);
   color: var(--inverse-on-surface); border-radius: 12px; padding: 12px 20px; font-size: 14px; font-weight: 500;
   box-shadow: var(--shadow-2); transition: transform .25s var(--ease), opacity .25s var(--ease); opacity: 0;
   z-index: 100; max-width: 90vw; }
-#toast.show { transform: translate(-50%, 0); opacity: 1; }
+#toast.show, #publish-toast.show { transform: translate(-50%, 0); opacity: 1; }
 
 /* ---- entrance motion ---- */
 @keyframes rise { from { opacity: 0; transform: translateY(14px); } }
@@ -4536,30 +4648,42 @@ struct Editor<'a> {
     /// Request headers for api.unsplash.com, or `Null` when the Unsplash app
     /// is off or has no access key. Koenig uses this object verbatim.
     unsplash_headers: serde_json::Value,
+    pintura_config: serde_json::Value,
     site_url: String,
     site_title: String,
     site_description: String,
 }
 
+/// Ghost's registered Unsplash application — a public Client-ID, the one
+/// Ghost's own admin ships and talks to api.unsplash.com with. An install
+/// that has not supplied its own key gets the same out-of-the-box picker
+/// Ghost gives.
+const GHOST_UNSPLASH_KEY: &str = "8672af113b0a8573edae3aa3713886265d9bb741d707f6c01a486cde8c278980";
+
 /// The Authorization header Koenig needs to query Unsplash, if this site can.
 ///
-/// Both halves have to be true: the app switched on, and an access key
-/// present. Ghost proxies Unsplash through its own application key; this port
-/// has none to ship, so the site owner supplies theirs and the editor talks to
-/// Unsplash directly.
+/// The app has to be switched on; the access key is optional, because Ghost's
+/// own registered application key stands in for one, exactly as Ghost's admin
+/// does it. Koenig uses this object verbatim.
 fn unsplash_headers(state: &AppState) -> serde_json::Value {
     if !state.settings.get_bool("unsplash") {
         return serde_json::Value::Null;
     }
     let key = state.settings.get_str("unsplash_access_key").unwrap_or_default();
     let key = key.trim();
-    if key.is_empty() {
-        return serde_json::Value::Null;
-    }
+    let key = if key.is_empty() { GHOST_UNSPLASH_KEY } else { key };
     serde_json::json!({
         "Authorization": format!("Client-ID {key}"),
         "Accept-Version": "v1",
     })
+}
+
+fn pintura_config(settings: &ghost_db::SettingsCache) -> serde_json::Value {
+    if !settings.get_bool("pintura") { return serde_json::Value::Null; }
+    let js = settings.get_str("pintura_js_url").unwrap_or_default();
+    let css = settings.get_str("pintura_css_url").unwrap_or_default();
+    if js.trim().is_empty() || css.trim().is_empty() { return serde_json::Value::Null; }
+    serde_json::json!({"jsUrl": js.trim(), "cssUrl": css.trim()})
 }
 
 impl Editor<'_> {
@@ -4594,18 +4718,32 @@ impl Editor<'_> {
     }
 }
 
-/// A collapsible settings panel in the right-hand column. Ghost keeps these
-/// shut behind a menu; here they start open, and `<details>` means they can
-/// still be folded away without any JavaScript.
-fn panel(icon_name: &str, tint: &str, title: &str, body: &str) -> String {
+/// A collapsible settings panel in the right-hand column. "Post settings" —
+/// the URL, date and excerpt a post is opened to settle — is the one panel
+/// that starts open; every other panel stands folded until asked for.
+/// `<details>` means every panel folds and unfolds without any JavaScript.
+fn panel(icon_name: &str, tint: &str, title: &str, body: &str, open: bool) -> String {
     format!(
-        r#"<details class="card panel" open><summary><span class="ic tint-{tint}">{ic}</span>{title}<span class="twist">{twist}</span></summary>
+        r#"<details class="card panel"{open_attr}><summary><span class="ic tint-{tint}">{ic}</span>{title}<span class="twist">{twist}</span></summary>
 <div class="panel-body">{body}</div></details>"#,
+        open_attr = if open { " open" } else { "" },
         tint = tint,
         ic = svg(icon_name),
         title = esc(title),
         twist = svg("down"),
         body = body,
+    )
+}
+
+/// A `text_field` the editor's script has to reach by id — the feature image
+/// URL, the slug — same markup, plus the handle.
+fn text_field_id(name: &str, id: &str, label: &str, value: &str) -> String {
+    format!(
+        r#"<label class="field"><input name="{name}" id="{id}" value="{value}" placeholder=" "><span>{label}</span></label>"#,
+        name = esc(name),
+        id = esc(id),
+        value = esc(value),
+        label = esc(label),
     )
 }
 
@@ -4744,7 +4882,7 @@ fn editor_html(ed: &Editor<'_>) -> String {
         Some(id) => format!("{base}{id}/"),
         None => format!("{base}new/"),
     };
-    let status = ed.post.map(|p| p.status.as_str()).unwrap_or("draft");
+    let status = ed.post.map(|p| p.status.as_str()).unwrap_or(if ed.can_publish { "published" } else { "draft" });
     let title = ed.field(|p| p.title.as_deref());
 
     // --- the content column ------------------------------------------------
@@ -4771,6 +4909,9 @@ fn editor_html(ed: &Editor<'_>) -> String {
     let config = serde_json::json!({
         "lexical": initial,
         "placeholder": format!("Begin writing your {singular}..."),
+        "postType": ed.post_type,
+        "isNew": ed.id().is_none(),
+        "savedStatus": ed.post.map(|p| p.status.as_str()).unwrap_or("draft"),
         "siteUrl": ed.site_url,
         "siteTitle": ed.site_title,
         "siteDescription": ed.site_description,
@@ -4783,11 +4924,12 @@ fn editor_html(ed: &Editor<'_>) -> String {
         // needs is the Authorization header. Sent only when the app is on and
         // a key exists; otherwise Koenig shows its bundled sample gallery.
         "unsplash": ed.unsplash_headers,
+        "pinturaConfig": ed.pintura_config,
     });
 
     let content = format!(
         r#"<div class="editor-main">
-<textarea class="editor-title" id="field-title" name="title" rows="1" placeholder="{singular_title} title" required>{title}</textarea>
+<textarea class="editor-title" id="field-title" name="title" rows="1" placeholder="{singular_title} title">{title}</textarea>
 <div id="koenig-mount" data-config="{config}"></div>
 <input type="hidden" name="lexical" id="field-lexical" value="">
 <input type="hidden" name="html" id="field-html" value="">
@@ -4795,7 +4937,7 @@ fn editor_html(ed: &Editor<'_>) -> String {
 <p class="hint" data-fallback-note>JavaScript is off, so the rich editor cannot run. This {singular} is editable as Markdown.</p>
 {markdown_field}
 </div>
-<div class="editor-foot"><span id="word-count"></span></div>
+<span class="wc-pill" id="word-count" aria-live="polite"></span>
 </div>"#,
         singular_title = if singular == "page" { "Page" } else { "Post" },
         title = esc(title),
@@ -4805,33 +4947,82 @@ fn editor_html(ed: &Editor<'_>) -> String {
     );
 
     // --- the settings column -----------------------------------------------
-
+    //
+    // The panels run in Ghost's own order — feature image first, then the
+    // post's URL and date, tags, access, authors, template, code injection,
+    // meta data, the social cards. "Post settings" is the one panel that
+    // starts open; the rest stand folded, one summary line each, so the rail
+    // reads as a menu of what there is to set rather than a wall of forms.
+    // Publishing, holding the status select that stands in for Ghost's header
+    // publish flow, is this port's own.
     let mut side = String::new();
 
-    // General: URL, publish date, excerpt.
-    let published_at = to_datetime_local(ed.field(|p| p.published_at.as_deref()));
+    // Feature image: an image box — upload or Unsplash while empty, a
+    // preview with Change and Remove once set — over the URL field and the
+    // alt text and caption Ghost keeps in posts_meta.
+    let feature_image = ed.field(|p| p.feature_image.as_deref());
+    // The Unsplash picker is always offered; without an access key it opens
+    // and says what is missing rather than hiding the option entirely.
+    let unsplash_btn =
+        format!(r#"<button type="button" class="btn small ghosted" id="fimg-unsplash">{search} Unsplash</button>"#, search = svg("search"));
+    side.push_str(&panel(
+        "image",
+        "green",
+        "Feature image",
+        &format!(
+            r#"<input type="file" id="fimg-file" accept="image/gif,image/jpeg,image/png,image/svg+xml,image/webp" hidden>
+<div class="fimg-drop{set}" id="fimg-drop">
+<div class="fimg-empty" id="fimg-empty"><div class="fimg-btns">
+<button type="button" class="btn tonal small" id="fimg-upload">{upload} Upload</button>{unsplash}
+</div></div>
+<img id="fimg-img" src="{src}" alt="">
+<div class="fimg-acts">
+<button type="button" class="btn small ghosted" id="fimg-change">Change image</button>
+<button type="button" class="btn small ghosted danger" id="fimg-remove">Remove</button>
+</div>
+<div class="fimg-prog" id="fimg-prog"><i></i></div>
+</div>
+<details class="panel-sub"><summary>Alt text, caption &amp; image URL{twist}</summary>
+<div class="panel-sub-body">{alt}{caption}{url}</div></details>"#,
+            set = if feature_image.is_empty() { "" } else { " is-set" },
+            src = esc(&ghost_core::url::base_asset(feature_image)),
+            upload = svg("upload"),
+            unsplash = unsplash_btn,
+            twist = svg("down"),
+            alt = text_field("feature_image_alt", "Alt text", ed.meta(|m| m.feature_image_alt.as_deref())),
+            caption = text_field_id(
+                "feature_image_caption",
+                "field-feature_image_caption",
+                "Caption",
+                ed.meta(|m| m.feature_image_caption.as_deref()),
+            ),
+            url = text_field_id("feature_image", "field-feature_image", "Image URL", feature_image),
+        ),
+        true,
+    ));
+
+    // General: URL, publish date, excerpt — the panel an open editor starts from.
+    let slug = ed.field(|p| p.slug.as_deref());
     side.push_str(&panel(
         "link",
         "blue",
         &format!("{} settings", if singular == "page" { "Page" } else { "Post" }),
         &format!(
-            r#"{slug}{slug_preview}
+            r#"{slug_field}<p class="hint" id="slug-preview">{preview}</p>
 <label class="field fixed"><input type="datetime-local" name="published_at" value="{published_at}"><span>Publish date · UTC</span></label>
 {excerpt}<p class="hint">Shown in post lists and feeds in place of the opening lines.</p>"#,
-            slug = text_field("slug", "URL slug", ed.field(|p| p.slug.as_deref())),
+            slug_field = text_field_id("slug", "field-slug", "URL slug", slug),
             // Only worth showing once there is a slug: the bare origin with
             // two slashes after it is not a URL anyone needs to see.
-            slug_preview = match ed.field(|p| p.slug.as_deref()) {
-                "" => String::new(),
-                slug => format!(
-                    r#"<p class="hint">{origin}/<b>{slug}</b>/</p>"#,
-                    origin = esc(&ed.site_url),
-                    slug = esc(slug),
-                ),
+            preview = if slug.is_empty() {
+                String::new()
+            } else {
+                format!("{}/<b>{}</b>/", esc(&ed.site_url), esc(slug))
             },
-            published_at = esc(&published_at),
+            published_at = esc(&to_datetime_local(ed.field(|p| p.published_at.as_deref()))),
             excerpt = textarea_field("custom_excerpt", "Excerpt", ed.field(|p| p.custom_excerpt.as_deref()), 3, false),
         ),
+        true,
     ));
 
     // Status and, for a brand-new post, whether it also goes out as email.
@@ -4885,7 +5076,7 @@ fn editor_html(ed: &Editor<'_>) -> String {
     // set rather than leaving an empty box to guess at.
     let schedule_hint = if scheduled {
         match ed.field(|p| p.published_at.as_deref()) {
-            "" => r#"<p class="hint">Set a publish date below — a scheduled post needs one in the future.</p>"#.to_string(),
+            "" => r#"<p class="hint">Set a publish date above — a scheduled post needs one in the future.</p>"#.to_string(),
             at => format!(
                 r#"<p class="hint">Goes out {} UTC, on its own.</p>"#,
                 esc(&to_datetime_local(at).replace('T', " at ")),
@@ -4914,19 +5105,7 @@ fn editor_html(ed: &Editor<'_>) -> String {
                 ed.post.map(|p| p.show_title_and_feature_image).unwrap_or(true),
             ),
         ),
-    ));
-
-    // Feature image, with the alt text and caption Ghost keeps in posts_meta.
-    side.push_str(&panel(
-        "image",
-        "green",
-        "Feature image",
-        &format!(
-            "{url}{alt}{caption}",
-            url = text_field("feature_image", "Image URL", ed.field(|p| p.feature_image.as_deref())),
-            alt = text_field("feature_image_alt", "Alt text", ed.meta(|m| m.feature_image_alt.as_deref())),
-            caption = text_field("feature_image_caption", "Caption", ed.meta(|m| m.feature_image_caption.as_deref())),
-        ),
+        false,
     ));
 
     let tag_options: Vec<(String, String)> = ed
@@ -4941,20 +5120,7 @@ fn editor_html(ed: &Editor<'_>) -> String {
         "amber",
         "Tags",
         &chip_set("tags", &tag_options, &tag_selected, "No tags yet — create one under Tags."),
-    ));
-
-    let author_options: Vec<(String, String)> =
-        ed.all_authors.iter().map(|u| (u.id.clone(), u.name.clone().unwrap_or_default())).collect();
-    let author_selected: Vec<String> = ed.authors.iter().map(|u| u.id.clone()).collect();
-    side.push_str(&panel(
-        "person",
-        "purple",
-        "Authors",
-        &format!(
-            r#"{chips}<p class="hint">With none ticked, the {singular} stays with whoever created it.</p>"#,
-            chips = chip_set("authors", &author_options, &author_selected, "No staff users yet."),
-            singular = singular,
-        ),
+        false,
     ));
 
     // Access. Tier-by-tier visibility is Ghost's fourth option; this schema
@@ -4977,7 +5143,7 @@ fn editor_html(ed: &Editor<'_>) -> String {
             visibility = esc(visibility),
         )
     };
-    side.push_str(&panel("lock", "slate", "Access", &access_body));
+    side.push_str(&panel("lock", "slate", "Access", &access_body, false));
 
     // Email, when this post can still become one.
     if ed.post_type == "post" {
@@ -4994,8 +5160,53 @@ fn editor_html(ed: &Editor<'_>) -> String {
                 "{subject}{sent_note}",
                 subject = text_field("email_subject", "Email subject", ed.meta(|m| m.email_subject.as_deref())),
             ),
+        false,
         ));
     }
+
+    let author_options: Vec<(String, String)> =
+        ed.all_authors.iter().map(|u| (u.id.clone(), u.name.clone().unwrap_or_default())).collect();
+    let author_selected: Vec<String> = ed.authors.iter().map(|u| u.id.clone()).collect();
+    side.push_str(&panel(
+        "person",
+        "purple",
+        "Authors",
+        &format!(
+            r#"{chips}<p class="hint">With none ticked, the {singular} stays with whoever created it.</p>"#,
+            chips = chip_set("authors", &author_options, &author_selected, "No staff users yet."),
+            singular = singular,
+        ),
+        false,
+    ));
+
+    // Theme template, when the active theme offers a choice.
+    let current_template = ed.field(|p| p.custom_template.as_deref());
+    let template_body = if ed.templates.is_empty() {
+        format!(
+            r#"<input type="hidden" name="custom_template" value="{current}"><p class="hint">The active theme has no <code>custom-*.hbs</code> templates, so this {singular} uses the theme's default.</p>"#,
+            current = esc(current_template),
+            singular = singular,
+        )
+    } else {
+        let options: String = std::iter::once(option_row("", "Default", current_template.is_empty()))
+            .chain(ed.templates.iter().map(|(file, label)| option_row(file, label, file == current_template)))
+            .collect();
+        select_field("custom_template", "Template", &options)
+    };
+    side.push_str(&panel("layout", "slate", "Template", &template_body, false));
+
+    // Per-post code injection.
+    side.push_str(&panel(
+        "code",
+        "red",
+        "Code injection",
+        &format!(
+            "{head}{foot}",
+            head = textarea_field("codeinjection_head", "Head", ed.field(|p| p.codeinjection_head.as_deref()), 4, true),
+            foot = textarea_field("codeinjection_foot", "Footer", ed.field(|p| p.codeinjection_foot.as_deref()), 4, true),
+        ),
+        false,
+    ));
 
     // Search engines.
     side.push_str(&panel(
@@ -5008,6 +5219,7 @@ fn editor_html(ed: &Editor<'_>) -> String {
             description = textarea_field("meta_description", "Meta description", ed.meta(|m| m.meta_description.as_deref()), 3, false),
             canonical = text_field("canonical_url", "Canonical URL", ed.field(|p| p.canonical_url.as_deref())),
         ),
+        false,
     ));
 
     // The two social cards Ghost lets you override per post.
@@ -5025,34 +5237,7 @@ fn editor_html(ed: &Editor<'_>) -> String {
             tw_desc = textarea_field("twitter_description", "X description", ed.meta(|m| m.twitter_description.as_deref()), 2, false),
             tw_image = text_field("twitter_image", "X image URL", ed.meta(|m| m.twitter_image.as_deref())),
         ),
-    ));
-
-    // Theme template, when the active theme offers a choice.
-    let current_template = ed.field(|p| p.custom_template.as_deref());
-    let template_body = if ed.templates.is_empty() {
-        format!(
-            r#"<input type="hidden" name="custom_template" value="{current}"><p class="hint">The active theme has no <code>custom-*.hbs</code> templates, so this {singular} uses the theme's default.</p>"#,
-            current = esc(current_template),
-            singular = singular,
-        )
-    } else {
-        let options: String = std::iter::once(option_row("", "Default", current_template.is_empty()))
-            .chain(ed.templates.iter().map(|(file, label)| option_row(file, label, file == current_template)))
-            .collect();
-        select_field("custom_template", "Template", &options)
-    };
-    side.push_str(&panel("layout", "slate", "Template", &template_body));
-
-    // Per-post code injection.
-    side.push_str(&panel(
-        "code",
-        "red",
-        "Code injection",
-        &format!(
-            "{head}{foot}",
-            head = textarea_field("codeinjection_head", "Head", ed.field(|p| p.codeinjection_head.as_deref()), 4, true),
-            foot = textarea_field("codeinjection_foot", "Footer", ed.field(|p| p.codeinjection_foot.as_deref()), 4, true),
-        ),
+        false,
     ));
 
     // --- head, and the page around both columns -----------------------------
@@ -5062,15 +5247,13 @@ fn editor_html(ed: &Editor<'_>) -> String {
     } else {
         format!("New {singular}")
     };
-    let preview = match (ed.id(), ed.post.map(|p| p.status.as_str())) {
-        (Some(_), Some("published")) => format!(
-            r#"<a class="btn text" href="{site}/{slug}/" target="_blank" rel="noopener">{open} View</a>"#,
-            site = esc(&ed.site_url),
-            slug = esc(ed.field(|p| p.slug.as_deref())),
-            open = svg("open"),
-        ),
-        _ => String::new(),
-    };
+    let preview = format!(
+        r#"<a class="btn text" id="editor-view" href="{site}/{slug}/" target="_blank" rel="noopener"{hidden}>{open} View {singular}</a>"#,
+        site = esc(&ed.site_url),
+        slug = esc(ed.field(|p| p.slug.as_deref())),
+        hidden = if status == "published" && ed.id().is_some() { "" } else { " hidden" },
+        open = svg("open"),
+    );
     // The delete form cannot be nested inside the editor form, so it sits in
     // the head and the settings column links to it by id.
     let delete = match ed.id() {
@@ -5090,6 +5273,15 @@ fn editor_html(ed: &Editor<'_>) -> String {
             del = svg("delete"),
             singular = singular,
         ));
+    } else {
+        // Nothing to delete until the first save creates the post; the
+        // editor's script reveals this once it has an id to delete.
+        side.push_str(&format!(
+            r#"<div class="card panel" id="new-delete" hidden><div class="panel-body" style="padding-top:14px">
+<button class="btn text danger" type="button">{del} Delete {singular}</button></div></div>"#,
+            del = svg("delete"),
+            singular = singular,
+        ));
     }
 
     format!(
@@ -5105,15 +5297,17 @@ html {{ font-size: 62.5%; }}
 <header class="page-head rise"><a class="icon-btn" href="{base}" title="Back to {plural}">{back}</a>
 <div><h1>{heading}</h1></div>
 <div class="actions"><a class="btn text" href="{base}">Cancel</a>{preview}
+<span class="save-state" id="save-state" aria-live="polite"></span>
 <input type="checkbox" id="side-toggle">
 <label class="icon-btn side-btn" for="side-toggle" title="Show or hide settings">
 <span class="when-shown">{hide}</span><span class="when-hidden">{show}</span></label>
-<button class="btn" type="submit" form="editor-form">{save} Save {singular}</button></div></header>
+<button class="btn" id="editor-save" type="submit" form="editor-form">{save} <span data-save-label>{save_label}</span></button></div></header>
 {delete}
 <form method="post" action="{action}" id="editor-form" class="editor-shell">
 {content}
 <aside class="editor-side">{side}</aside>
 </form>
+{pintura_assets}
 <script src="{assets}/react.js" defer></script>
 <script src="{assets}/react-jsx.js" defer></script>
 <script src="{assets}/react-dom.js" defer></script>
@@ -5155,12 +5349,16 @@ html {{ font-size: 62.5%; }}
         show = svg("panel-show"),
         preview = preview,
         save = svg("check"),
-        singular = singular,
+        save_label = if ed.id().is_none() && ed.can_publish { "Publish".to_string() } else { format!("Save {singular}") },
         delete = delete,
         action = action,
         content = content,
         side = side,
         assets = ASSETS,
+        pintura_assets = match (ed.pintura_config["jsUrl"].as_str(), ed.pintura_config["cssUrl"].as_str()) {
+            (Some(js), Some(css)) => format!(r#"<link rel="stylesheet" href="{}"><script src="{}" defer></script>"#, esc(css), esc(js)),
+            _ => String::new(),
+        },
     )
 }
 
@@ -5170,11 +5368,14 @@ html {{ font-size: 62.5%; }}
 
 /// Koenig's version, used to bust caches. The bundle under `assets/` is
 /// immutable for a given build, so the URL carries the version and the
-/// response can then be cached for as long as the browser likes.
-const KOENIG_VERSION: &str = "1.8.1";
+/// response can then be cached for as long as the browser likes. The bridge
+/// script changes with this admin rather than with Koenig, so the number
+/// moves for either: a browser holding a stale bridge would keep a broken
+/// editor (and a word count that never counts) until its cache expired.
+const KOENIG_VERSION: &str = "1.8.10";
 
 /// Where the editor's scripts live, version-stamped.
-const ASSETS: &str = concat!("/ghost/assets/", "1.8.1");
+const ASSETS: &str = concat!("/ghost/assets/", "1.8.10");
 
 /// Vendored editor runtime. Serving these from the binary keeps the admin a
 /// single self-contained process — no CDN, and no network at all once the
@@ -5258,6 +5459,7 @@ async fn editor_context<'a>(
         can_publish,
         members_enabled: state.settings.get_str("members_signup_access").as_deref() != Some("none"),
         unsplash_headers: unsplash_headers(state),
+        pintura_config: pintura_config(&state.settings),
         site_url: state.site_url(),
         site_title: state.settings.get_str("title").unwrap_or_default(),
         site_description: state.settings.get_str("description").unwrap_or_default(),
@@ -5588,6 +5790,53 @@ fn scheduling(form: &EditorForm, post_type: &str, action: PublishAction) -> Sche
 /// writing to a mis-set date would be the worse failure by far.
 const UNDATED: &str = "Saved as a draft: a scheduled post needs a publish date in the future.";
 
+/// True when a save came from the editor's own script, which asks for JSON —
+/// a redirect would be followed to a full editor page it has no use for.
+fn wants_json(headers: &HeaderMap) -> bool {
+    headers
+        .get(header::ACCEPT)
+        .and_then(|v| v.to_str().ok())
+        .is_some_and(|v| v.to_ascii_lowercase().contains("application/json"))
+}
+
+/// What a save answers to the editor's script: the fields it has to adopt —
+/// a first save creates the post, and the page then has to behave as though
+/// it had always been `/posts/<id>/` — plus anything worth a banner.
+async fn editor_saved_json(state: &AppState, post: &ghost_core::models::Post, message: &str, level: &str) -> Response {
+    let url = if post.status == "published" {
+        let rel = repos::posts::load_relations(&state.db, std::slice::from_ref(post)).await.unwrap_or_default();
+        let data = ghost_core::models::post_to_json(post, &rel.authors_for(&post.id), &rel.tags_for(&post.id), "");
+        let router = state.router.read().await;
+        let path = router.permalink_for(&data)
+            .map(|(_, permalink)| ghost_routing::tree::build_permalink(&permalink, &data))
+            .unwrap_or_else(|| format!("/{}/", post.slug.as_deref().unwrap_or_default()));
+        Some(format!("{}{path}", state.site_url().trim_end_matches('/')))
+    } else {
+        None
+    };
+    let body = serde_json::json!({
+        "id": post.id,
+        "slug": post.slug,
+        "status": post.status,
+        "title": post.title,
+        "url": url,
+        "message": message,
+        "level": level,
+    });
+    ([(header::CONTENT_TYPE, "application/json")], body.to_string()).into_response()
+}
+
+/// A save the script made that the server refused, worded for the banner.
+fn editor_error_json(message: &str, status: StatusCode) -> Response {
+    let body = serde_json::json!({"message": message, "level": "error"});
+    (
+        status,
+        [(header::CONTENT_TYPE, "application/json")],
+        body.to_string(),
+    )
+        .into_response()
+}
+
 async fn editor_create_impl(state: &AppState, headers: &HeaderMap, mut form: EditorForm, post_type: &str) -> Response {
     let actor = match require_actor(state, headers).await {
         Ok(a) => a,
@@ -5614,6 +5863,7 @@ async fn editor_create_impl(state: &AppState, headers: &HeaderMap, mut form: Edi
         Scheduling::At(_) => "scheduled".to_string(),
         _ => action.status_for(&form.status),
     };
+    let json_mode = wants_json(headers);
     match repos::posts::insert(&state.db, &new, &user.id).await {
         Ok(post) => {
             let _ = repos::actions::record(&state.db, post_type, &post.id, &user.id, "added").await;
@@ -5626,19 +5876,52 @@ async fn editor_create_impl(state: &AppState, headers: &HeaderMap, mut form: Edi
             }
             if going_out {
                 return match send_post_as_newsletter(state, &post.id).await {
-                    Ok(n) => posts_flash("ok", &format!("Published and emailed to {n} subscriber{}.", if n == 1 { "" } else { "s" })),
-                    Err(e) => posts_flash("error", &format!("Published, but the newsletter was not sent: {e}")),
+                    Ok(n) => {
+                        let message = format!("Published and emailed to {n} subscriber{}.", if n == 1 { "" } else { "s" });
+                        if json_mode { editor_saved_json(&state, &post, &message, "ok").await } else { posts_flash("ok", &message) }
+                    }
+                    Err(e) => {
+                        let message = format!("Published, but the newsletter was not sent: {e}");
+                        if json_mode {
+                            editor_saved_json(&state, &post, &message, "error").await
+                        } else {
+                            posts_flash("error", &message)
+                        }
+                    }
                 };
             }
             // Straight back into the editor, now that it has somewhere to
             // save to — the same place Ghost leaves you.
             let editor = format!("{}{}/", if post_type == "page" { "/ghost/pages/" } else { "/ghost/posts/" }, post.id);
             match schedule {
-                Scheduling::Undated => Redirect::to(&with_flash(&editor, "error", UNDATED)).into_response(),
-                _ => Redirect::to(&editor).into_response(),
+                Scheduling::Undated => {
+                    if json_mode {
+                        editor_saved_json(&state, &post, UNDATED, "error").await
+                    } else {
+                        Redirect::to(&with_flash(&editor, "error", UNDATED)).into_response()
+                    }
+                }
+                _ => {
+                    if json_mode {
+                        let message = match post.status.as_str() {
+                            "published" => "Published.",
+                            "scheduled" => "Scheduled.",
+                            _ => "",
+                        };
+                        editor_saved_json(&state, &post, message, "ok").await
+                    } else {
+                        Redirect::to(&editor).into_response()
+                    }
+                }
             }
         }
-        Err(e) => page_u("Error", "", Some(&user), &format!("<div class='banner error'>{}</div>", esc(&e.message())), true).into_response(),
+        Err(e) => {
+            if json_mode {
+                editor_error_json(&e.message(), StatusCode::UNPROCESSABLE_ENTITY)
+            } else {
+                page_u("Error", "", Some(&user), &format!("<div class='banner error'>{}</div>", esc(&e.message())), true).into_response()
+            }
+        }
     }
 }
 
@@ -6193,8 +6476,11 @@ async fn editor_save(State(state): State<AppState>, Path(id): Path<String>, head
         custom_excerpt: form.custom_excerpt.clone(),
         feature_image: form.feature_image.clone(),
         featured: Some(form.featured),
-        status: Some(form.status.clone()),
-        visibility: form.visibility.clone(),
+        // A save that arrives without a status or a visibility — a body this
+        // parser could not read, or a hand-made one — must not blank the
+        // column: no value means "unchanged", not "empty".
+        status: (!form.status.is_empty()).then(|| form.status.clone()),
+        visibility: form.visibility.clone().filter(|v| !v.is_empty()),
         published_at: form.published_at.clone(),
         codeinjection_head: form.codeinjection_head.clone(),
         codeinjection_foot: form.codeinjection_foot.clone(),
@@ -6219,6 +6505,7 @@ async fn editor_save(State(state): State<AppState>, Path(id): Path<String>, head
         author_ids: if form.authors.is_empty() { None } else { Some(form.authors.clone()) },
         clearing: editor_owned_fields(form.is_koenig(), form.has_content()),
     };
+    let json_mode = wants_json(&headers);
     match repos::posts::update(&state.db, &id, &changes).await {
         Ok(post) => {
             let _ = repos::actions::record(&state.db, &post_type, &post.id, &user.id, "edited").await;
@@ -6236,10 +6523,24 @@ async fn editor_save(State(state): State<AppState>, Path(id): Path<String>, head
                 notify_slack_published(&state, &post).await;
             }
             let list = if post_type == "page" { "/ghost/pages/" } else { "/ghost/posts/" };
+            // What the script's banner should say, if anything: only a change
+            // in the post's standing is worth interrupting the writing for.
+            let note = |post: &ghost_core::models::Post| match post.status.as_str() {
+                "scheduled" => format!(
+                    "Scheduled for {} UTC.",
+                    to_datetime_local(post.published_at.as_deref().unwrap_or("")).replace('T', " at ")
+                ),
+                _ if !was_published && post.status == "published" => "Published.".to_string(),
+                _ => String::new(),
+            };
             match schedule {
                 Scheduling::At(delivery) => {
                     let _ = repos::posts::set_delivery(&state.db, &post.id, delivery).await;
-                    Redirect::to(list).into_response()
+                    if json_mode {
+                        editor_saved_json(&state, &post, &note(&post), "ok").await
+                    } else {
+                        Redirect::to(list).into_response()
+                    }
                 }
                 // Anything else means the post is no longer waiting on a
                 // date, and a standing instruction to email itself must not
@@ -6254,13 +6555,31 @@ async fn editor_save(State(state): State<AppState>, Path(id): Path<String>, head
                     match other {
                         // The date was unusable, so this came back as a draft
                         // and the author needs to know before closing the tab.
-                        Scheduling::Undated => Redirect::to(&with_flash(list, "error", UNDATED)).into_response(),
-                        _ => Redirect::to(list).into_response(),
+                        Scheduling::Undated => {
+                            if json_mode {
+                                editor_saved_json(&state, &post, UNDATED, "error").await
+                            } else {
+                                Redirect::to(&with_flash(list, "error", UNDATED)).into_response()
+                            }
+                        }
+                        _ => {
+                            if json_mode {
+                                editor_saved_json(&state, &post, &note(&post), "ok").await
+                            } else {
+                                Redirect::to(list).into_response()
+                            }
+                        }
                     }
                 }
             }
         }
-        Err(e) => page_u("Error", "", Some(&user), &format!("<div class='banner error'>{}</div>", esc(&e.message())), true).into_response(),
+        Err(e) => {
+            if json_mode {
+                editor_error_json(&e.message(), StatusCode::UNPROCESSABLE_ENTITY)
+            } else {
+                page_u("Error", "", Some(&user), &format!("<div class='banner error'>{}</div>", esc(&e.message())), true).into_response()
+            }
+        }
     }
 }
 
@@ -15987,7 +16306,8 @@ async fn integrations_page(
         Some(&user),
         &format!(
             r#"<header class="page-head rise"><a class="icon-btn" style="transform:rotate(180deg)" href="/ghost/settings/" title="Back to settings">{back}</a>
-<div><h1>Integrations</h1><p class="sub">Built-in apps, API keys &amp; your own scripts</p></div></header>
+<div><h1>Integrations</h1><p class="sub">Built-in apps, API keys &amp; your own scripts</p></div>
+<div class="actions"><a class="btn text" href="https://ghost.org/integrations/" target="_blank" rel="noopener">Browse integrations</a></div></header>
 {banner}
 <div class="section">Built-in apps</div>
 <div class="card rows rise" style="--i:1">{apps}</div>
@@ -16814,6 +17134,18 @@ async fn builtin_app_save(
         ],
         _ => return integrations_flash("", "error", "Unknown app."),
     };
+    if form.get(app).is_some_and(|value| value == "1") {
+        let nonempty = |key: &str| form.get(key).is_some_and(|value| !value.trim().is_empty());
+        let valid_url = |key: &str| form.get(key).and_then(|value| reqwest::Url::parse(value.trim()).ok())
+            .is_some_and(|url| matches!(url.scheme(), "http" | "https") && url.host_str().is_some());
+        let message = match app {
+            "firstpromoter" if !nonempty("firstpromoter_id") => Some("Enter your FirstPromoter account ID before enabling the integration."),
+            "pintura" if !valid_url("pintura_js_url") || !valid_url("pintura_css_url") => Some("Enter valid HTTP or HTTPS URLs for both Pintura assets before enabling the integration."),
+            "transistor" if !valid_url("transistor_portal_url_template") || !form.get("transistor_portal_url_template").is_some_and(|value| value.contains("{uuid}")) => Some("Enter a valid private feed URL containing {uuid} before enabling Transistor."),
+            _ => None,
+        };
+        if let Some(message) = message { return integrations_flash(&format!("{app}/"), "error", message); }
+    }
     let mut ok = state
         .settings
         .set(&state.db, app, &serde_json::Value::Bool(form.get(app).map(|v| v == "1").unwrap_or(false)))

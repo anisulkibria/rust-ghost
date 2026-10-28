@@ -15,20 +15,35 @@ use crate::state::AppState;
 pub fn content_router() -> Router<AppState> {
     Router::new()
         .route("/posts/", get(browse_posts))
+        .route("/posts", get(browse_posts))
         .route("/posts/slug/{slug}", get(read_post_by_slug))
+        .route("/posts/slug/{slug}/", get(read_post_by_slug))
         .route("/posts/{id}", get(read_post_by_id))
+        .route("/posts/{id}/", get(read_post_by_id))
         .route("/pages/", get(browse_pages))
+        .route("/pages", get(browse_pages))
         .route("/pages/slug/{slug}", get(read_page_by_slug))
+        .route("/pages/slug/{slug}/", get(read_page_by_slug))
         .route("/pages/{id}", get(read_page_by_id))
+        .route("/pages/{id}/", get(read_page_by_id))
         .route("/tags/", get(browse_tags))
+        .route("/tags", get(browse_tags))
         .route("/tags/slug/{slug}", get(read_tag_by_slug))
+        .route("/tags/slug/{slug}/", get(read_tag_by_slug))
         .route("/tags/{id}", get(read_tag_by_id))
+        .route("/tags/{id}/", get(read_tag_by_id))
         .route("/authors/", get(browse_authors))
+        .route("/authors", get(browse_authors))
         .route("/authors/slug/{slug}", get(read_author_by_slug))
+        .route("/authors/slug/{slug}/", get(read_author_by_slug))
         .route("/authors/{id}", get(read_author_by_id))
+        .route("/authors/{id}/", get(read_author_by_id))
         .route("/settings/", get(read_settings))
+        .route("/settings", get(read_settings))
         .route("/tiers/", get(browse_tiers))
+        .route("/tiers", get(browse_tiers))
         .route("/newsletters/", get(browse_newsletters))
+        .route("/newsletters", get(browse_newsletters))
         // Portal reads an offer and the recommendation list through the
         // Content API, not `/members/api` — `#/portal/offers/{id}` (where an
         // offer share link lands) and `#/portal/recommendations` both 404
@@ -46,14 +61,20 @@ pub fn content_router() -> Router<AppState> {
         .route("/search-index/authors", get(search_index_authors))
         .route("/search-index/tags/", get(search_index_tags))
         .route("/search-index/tags", get(search_index_tags))
+        .layer(axum::middleware::from_fn(crate::api_headers))
+        .layer(tower_http::cors::CorsLayer::new()
+            .allow_origin(tower_http::cors::Any)
+            .allow_methods([axum::http::Method::GET, axum::http::Method::HEAD, axum::http::Method::OPTIONS])
+            .allow_headers(tower_http::cors::Any)
+            .expose_headers([axum::http::HeaderName::from_static("content-version")])
+            .max_age(std::time::Duration::from_secs(86_400)))
 }
 
 // ---------------------------------------------------------------------------
 // auth
 // ---------------------------------------------------------------------------
 
-/// Content API auth: `?key=<secret>` of a content-type key. Anonymous
-/// requests still see public content (Ghost's public context).
+/// Content API auth: a publishable `?key=<secret>` of a content-type key.
 async fn authenticate(state: &AppState, params: &HashMap<String, String>) -> Result<(), Response> {
     if let Some(key) = params.get("key") {
         match repos::api_keys::find_by_secret(&state.db, key).await {
@@ -64,8 +85,7 @@ async fn authenticate(state: &AppState, params: &HashMap<String, String>) -> Res
             )),
         }
     } else {
-        // anonymous = public context
-        Ok(())
+        Err(error_response(StatusCode::UNAUTHORIZED, "Content API key is required"))
     }
 }
 
@@ -97,16 +117,18 @@ pub struct BrowseParams {
     pub filter: Option<String>,
     pub include: Vec<String>,
     pub fields: Vec<String>,
+    pub formats: Vec<String>,
 }
 
 pub(crate) fn parse_browse(params: &HashMap<String, String>) -> BrowseParams {
     BrowseParams {
-        limit: params.get("limit").map(|l| if l == "all" { -1 } else { l.parse().unwrap_or(15) }).unwrap_or(15),
-        page: params.get("page").and_then(|p| p.parse().ok()).unwrap_or(1),
+        limit: params.get("limit").map(|l| if l == "all" { -1 } else { l.parse::<i64>().ok().filter(|n| *n > 0).unwrap_or(15).min(100) }).unwrap_or(15),
+        page: params.get("page").and_then(|p| p.parse::<i64>().ok()).unwrap_or(1).clamp(1, 10_000_000),
         order: params.get("order").cloned(),
         filter: params.get("filter").cloned(),
-        include: params.get("include").map(|i| i.split(',').map(str::to_string).collect()).unwrap_or_default(),
-        fields: params.get("fields").map(|i| i.split(',').map(str::to_string).collect()).unwrap_or_default(),
+        include: params.get("include").map(|i| i.split(',').map(str::trim).filter(|s| !s.is_empty()).map(str::to_string).collect()).unwrap_or_default(),
+        formats: params.get("formats").or_else(|| params.get("fields")).map(|s| s.split(',').map(str::trim).map(str::to_string).collect()).unwrap_or_else(|| vec!["html".into()]),
+        fields: params.get("fields").map(|i| i.split(',').map(str::trim).filter(|s| !s.is_empty()).map(str::to_string).collect()).unwrap_or_default(),
     }
 }
 
@@ -114,7 +136,7 @@ pub(crate) fn parse_browse(params: &HashMap<String, String>) -> BrowseParams {
 fn public_post(j: &mut Value) {
     if let Value::Object(m) = j {
         for k in [
-            "plaintext", "mobiledoc", "lexical", "email_recipient_filter", "published_by",
+            "mobiledoc", "lexical", "markdown", "status", "type", "email_recipient_filter", "published_by",
             "newsletter_id", "locale", "email_subject", "show_title_and_feature_image",
         ] {
             m.remove(k);
@@ -132,7 +154,84 @@ fn public_post(j: &mut Value) {
 /// prefixed ones.
 pub(crate) async fn resolve(state: &AppState) -> Arc<dyn Fn(&Value) -> String + Send + Sync> {
     let router: Arc<RouterTree> = state.router.read().await.clone();
-    crate::themes::url_resolver(router)
+    let resolver = crate::themes::url_resolver(router);
+    let site = state.site_url();
+    Arc::new(move |value| ghost_core::url::absolute(&site, &resolver(value)))
+}
+
+/// Apply fields consistently to both read and browse responses.
+pub(crate) fn select_fields(value: &mut Value, q: &BrowseParams) {
+    if !q.fields.is_empty() {
+        if let Some(object) = value.as_object_mut() {
+            object.retain(|key, _| q.fields.contains(key));
+        }
+    }
+}
+
+fn content_post(
+    post: &ghost_core::models::Post,
+    authors: &[ghost_core::models::User],
+    tags: &[ghost_core::models::Tag],
+    q: &BrowseParams,
+    site_url: &str,
+    resolver: &dyn Fn(&Value) -> String,
+) -> Value {
+    let public_tags: Vec<_> = tags.iter().filter(|tag| tag.visibility == "public").cloned().collect();
+    let mut value = ghost_core::models::post_to_json(post, authors, &public_tags, "");
+    value["url"] = json!(resolver(&value));
+    // Public Content keys never grant access to a members-only body.
+    let mut html = post.html.clone().unwrap_or_default();
+    let access = post.visibility == "public";
+    if !access {
+        html = html.split_once("<!--members-only-->").map(|(preview, _)| preview.to_owned()).unwrap_or_default();
+    }
+    // Segment-gated blocks are also private even on otherwise public posts.
+    static BLOCKS: std::sync::LazyLock<regex::Regex> = std::sync::LazyLock::new(||
+        regex::Regex::new(r"(?s)<!--kg-gated-block:begin ([^\n]+?)\s*-->(.*?)<!--kg-gated-block:end-->").unwrap());
+    html = BLOCKS.replace_all(&html, |caps: &regex::Captures<'_>| {
+        if caps[1].split_whitespace().any(|param| param == "nonMember:true") { caps[2].to_string() } else { String::new() }
+    }).into_owned();
+    let plain = ghost_render::markdown::html_to_plaintext(&html);
+    value["access"] = json!(access);
+    value["html"] = json!(ghost_core::url::absolutize_html(site_url, &html));
+    value["plaintext"] = json!(plain);
+    if !access || html != post.html.as_deref().unwrap_or_default() {
+        value["excerpt"] = json!(if html.is_empty() { String::new() } else {
+            post.custom_excerpt.clone().unwrap_or_else(|| ghost_core::models::excerpt_from_plaintext(Some(&plain), 50).unwrap_or_default())
+        });
+    }
+    for relation in ["authors", "tags"] {
+        if q.include.iter().any(|include| include == relation) {
+            if let Some(items) = value[relation].as_array_mut() {
+                for item in items {
+                    item["url"] = json!(resolver(item));
+                    absolute_images(item, site_url);
+                }
+            }
+            let primary = if relation == "authors" { "primary_author" } else { "primary_tag" };
+            value[primary] = value[relation].as_array().and_then(|items| items.first()).cloned().unwrap_or(Value::Null);
+        } else if let Some(object) = value.as_object_mut() {
+            object.remove(relation);
+            object.remove(if relation == "authors" { "primary_author" } else { "primary_tag" });
+        }
+    }
+    absolute_images(&mut value, site_url);
+    public_post(&mut value);
+    for format in ["html", "plaintext"] {
+        if !q.formats.iter().any(|f| f == format) {
+            value.as_object_mut().unwrap().remove(format);
+        }
+    }
+    select_fields(&mut value, q);
+    value
+}
+
+fn absolute_images(value: &mut Value, site: &str) {
+    for key in ["feature_image", "profile_image", "cover_image", "og_image", "twitter_image"] {
+        if let Some(path) = value.get(key).and_then(Value::as_str) {
+            value[key] = json!(ghost_core::url::absolute(site, path));
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -176,10 +275,7 @@ async fn browse_posts_impl(
             for p in &page.posts {
                 let authors = rel.authors_for(&p.id);
                 let tags = rel.tags_for(&p.id);
-                let mut j = ghost_core::models::post_to_json(p, &authors, &tags, "");
-                j["url"] = json!(resolver(&j));
-                j["type"] = json!(post_type);
-                public_post(&mut j);
+                let j = content_post(p, &authors, &tags, &q, &state.site_url(), &*resolver);
                 items.push(j);
             }
             let doc = if post_type == "page" { "pages" } else { "posts" };
@@ -190,35 +286,12 @@ async fn browse_posts_impl(
 }
 
 fn envelope(doc: &str, items: Vec<Value>, q: &BrowseParams, total: i64, page: i64, limit: i64) -> Response {
-    let pagination = ghost_core::models::pagination_json(page, if limit > 0 { limit } else { 15 }, total);
+    let pagination = ghost_core::models::pagination_json(page, if q.limit < 0 { total.max(1) } else if limit > 0 { limit } else { 15 }, total);
     let mut m = Map::new();
     m.insert(doc.to_string(), Value::Array(items));
     m.insert("meta".into(), json!({ "pagination": pagination }));
-    if !q.fields.is_empty() {
-        // minimal field filtering applied on the serialized shape
-        let filtered: Vec<Value> = m.get(doc)
-            .and_then(|v| v.as_array())
-            .map(|arr| {
-                arr.iter()
-                    .map(|item| {
-                        let mut out = Map::new();
-                        if let Value::Object(o) = item {
-                            for f in &q.fields {
-                                if let Some(v) = o.get(f) {
-                                    out.insert(f.clone(), v.clone());
-                                }
-                            }
-                            // url always included (Ghost)
-                            if let Some(v) = o.get("url") {
-                                out.insert("url".into(), v.clone());
-                            }
-                        }
-                        Value::Object(out)
-                    })
-                    .collect()
-            })
-            .unwrap_or_default();
-        m.insert(doc.to_string(), Value::Array(filtered));
+    if let Some(items) = m.get_mut(doc).and_then(Value::as_array_mut) {
+        for item in items { select_fields(item, q); }
     }
     ok_json(Value::Object(m))
 }
@@ -251,10 +324,8 @@ async fn read_post_impl(state: AppState, params: HashMap<String, String>, by: By
                 .unwrap_or_default();
             let authors = rel.authors_for(&post.id);
             let tags = rel.tags_for(&post.id);
-            let mut j = ghost_core::models::post_to_json(&post, &authors, &tags, "");
-            j["url"] = json!(resolver(&j));
-            j["type"] = json!(post_type);
-            public_post(&mut j);
+            let q = parse_browse(&params);
+            let j = content_post(&post, &authors, &tags, &q, &state.site_url(), &*resolver);
             let mut m = Map::new();
             let doc = if post_type == "page" { "pages" } else { "posts" };
             m.insert(doc.to_string(), Value::Array(vec![j]));
@@ -336,6 +407,7 @@ async fn browse_tags(State(state): State<AppState>, Query(params): Query<HashMap
                 .iter()
                 .map(|t| {
                     let mut j = ghost_core::models::tag_to_json(t, None);
+                    absolute_images(&mut j, &state.site_url());
                     let url = resolver(&j);
                     if let Value::Object(m) = &mut j {
                         m.insert("url".into(), json!(url));
@@ -361,10 +433,18 @@ async fn read_tag_by(state: AppState, by: BySelector, params: HashMap<String, St
         Ok(Some(t)) if t.visibility == "public" => {
             let resolver = resolve(&state).await;
             let mut j = ghost_core::models::tag_to_json(&t, None);
+            absolute_images(&mut j, &state.site_url());
             let url = resolver(&j);
             if let Value::Object(m) = &mut j {
                 m.insert("url".into(), json!(url));
             }
+            let q = parse_browse(&params);
+            if q.include.iter().any(|include| include == "count.posts") {
+                let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM posts_tags pt JOIN posts p ON p.id = pt.post_id WHERE pt.tag_id = ? AND p.status = 'published' AND p.type = 'post'")
+                    .bind(&t.id).fetch_one(&state.db).await.unwrap_or(0);
+                j["count"] = json!({"posts": count});
+            }
+            select_fields(&mut j, &q);
             ok_json(json!({ "tags": [j] }))
         }
         _ => not_found("tag"),
@@ -391,6 +471,33 @@ async fn read_tag_by_id(
 // authors
 // ---------------------------------------------------------------------------
 
+async fn author_post_counts(state: &AppState) -> Result<HashMap<String, i64>, ghost_core::GhostError> {
+    sqlx::query_as::<_, (String, i64)>("SELECT pa.author_id, COUNT(DISTINCT p.id) FROM posts_authors pa JOIN posts p ON p.id = pa.post_id WHERE p.status = 'published' AND p.type = 'post' GROUP BY pa.author_id")
+        .fetch_all(&state.db).await.map(|rows| rows.into_iter().collect())
+        .map_err(|error| ghost_core::GhostError::Db(error.to_string()))
+}
+
+fn sort_items(items: &mut [Value], order: Option<&str>) {
+    let fields: Vec<_> = order.unwrap_or("name asc").split(',').map(|part| {
+        let mut words = part.split_whitespace();
+        (words.next().unwrap_or("name"), words.next().is_some_and(|direction| direction.eq_ignore_ascii_case("desc")))
+    }).collect();
+    let at = |item: &Value, path: &str| {
+        path.split('.').try_fold(item, |value, key| value.get(key)).cloned().unwrap_or(Value::Null)
+    };
+    items.sort_by(|left, right| {
+        for (field, descending) in &fields {
+            let (left, right) = (at(left, field), at(right, field));
+            let comparison = match (left.as_i64(), right.as_i64()) {
+                (Some(left), Some(right)) => left.cmp(&right),
+                _ => left.as_str().unwrap_or("").cmp(right.as_str().unwrap_or("")),
+            };
+            if !comparison.is_eq() { return if *descending { comparison.reverse() } else { comparison }; }
+        }
+        std::cmp::Ordering::Equal
+    });
+}
+
 async fn browse_authors(State(state): State<AppState>, Query(params): Query<HashMap<String, String>>) -> Response {
     if let Err(resp) = authenticate(&state, &params).await {
         return resp;
@@ -400,13 +507,17 @@ async fn browse_authors(State(state): State<AppState>, Query(params): Query<Hash
         Ok(f) => f,
         Err(e) => return error_from(e),
     };
+    let counts = match author_post_counts(&state).await { Ok(counts) => counts, Err(error) => return error_from(error) };
     match repos::users::list(&state.db, true).await {
         Ok(users) => {
             let resolver = resolve(&state).await;
             let mut items: Vec<Value> = users
                 .iter()
+                .filter(|u| counts.get(&u.id).copied().unwrap_or(0) > 0)
                 .map(|u| {
                     let mut j = ghost_core::models::user_public_json(u, None);
+                    absolute_images(&mut j, &state.site_url());
+                    if q.include.iter().any(|include| include == "count.posts") { j["count"] = json!({"posts": counts.get(&u.id).unwrap_or(&0)}); }
                     let url = resolver(&j);
                     if let Value::Object(m) = &mut j {
                         m.insert("url".into(), json!(url));
@@ -417,6 +528,7 @@ async fn browse_authors(State(state): State<AppState>, Query(params): Query<Hash
             if let Some(f) = &filter {
                 items.retain(|i| ghost_nql::evaluate(f, i));
             }
+            sort_items(&mut items, q.order.as_deref());
             let total = items.len() as i64;
             let start = ((q.page.max(1) - 1) * q.limit.max(1)) as usize;
             let items: Vec<Value> = if q.limit < 0 {
@@ -439,13 +551,20 @@ async fn read_author_by(state: AppState, by: BySelector, params: HashMap<String,
         BySelector::Id(id) => repos::users::find_by_id(&state.db, &id).await,
     };
     match found {
-        Ok(Some(u)) if u.status.as_deref() == Some("active") => {
+        Ok(Some(u)) if u.status.as_deref() == Some("active") && u.visibility.as_deref() == Some("public") => {
+            let counts = match author_post_counts(&state).await { Ok(counts) => counts, Err(error) => return error_from(error) };
+            let count = counts.get(&u.id).copied().unwrap_or(0);
+            if count == 0 { return not_found("author"); }
+            let q = parse_browse(&params);
             let resolver = resolve(&state).await;
             let mut j = ghost_core::models::user_public_json(&u, None);
+            absolute_images(&mut j, &state.site_url());
             let url = resolver(&j);
             if let Value::Object(m) = &mut j {
                 m.insert("url".into(), json!(url));
             }
+            if q.include.iter().any(|include| include == "count.posts") { j["count"] = json!({"posts": count}); }
+            select_fields(&mut j, &q);
             ok_json(json!({ "authors": [j] }))
         }
         _ => not_found("author"),
@@ -536,6 +655,7 @@ async fn search_index_authors(State(state): State<AppState>, Query(params): Quer
                 .take(SEARCH_INDEX_LIMIT as usize)
                 .map(|u| {
                     let mut j = ghost_core::models::user_public_json(u, None);
+                    absolute_images(&mut j, &state.site_url());
                     let url = resolver(&j);
                     if let Value::Object(m) = &mut j {
                         m.insert("url".into(), json!(url));
@@ -563,6 +683,7 @@ async fn search_index_tags(State(state): State<AppState>, Query(params): Query<H
                 .iter()
                 .map(|t| {
                     let mut j = ghost_core::models::tag_to_json(t, None);
+                    absolute_images(&mut j, &state.site_url());
                     let url = resolver(&j);
                     if let Value::Object(m) = &mut j {
                         m.insert("url".into(), json!(url));

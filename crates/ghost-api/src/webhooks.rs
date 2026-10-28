@@ -331,3 +331,94 @@ mod tests {
         assert_ne!(header, later);
     }
 }
+
+/// API-originated changes must notify the same integrations as editor changes.
+pub fn fire_post_change(state: &AppState, current: &Value, before: Option<&Value>, change: &str) {
+    let page = current["type"] == "page";
+    let prefix = if page { "page" } else { "post" };
+    let old_status = before.and_then(|p| p["status"].as_str()).unwrap_or("");
+    let status = current["status"].as_str().unwrap_or("");
+    let mut previous = serde_json::Map::new();
+    if let Some(old) = before.and_then(Value::as_object) {
+        for (key, value) in old {
+            if current.get(key) != Some(value) { previous.insert(key.clone(), value.clone()); }
+        }
+    }
+    let resource = if change == "deleted" {
+        serde_json::json!({"current": null, "previous": current})
+    } else {
+        serde_json::json!({"current": current, "previous": previous})
+    };
+    let payload = serde_json::json!({prefix: resource});
+    for event in post_change_events(page, change, old_status, status,
+        before.and_then(|p| p["published_at"].as_str()), current["published_at"].as_str()) {
+        fire(state, event, payload.clone());
+    }
+    if change == "edited" {
+        for (relation_event, old, new) in [
+            (if page { "page.tag.attached" } else { "post.tag.attached" }, before, Some(current)),
+            (if page { "page.tag.detached" } else { "post.tag.detached" }, Some(current), before),
+        ] {
+            if let Some(tags) = new.and_then(|p| p["tags"].as_array()) {
+                for tag in tags {
+                    let present = old.and_then(|p| p["tags"].as_array()).is_some_and(|tags| tags.iter().any(|t| t["id"] == tag["id"]));
+                    if !present {
+                        fire(state, relation_event, serde_json::json!({prefix: {"current": current}, "tag": {"current": tag}}));
+                    }
+                }
+            }
+        }
+    }
+    if status == "published" || old_status == "published" {
+        fire(state, "site.changed", serde_json::json!({}));
+    }
+    if change != "deleted" && status == "published" && old_status != "published" && !page {
+        if let Some(config) = crate::slack::SlackConfig::from_settings(&state.settings) {
+            let title = state.settings.get_str("title").unwrap_or_else(|| "Ghost".into());
+            let current = current.clone();
+            tokio::spawn(async move {
+                if let Err(error) = crate::slack::notify_published(&config, &title,
+                    current["title"].as_str().unwrap_or("Untitled"), current["url"].as_str().unwrap_or(""),
+                    current["excerpt"].as_str().unwrap_or(""), current["primary_author"]["name"].as_str()).await {
+                    tracing::warn!("Slack notification failed: {}", error.message());
+                }
+            });
+        }
+    }
+}
+
+fn post_change_events(page: bool, change: &str, old: &str, new: &str, old_date: Option<&str>, new_date: Option<&str>) -> Vec<&'static str> {
+    let mut events = vec![match (page, change) {
+        (true, "added") => "page.added", (false, "added") => "post.added",
+        (true, "deleted") => "page.deleted", (false, "deleted") => "post.deleted",
+        (true, _) => "page.edited", (false, _) => "post.edited",
+    }];
+    if change == "deleted" { return events; }
+    match (old == "published", new == "published") {
+        (false, true) => events.push(if page { "page.published" } else { "post.published" }),
+        (true, true) => events.push(if page { "page.published.edited" } else { "post.published.edited" }),
+        (true, false) => events.push(if page { "page.unpublished" } else { "post.unpublished" }),
+        _ => {}
+    }
+    match (old == "scheduled", new == "scheduled") {
+        (false, true) => events.push(if page { "page.scheduled" } else { "post.scheduled" }),
+        (true, true) if old_date != new_date => events.push(if page { "page.rescheduled" } else { "post.rescheduled" }),
+        (true, false) => events.push(if page { "page.unscheduled" } else { "post.unscheduled" }),
+        _ => {}
+    }
+    events
+}
+
+
+pub fn fire_tag_change(state: &AppState, current: &Value, before: Option<&Value>, event: &'static str) {
+    let mut previous = serde_json::Map::new();
+    if let Some(old) = before.and_then(Value::as_object) {
+        for (key, value) in old {
+            if current.get(key) != Some(value) { previous.insert(key.clone(), value.clone()); }
+        }
+    }
+    let resource = if event == "tag.deleted" { serde_json::json!({"current": null, "previous": current}) }
+        else { serde_json::json!({"current": current, "previous": previous}) };
+    fire(state, event, serde_json::json!({"tag": resource}));
+    fire(state, "site.changed", serde_json::json!({}));
+}
