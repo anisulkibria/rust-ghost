@@ -15,7 +15,12 @@ use serde_json::{json, Value};
 use std::collections::HashMap;
 const PUBLIC: &str = "https://www.w3.org/ns/activitystreams#Public";
 pub fn enabled(state: &AppState) -> bool {
-    state.settings.get_bool("social_web_enabled") && !state.settings.get_bool("is_private")
+    state.settings.get_bool("social_web_enabled")
+        && !state.settings.get_bool("is_private")
+        // A hosting plan can withhold the social web entirely, in which case
+        // the site's own setting does not get a say. On a self-hosted install
+        // no limit is configured and this is always false.
+        && !state.limits.is_disabled("limitSocialWeb")
 }
 fn bad(message: &str) -> GhostError {
     GhostError::BadRequest(message.into())
@@ -695,3 +700,5 @@ mod receive_tests {
         assert!(content.is_empty());
     }
 }
+
+pub(crate) use network::client as safe_client;

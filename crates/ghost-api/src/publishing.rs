@@ -1,6 +1,6 @@
 //! Publishing workflows exposed to both the HTML admin and integrations.
 use crate::{permissions::{self,Role},AppState};
-use axum::{extract::{State,Path,Query},http::{StatusCode,HeaderMap},response::{Response,IntoResponse},routing::{get,post},Json,Router};
+use axum::{extract::{State,Path,Query,OriginalUri},http::{StatusCode,HeaderMap},response::{Response,IntoResponse},routing::{get,post},Json,Router};
 use ghost_core::{ids,dates,models::{Post,User}};
 use ghost_db::repos;
 use serde_json::{json,Value};
@@ -13,6 +13,23 @@ pub fn router()->Router<AppState>{
         .route("/editor/links/",get(search_links))
         .route("/editor/context/",get(editor_context))
         .route("/editor/newsletters/",get(editor_newsletters));
+    // Ghost's own spellings of the same operations, so its SDK, Zapier and
+    // every integration written against the documented API reach them. The
+    // port's own paths above stay: the admin's editor is written to them.
+    for resource in ["posts","pages"] {
+        for suffix in ["","/"] {
+            router=router
+                // `gift_links` is what Ghost calls an article gift link.
+                .route(&format!("/{resource}/{{id}}/gift_links{suffix}"),get(gift).post(gift).put(gift).delete(revoke_gift))
+                .route(&format!("/email_previews/{resource}/{{id}}{suffix}"),get(ghost_preview).post(test_email));
+        }
+        // Ghost bulk-edits with PUT rather than POSTing to `/bulk/`. The
+        // slashed form already carries this port's own POST, so only the
+        // method it is missing is added there.
+        router=router
+            .route(&format!("/{resource}/bulk"),axum::routing::put(bulk).post(bulk))
+            .route(&format!("/{resource}/bulk/"),axum::routing::put(bulk));
+    }
     for resource in ["posts","pages"] {
         router=router.route(&format!("/{resource}/{{id}}/copy/"),post(copy))
             .route(&format!("/{resource}/{{id}}/copy"),post(copy))
@@ -71,11 +88,33 @@ async fn restore(State(state):State<AppState>,headers:HeaderMap,Path((id,revisio
             Json(json!({if post.post_type=="page"{"pages"}else{"posts"}:[serialized(&state,&post).await]})).into_response()},Err(e)=>failed(e)
     }
 }
-async fn bulk(State(state):State<AppState>,headers:HeaderMap,Json(body):Json<Value>)->Response {
+async fn bulk(State(state):State<AppState>,headers:HeaderMap,OriginalUri(uri):OriginalUri,Query(q):Query<HashMap<String,String>>,Json(body):Json<Value>)->Response {
     let user=match permissions::require(&state,&headers,Role::Editor).await{Ok(u)=>u,Err(r)=>return r};
+    // Two body shapes reach here: this port's own `{ids, action, …}`, which
+    // the admin's post list sends, and Ghost's `{bulk:{action, meta:{…}}}`,
+    // which its SDK sends to the same operation. Accepting both is the point
+    // of carrying Ghost's path as well — a path that rejects every Ghost
+    // client's payload would be no use to one.
+    let body=match body.get("bulk") {
+        Some(wrapped)=>{
+            let meta=wrapped.get("meta").cloned().unwrap_or(Value::Null);
+            let take=|key:&str|wrapped.get(key).or_else(||meta.get(key)).cloned().unwrap_or(Value::Null);
+            json!({"ids":take("ids"),"action":take("action"),"visibility":take("visibility"),"tags":take("tags"),"tiers":take("tiers")})
+        }
+        None=>body,
+    };
+    let mut body=body;
+    if body["ids"].as_array().is_none_or(|ids|ids.is_empty()) {
+        let Some(filter)=q.get("filter").filter(|s|!s.is_empty())else{return error(StatusCode::UNPROCESSABLE_ENTITY,"Choose posts or provide a filter")};
+        let expression=match ghost_nql::parse(filter){Ok(e)=>e,Err(_)=>return error(StatusCode::UNPROCESSABLE_ENTITY,"Invalid post filter")};
+        let kind=if uri.path().contains("/pages/"){"page"}else{"post"};
+        let query=repos::posts::BrowsePosts{filter:Some(expression),post_type:Some(kind.into()),public:false,limit:-1,..Default::default()};
+        match repos::posts::browse(&state.db,&query).await{Ok(rows)=>body["ids"]=json!(rows.posts.iter().map(|p|p.id.clone()).collect::<Vec<_>>()),Err(e)=>return failed(e)}
+    }
     let ids=body["ids"].as_array().cloned().unwrap_or_default();
-    if ids.is_empty()||ids.len()>100||ids.iter().any(|v|v.as_str().is_none()){return error(StatusCode::UNPROCESSABLE_ENTITY,"Choose 1–100 posts")}
-    let action=body["action"].as_str().unwrap_or("");
+    if ids.is_empty()||ids.len()>10000||ids.iter().any(|v|v.as_str().is_none()){return error(StatusCode::UNPROCESSABLE_ENTITY,"Choose 1–10000 posts")}
+    let requested=body["action"].as_str().unwrap_or("");
+    let action=match requested{"unpublish"|"unschedule"=>"draft","access"=>"visibility","addTag"=>"tags",other=>other};
     if !matches!(action,"publish"|"draft"|"feature"|"unfeature"|"visibility"|"tags"){return error(StatusCode::UNPROCESSABLE_ENTITY,"Unsupported bulk action")}
     // Validate the complete selection before changing any post.
     let mut posts=Vec::new();
@@ -85,18 +124,29 @@ async fn bulk(State(state):State<AppState>,headers:HeaderMap,Json(body):Json<Val
         posts.push(post);
     }
     let visibility=body["visibility"].as_str().unwrap_or("");
-    if action=="visibility" && !matches!(visibility,"public"|"members"|"paid"){return error(StatusCode::UNPROCESSABLE_ENTITY,"Invalid bulk visibility")}
-    let tags:Option<Vec<String>>=body["tags"].as_array().map(|v|v.iter().filter_map(|id|id.as_str().map(str::to_owned)).collect());
+    if action=="visibility" && !matches!(visibility,"public"|"members"|"paid"|"tiers"){return error(StatusCode::UNPROCESSABLE_ENTITY,"Invalid bulk visibility")}
+    let tags:Option<Vec<String>>=body["tags"].as_array().map(|v|v.iter().filter_map(|id|id.as_str().or_else(||id["id"].as_str()).map(str::to_owned)).collect());
     if action=="tags" {
         let Some(tags)=tags.as_ref()else{return error(StatusCode::UNPROCESSABLE_ENTITY,"Tags must be an array")};
         for id in tags{if repos::tags::find_by_id(&state.db,id).await.ok().flatten().is_none(){return error(StatusCode::UNPROCESSABLE_ENTITY,"Tag not found")}}
     }
+    let tier_ids:Vec<String>=body["tiers"].as_array().into_iter().flatten().filter_map(|t|t.as_str().or_else(||t["id"].as_str()).map(str::to_owned)).collect();
+    if action=="visibility"&&visibility=="tiers" {
+        if tier_ids.is_empty(){return error(StatusCode::UNPROCESSABLE_ENTITY,"Choose paid tiers")}
+        for id in &tier_ids{let valid:bool=sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM products WHERE id=? AND type='paid')").bind(id).fetch_one(&state.db).await.unwrap_or(false);if !valid{return error(StatusCode::UNPROCESSABLE_ENTITY,"Unknown paid tier")}}
+    }
     let mut done=Vec::new();
     for post in posts {
+        let mut tags=tags.clone();
+        if requested=="addTag" {
+            let current:Vec<String>=sqlx::query_scalar("SELECT tag_id FROM posts_tags WHERE post_id=? ORDER BY sort_order").bind(&post.id).fetch_all(&state.db).await.unwrap_or_default();
+            let extra=tags.get_or_insert_with(Vec::new);let mut all=current;for id in extra.iter(){if !all.contains(id){all.push(id.clone())}}tags=Some(all);
+        }
+        let before=serialized(&state,&post).await;
         let changes=repos::posts::PostChanges{status:match action{"publish"=>Some("published".into()),"draft"=>Some("draft".into()),_=>None},
             featured:match action{"feature"=>Some(true),"unfeature"=>Some(false),_=>None},visibility:(action=="visibility").then(||visibility.into()),
-            tag_ids:if action=="tags"{tags.clone()}else{None},..Default::default()};
-        match repos::posts::update(&state.db,&post.id,&changes).await{Ok(p)=>{let _=repos::actions::record(&state.db,&post.post_type,&post.id,&user.id,"edited").await;done.push(p.id)},Err(e)=>return failed(e)}
+            tag_ids:if action=="tags"{tags}else{None},tier_ids:if action=="visibility"{Some(if visibility=="tiers"{tier_ids.clone()}else{Vec::new()})}else{None},..Default::default()};
+        match repos::posts::update(&state.db,&post.id,&changes).await{Ok(p)=>{let _=repos::actions::record(&state.db,&post.post_type,&post.id,&user.id,"edited").await;crate::webhooks::fire_post_change(&state,&serialized(&state,&p).await,Some(&before),"edited");done.push(p.id)},Err(e)=>return failed(e)}
     }
     Json(json!({"bulk":{"action":action,"successful":done}})).into_response()
 }
@@ -173,7 +223,8 @@ async fn preview(State(state):State<AppState>,headers:HeaderMap,Path(id):Path<St
 async fn test_email(State(state):State<AppState>,headers:HeaderMap,Path(id):Path<String>,Json(body):Json<Value>)->Response{
     let (user,post)=match authorize(&state,&headers,&id).await{Ok(v)=>v,Err(r)=>return r};
     if permissions::role(&state,&user).await.unwrap_or(Role::Contributor)<Role::Author{return permissions::denied()}
-    let email=body["email"].as_str().unwrap_or("");
+    if body["emails"].as_array().is_some_and(|emails|emails.len()!=1){return error(StatusCode::UNPROCESSABLE_ENTITY,"Choose one test recipient")}
+    let email=body["email"].as_str().or_else(||body.pointer("/emails/0").and_then(Value::as_str)).unwrap_or("");
     if !email.contains('@')||email.contains(['\r','\n'])||email.len()>191{return error(StatusCode::UNPROCESSABLE_ENTITY,"Enter an email address")}
     let html=match email_preview(&state,&post).await{Ok(html)=>html,Err(e)=>return failed(e)};
     let cfg=ghost_mail::MailConfig::from_settings(&state.settings,&state.settings.site_name(),&state.site_url());
@@ -205,4 +256,31 @@ async fn save_audience(State(state):State<AppState>,headers:HeaderMap,Path(id):P
 async fn editor_newsletters(State(state):State<AppState>,headers:HeaderMap)->Response{
     if let Err(r)=permissions::require(&state,&headers,Role::Contributor).await{return r}
     match repos::newsletters::list(&state.db).await{Ok(rows)=>Json(json!({"newsletters":rows.into_iter().filter(|n|n.status=="active").map(|n|json!({"id":n.id,"name":n.name})).collect::<Vec<_>>()})).into_response(),Err(e)=>failed(e)}
+}
+
+/// Fill derived body representations for imports that carry only editor source.
+/// This runs before the transactional database import and leaves supplied HTML intact.
+pub fn prepare_content_import(data:&Value)->Value{
+    let mut data=data.clone();
+    if let Some(posts)=data.get_mut("posts").and_then(Value::as_array_mut){
+        for post in posts{
+            if post["html"].as_str().is_none_or(|html|html.is_empty()){
+                let rendered=if let Some(source)=post["markdown"].as_str().filter(|s|!s.is_empty()){
+                    Some(ghost_render::markdown::render_markdown(source))
+                }else if let Some(source)=post["lexical"].as_str().filter(|s|!s.is_empty()){
+                    let html=ghost_render::lexical::to_html(source);let plain=ghost_render::markdown::html_to_plaintext(&html);let time=ghost_render::markdown::reading_time(&plain);Some((html,plain,time))
+                }else{None};
+                if let Some((html,plain,time))=rendered{post["html"]=json!(html);post["plaintext"]=json!(plain);post["reading_time"]=json!(time);}
+            }
+        }
+    }
+    data
+}
+
+async fn ghost_preview(State(state):State<AppState>,headers:HeaderMap,Path(id):Path<String>)->Response{
+    let (_,post)=match authorize(&state,&headers,&id).await{Ok(v)=>v,Err(r)=>return r};
+    match email_preview(&state,&post).await{
+        Ok(html)=>{let subject=post.meta.as_ref().and_then(|m|m.email_subject.as_deref()).or(post.title.as_deref()).unwrap_or("");let plaintext=ghost_mail::newsletter::plaintext(&html);([( "cache-control","private,no-store")],Json(json!({"email_previews":[{"html":html,"plaintext":plaintext,"subject":subject}]}))).into_response()},
+        Err(e)=>failed(e)
+    }
 }

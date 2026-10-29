@@ -16,10 +16,11 @@ use serde_json::{json, Value};
 use std::collections::HashMap;
 pub fn router() -> Router<AppState> {
     Router::new()
-        .route("/members/", get(browse).post(add))
-        .route("/members", get(browse).post(add))
+        .route("/members/", get(browse).post(add).delete(delete_filtered))
+        .route("/members", get(browse).post(add).delete(delete_filtered))
         .route("/members/export/", get(export))
-        .route("/members/bulk/", post(bulk))
+        .route("/members/bulk/", post(bulk).put(bulk_ghost))
+        .route("/members/bulk", axum::routing::put(bulk_ghost))
         .route("/members/{id}/", get(read).put(edit).delete(delete))
         .route("/members/{id}", get(read).put(edit).delete(delete))
         .route("/members/{id}/signin_urls/", get(signin_url))
@@ -57,6 +58,7 @@ async fn value(state: &AppState, member: repos::members::Member) -> Value {
         .into_iter()
         .map(|(id, name)| json!({"id":id,"name":name}))
         .collect::<Vec<_>>());
+    value["subscriptions"]=json!(crate::members::subscriptions_for(&state,&id).await);
     value
 }
 async fn browse(
@@ -94,7 +96,7 @@ async fn browse(
         Err(e) => failed(e),
     }
 }
-async fn read(
+pub(crate) async fn read(
     State(state): State<AppState>,
     headers: HeaderMap,
     Path(id): Path<String>,
@@ -145,6 +147,10 @@ async fn add(
     if tx.commit().await.is_err() {
         return error(StatusCode::INTERNAL_SERVER_ERROR, "Could not save member");
     }
+    // `admin` is Ghost's source for a member staff added by hand. There is
+    // no page history to attribute it to, and inventing one would put a
+    // staff action into the "which post brought them in" figures.
+    let _ = crate::member_events::record_signup(&state, &id, "admin", &Default::default()).await;
     match repos::members::find(&state.db, &id).await {
         Ok(Some(row)) => (
             StatusCode::CREATED,
@@ -256,8 +262,19 @@ async fn edit(
     if tx.commit().await.is_err() {
         return StatusCode::INTERNAL_SERVER_ERROR.into_response();
     }
+    // A staff member moving somebody's address is as much a part of their
+    // history as the member doing it themselves.
+    let _ = crate::member_events::record_email_change(&state, &id, &existing.email, &email).await;
     match repos::members::find(&state.db, &id).await {
-        Ok(Some(row)) => Json(json!({"members":[value(&state,row).await]})).into_response(),
+        Ok(Some(row)) => {
+            // Tier edits above can move a member between free, comped and
+            // paid, and the status timeline should say so.
+            if row.status != existing.status {
+                let _ =
+                    crate::member_events::record_status_change(&state, &id, Some(&existing.status), &row.status).await;
+            }
+            Json(json!({"members":[value(&state,row).await]})).into_response()
+        }
         _ => StatusCode::INTERNAL_SERVER_ERROR.into_response(),
     }
 }
@@ -324,7 +341,7 @@ async fn signin_url(
     let _ = repos::actions::record(&state.db, "member", &id, &actor.id, "impersonated").await;
     ([(header::CACHE_CONTROL,"private, no-store")],Json(json!({"member_signin_urls":[{"url":format!("{}/members/?token={token}&action=signin",state.site_url())}]}))).into_response()
 }
-async fn export(
+pub(crate) async fn export(
     State(state): State<AppState>,
     headers: HeaderMap,
     Query(q): Query<HashMap<String, String>>,
@@ -337,17 +354,16 @@ async fn export(
             Ok((rows, _)) => rows,
             Err(e) => return failed(e),
         };
-    let csv_field = |s: &str| format!("\"{}\"", s.replace('"', "\"\""));
-    let mut csv = String::from("email,name,status,created_at\r\n");
+    let mut writer=csv::Writer::from_writer(Vec::new());
+    if writer.write_record(["id","email","name","note","subscribed_to_emails","complimentary_plan","stripe_customer_id","created_at","deleted_at","labels","tiers"]).is_err(){return StatusCode::INTERNAL_SERVER_ERROR.into_response()}
     for row in rows {
-        csv.push_str(&format!(
-            "{},{},{},{}\r\n",
-            csv_field(&row.email),
-            csv_field(row.name.as_deref().unwrap_or("")),
-            csv_field(&row.status),
-            csv_field(&row.created_at)
-        ));
+        let labels:Vec<String>=sqlx::query_scalar("SELECT l.name FROM labels l JOIN members_labels ml ON ml.label_id=l.id WHERE ml.member_id=? ORDER BY l.name").bind(&row.id).fetch_all(&state.db).await.unwrap_or_default();
+        let tiers:Vec<String>=sqlx::query_scalar("SELECT p.name FROM products p JOIN members_products mp ON mp.product_id=p.id WHERE mp.member_id=? AND (mp.expiry_at IS NULL OR datetime(mp.expiry_at)>datetime('now')) ORDER BY p.name").bind(&row.id).fetch_all(&state.db).await.unwrap_or_default();
+        let customer:Option<String>=sqlx::query_scalar("SELECT customer_id FROM members_stripe_customers WHERE member_id=? LIMIT 1").bind(&row.id).fetch_optional(&state.db).await.ok().flatten();
+        let subscribed:bool=sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM members_newsletters WHERE member_id=?)").bind(&row.id).fetch_one(&state.db).await.unwrap_or(false);
+        if writer.write_record([row.id,row.email,row.name.unwrap_or_default(),row.note.unwrap_or_default(),subscribed.to_string(),(row.status=="comped").to_string(),customer.unwrap_or_default(),row.created_at,String::new(),labels.join(","),tiers.join(",")]).is_err(){return StatusCode::INTERNAL_SERVER_ERROR.into_response()}
     }
+    let csv=match writer.into_inner(){Ok(bytes)=>bytes,Err(_)=>return StatusCode::INTERNAL_SERVER_ERROR.into_response()};
     (
         [
             (header::CONTENT_TYPE, "text/csv; charset=utf-8"),
@@ -379,15 +395,10 @@ async fn bulk(
             .map(str::to_owned)
             .collect::<Vec<_>>()
     } else {
-        let Some(filter) = body["filter"].as_str().filter(|s| !s.is_empty()) else {
-            return error(
-                StatusCode::UNPROCESSABLE_ENTITY,
-                "Select members or provide a filter",
-            );
-        };
-        match repos::members::browse(&state.db, Some(filter), -1, 1).await {
-            Ok((rows, _)) => rows.into_iter().map(|m| m.id).collect(),
-            Err(e) => return failed(e),
+        let filter=body["filter"].as_str().filter(|s|!s.is_empty());
+        if filter.is_none()&&body["all"]!=true{return error(StatusCode::UNPROCESSABLE_ENTITY,"Select members or provide a filter")}
+        match repos::members::browse(&state.db,filter,-1,1).await{
+            Ok((rows,_))=>rows.into_iter().map(|m|m.id).collect(),Err(e)=>return failed(e)
         }
     };
     if selected.is_empty() || selected.len() > 10000 {
@@ -430,5 +441,17 @@ async fn bulk(
     if tx.commit().await.is_err() {
         return StatusCode::INTERNAL_SERVER_ERROR.into_response();
     }
-    Json(json!({"bulk":{"action":action,"successful":selected}})).into_response()
+    Json(json!({"bulk":{"action":action,"successful":selected,"meta":{"stats":{"successful":selected.len(),"unsuccessful":0}}}})).into_response()
+}
+
+async fn bulk_ghost(State(state):State<AppState>,headers:HeaderMap,Query(q):Query<HashMap<String,String>>,Json(body):Json<Value>)->Response {
+    let source=body.get("bulk").unwrap_or(&body);
+    let action=match source["action"].as_str().unwrap_or(""){"addLabel"=>"label","removeLabel"=>"unlabel",a=>a};
+    let mut data=source.clone();data["action"]=json!(action);data["all"]=json!(q.get("all").is_some_and(|v|v=="true"));
+    if data.get("filter").is_none(){data["filter"]=json!(q.get("filter"));}
+    if data.get("label_id").is_none(){data["label_id"]=source.pointer("/meta/label/id").or_else(||source.pointer("/meta/label_id")).cloned().unwrap_or(Value::Null);}
+    bulk(State(state),headers,Json(data)).await
+}
+async fn delete_filtered(State(state):State<AppState>,headers:HeaderMap,Query(q):Query<HashMap<String,String>>)->Response {
+    bulk(State(state),headers,Json(json!({"action":"delete","filter":q.get("filter"),"all":q.get("all").is_some_and(|v|v=="true")}))).await
 }

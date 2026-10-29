@@ -48,6 +48,8 @@ pub fn admin_comments_router() -> Router<AppState> {
         .route("/comments/{id}/reports/", get(reports))
         .route("/comments/{id}/likes", get(likes))
         .route("/comments/{id}/likes/", get(likes))
+        .route("/comments/{id}/dislikes", get(dislikes))
+        .route("/comments/{id}/dislikes/", get(dislikes))
         .route("/comments/{id}", get(read).put(edit))
         .route("/comments/{id}/", get(read).put(edit))
         // Per-member commenting suspension, which the members screen drives.
@@ -267,6 +269,15 @@ async fn likes(
     headers: HeaderMap,
 ) -> Response {
     related_members(state, headers, "comment_likes", "likes", &id, &q).await
+}
+
+async fn dislikes(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+    Query(q): Query<HashMap<String, String>>,
+    headers: HeaderMap,
+) -> Response {
+    related_members(state, headers, "comment_dislikes", "dislikes", &id, &q).await
 }
 
 /// Who liked or reported a comment — the detail behind the counts, which is

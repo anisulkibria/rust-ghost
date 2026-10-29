@@ -499,7 +499,9 @@ impl NewsletterEmail<'_> {
                 "&shy; ".repeat(200)
             )),
         );
-        data.insert("html".into(), json!(p.html));
+        let transistor=regex::Regex::new(r#"(?s)(?:<figure class="kg-card kg-transistor-card">)?<iframe[^>]*data-kg-transistor-embed=""[^>]*></iframe><script>.*?</script><noscript>.*?</noscript>(?:</figure>)?"#).unwrap();
+        let html=transistor.replace_all(&p.html,r#"<table class="kg-card kg-transistor-card" width="100%"><tr><td style="padding:24px;text-align:center"><a href="https://partner.transistor.fm/ghost/%%{uuid}%%" class="kg-transistor-title">Listen to your podcasts</a><p>Subscribe and listen to your personal podcast feed in your favorite app.</p></td></tr></table>"#);
+        data.insert("html".into(), json!(html));
 
         data.insert(
             "post".into(),
@@ -958,6 +960,72 @@ pub fn personalize(html: &str, r: &Recipient) -> String {
     out
 }
 
+/// A `Recipient` whose values are Mailgun's own placeholders, so that
+/// [`personalize`] rewrites a body *for a batch* rather than for one member.
+///
+/// Reusing the same substitution for both is the point: a second token parser
+/// for the batch path is a second thing to drift, and a drifted one sends a
+/// thousand people a body with `%%{uuid}%%` still in it.
+///
+/// Two of the tokens cannot become recipient variables, which is why a batch
+/// has to be uniform in `named`: the name row is removed from the document
+/// outright for a member who has no name, and `%%{name, "fallback"}%%`
+/// resolves to its literal. `html` picks the escaped variant for the values a
+/// member controls, because Mailgun's substitution is a plain string replace
+/// with no idea it is writing into markup.
+pub fn batch_placeholders(status: &str, named: bool, html: bool, manage_account_url: &str) -> Recipient {
+    let member_value = |name: &str| {
+        if html {
+            format!("%recipient.{name}_html%")
+        } else {
+            format!("%recipient.{name}%")
+        }
+    };
+    Recipient {
+        uuid: "%recipient.uuid%".into(),
+        key: "%recipient.key%".into(),
+        email: member_value("email"),
+        name: named.then(|| member_value("name")),
+        // Uniform within a batch — it is part of the variant key, and
+        // `status_text` is derived from it — so it is resolved here rather
+        // than sent a thousand times.
+        status: status.to_string(),
+        created_at: "%recipient.created_at%".into(),
+        unsubscribe_url: "%recipient.unsubscribe_url%".into(),
+        manage_account_url: manage_account_url.to_string(),
+    }
+}
+
+/// The values one member's placeholders resolve to.
+///
+/// Kept next to [`batch_placeholders`] so the names on the two sides are read
+/// together; a variable named here and not there resolves to nothing.
+pub fn batch_variables(r: &Recipient, named: bool) -> std::collections::BTreeMap<String, String> {
+    let name = r.name.as_deref().unwrap_or("").trim().to_string();
+    let mut variables = std::collections::BTreeMap::from([
+        ("uuid".to_string(), r.uuid.clone()),
+        ("key".to_string(), r.key.clone()),
+        ("email".to_string(), r.email.clone()),
+        ("email_html".to_string(), escape_html(&r.email)),
+        ("created_at".to_string(), r.created_at.clone()),
+        ("unsubscribe_url".to_string(), r.unsubscribe_url.clone()),
+    ]);
+    if named {
+        variables.insert("name_html".into(), escape_html(&name));
+        variables.insert("name".into(), name);
+    }
+    variables
+}
+
+fn escape_html(value: &str) -> String {
+    value
+        .replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+        .replace('"', "&quot;")
+        .replace('\'', "&#39;")
+}
+
 /// Remove the `<p>` carrying the `%%{name_class}%%` marker, label and all.
 ///
 /// The marker is only ever on that one element, in the subscription box; a
@@ -1292,6 +1360,18 @@ mod tests {
     }
 
     #[test]
+    fn transistor_players_become_personalized_listening_links_in_email(){
+        let site=SiteContext{title:"Acme".into(),url:"https://acme.test".into(),icon_url:None,locale:"en".into(),direction:"ltr".into(),accent_color:"#123456".into()};
+        let post=PostContext{title:"Podcasts".into(),html:r#"<iframe width="100%" data-kg-transistor-embed=""></iframe><script>player()</script><noscript><iframe src="https://partner.transistor.fm/ghost/embed/%7Buuid%7D"></iframe></noscript>"#.into(),..Default::default()};
+        let n=newsletter();
+        let html=NewsletterEmail{site:&site,newsletter:&n,post:&post,latest_posts:&[],comments_enabled:false}.render().unwrap();
+        let recipient=Recipient{uuid:"podcast-member".into(),email:"reader@example.test".into(),name:None,status:"paid".into(),created_at:String::new(),unsubscribe_url:String::new(),manage_account_url:String::new(),key:String::new()};
+        let html=personalize(&html,&recipient);
+        assert!(html.contains("https://partner.transistor.fm/ghost/podcast-member"));
+        assert!(!html.contains("<iframe"));assert!(!html.contains("player()"));
+    }
+
+    #[test]
     fn templates_compile_and_render_a_whole_email() {
         let site = SiteContext {
             title: "Acme".into(),
@@ -1515,5 +1595,102 @@ mod tests {
             out,
             r#"<a href="x" target="_blank">a</a><a href="y" target="_self">b</a>"#
         );
+    }
+}
+
+#[cfg(test)]
+mod batch_tests {
+    use super::*;
+
+    fn reader() -> Recipient {
+        Recipient {
+            uuid: "member-uuid".into(),
+            email: "ada & co@example.test".into(),
+            name: Some("Ada <Lovelace>".into()),
+            status: "paid".into(),
+            created_at: "1 Jan 2026".into(),
+            unsubscribe_url: "https://site.test/unsubscribe/?uuid=member-uuid&key=abc".into(),
+            manage_account_url: "https://site.test/#/portal/account".into(),
+            key: "abc".into(),
+        }
+    }
+
+    /// Substitute Mailgun's own syntax, the way Mailgun would.
+    fn substitute(body: &str, variables: &std::collections::BTreeMap<String, String>) -> String {
+        let mut out = body.to_string();
+        for (name, value) in variables {
+            out = out.replace(&format!("%recipient.{name}%"), value);
+        }
+        out
+    }
+
+    const BODY: &str = "Hi %%{name, \"there\"}%%, you are %%{status}%% since %%{created_at}%%. \
+         <a href=\"%%{unsubscribe_url}%%\">Unsubscribe</a> <a href=\"https://s/r/o/e/?m=%%{uuid}%%&k=%%{key}%%\">x</a> \
+         %%{email}%% %%{manage_account_url}%% %%{status_text}%%";
+
+    /// The invariant the whole batch path rests on: one body plus recipient
+    /// variables has to come out exactly as the per-recipient substitution
+    /// would have. If these ever diverge, a thousand people get a body with
+    /// somebody else's details — or with the raw token still in it.
+    #[test]
+    fn a_batch_body_plus_variables_equals_per_recipient_substitution() {
+        let reader = reader();
+        let direct = personalize(BODY, &reader);
+        let batched = personalize(BODY, &batch_placeholders(&reader.status, true, false, &reader.manage_account_url));
+        assert_eq!(substitute(&batched, &batch_variables(&reader, true)), direct);
+    }
+
+    /// The same, for a member with no name: the row is cut from the document
+    /// and the defaulted token falls back, neither of which a provider
+    /// variable can express — which is why "has a name" splits the batch.
+    #[test]
+    fn an_unnamed_member_takes_the_fallback_in_a_batch_too() {
+        let mut reader = reader();
+        reader.name = None;
+        let direct = personalize(BODY, &reader);
+        let batched = personalize(BODY, &batch_placeholders(&reader.status, false, false, &reader.manage_account_url));
+        let substituted = substitute(&batched, &batch_variables(&reader, false));
+        assert_eq!(substituted, direct);
+        assert!(substituted.contains("Hi there,"), "{substituted}");
+        // No name variable is sent, because the body has nowhere to put one.
+        assert!(!batch_variables(&reader, false).contains_key("name"));
+    }
+
+    /// Mailgun's substitution is a plain string replace with no idea it is
+    /// writing into markup, so the html body points at escaped variants of
+    /// the values a member controls.
+    #[test]
+    fn the_html_body_uses_escaped_variants_of_member_controlled_values() {
+        let reader = reader();
+        let html = personalize(BODY, &batch_placeholders(&reader.status, true, true, &reader.manage_account_url));
+        assert!(html.contains("%recipient.name_html%"), "{html}");
+        assert!(html.contains("%recipient.email_html%"), "{html}");
+        // Trusted, server-built values are not escaped: an entity-encoded
+        // ampersand in an href would break the link.
+        assert!(html.contains("%recipient.unsubscribe_url%"), "{html}");
+        assert!(html.contains("m=%recipient.uuid%&k=%recipient.key%"), "{html}");
+        let variables = batch_variables(&reader, true);
+        assert_eq!(variables["name_html"], "Ada &lt;Lovelace&gt;");
+        assert_eq!(variables["name"], "Ada <Lovelace>");
+        assert_eq!(variables["email_html"], "ada &amp; co@example.test");
+        assert_eq!(variables["unsubscribe_url"], reader.unsubscribe_url);
+    }
+
+    #[test]
+    fn a_recipients_message_id_is_the_same_on_both_sides() {
+        let id = crate::recipient_message_id("email-id", "reader@example.test", "mg.example");
+        // Deterministic in the pair, so a retried batch reuses it rather
+        // than orphaning the events already recorded against it.
+        assert_eq!(id, crate::recipient_message_id("email-id", "reader@example.test", "mg.example"));
+        assert_ne!(id, crate::recipient_message_id("email-id", "other@example.test", "mg.example"));
+        assert_ne!(id, crate::recipient_message_id("other-email", "reader@example.test", "mg.example"));
+        // Ghost's shape: `{email id}.{32 hex}@{domain}`, address not exposed.
+        let (prefix, domain) = id.split_once('@').unwrap();
+        assert_eq!(domain, "mg.example");
+        let (email_id, digest) = prefix.split_once('.').unwrap();
+        assert_eq!(email_id, "email-id");
+        assert_eq!(digest.len(), 32);
+        assert!(digest.chars().all(|c| c.is_ascii_hexdigit()));
+        assert!(!id.contains("reader@example.test"));
     }
 }

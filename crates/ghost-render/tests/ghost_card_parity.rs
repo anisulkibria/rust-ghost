@@ -1,44 +1,45 @@
 //! Pins the Lexical renderer to Ghost's own output, card for card.
 //!
 //! `ghost-card-output.json` holds one Lexical document per Koenig card type
-//! together with the HTML Ghost 6.39.0 produced for it, captured by running
-//! each document through `@tryghost/kg-lexical-html-renderer` itself. Any
-//! drift from Ghost — a changed class, a dropped attribute, a different
-//! nesting — fails here rather than on someone's published site.
+//! together with the HTML Ghost produced for it, captured by running each
+//! document through `@tryghost/kg-lexical-html-renderer` itself —
+//! `ghost-card-output.mjs` beside it is the script that does the capturing,
+//! so the fixture can be refreshed against a newer Ghost. Any drift from
+//! Ghost — a changed class, a dropped attribute, a different nesting — fails
+//! here rather than on someone's published site.
 //!
-//! The `unsupported` list names the cards this renderer deliberately leaves
-//! alone: several kilobytes of templated markup each, with branches for
-//! layout, colour and thumbnail state. They are written by the editor, which
-//! runs Koenig's own renderer, so the only way to reach this path with one of
-//! them is content imported from elsewhere. A test asserts they stay empty
-//! rather than becoming a half-built card that themes would style as real.
+//! The `unsupported` list names cards this renderer deliberately leaves
+//! alone, and a test asserts they stay empty rather than becoming a
+//! half-built card themes would style as real. It is currently empty: every
+//! card in the fixture is rendered, including the Transistor player. Member
+//! and publication identity are substituted at the final render boundary.
 use serde_json::Value;
 
 fn golden() -> Value {
     serde_json::from_str(include_str!("ghost-card-output.json")).expect("fixture parses")
 }
 
-/// Whitespace between block-level tags does not change the rendered page, and
-/// Ghost's own templates are indented; compare without it.
+/// Ghost's card templates are indented source, so its output carries runs of
+/// newlines and spaces that no browser renders and no theme can select on.
+/// Every run collapses to one space, and a run sitting between two tags goes
+/// altogether — which is what the browser does with it.
+///
+/// Deliberately not a full trim: one space between two words is still one
+/// space, so a renderer that loses a real space inside a sentence still fails.
 fn normalise(html: &str) -> String {
     let mut out = String::with_capacity(html.len());
     let mut chars = html.chars().peekable();
     while let Some(c) = chars.next() {
-        if c == '>' {
-            out.push('>');
-            let mut seen_space = false;
+        if c.is_whitespace() {
             while chars.peek().is_some_and(|n| n.is_whitespace()) {
                 chars.next();
-                seen_space = true;
             }
-            if seen_space && chars.peek() != Some(&'<') {
-                out.push(' ');
-            }
+            out.push(' ');
         } else {
             out.push(c);
         }
     }
-    out.trim().to_string()
+    out.replace("> <", "><").trim().to_string()
 }
 
 #[test]
@@ -77,7 +78,7 @@ fn the_fixture_covers_every_card_ghost_ships() {
     const CARDS: &[&str] = &[
         "codeblock", "image", "markdown", "video", "audio", "callout", "call-to-action", "horizontalrule", "html",
         "file", "toggle", "button", "header", "bookmark", "paywall", "product", "embed", "email", "gallery",
-        "email-cta", "signup",
+        "email-cta", "signup", "transistor",
     ];
     let golden = golden();
     let documents: String = golden["cases"]

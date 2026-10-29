@@ -23,6 +23,15 @@ pub struct AppState {
     /// but it does not exist until setup has run, hence the `Option` and the
     /// lazy fill rather than a value resolved at boot.
     pub frontend_key: Arc<RwLock<Option<String>>>,
+    /// Ceilings the host has put on this site, read once from
+    /// `hostSettings.limits`. Empty on a self-hosted install, where every
+    /// check is a map lookup that finds nothing — see [`ghost_db::limits`].
+    ///
+    /// Resolved at boot rather than per request because it is config: it
+    /// cannot change while the process runs, and the checks sit on paths
+    /// (every API key authentication, every upload) where re-parsing it would
+    /// be pure waste.
+    pub limits: Arc<ghost_db::limits::Limits>,
 }
 
 impl AppState {

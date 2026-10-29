@@ -148,6 +148,7 @@ pub fn comments_router() -> Router<AppState> {
         ("post/{post_id}", get(browse_by_post)),
         ("{id}/replies", get(replies)),
         ("{id}/like", post(like).delete(unlike)),
+        ("{id}/dislike", post(dislike).delete(undislike)),
         ("{id}/report", post(report)),
         ("{id}", get(read).put(edit).delete(destroy)),
         ("", get(browse).post(add)),
@@ -336,6 +337,7 @@ pub fn comment_json(c: &CommentWithRelations, audience: Audience, site_url: &str
     counts.insert("replies".into(), json!(c.counts.replies));
     counts.insert("direct_replies".into(), json!(c.counts.direct_replies));
     counts.insert("likes".into(), json!(c.counts.likes));
+    counts.insert("dislikes".into(), json!(c.counts.dislikes));
     if !public {
         counts.insert("reports".into(), json!(c.counts.reports));
     }
@@ -885,47 +887,71 @@ fn with_invalidation(c: &repo::Comment, mut resp: Response) -> Response {
 // ---------------------------------------------------------------------------
 
 async fn like(State(state): State<AppState>, Path(id): Path<String>, headers: HeaderMap) -> Response {
-    if let Err(e) = check_enabled(&state) {
+    react(&state, &id, &headers, repo::Reaction::Like).await
+}
+
+async fn unlike(State(state): State<AppState>, Path(id): Path<String>, headers: HeaderMap) -> Response {
+    unreact(&state, &id, &headers, repo::Reaction::Like).await
+}
+
+async fn dislike(State(state): State<AppState>, Path(id): Path<String>, headers: HeaderMap) -> Response {
+    react(&state, &id, &headers, repo::Reaction::Dislike).await
+}
+
+async fn undislike(State(state): State<AppState>, Path(id): Path<String>, headers: HeaderMap) -> Response {
+    unreact(&state, &id, &headers, repo::Reaction::Dislike).await
+}
+
+/// Both directions of a reaction, since nothing about them differs but the
+/// sign and the wording of the "already done that" refusal.
+async fn react(state: &AppState, id: &str, headers: &HeaderMap, reaction: repo::Reaction) -> Response {
+    if let Err(e) = check_enabled(state) {
         return api_error(&e);
     }
-    let Some(member) = crate::members::current_member(&state, &headers).await else {
+    let Some(member) = crate::members::current_member(state, headers).await else {
         return err(StatusCode::UNAUTHORIZED, "Unable to find member", "UnauthorizedError");
     };
-    for check in [check_member_commenting(&member), check_comment_access(&state, &member)] {
+    for check in [check_member_commenting(&member), check_comment_access(state, &member)] {
         if let Err(e) = check {
             return api_error(&e);
         }
     }
-    match repo::has_liked(&state.db, &id, &member.id).await {
+    match repo::has_reacted(&state.db, id, &member.id, reaction).await {
         Ok(true) => {
-            return err(
-                StatusCode::BAD_REQUEST,
-                "This comment was liked already",
-                "BadRequestError",
-            )
+            let already = match reaction {
+                repo::Reaction::Like => "This comment was liked already",
+                repo::Reaction::Dislike => "This comment was disliked already",
+            };
+            return err(StatusCode::BAD_REQUEST, already, "BadRequestError");
         }
         Err(e) => return api_error(&e),
         Ok(false) => {}
     }
-    if let Err(e) = repo::like(&state.db, &id, &member.id).await {
+    // Reacting the other way moves the reaction rather than adding a second:
+    // a member has one opinion per comment.
+    if let Err(e) = repo::react(&state.db, id, &member.id, reaction).await {
         return api_error(&e);
     }
-    invalidated_no_content(&state, &id).await
+    invalidated_no_content(state, id).await
 }
 
-async fn unlike(State(state): State<AppState>, Path(id): Path<String>, headers: HeaderMap) -> Response {
-    if let Err(e) = check_enabled(&state) {
+async fn unreact(state: &AppState, id: &str, headers: &HeaderMap, reaction: repo::Reaction) -> Response {
+    if let Err(e) = check_enabled(state) {
         return api_error(&e);
     }
-    let Some(member) = crate::members::current_member(&state, &headers).await else {
+    let Some(member) = crate::members::current_member(state, headers).await else {
         return err(StatusCode::UNAUTHORIZED, "Unable to find member", "UnauthorizedError");
     };
     if let Err(e) = check_member_commenting(&member) {
         return api_error(&e);
     }
-    match repo::unlike(&state.db, &id, &member.id).await {
-        Ok(true) => invalidated_no_content(&state, &id).await,
-        Ok(false) => err(StatusCode::NOT_FOUND, "Unable to find like", "NotFoundError"),
+    let missing = match reaction {
+        repo::Reaction::Like => "Unable to find like",
+        repo::Reaction::Dislike => "Unable to find dislike",
+    };
+    match repo::unreact(&state.db, id, &member.id, reaction).await {
+        Ok(true) => invalidated_no_content(state, id).await,
+        Ok(false) => err(StatusCode::NOT_FOUND, missing, "NotFoundError"),
         Err(e) => api_error(&e),
     }
 }

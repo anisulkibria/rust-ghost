@@ -27,6 +27,12 @@ pub const COMMENTS_VERSION: &str = "1.6";
 /// `ghost_head`: it only ever appears in the snippet Settings → Growth hands
 /// out, which is why it is loaded from the CDN by whoever pastes it.
 pub const SIGNUP_FORM_VERSION: &str = "0.4";
+/// `announcement-bar.min.js` — the bar Settings → Site → Announcement bar
+/// fills in. It has to be client-side rather than server-rendered for two
+/// reasons: the audience is per-member, so the markup differs by visitor and
+/// could not be cached; and a dismissal has to be remembered, which the
+/// script does in `localStorage` keyed on the announcement's own content.
+pub const ANNOUNCEMENT_BAR_VERSION: &str = "1.1";
 
 pub fn portal_script_url() -> String {
     format!("https://cdn.jsdelivr.net/ghost/portal@~{PORTAL_VERSION}/umd/portal.min.js")
@@ -46,6 +52,12 @@ pub fn comments_script_url() -> String {
 
 pub fn signup_form_script_url() -> String {
     format!("https://cdn.jsdelivr.net/ghost/signup-form@~{SIGNUP_FORM_VERSION}/umd/signup-form.min.js")
+}
+
+pub fn announcement_bar_script_url() -> String {
+    format!(
+        "https://cdn.jsdelivr.net/ghost/announcement-bar@~{ANNOUNCEMENT_BAR_VERSION}/umd/announcement-bar.min.js"
+    )
 }
 
 /// Ghost ships these in `core/frontend/helpers/tpl/styles.js` and injects them

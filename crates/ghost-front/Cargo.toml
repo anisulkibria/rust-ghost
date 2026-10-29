@@ -27,4 +27,7 @@ regex = { workspace = true }
 form_urlencoded = { workspace = true }
 hex = { workspace = true }
 sha2 = { workspace = true }
-image = { version = "0.25", default-features = false, features = ["jpeg", "png", "webp", "gif"] }
+image = { version = "0.25", default-features = false, features = ["jpeg", "png", "webp", "gif", "avif"] }
+
+avif-decode = { version = "3", default-features = false }
+maxminddb = "0.31"

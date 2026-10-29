@@ -8,7 +8,7 @@ use axum::routing::{get, post};
 use axum::Router;
 use ghost_db::repos;
 use serde::Deserialize;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
 use ghost_api::AppState;
@@ -16,6 +16,7 @@ use ghost_api::AppState;
 pub mod automations;
 pub mod comments;
 pub mod posts;
+pub mod rest;
 pub mod schedule;
 
 /// Upload ceiling for theme zips and content imports. Ghost's own limit is
@@ -42,17 +43,31 @@ fn admin_site_name() -> String {
     ADMIN_SETTINGS.try_with(|settings| settings.site_name()).unwrap_or_else(|_| "Ghost".into())
 }
 
+/// What the rail's brand link shows. A logo already carries the publication's
+/// name in it, so setting one next to the site name read as the same title
+/// twice: the logo stands alone, as large as the rail allows. With no logo the
+/// name (or, failing that, the title) takes the slot, and a site that has set
+/// neither falls back to the admin icon.
 fn admin_brand_mark() -> String {
-    let image = ADMIN_SETTINGS.try_with(|settings| {
-        ["logo", "icon"].iter().find_map(|key| {
-            settings.get_str(key).filter(|value| !value.trim().is_empty())
-        })
-    }).ok().flatten();
-    match image {
-        Some(url) => format!(
-            r#"<span class="mark brand-image"><img src="{}" alt=""></span>"#,
-            esc(&ghost_core::url::base_asset(url.trim())),
-        ),
+    let (logo, name) = ADMIN_SETTINGS.try_with(|settings| {
+        let pick = |key: &str| {
+            settings.get_str(key)
+                .map(|value| value.trim().to_string())
+                .filter(|value| !value.is_empty())
+        };
+        (pick("logo"), pick("name").or_else(|| pick("title")))
+    }).unwrap_or((None, None));
+    if let Some(url) = logo {
+        // The name goes in `alt` so the link still announces the publication
+        // when the image is missing or images are off.
+        return format!(
+            r#"<span class="brand-logo"><img src="{}" alt="{}"></span>"#,
+            esc(&ghost_core::url::base_asset(&url)),
+            esc(name.as_deref().unwrap_or("")),
+        );
+    }
+    match name {
+        Some(name) => format!(r#"<span class="brand-name"><b>{}</b></span>"#, esc(&name)),
         None => format!(r#"<span class="mark brand-admin">{}</span>"#, include_str!("../assets/admin-panel.svg")),
     }
 }
@@ -71,9 +86,12 @@ pub fn admin_ui_router(state: AppState) -> Router<AppState> {
         .route("/analytics/", get(analytics_page))
         .route("/modules/", get(modules_page))
         .route("/social/", get(social_page))
-        .route("/machine-payments/", get(machine_payments_page))
+        // Machine payments was a module card before it moved in with the other
+        // payment settings; the old path keeps any bookmark working.
+        .route("/machine-payments/", get(|| async { Redirect::to("/ghost/settings/machine-payments/") }))
         .route("/settings/checkout/", get(checkout_design_page))
         .route("/members/", get(members_page).post(member_create))
+        .route("/members/bulk/", post(members_bulk))
         .route("/members/export/", get(members_export))
         .route("/members/import/", post(members_import).layer(axum::extract::DefaultBodyLimit::max(MAX_UPLOAD_BYTES)))
         .route("/members/import/run/", post(members_import_run))
@@ -100,10 +118,15 @@ pub fn admin_ui_router(state: AppState) -> Router<AppState> {
         .route("/automations/{id}/actions/{action_id}/test/", post(automations::action_test))
         .route("/posts/", get(posts_list))
         .route("/posts/new/", get(editor_new).post(editor_create))
+        // Static `bulk` ahead of `{id}`, the same arrangement every other
+        // fixed segment in these lists relies on.
+        .route("/posts/bulk/", post(posts_bulk))
         .route("/posts/{id}/", get(editor_page).post(editor_save))
         .route("/posts/{id}/delete/", post(post_delete))
+        .route("/posts/{id}/analytics/", get(post_analytics_page))
         .route("/pages/", get(pages_list))
         .route("/pages/new/", get(page_new).post(page_create))
+        .route("/pages/bulk/", post(pages_bulk))
         .route("/pages/{id}/", get(editor_page).post(editor_save))
         .route("/pages/{id}/delete/", post(page_delete))
         .route("/tags/", get(tags_list).post(tag_create))
@@ -137,6 +160,7 @@ pub fn admin_ui_router(state: AppState) -> Router<AppState> {
         .route("/settings/features/", get(features_page).post(features_save))
         .route("/settings/site/", get(site_page).post(site_save))
         .route("/settings/membership/", get(membership_page).post(membership_save))
+        .route("/settings/machine-payments/", get(machine_payments_page))
         .route("/settings/membership/stripe/connect/", post(stripe_connect))
         .route("/settings/membership/stripe/oauth/start/", post(stripe_oauth_start))
         .route("/settings/membership/stripe/oauth/finish/", post(stripe_oauth_finish))
@@ -255,6 +279,33 @@ pub fn admin_ui_router(state: AppState) -> Router<AppState> {
         .route("/assets/{version}/{file}", get(admin_asset))
         .layer(axum::middleware::from_fn(apply_base_path))
         .layer(axum::middleware::from_fn_with_state(state, with_admin_settings))
+}
+
+/// `PUT /emails/{id}/retry`, for merging into the Admin API.
+///
+/// It belongs with the rest of the emails family in `ghost-api`, but retrying
+/// means rendering and sending the newsletter again, which lives here. The
+/// binary has both crates in scope and merges this into the same `/admin`
+/// nest, so the route sits at `/ghost/api/admin/emails/{id}/retry` and under
+/// the versioned prefixes alongside its siblings.
+pub fn email_retry_router() -> Router<AppState> {
+    Router::new()
+        .route("/emails/{id}/retry", axum::routing::put(email_retry))
+        .route("/emails/{id}/retry/", axum::routing::put(email_retry))
+}
+
+async fn email_retry(State(state): State<AppState>, headers: HeaderMap, Path(id): Path<String>) -> Response {
+    if let Err(response) = ghost_api::permissions::require(&state, &headers, ghost_api::permissions::Role::Editor).await {
+        return response;
+    }
+    match retry_email(&state, &id).await {
+        Ok(sent) => axum::Json(serde_json::json!({"emails":[{"id":id,"retried_count":sent}]})).into_response(),
+        Err(message) => (
+            StatusCode::UNPROCESSABLE_ENTITY,
+            axum::Json(serde_json::json!({"errors":[{"message":message,"errorType":"ValidationError"}]})),
+        )
+            .into_response(),
+    }
 }
 
 /// The admin landing route, bound outside the `/ghost` nest.
@@ -379,6 +430,8 @@ fn icon(name: &str) -> &'static str {
         "chart" => r#"<path d="M5 9.2h3V19H5V9.2zm5.6-4.2h2.8v14h-2.8V5zm5.6 8H19v6h-2.8v-6z"/>"#,
         "history" => r#"<path d="M13 3a9 9 0 0 0-9 9H1l3.89 3.89.07.14L8.99 12H6c0-3.87 3.13-7 7-7s7 3.13 7 7-3.13 7-7 7c-1.93 0-3.68-.79-4.94-2.06l-1.42 1.42A8.954 8.954 0 0 0 13 21a9 9 0 0 0 0-18zm-1 5v5l4.28 2.54.72-1.21-3.5-2.08V8H12z"/>"#,
         "upload" => r#"<path d="M9 16h6v-6h4l-7-7-7 7h4v6zm-4 2h14v2H5v-2z"/>"#,
+        // arrows both ways: content coming in (import) and going out (export)
+        "import" => r#"<path d="M9 3L5 6.99h3V14h2V6.99h3L9 3zm7 14.01V10h-2v7.01h-3L15 21l4-3.99h-3z"/>"#,
         "calendar" => r#"<path d="M19 3h-1V1h-2v2H8V1H6v2H5c-1.11 0-1.99.9-1.99 2L3 19a2 2 0 0 0 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm0 16H5V9h14v10zm-9-6H7v-2h3v2zm4 0h-3v-2h3v2zm4 0h-3v-2h3v2z"/>"#,
         "person" => r#"<path d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z"/>"#,
         "lock" => r#"<path d="M18 8h-1V6c0-2.76-2.24-5-5-5S7 3.24 7 6v2H6c-1.1 0-2 .9-2 2v10c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V10c0-1.1-.9-2-2-2zm-6 9c-1.1 0-2-.9-2-2s.9-2 2-2 2 .9 2 2-.9 2-2 2zm3.1-9H8.9V6c0-1.71 1.39-3.1 3.1-3.1s3.1 1.39 3.1 3.1v2z"/>"#,
@@ -462,17 +515,20 @@ svg.i { width: 22px; height: 22px; flex: none; display: block; }
   background: var(--sc-low); position: sticky; top: 0; height: 100vh; overflow-y: auto;
   scrollbar-width: thin; scrollbar-color: var(--outline-variant) transparent;
   border-right: 1px solid color-mix(in srgb, var(--outline-variant) 55%, transparent); }
-.brand { display: flex; align-items: center; gap: 10px; padding: 10px 10px 14px;
-  color: inherit; text-decoration: none; border-radius: 12px; }
+/* One mark only: a logo, else the site name, else the admin icon. Whichever
+   lands here gets the whole slot, so it can run much larger than it could
+   beside a label. */
+.brand { display: flex; align-items: center; justify-content: center; min-height: 72px;
+  padding: 12px 8px 16px; color: inherit; text-decoration: none; border-radius: 12px; }
 .brand:hover { background: color-mix(in srgb, var(--on-surface) 6%, transparent); }
 .brand:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
-.brand .mark { width: 40px; height: 40px; flex: none; color: var(--primary); display: grid; place-items: center; }
-.brand .brand-image { width: 64px; height: 52px; }
-.brand .mark img { display: block; width: 100%; height: 100%; object-fit: contain; }
-.brand .brand-admin svg { width: 32px; height: 32px; }
-.brand .brand-name { min-width: 0; overflow-wrap: anywhere; color: inherit; }
-.brand b { font-size: 14px; font-weight: 600; letter-spacing: .1px; display: block; line-height: 1.2; }
-.brand span { font-size: 11px; color: var(--on-surface-variant); }
+.brand .brand-logo { display: block; max-width: 100%; }
+.brand .brand-logo img { display: block; max-width: 100%; width: auto; height: auto;
+  max-height: 56px; object-fit: contain; }
+.brand .mark { color: var(--primary); display: grid; place-items: center; flex: none; }
+.brand .brand-admin svg { width: 48px; height: 48px; }
+.brand .brand-name { min-width: 0; overflow-wrap: anywhere; color: inherit; text-align: center; }
+.brand b { font-size: 19px; font-weight: 600; letter-spacing: -.1px; display: block; line-height: 1.25; }
 .nav-item { display: flex; align-items: center; gap: 10px; padding: 6px 10px; border-radius: 10px;
   text-decoration: none; color: var(--on-surface-variant); font-size: 13.5px; font-weight: 500;
   transition: background .15s var(--ease), color .15s var(--ease); position: relative; }
@@ -1326,15 +1382,72 @@ dialog.unsplash button:focus-visible, .u-chip:focus-visible { outline: 2px solid
 --------------------------------------------------------------------------- */
 
 /* tools row: search takes the space, sort sits at the end */
-.list-tools { display: flex; gap: 12px; align-items: center; margin: 4px 0 16px; }
+/* `position` and a z-index of its own, because the toolbar carries `.rise`:
+   the entrance animates `transform`, which leaves the toolbar a stacking
+   context forever (the fill mode is `both`), and a stacking context traps
+   its popovers' z-index inside itself. Without this the sort and filter
+   menus open *underneath* the rows they are filtering — row text printing
+   straight through them. */
+.list-tools { position: relative; z-index: 40; display: flex; gap: 12px; align-items: center; margin: 4px 0 16px; }
 .list-tools .search { flex: 1; margin: 0; }
-.sort-picker { position: relative; display: flex; align-items: center; flex: none; }
-.sort-picker select { appearance: none; font-family: inherit; font-size: 14px; font-weight: 500;
-  height: 46px; padding: 0 38px 0 18px; border-radius: 999px; border: none; cursor: pointer;
-  background: var(--sc-lowest); color: var(--on-surface); box-shadow: var(--shadow-1); }
-.sort-picker .car { position: absolute; right: 12px; width: 20px; height: 20px; pointer-events: none;
-  color: var(--on-surface-variant); }
-.sort-picker select:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
+/* a toolbar that holds more than one form — search submits on its own, the
+   filter menu carries another, and forms cannot nest */
+.list-tools .tool-form { flex: 1; min-width: 0; display: flex; }
+/* the sort control: a menu of links, opened by the same <details> behaviour
+   the batch bar's popovers use — no native select left on this toolbar */
+.sort-menu { position: relative; flex: none; }
+.sort-menu > summary { list-style: none; display: flex; align-items: center; gap: 6px;
+  height: 46px; padding: 0 13px 0 18px; border-radius: 999px; background: var(--sc-lowest);
+  box-shadow: var(--shadow-1); cursor: pointer; font-size: 14px; font-weight: 500;
+  color: var(--on-surface); user-select: none; }
+.sort-menu > summary::-webkit-details-marker { display: none; }
+.sort-menu > summary .car { width: 18px; height: 18px; color: var(--on-surface-variant);
+  transition: transform .18s var(--ease); }
+.sort-menu[open] > summary .car { transform: rotate(180deg); }
+.sort-menu > summary:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
+.sort-menu .pop { position: absolute; right: 0; top: calc(100% + 8px); min-width: 210px; z-index: 45;
+  background: var(--sc-lowest); border: 1px solid var(--outline-variant); border-radius: 14px;
+  box-shadow: var(--shadow-2); padding: 6px; }
+.menu-item { display: flex; align-items: center; gap: 10px; padding: 9px 12px; border-radius: 9px;
+  font-size: 13.5px; font-weight: 500; color: var(--on-surface); text-decoration: none; }
+.menu-item:hover { background: color-mix(in srgb, var(--on-surface) 7%, transparent); }
+.menu-item .ck { width: 18px; height: 18px; flex: none; display: grid; place-items: center;
+  color: transparent; }
+.menu-item .ck svg { width: 16px; height: 16px; }
+.menu-item.on { font-weight: 600; }
+.menu-item.on .ck { color: var(--primary); }
+.menu-item:focus-visible { outline: 2px solid var(--primary); outline-offset: -2px; }
+
+/* the NQL filter menu: the same pill-and-popover as the sort menu, so the
+   toolbar reads as one row of controls rather than one control and a button
+   someone bolted on. A live filter tints the pill and lights a dot — the
+   state has to be visible from the toolbar, because a filtered list looks
+   exactly like a short one. */
+.filter-menu > summary { padding-left: 14px; gap: 8px; }
+.filter-menu > summary svg.i { width: 18px; height: 18px; color: var(--on-surface-variant); }
+.filter-menu.on > summary { background: var(--secondary-container); color: var(--on-secondary-container); }
+.filter-menu.on > summary svg.i { color: inherit; }
+.fm-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--primary); flex: none; }
+.filter-menu .pop { width: min(360px, calc(100vw - 32px)); padding: 16px; text-align: left;
+  max-height: calc(100vh - 160px); overflow-y: auto; }
+.filter-menu .pop .field { margin-bottom: 8px; }
+.fm-hint { margin: 0 0 14px; font-size: 11.5px; line-height: 1.5; color: var(--on-surface-variant);
+  font-family: var(--mono); word-break: break-word; }
+.fm-actions { display: flex; gap: 8px; }
+.fm-actions .btn { flex: 1; justify-content: center; }
+.fm-title { margin: 16px 0 8px; padding-top: 14px; border-top: 1px solid var(--outline-variant);
+  font-size: 11px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase;
+  color: var(--on-surface-variant); opacity: .75; }
+.fm-views { display: flex; flex-direction: column; gap: 2px; margin-bottom: 12px; }
+.fm-views .tiny { margin: 0; font-size: 12.5px; }
+.view-row { display: flex; align-items: center; gap: 4px; }
+.view-open { flex: 1; min-width: 0; text-align: left; padding: 8px 10px; border: none; border-radius: 9px;
+  background: transparent; color: var(--on-surface); font: inherit; font-size: 13.5px; font-weight: 500;
+  cursor: pointer; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.view-open:hover { background: color-mix(in srgb, var(--on-surface) 7%, transparent); }
+.icon-btn.tiny { width: 28px; height: 28px; flex: none; font-size: 17px; line-height: 1; }
+.fm-save .field { margin-bottom: 8px; }
+.fm-save .btn { width: 100%; justify-content: center; }
 
 /* status tabs */
 .seg-bar { display: flex; flex-wrap: wrap; gap: 8px; margin: 2px 0 16px; }
@@ -1354,13 +1467,13 @@ dialog.unsplash button:focus-visible, .u-chip:focus-visible { outline: 2px solid
 .post-list { background: var(--sc-lowest); border-radius: 20px; overflow: hidden;
   box-shadow: var(--shadow-1); }
 .post-row { display: flex; align-items: center; position: relative; }
-.post-row + .post-row::before { content: ""; position: absolute; top: 0; left: 122px; right: 16px;
+.post-row + .post-row::before { content: ""; position: absolute; top: 0; left: 170px; right: 16px;
   height: 1px; background: var(--outline-variant); }
 .post-row:hover { background: color-mix(in srgb, var(--on-surface) 4%, transparent); }
 .post-row:focus-within { background: color-mix(in srgb, var(--on-surface) 4%, transparent); }
 
 .post-row-link { flex: 1; min-width: 0; display: flex; align-items: center; gap: 16px;
-  padding: 11px 6px 11px 16px; text-decoration: none; color: inherit; }
+  padding: 11px 0 11px 16px; text-decoration: none; color: inherit; }
 .post-row-link:focus-visible { outline: 2px solid var(--primary); outline-offset: -3px;
   border-radius: 12px; }
 
@@ -1415,12 +1528,220 @@ dialog.unsplash button:focus-visible, .u-chip:focus-visible { outline: 2px solid
 
 /* delete, revealed on hover — it must not be the thing you hit while
    reaching for the post */
-.post-row-action { flex: none; padding-right: 8px; opacity: 0;
+.post-row-action { flex: none; width: 34px; height: 34px; opacity: 0;
   transition: opacity .16s var(--ease); }
-.post-row:hover .post-row-action, .post-row:focus-within .post-row-action { opacity: 1; }
+.post-row:hover .post-row-action, .post-row:focus-within .post-row-action,
+.member-row:hover .post-row-action, .member-row:focus-within .post-row-action { opacity: 1; }
 .post-row-action .icon-btn { width: 34px; height: 34px; }
 .post-row-action .icon-btn svg.i { width: 18px; height: 18px; }
 @media (hover: none) { .post-row-action { opacity: 1; } }
+
+/* ---- the trailing action column -------------------------------------------
+   One fixed-width column at the end of every row, holding whatever actions
+   that row has. It exists so the columns before it cannot move: these
+   actions used to sit loose at the end of a flex row, which meant a post
+   with an analytics link pushed its own status and numbers 42px left of a
+   draft's, and the head strip — which has no actions at all — labelled a
+   geometry none of the rows actually had. `--end` is declared on the list so
+   the strip can reserve exactly the width the rows spend.
+--------------------------------------------------------------------------- */
+.post-list { --end: 92px; }
+.member-list { --end: 50px; }
+.row-end { width: var(--end, 50px); flex: none; display: flex; align-items: center;
+  justify-content: flex-end; gap: 4px; padding-right: 10px; }
+
+/* ---- row checkboxes and batch selection -------------------------------------
+   One checkbox system across the posts, pages and members lists, drawn the
+   way the rest of the admin draws its controls: the input stays a real
+   checkbox (it is what the form submits), the visible box is its sibling —
+   18px, 2px on-surface-variant outline, 2px radius, primary fill with an
+   on-primary tick when checked, a dash while indeterminate. The hover and
+   active states are state layers over the whole 40px cell, the same
+   treatment `.icon-btn` gets, so the control feels like it belongs to the
+   row rather than sitting on it.
+--------------------------------------------------------------------------- */
+.row-check { flex: none; display: inline-grid; place-items: center; width: 40px; height: 40px;
+  margin-left: 8px; border-radius: 50%; cursor: pointer; position: relative;
+  transition: background .15s var(--ease); }
+.row-check:hover { background: color-mix(in srgb, var(--on-surface) 7%, transparent); }
+.row-check:active { background: color-mix(in srgb, var(--on-surface) 12%, transparent); }
+/* the input fills the cell rather than sitting at the size of the drawn box:
+   the whole 40px is then one target on the control itself, which is both the
+   M3 touch size and what makes shift-click ranges work from anywhere in it */
+.row-check input { position: absolute; inset: 0; width: 100%; height: 100%; margin: 0;
+  opacity: 0; cursor: pointer; }
+/* the drawn box is decoration over the real input and must not take the
+   click off it: the label forwards an activation either way, but a click
+   that lands on the input itself is the one that carries shift into the
+   range-select handler */
+.row-check .box { width: 18px; height: 18px; border-radius: 3px; border: 2px solid var(--on-surface-variant);
+  display: grid; place-items: center; color: transparent; background: transparent; pointer-events: none;
+  transition: background .16s var(--ease), border-color .16s var(--ease), color .16s var(--ease); }
+.row-check .box svg { width: 14px; height: 14px; display: block;
+  transform: scale(.55); opacity: 0;
+  transition: transform .18s var(--ease), opacity .12s var(--ease); }
+.row-check input:checked + .box, .row-check input:indeterminate + .box {
+  background: var(--primary); border-color: var(--primary); color: var(--on-primary); }
+.row-check input:checked + .box svg { transform: scale(1); opacity: 1; }
+.row-check input:indeterminate + .box svg { display: none; }
+.row-check input:indeterminate + .box::after { content: ""; width: 10px; height: 2.5px;
+  border-radius: 2px; background: var(--on-primary); }
+.row-check input:focus-visible + .box { outline: 2px solid var(--primary); outline-offset: 3px; }
+/* a chosen row keeps a faint primary tint, so a selection is legible without
+   hunting for each ticked box */
+.post-row:has(.row-check input:checked),
+.member-row:has(.row-check input:checked) {
+  background: color-mix(in srgb, var(--primary) 7%, transparent); }
+.post-row:has(.row-check input:checked) + .post-row::before,
+.member-row:has(.row-check input:checked) + .member-row::before { opacity: 0; }
+
+/* the column-heading strip: gives the select-all box a home and names the
+   numbers, so the stats columns stop being unlabeled right-aligned digits */
+.list-head { display: flex; align-items: center; gap: 16px; padding: 12px var(--end, 50px) 10px 0;
+  border-bottom: 1px solid var(--outline-variant); }
+.list-head .lh-spacer { width: 90px; flex: none; }
+.list-head .lh-spacer.face { width: 40px; }
+.list-head .lh-main { flex: 1; min-width: 0; }
+.list-head .lh-status { width: 192px; flex: none; }
+.list-head .lh-labels { width: 230px; flex: none; }
+.member-list .list-head .lh-status { width: 110px; }
+.list-head .lh-stats { display: flex; }
+.list-head .lh-stat { width: 66px; flex: none; text-align: right; }
+.lh-label { font-size: 11px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase;
+  color: var(--on-surface-variant); opacity: .75; white-space: nowrap; }
+
+/* the floating action bar. Pure CSS decides whether it is on screen — the
+   page `:has` a ticked row checkbox — so batch selection works before the
+   script has run (and without it entirely); the script only keeps the count
+   and the select-all box honest. Frosted like the sticky header, so rows
+   scrolling underneath it read as being behind glass. */
+form.batch { display: contents; }
+/* Centred by auto margins between a left:0/right:0 pair rather than by
+   `left:50%` and a translate: with `left:50%` the bar's available width is
+   only half the viewport, so a bar carrying every bulk action wrapped into a
+   two-row lozenge on a screen with room to spare. This way it measures
+   itself against the whole width and the transform is free for the
+   entrance. */
+.batch-bar { position: fixed; left: 0; right: 0; bottom: 26px; z-index: 70;
+  width: fit-content; margin-inline: auto;
+  display: flex; align-items: center; flex-wrap: wrap; gap: 2px; max-width: calc(100vw - 24px);
+  padding: 7px 10px 7px 18px; border-radius: 999px;
+  background: color-mix(in srgb, var(--surface) 88%, transparent);
+  backdrop-filter: blur(18px); -webkit-backdrop-filter: blur(18px);
+  border: 1px solid color-mix(in srgb, var(--outline-variant) 60%, transparent);
+  box-shadow: var(--shadow-2); color: var(--on-surface);
+  transform: translateY(16px) scale(.97); opacity: 0; pointer-events: none;
+  transition: transform .28s var(--ease), opacity .2s var(--ease); }
+body:has(.row-check input[name="ids"]:checked) .batch-bar {
+  transform: translateY(0) scale(1); opacity: 1; pointer-events: auto; }
+.bb-count { font-size: 13.5px; font-weight: 600; white-space: nowrap; padding-right: 12px;
+  margin-right: 6px; border-right: 1px solid var(--outline-variant); }
+.bb-count b { font-variant-numeric: tabular-nums; }
+.bb-btn { display: inline-flex; align-items: center; gap: 7px; height: 38px; padding: 0 14px;
+  border: none; border-radius: 999px; background: transparent; color: var(--on-surface);
+  font-family: inherit; font-size: 13.5px; font-weight: 500; cursor: pointer; white-space: nowrap;
+  transition: background .15s var(--ease), color .15s var(--ease); }
+.bb-btn:hover { background: color-mix(in srgb, var(--on-surface) 8%, transparent); }
+.bb-btn svg.i { width: 17px; height: 17px; }
+.bb-btn.danger { color: var(--error); }
+.bb-btn.danger:hover { background: var(--error-container); color: var(--on-error-container); }
+.bb-btn:focus-visible, .batch-pop > summary:focus-visible { outline: 2px solid var(--primary); outline-offset: -2px; }
+
+/* label picker, opening upward out of the bar */
+.batch-pop { position: relative; display: inline-flex; }
+
+.batch-pop > summary { list-style: none; }
+.batch-pop > summary::-webkit-details-marker { display: none; }
+.batch-pop .pop { position: absolute; bottom: calc(100% + 14px); right: 0; width: 300px;
+  background: var(--sc-lowest); border: 1px solid var(--outline-variant); border-radius: 16px;
+  box-shadow: var(--shadow-2); padding: 16px; text-align: left; }
+.batch-pop .pop::after { content: ""; position: absolute; bottom: -7px; right: 26px; width: 12px;
+  height: 12px; background: var(--sc-lowest); border-right: 1px solid var(--outline-variant);
+  border-bottom: 1px solid var(--outline-variant); transform: rotate(45deg); }
+.batch-pop .pop .field { margin: 0 0 12px; }
+.batch-pop .pop .btn { width: 100%; justify-content: center; }
+.batch-pop .pop p { margin: 10px 0 0; font-size: 12px; color: var(--on-surface-variant); }
+.batch-pop .pop .pop-title { margin: 0 0 12px; font-size: 13px; font-weight: 600;
+  color: var(--on-surface); }
+/* a tag list can run long — it scrolls inside the popover rather than
+   growing one off the top of the screen */
+.batch-pop .pop .chips { max-height: 220px; overflow-y: auto; }
+
+/* search came up empty — the one state the old client filter left as a
+   blank page */
+.filter-empty { display: none; padding: 44px 20px 48px; text-align: center;
+  color: var(--on-surface-variant); }
+.filter-empty.on { display: block; }
+.filter-empty .btn { margin-top: 16px; }
+
+/* ---- the members list ----------------------------------------------------
+   The same row language as the posts list, so the two heaviest screens in
+   the admin read as one product: checkbox, face, who they are, what they
+   belong to, where they stand, when they arrived.
+--------------------------------------------------------------------------- */
+.member-list { background: var(--sc-lowest); border-radius: 20px; overflow: hidden;
+  box-shadow: var(--shadow-1); }
+.member-row { display: flex; align-items: center; position: relative; }
+.member-row + .member-row::before { content: ""; position: absolute; top: 0; left: 120px; right: 16px;
+  height: 1px; background: var(--outline-variant); }
+.member-row:hover, .member-row:focus-within { background: color-mix(in srgb, var(--on-surface) 4%, transparent); }
+.member-row-link { flex: 1; min-width: 0; display: flex; align-items: center; gap: 16px;
+  padding: 11px 0 11px 16px; text-decoration: none; color: inherit; }
+.member-row-link:focus-visible { outline: 2px solid var(--primary); outline-offset: -3px; border-radius: 12px; }
+.member-face { width: 40px; height: 40px; flex: none; border-radius: 50%; overflow: hidden;
+  background: var(--sc-high); color: var(--on-surface-variant); display: grid; place-items: center;
+  font-size: 15px; font-weight: 600; }
+.member-face img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.member-main { flex: 1; min-width: 0; }
+.member-name { display: block; font-size: 15px; font-weight: 600; line-height: 1.3;
+  letter-spacing: -.006em; color: var(--on-surface); white-space: nowrap; overflow: hidden;
+  text-overflow: ellipsis; transition: color .18s var(--ease); }
+.member-row:hover .member-name { color: var(--primary); }
+.member-email { display: block; font-size: 12.5px; color: var(--on-surface-variant);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.member-labels { width: 230px; flex: none; display: flex; gap: 6px; overflow: hidden; }
+.label-pill { display: inline-flex; align-items: center; height: 22px; padding: 0 9px;
+  border-radius: 7px; background: var(--sc-high); color: var(--on-surface-variant);
+  font-size: 11.5px; font-weight: 500; white-space: nowrap; }
+.label-pill.more { background: transparent; border: 1px dashed var(--outline-variant); }
+.member-status { width: 110px; flex: none; }
+.member-added { width: 96px; flex: none; text-align: right; font-size: 12px;
+  color: var(--on-surface-variant); font-variant-numeric: tabular-nums; }
+.chip.free { background: transparent; border: 1px solid var(--outline); color: var(--on-surface-variant); }
+.chip.paid { background: var(--green-bg); color: var(--green-fg); }
+.chip.comped { background: var(--purple-bg); color: var(--purple-fg); }
+
+/* pagination — server-side pages, so it is links, styled to match the rest */
+.pager { display: flex; align-items: center; gap: 12px; margin: 16px 0 4px; font-size: 13px;
+  color: var(--on-surface-variant); }
+.pager .pages { font-variant-numeric: tabular-nums; }
+
+/* header popovers: "New member" and "Import" keep their forms, folded out of
+   the page flow until asked for — the list is the point of this screen, not
+   a create form that is used once a month */
+.head-pop { position: relative; }
+.head-pop > summary { list-style: none; }
+.head-pop > summary::-webkit-details-marker { display: none; }
+.head-pop .pop { position: absolute; right: 0; top: calc(100% + 12px); width: min(400px, 92vw);
+  z-index: 45; background: var(--sc-lowest); border: 1px solid var(--outline-variant);
+  border-radius: 20px; box-shadow: var(--shadow-2); padding: 20px; text-align: left; }
+.head-pop .pop .btn { width: 100%; }
+
+@media (max-width: 1100px) {
+  .member-labels { display: none; }
+  .list-head .lh-labels { display: none; }
+}
+@media (max-width: 900px) {
+  .member-added { display: none; }
+}
+@media (max-width: 680px) {
+  .member-status { width: auto; }
+  .member-row + .member-row::before { left: 112px; }
+  .list-head .lh-status { display: none; }
+  .list-head .lh-stats { display: none; }
+  .batch-bar { bottom: 14px; padding-left: 12px; }
+  .bb-count { border-right: none; padding-right: 4px; }
+}
 
 /* ---- page atmosphere ----
    A warm wash behind the head and a fine grain over everything, so the page
@@ -1461,7 +1782,7 @@ dialog.unsplash button:focus-visible, .u-chip:focus-visible { outline: 2px solid
 @media (max-width: 680px) {
   .post-row-status { display: none; }
   .post-row-thumb { width: 64px; }
-  .post-row + .post-row::before { left: 92px; }
+  .post-row + .post-row::before { left: 136px; }
   .post-row-link { gap: 12px; padding-left: 12px; }
   .post-row-action { opacity: 1; }
 }
@@ -1500,7 +1821,9 @@ dialog .d-actions { display: flex; justify-content: flex-end; gap: 8px; }
 @media (max-width: 919px) {
   .shell { flex-direction: column; }
   .rail { width: 100%; height: auto; position: static; flex-direction: column; overflow: visible; padding-bottom: 0; }
-  .brand { padding: 14px 8px 10px; }
+  /* The rail is the full page width here, so centring the mark would strand
+     it in the middle of the strip. It sits at the start instead. */
+  .brand { padding: 14px 8px 10px; justify-content: flex-start; min-height: 0; }
   .rail .nav-scroll { display: flex; gap: 4px; overflow-x: auto; padding: 4px 8px 12px; scrollbar-width: none; }
   .rail .nav-scroll::-webkit-scrollbar { display: none; }
   .nav-item { flex: none; padding: 8px 14px 8px 10px; }
@@ -1626,7 +1949,11 @@ const JS: &str = r#"
   var dlg = null, pending = null, pendingBtn = null;
   document.addEventListener('submit', function (e) {
     var f = e.target;
-    if (!f.dataset.confirm || f.dataset.confirmed) return;
+    // A button may carry its own data-confirm, which wins over the form's —
+    // one form can hold destructive and ordinary actions side by side (the
+    // batch bar: delete asks, "add label" does not).
+    var msg = (e.submitter && e.submitter.dataset.confirm) || f.dataset.confirm;
+    if (!msg || f.dataset.confirmed) return;
     e.preventDefault();
     pending = f;
     pendingBtn = e.submitter || null;
@@ -1651,7 +1978,7 @@ const JS: &str = r#"
         else { form.submit(); }
       });
     }
-    var parts = f.dataset.confirm.split('|');
+    var parts = msg.split('|');
     dlg.querySelector('h3').textContent = parts[0];
     dlg.querySelector('p').textContent = parts[1] || 'This cannot be undone.';
     dlg.showModal();
@@ -1703,15 +2030,111 @@ const JS: &str = r#"
     form.addEventListener('input', refresh);
   }
 
-  // client-side list filtering
+  // client-side list filtering. Rows hide as you type; the empty state says
+  // what happened instead of leaving a blank card, and the batch select-all
+  // resyncs — "all" after a filter means "all the rows still shown".
+  var batchSyncs = [];
   var q = document.querySelector('[data-filter]');
   if (q) {
     var rows = Array.from(document.querySelectorAll('[data-filterable]'));
+    var empty = document.querySelector('[data-filter-empty]');
+    var emptyQuery = empty ? empty.querySelector('[data-query]') : null;
     q.addEventListener('input', function () {
       var v = q.value.toLowerCase();
-      rows.forEach(function (r) { r.style.display = r.textContent.toLowerCase().includes(v) ? '' : 'none'; });
+      var shown = 0;
+      rows.forEach(function (r) {
+        var on = r.textContent.toLowerCase().includes(v);
+        r.style.display = on ? '' : 'none';
+        if (on) shown++;
+      });
+      if (empty) {
+        empty.classList.toggle('on', shown === 0);
+        if (emptyQuery) emptyQuery.textContent = q.value;
+      }
+      batchSyncs.forEach(function (sync) { sync(); });
+    });
+    var clear = document.querySelector('[data-filter-clear]');
+    if (clear) clear.addEventListener('click', function () {
+      q.value = '';
+      q.dispatchEvent(new Event('input'));
+      q.focus();
     });
   }
+
+  // ---- batch selection ----
+  // Whether the bar is on screen is CSS (`body:has(… :checked)`), so selection
+  // needs no script at all. The script keeps the page honest: the count in
+  // the bar, the select-all box's indeterminate state, the number inside the
+  // delete confirm, and shift-click ranges across rows.
+  document.querySelectorAll('[data-batch]').forEach(function (root) {
+    var form = root.querySelector('form.batch');
+    var boxes = Array.from(root.querySelectorAll('.row-check input[name="ids"]'));
+    if (!form || !boxes.length) return;
+    var heads = Array.from(root.querySelectorAll('[data-select-all]'));
+    var count = form.querySelector('[data-count]');
+    var del = form.querySelector('[data-confirm-many]');
+    var word = form.getAttribute('data-word') || 'item';
+    var last = null;
+
+    function visible(b) {
+      var row = b.closest('[data-filterable]');
+      return !row || row.style.display !== 'none';
+    }
+    function sync() {
+      var n = boxes.filter(function (b) { return b.checked; }).length;
+      // the bar already says "selected" beside this slot, so the slot is
+      // only ever the number and its noun
+      if (count) count.textContent = n + ' ' + (n === 1 ? word : word + 's');
+      heads.forEach(function (h) {
+        var vis = boxes.filter(visible);
+        var on = vis.filter(function (b) { return b.checked; }).length;
+        h.checked = vis.length > 0 && on === vis.length;
+        h.indeterminate = on > 0 && on < vis.length;
+      });
+      if (del) {
+        var many = del.getAttribute('data-confirm-many') || '';
+        var one = del.getAttribute('data-confirm-one') || many;
+        del.dataset.confirm = (n === 1 ? one : many).split('{n}').join(String(n));
+      }
+    }
+    boxes.forEach(function (b) {
+      b.addEventListener('click', function (e) {
+        if (e.shiftKey && last) {
+          e.preventDefault();
+          var from = boxes.indexOf(last), to = boxes.indexOf(b);
+          var on = !b.checked; // the state a plain click would land on
+          boxes.slice(Math.min(from, to), Math.max(from, to) + 1)
+            .forEach(function (r) { if (visible(r)) r.checked = on; });
+        }
+        last = b;
+        sync();
+      });
+    });
+    heads.forEach(function (h) {
+      h.addEventListener('click', function () {
+        var on = h.checked; // already flipped by the time a click fires
+        boxes.forEach(function (b) { if (visible(b)) b.checked = on; });
+        sync();
+      });
+    });
+    batchSyncs.push(sync);
+    sync();
+  });
+
+  // popovers in the batch bar, page head and sort menu close on outside
+  // click and Esc, like menus rather than disclosures that stay open out of
+  // spite — anything carrying data-menu
+  document.addEventListener('click', function (e) {
+    document.querySelectorAll('details[data-menu][open]').forEach(function (d) {
+      if (!d.contains(e.target)) d.removeAttribute('open');
+    });
+  });
+  document.addEventListener('keydown', function (e) {
+    if (e.key !== 'Escape') return;
+    document.querySelectorAll('details[data-menu][open]').forEach(function (d) {
+      d.removeAttribute('open');
+    });
+  });
 
   // settings hub search: typing swaps the page list for a flat index of
   // pages, sub-pages, headings and fields, so any setting is one query away
@@ -2123,7 +2546,7 @@ fn rail(active: &str, user: Option<&ghost_core::models::User>, role: Role) -> St
     };
     format!(
         r#"<aside class="rail">
-<a class="brand" href="/ghost/analytics/" title="Analytics">{brand_mark}<span class="brand-name"><b>{site_name}</b></span></a>
+<a class="brand" href="/ghost/analytics/" title="{site_name}">{brand_mark}</a>
 <div class="nav-scroll">{links}</div>
 <div class="rail-foot">
 <div class="who">{who}
@@ -2165,7 +2588,7 @@ fn page_for(title: &str, active: &str, user: Option<&ghost_core::models::User>, 
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='%23984059'%3E%3Cpath d='M12 2a8 8 0 0 0-8 8v10.6c0 .7.85 1.05 1.35.55l1.9-1.9 2.2 2.2c.3.3.78.3 1.08 0L12 20l1.47 1.45c.3.3.78.3 1.08 0l2.2-2.2 1.9 1.9c.5.5 1.35.15 1.35-.55V10a8 8 0 0 0-8-8z'/%3E%3C/svg%3E">
 <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700&family=Fraunces:opsz,wght@9..144,500..700&family=Roboto+Mono:wght@400;500&display=swap">
-<style>{css}</style></head><body>{shell}<script>{js}</script><script src="/ghost/assets/1.8.14/publishing-workflows.js" defer></script></body></html>"#,
+<style>{css}</style></head><body>{shell}<script>{js}</script><script src="/ghost/assets/1.8.15/publishing-workflows.js" defer></script></body></html>"#,
         title = esc(title),
         site_name = esc(&admin_site_name()),
         css = CSS,
@@ -2258,7 +2681,7 @@ pub struct Actor {
 async fn require_actor(state: &AppState, headers: &HeaderMap) -> Result<Actor, Response> {
     let user = current_user(state, headers)
         .await
-        .ok_or_else(|| Redirect::to("/ghost/signin/").into_response())?;
+        .ok_or_else(|| unauthenticated(headers))?;
     let name = repos::users::role_name(&state.db, &user.id)
         .await
         .ok()
@@ -2267,12 +2690,49 @@ async fn require_actor(state: &AppState, headers: &HeaderMap) -> Result<Actor, R
     Ok(Actor { role: Role::from_name(&name), user })
 }
 
+/// What an unauthenticated request gets.
+///
+/// A browser is sent to the sign-in screen, which is the useful answer for
+/// somebody who followed a link. Anything else gets 401 with a JSON body:
+/// several of these handlers are also Admin API endpoints, and redirecting a
+/// client to an HTML login page tells it nothing it can act on. The
+/// discriminator is whether the caller accepts HTML, since every browser
+/// says so and no API client does.
+fn unauthenticated(headers: &HeaderMap) -> Response {
+    if accepts_html(headers) {
+        return Redirect::to("/ghost/signin/").into_response();
+    }
+    (
+        StatusCode::UNAUTHORIZED,
+        axum::Json(serde_json::json!({"errors":[{"message":"Authentication required","errorType":"NoPermissionError"}]})),
+    )
+        .into_response()
+}
+
+fn accepts_html(headers: &HeaderMap) -> bool {
+    headers
+        .get(header::ACCEPT)
+        .and_then(|value| value.to_str().ok())
+        .is_some_and(|value| value.to_ascii_lowercase().contains("text/html"))
+}
+
 /// Require at least `needed`. The refusal is a page rather than a bare 403 so
-/// a mistyped URL explains itself instead of looking broken.
+/// a mistyped URL explains itself instead of looking broken — unless the
+/// caller is an API client, which gets the status and nothing to render.
 async fn require_role(state: &AppState, headers: &HeaderMap, needed: Role) -> Result<Actor, Response> {
     let actor = require_actor(state, headers).await?;
     if actor.role >= needed {
         return Ok(actor);
+    }
+    if !accepts_html(headers) {
+        return Err((
+            StatusCode::FORBIDDEN,
+            axum::Json(serde_json::json!({"errors":[{
+                "message": format!("This needs the {} role or higher.", needed.label()),
+                "errorType": "NoPermissionError",
+            }]})),
+        )
+            .into_response());
     }
     Err(forbidden_page(&actor, needed))
 }
@@ -2522,7 +2982,7 @@ async fn login_submit(State(state): State<AppState>, Form(form): Form<LoginForm>
 
 /// Generate a sign-in code, store its digest on the session and email it.
 /// Returns whether the mail actually went out.
-async fn issue_signin_code(state: &AppState, sid: &str, user: &ghost_core::models::User) -> bool {
+pub(crate) async fn issue_signin_code(state: &AppState, sid: &str, user: &ghost_core::models::User) -> bool {
     let Some(email) = user.email.clone() else {
         tracing::error!("user {} has no email address to send a sign-in code to", user.id);
         return false;
@@ -2689,7 +3149,6 @@ const MODULES: &[(&str, &str, &str, &str, &str)] = &[
     ("Comments", "/ghost/comments/", "comment", "purple", "Review discussions and manage comments across your posts."),
     ("Automations", "/ghost/automations/", "flow", "blue", "Manage automated workflows and their activity."),
     ("Social web", "/ghost/social/", "share", "teal", "Read, publish notes and connect with the fediverse."),
-    ("Machine payments", "/ghost/machine-payments/", "integrations", "pink", "Offer per-article paid Markdown access to AI agents."),
 ];
 
 async fn modules_page(State(state): State<AppState>, headers: HeaderMap) -> Response {
@@ -3487,6 +3946,23 @@ fn analytics_source_label(source: &str) -> String {
     }
 }
 
+/// Messages delivered and messages opened in the window, as `(sent, opened)`.
+///
+/// Reads the per-recipient records that sending writes. Both figures sat at
+/// zero for as long as nothing wrote them, which is why they are worth a test
+/// of their own rather than only being exercised through the page.
+async fn newsletter_open_stats(db: &sqlx::SqlitePool, cutoff: &str) -> (i64, i64) {
+    sqlx::query_as(
+        "SELECT COUNT(*), COALESCE(SUM(CASE WHEN r.opened_at IS NOT NULL THEN 1 ELSE 0 END), 0) \
+         FROM email_recipients r JOIN emails e ON e.id = r.email_id \
+         WHERE r.created_at >= datetime('now', ?) AND r.status = 'sent'",
+    )
+    .bind(cutoff)
+    .fetch_one(db)
+    .await
+    .unwrap_or((0, 0))
+}
+
 /// Newsletters: subscribers, what went out, and how it was opened.
 async fn analytics_newsletters_tab(state: &AppState, range: &AnalyticsRange) -> String {
     let subscribers: i64 = sqlx::query_scalar(
@@ -3496,15 +3972,7 @@ async fn analytics_newsletters_tab(state: &AppState, range: &AnalyticsRange) -> 
     .await
     .unwrap_or(0);
 
-    let (sent, opened): (i64, i64) = sqlx::query_as(
-        "SELECT COUNT(*), COALESCE(SUM(CASE WHEN r.opened_at IS NOT NULL THEN 1 ELSE 0 END), 0) \
-         FROM email_recipients r JOIN emails e ON e.id = r.email_id \
-         WHERE r.created_at >= datetime('now', ?) AND r.status = 'sent'",
-    )
-    .bind(&range.cutoff)
-    .fetch_one(&state.db)
-    .await
-    .unwrap_or((0, 0));
+    let (sent, opened) = newsletter_open_stats(&state.db, &range.cutoff).await;
     let open_rate = if sent > 0 { (opened as f64 / sent as f64) * 100.0 } else { 0.0 };
 
     // One row per email sent in the window, with its own open rate — Ghost's
@@ -3560,107 +4028,433 @@ async fn analytics_newsletters_tab(state: &AppState, range: &AnalyticsRange) -> 
 
 use ghost_core::ids::uuid_v4;
 
+/// The members list's status tabs. Ghost offers exactly these buckets, and
+/// so does the posts list's filter bar — same component, same behaviour.
+const MEMBER_FILTERS: &[(&str, &str, Option<&str>)] = &[
+    ("all", "All", None),
+    ("free", "Free", Some("free")),
+    ("paid", "Paid", Some("paid")),
+    ("comped", "Comped", Some("comped")),
+];
+
+/// Build the NQL a members view compiles to: a status bucket and/or a search
+/// term over name, email and note.
+///
+/// The search term is an NQL *value*, so every character the tokenizer would
+/// read as syntax is stripped rather than escaped — a member called
+/// `O'Brien (VIP)` must be findable by typing exactly that, without their
+/// name breaking out of the quoted value.
+fn members_nql(filter: &str, search: &str, nql: &str) -> Option<String> {
+    let clean: String = search
+        .chars()
+        .filter(|c| !"[](),+~<>'\"\\".contains(*c))
+        .take(60)
+        .collect();
+    let clean = clean.trim();
+    let mut parts: Vec<String> = Vec::new();
+    if matches!(filter, "free" | "paid" | "comped") {
+        parts.push(format!("status:{filter}"));
+    }
+    // The toolbar's filter menu writes raw NQL. It is parenthesised before it
+    // joins the tab and the search term, so an `or` inside it cannot swallow
+    // them — `status:free+a,b` and `status:free+(a,b)` are different queries.
+    let nql = nql.trim();
+    if !nql.is_empty() {
+        parts.push(format!("({nql})"));
+    }
+    if !clean.is_empty() {
+        // `:~` is the comparator form — `key:~'value'` compiles to a
+        // LIKE; the bare `~` the tokenizer also accepts still needs its
+        // colon first, or the parse stops at the key.
+        parts.push(format!("(name:~'{clean}',email:~'{clean}',note:~'{clean}')"));
+    }
+    if parts.is_empty() {
+        None
+    } else {
+        Some(parts.join("+"))
+    }
+}
+
 async fn members_page(State(state): State<AppState>, headers: HeaderMap, Query(q): Query<HashMap<String, String>>) -> Response {
     let (user, actor_role) = match require_role(&state, &headers, Role::Administrator).await {
         Ok(a) => (a.user, a.role),
         Err(r) => return r,
     };
-    let banner = flash_banner(&q);
-    let mut rows = String::new();
+    let mut banner = flash_banner(&q);
+
     let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM members")
         .fetch_one(&state.db)
         .await
         .unwrap_or(0);
-    let page = q.get("page").and_then(|v|v.parse::<i64>().ok()).unwrap_or(1).max(1);
-    let (members, filtered_count) = match repos::members::browse(&state.db,q.get("nql").map(String::as_str),100,page).await {
-        Ok(result)=>result,Err(e)=>return (StatusCode::UNPROCESSABLE_ENTITY,e.message()).into_response()
+    let status_rows: Vec<(String, i64)> = sqlx::query_as("SELECT status, COUNT(*) FROM members GROUP BY status")
+        .fetch_all(&state.db)
+        .await
+        .unwrap_or_default();
+    let counts: HashMap<String, i64> = status_rows.into_iter().collect();
+
+    let filter = q
+        .get("filter")
+        .map(|s| s.as_str())
+        .filter(|s| MEMBER_FILTERS.iter().any(|(key, _, _)| key == s))
+        .unwrap_or("all");
+    let search = q.get("search").map(|s| s.trim()).unwrap_or("").to_string();
+    // A filter that does not parse is the operator's typo, not a broken
+    // page: keep the list and say so, rather than replacing the screen with
+    // an error they cannot navigate out of.
+    let nql_raw = q.get("nql").map(|s| s.trim()).unwrap_or("").to_string();
+    let (nql, nql_error) = match ghost_nql::parse(&nql_raw) {
+        _ if nql_raw.is_empty() => (String::new(), None),
+        Ok(_) => (nql_raw.clone(), None),
+        Err(e) => (String::new(), Some(e.message())),
     };
-    {
-        for member in members {
-            let (id,name,email,status,note,created) = (member.id,member.name,member.email,member.status,member.note,member.created_at.chars().take(10).collect::<String>());
-            let initial = name.as_deref().unwrap_or(&email).chars().next().unwrap_or('?').to_uppercase().to_string();
-            rows.push_str(&format!(
-                r#"<div class="row" data-filterable>
-<span class="avatar">{initial}</span>
-<a class="body" href="/ghost/members/{id}/"><span class="title">{name}</span><span class="detail">{email} · since {created}</span></a>
-<div class="trailing">{note}<span class="chip {chip}">{status}</span>
-<form method="post" action="/ghost/members/{id}/delete/" data-confirm="Delete member|&#8220;{name}&#8221; will be permanently removed.">
-<button class="icon-btn danger" title="Delete" aria-label="Delete">{del}</button></form>{chev}</div>
-</div>"#,
-                initial = esc(&initial),
-                name = esc(name.as_deref().unwrap_or(&email)),
-                email = esc(&email),
-                created = esc(&created),
-                chip = if status == "paid" { "published" } else { "draft" },
-                status = esc(&status),
-                note = note
-                    .filter(|n| !n.is_empty())
-                    .map(|n| format!(r#"<span class="muted" title="{}">…</span> "#, esc(n.as_str())))
-                    .unwrap_or_default(),
-                id = esc(&id),
-                del = svg("delete"),
-                chev = svg("chevron"),
-            ));
-        }
+    if let Some(message) = nql_error {
+        banner = format!(
+            r#"<div class="banner error rise" style="--i:1">{warn}That filter did not parse, so it was ignored — {message}</div>"#,
+            warn = svg("flag"),
+            message = esc(&message),
+        );
     }
-    let list = if count == 0 {
-        r#"<div class="card padded rise" style="--i:3;text-align:center"><p class="muted" style="margin:8px 0 16px">No members yet — add the first one below.</p></div>"#.to_string()
+    let page = q.get("page").and_then(|v| v.parse::<i64>().ok()).unwrap_or(1).max(1);
+    let (members, filtered_count) = match repos::members::browse(&state.db, members_nql(filter, &search, &nql).as_deref(), 100, page).await {
+        Ok(result) => result,
+        Err(e) => return (StatusCode::UNPROCESSABLE_ENTITY, e.message()).into_response(),
+    };
+
+    // Labels: the page's rows need their own, the remove-label popover needs
+    // every label there is. One query for both — a join table at site scale
+    // is smaller than the member list it hangs off.
+    let label_rows: Vec<(String, String)> = sqlx::query_as(
+        "SELECT ml.member_id, l.name FROM members_labels ml JOIN labels l ON l.id = ml.label_id ORDER BY l.name",
+    )
+    .fetch_all(&state.db)
+    .await
+    .unwrap_or_default();
+    let mut labels_by_member: HashMap<String, Vec<String>> = HashMap::new();
+    for (member_id, name) in &label_rows {
+        labels_by_member.entry(member_id.clone()).or_default().push(name.clone());
+    }
+    let all_labels: Vec<String> = {
+        let mut names: Vec<String> = label_rows.into_iter().map(|(_, name)| name).collect();
+        names.sort();
+        names.dedup();
+        names
+    };
+
+    let timezone = state.settings.get_str("timezone").unwrap_or_else(|| "Etc/UTC".into());
+    let per_page = 100;
+    let total_pages = (filtered_count + per_page - 1) / per_page;
+
+    let rows: String = members
+        .iter()
+        .enumerate()
+        .map(|(i, m)| {
+            let name = m.name.as_deref().filter(|n| !n.trim().is_empty()).unwrap_or(&m.email);
+            let initial = name.chars().next().unwrap_or('?').to_uppercase().to_string();
+            let (chip, status_label) = match m.status.as_str() {
+                "paid" => ("paid", "Paid"),
+                "comped" => ("comped", "Comped"),
+                _ => ("free", "Free"),
+            };
+            // Three pills fit the column; the rest fold into a "+N" that
+            // carries the full set in its tooltip.
+            let labels = labels_by_member.get(&m.id).cloned().unwrap_or_default();
+            let pills: String = match labels.len() {
+                0 => String::new(),
+                n if n > 3 => format!(
+                    r#"{shown}<span class="label-pill more" title="{all}">+{rest}</span>"#,
+                    shown = labels[..3].iter().map(|l| pill(l)).collect::<String>(),
+                    all = esc(&labels.join(", ")),
+                    rest = n - 3,
+                ),
+                _ => labels.iter().map(|l| pill(l)).collect::<String>(),
+            };
+            format!(
+                r#"<article class="member-row rise" style="--i:{delay}">
+<label class="row-check"><input type="checkbox" form="batch-list" name="ids" value="{id}" aria-label="Select {name_attr}"><span class="box">{check}</span></label>
+<a class="member-row-link" href="/ghost/members/{id}/">
+<span class="member-face" aria-hidden="true">{initial}</span>
+<span class="member-main"><span class="member-name"{note_attr}>{name}</span><span class="member-email">{email}</span></span>
+<span class="member-labels">{pills}</span>
+<span class="member-status"><span class="chip {chip}">{status_label}</span></span>
+<span class="member-added" title="Joined {added_title}">{added}</span>
+</a>
+<div class="row-end">
+<form class="post-row-action" method="post" action="/ghost/members/{id}/delete/" data-confirm="Delete member|&#8220;{name_attr}&#8221; will be permanently removed, along with their subscriptions and labels.">
+<button class="icon-btn danger" title="Delete" aria-label="Delete {name_attr}">{del}</button></form>
+</div>
+</article>"#,
+                delay = i.min(14),
+                id = esc(&m.id),
+                check = svg("check"),
+                initial = esc(&initial),
+                name = esc(name),
+                name_attr = esc(name),
+                note_attr = m
+                    .note
+                    .as_deref()
+                    .filter(|n| !n.trim().is_empty())
+                    .map(|n| format!(" title=\"{}\"", esc(n)))
+                    .unwrap_or_default(),
+                email = esc(&m.email),
+                pills = pills,
+                chip = chip,
+                status_label = status_label,
+                added = esc(&ghost_core::dates::short_date_in_zone(&m.created_at, &timezone)),
+                added_title = esc(&ghost_core::dates::short_date_in_zone(&m.created_at, &timezone)),
+                del = svg("delete"),
+            )
+        })
+        .collect();
+
+    // Query params that every link on this page must carry — the tabs, the
+    // pager and the search form would each otherwise drop the others' state.
+    let carry = |page_no: i64| -> String {
+        let mut s = form_urlencoded::Serializer::new(String::new());
+        if filter != "all" {
+            s.append_pair("filter", filter);
+        }
+        if !search.is_empty() {
+            s.append_pair("search", &search);
+        }
+        if page_no > 1 {
+            s.append_pair("page", &page_no.to_string());
+        }
+        s.finish()
+    };
+    let seg_suffix = if search.is_empty() {
+        String::new()
     } else {
+        format!("&amp;search={}", esc(&search))
+    };
+
+    let pager = if total_pages > 1 || (filtered_count != count) {
         format!(
-            r#"<div class="search rise" style="--i:4">{search}<input data-filter type="search" placeholder="Search members" aria-label="Search members"></div>
-<div class="card rows rise" style="--i:5">{rows}</div>"#,
-            search = svg("search"),
-            rows = rows,
+            r#"<div class="pager"><span>{matching}{page_of}</span>{prev}{next}</div>"#,
+            matching = if filtered_count != count {
+                format!("{} matching", filtered_count)
+            } else {
+                String::new()
+            },
+            page_of = if total_pages > 1 {
+                format!(" · page {} of {}", page, total_pages.max(1))
+            } else {
+                String::new()
+            },
+            prev = if page > 1 {
+                format!(r#"<a class="btn tonal small" href="?{}">Previous</a>"#, carry(page - 1))
+            } else {
+                String::new()
+            },
+            next = if page < total_pages {
+                format!(r#"<a class="btn tonal small" href="?{}">Next</a>"#, carry(page + 1))
+            } else {
+                String::new()
+            },
+        )
+    } else {
+        String::new()
+    };
+
+    let list = if count == 0 {
+        // Nothing exists yet: tabs, search and checkboxes would all be
+        // furniture in an empty room. The create form is one click up in
+        // the header.
+        r#"<div class="card padded rise" style="--i:3;text-align:center;padding:48px 20px">
+<p style="margin:0 0 4px;font-weight:600;font-size:17px">No members yet</p>
+<p class="muted" style="margin:0 0 20px">Add the first one with <b>New member</b>, above.</p></div>"#
+            .to_string()
+    } else {
+        let head = if members.is_empty() {
+            // A view with nothing in it — say so, and offer the way back,
+            // which the old page left as a bare empty card.
+            r#"<div class="filter-empty on"><p>No members match this view.</p>
+<a class="btn tonal small" href="/ghost/members/">Clear filter &amp; search</a></div>"#
+                .to_string()
+        } else {
+            format!(
+                r#"<div class="list-head">
+<label class="row-check" title="Select all members on this page"><input type="checkbox" data-select-all form="batch-list" aria-label="Select all members on this page"><span class="box">{check}</span></label>
+<span class="lh-spacer face" aria-hidden="true"></span>
+<div class="lh-main"><span class="lh-label">Member</span></div>
+<div class="lh-labels"><span class="lh-label">Labels</span></div>
+<div class="lh-status"><span class="lh-label">Status</span></div>
+<div class="lh-label" style="width:96px;text-align:right">Added</div>
+</div>
+{rows}"#,
+                check = svg("check"),
+                rows = rows,
+            )
+        };
+        // The search is its own form; the filter menu holds another. Forms
+        // cannot nest, so the toolbar is the row that holds them both rather
+        // than being one of them.
+        format!(
+            r#"{seg}
+<div class="list-tools rise" style="--i:0">
+<form class="tool-form" method="get" action="/ghost/members/">
+<input type="hidden" name="filter" value="{filter}">
+<input type="hidden" name="nql" value="{nql_attr}">
+<div class="search">{search_icon}<input name="search" type="search" value="{search_attr}" placeholder="Search by name, email or note" aria-label="Search members"></div>
+</form>
+{filter_menu}</div>
+<div data-batch>
+<div class="member-list rise">{head}</div>
+{batch}
+</div>
+{pager}"#,
+            seg = seg_filter_bar(MEMBER_FILTERS, "/ghost/members/", filter, &seg_suffix, &counts),
+            filter = esc(filter),
+            nql_attr = esc(&nql),
+            search_icon = svg("search"),
+            search_attr = esc(&search),
+            filter_menu = filter_menu(
+                "/ghost/members/",
+                "members",
+                &nql,
+                &format!(
+                    r#"<input type="hidden" name="filter" value="{filter}"><input type="hidden" name="search" value="{search_attr}">"#,
+                    filter = esc(filter),
+                    search_attr = esc(&search),
+                ),
+                "status:paid+label:vip · created_at:>'2026-01-01' · email:~'@acme.com'",
+            ),
+            head = head,
+            batch = member_batch_bar(&all_labels),
+            pager = pager,
         )
     };
-    let filter_query = form_urlencoded::Serializer::new(String::new()).append_pair("nql",q.get("nql").map(String::as_str).unwrap_or("")).finish();
-    let pagination = format!(r#"<div style="display:flex;gap:16px;align-items:center;margin:16px 0"><span>{filtered_count} matching members · page {page}</span>{previous}{next}</div>"#,
-        previous=if page>1 {format!(r#"<a class="btn tonal small" href="?{filter_query}&amp;page={}">Previous</a>"#,page-1)} else {String::new()},
-        next=if page*100<filtered_count {format!(r#"<a class="btn tonal small" href="?{filter_query}&amp;page={}">Next</a>"#,page+1)} else {String::new()});
-    let list=format!("{list}{pagination}");
-    page_for_role(actor_role, 
+
+    page_for_role(
+        actor_role,
         "Members",
         "members",
         Some(&user),
         &format!(
-            r#"<header class="page-head rise"><div><h1>Members</h1><p class="sub">{count} {word}</p></div></header>
-{banner}
-<div class="section">New member</div>
-<div class="card padded rise" style="--i:2"><form method="post" action="/ghost/members/">
-<div class="grid2">
-<label class="field"><input name="name" placeholder=" " ><span>Name · optional</span></label>
-<label class="field"><input name="email" type="email" placeholder=" " required><span>Email</span></label>
-</div>
-<label class="field"><input name="note" placeholder=" "><span>Note · optional</span></label>
-<button class="btn tonal" type="submit">{add} Add member</button>
-</form></div>
-<div class="section">Import &amp; export</div>
-<div class="card rows rise" style="--i:3">
-<div class="row" style="align-items:flex-start"><span class="ic tint-green">{upload}</span>
-<div class="body" style="width:100%"><span class="title" style="display:block;margin-bottom:8px">Import members</span>
-<form method="post" action="/ghost/members/import/" enctype="multipart/form-data" style="display:flex;gap:12px;align-items:center;flex-wrap:wrap">
+            r#"<header class="page-head rise"><div><h1>Members</h1><p class="sub">{count} {word}</p></div>
+<div class="actions">
+<details class="head-pop" data-menu>
+<summary class="btn tonal">{upload} Import</summary>
+<div class="pop">
+<p style="margin:0 0 14px;font-weight:600">Import members</p>
+<form method="post" action="/ghost/members/import/" enctype="multipart/form-data">
 <input type="file" name="file" accept=".csv,text/csv" required class="filefield">
-<button class="btn tonal small" type="submit">Import CSV</button>
+<button class="btn tonal" type="submit" style="margin-top:14px">Import CSV</button>
 </form>
-<p class="muted" style="margin:10px 0 0">A CSV with at least an <code>email</code> column. <code>name</code>, <code>note</code>, <code>labels</code>, <code>subscribed_to_emails</code>, <code>complimentary_plan</code> and <code>stripe_customer_id</code> are used when present; anything else is ignored. Rows whose email already exists update that member instead of duplicating it.</p>
-</div></div>
-<div class="row"><span class="ic tint-blue">{download}</span>
-<div class="body"><span class="title">Export members</span><span class="detail">All members as CSV, in Ghost's column order</span></div>
-<div class="trailing"><a class="btn tonal small" href="/ghost/members/export/">Export CSV</a></div></div>
+<p class="muted" style="margin:12px 0 0;font-size:12px">A CSV with at least an <code>email</code> column. Rows whose email already exists update that member instead of duplicating it.</p>
 </div>
-<div class="section">All members</div>
+</details>
+<a class="btn tonal" href="/ghost/members/export/{export_query}" title="{export_title}">{download} Export</a>
+<details class="head-pop" data-menu>
+<summary class="btn">{add} New member</summary>
+<div class="pop">
+<p style="margin:0 0 14px;font-weight:600">New member</p>
+<form method="post" action="/ghost/members/">
+<label class="field"><input name="name" placeholder=" "><span>Name · optional</span></label>
+<label class="field"><input name="email" type="email" placeholder=" " required><span>Email</span></label>
+<label class="field"><input name="note" placeholder=" "><span>Note · optional</span></label>
+<button class="btn" type="submit" style="margin-top:14px">{add} Add member</button>
+</form>
+</div>
+</details>
+</div></header>
+{banner}
 {list}"#,
             upload = svg("upload"),
             download = svg("open"),
+            add = svg("add"),
             count = count,
             word = if count == 1 { "member" } else { "members" },
+            // Export follows the view on screen. The old page had a second
+            // "Export filtered members" button bolted on beside this one,
+            // which meant two buttons whose difference you had to know.
+            export_query = match members_nql(filter, &search, &nql) {
+                Some(view) => format!("?filter={}", url_value(&view)),
+                None => String::new(),
+            },
+            export_title = if members_nql(filter, &search, &nql).is_some() {
+                "Download the members matching the current view as CSV"
+            } else {
+                "Download every member as CSV"
+            },
             banner = banner,
-            add = svg("add"),
             list = list,
         ),
         true,
     )
     .into_response()
+}
+
+/// One label pill.
+fn pill(name: &str) -> String {
+    format!(r#"<span class="label-pill">{}</span>"#, esc(name))
+}
+
+/// The members batch bar: label on, label off, unsubscribe, delete. The
+/// label pickers open out of the bar: "add" takes typed text (with the
+/// site's labels as datalist suggestions, and unknown names are created),
+/// "remove" offers only labels that exist, as chips.
+///
+/// Unsubscribe used to live in a script-built modal reached from a "Bulk
+/// actions" button parked in the page header, beside a bare checkbox that
+/// selected rows through a second, invisible selection. One bar, one
+/// selection.
+fn member_batch_bar(all_labels: &[String]) -> String {
+    let options: String = all_labels
+        .iter()
+        .map(|l| format!("<option value=\"{}\">", esc(l)))
+        .collect();
+    let remove_chips: String = if all_labels.is_empty() {
+        r#"<p class="muted" style="margin:4px 0 0;font-size:12.5px">No labels exist yet.</p>"#.to_string()
+    } else {
+        all_labels
+            .iter()
+            .map(|l| {
+                format!(
+                    r#"<label class="fchip"><input type="radio" name="label" value="{v}" required><span class="ck">{check}</span>{v}</label>"#,
+                    v = esc(l),
+                    check = svg("check"),
+                )
+            })
+            .collect()
+    };
+    format!(
+        r#"<form id="batch-list" class="batch" method="post" action="/ghost/members/bulk/" data-word="member">
+<div class="batch-bar">
+<span class="bb-count"><b data-count>0 members</b> selected</span>
+<details class="batch-pop" data-menu>
+<summary class="bb-btn">{tags} Add label</summary>
+<div class="pop">
+<label class="field"><input name="label" list="all-labels" placeholder=" "><span>Label</span></label>
+<datalist id="all-labels">{options}</datalist>
+<button class="btn" type="submit" name="action" value="add_label">{check} Add label</button>
+<p>Existing labels are suggested; a new name is created.</p>
+</div>
+</details>
+<details class="batch-pop" data-menu>
+<summary class="bb-btn">{close} Remove label</summary>
+<div class="pop">
+<div class="chips" style="margin-bottom:12px">{remove_chips}</div>
+<button class="btn tonal" type="submit" name="action" value="remove_label">{close} Remove label</button>
+</div>
+</details>
+<button class="bb-btn" type="submit" name="action" value="unsubscribe"
+ data-confirm="Unsubscribe selected members|They stay members and keep their access; they stop receiving every newsletter."
+ data-confirm-one="Unsubscribe 1 member|They stay a member and keep their access; they stop receiving every newsletter."
+ data-confirm-many="Unsubscribe {{n}} members|They stay members and keep their access; they stop receiving every newsletter.">{mail} Unsubscribe</button>
+<button class="bb-btn danger" type="submit" name="action" value="delete"
+ data-confirm="Delete selected members|The selected members will be permanently removed, along with their subscriptions and labels."
+ data-confirm-one="Delete 1 member|This member will be permanently removed, along with their subscriptions and labels."
+ data-confirm-many="Delete {{n}} members|The {{n}} selected members will be permanently removed, along with their subscriptions and labels.">{del} Delete</button>
+</div>
+</form>"#,
+        tags = svg("tags"),
+        check = svg("check"),
+        close = svg("close"),
+        mail = svg("mail"),
+        del = svg("delete"),
+        options = options,
+        remove_chips = remove_chips,
+    )
 }
 
 #[derive(Deserialize)]
@@ -3680,12 +4474,13 @@ const MEMBER_CSV_COLUMNS: &[&str] = &[
     "stripe_customer_id", "created_at", "deleted_at", "labels", "tiers",
 ];
 
-/// Every member as CSV.
+/// Every member as CSV, or only those in `only` when the caller is exporting
+/// a filtered view.
 ///
 /// Separate from the download handler because the migration bundle puts the
 /// same bytes inside a zip: one definition of what a member export *is*, so
 /// the standalone file and the backup can never disagree.
-async fn build_members_csv(state: &AppState) -> Option<Vec<u8>> {
+async fn build_members_csv(state: &AppState, only: Option<&HashSet<String>>) -> Option<Vec<u8>> {
     let rows = sqlx::query_as::<_, (String, String, Option<String>, Option<String>, String, String, Option<String>)>(
         "SELECT m.id, m.email, m.name, m.note, m.status, m.created_at, sc.customer_id \
          FROM members m \
@@ -3699,6 +4494,9 @@ async fn build_members_csv(state: &AppState) -> Option<Vec<u8>> {
     let mut w = csv::Writer::from_writer(Vec::new());
     w.write_record(MEMBER_CSV_COLUMNS).ok()?;
     for (id, email, name, note, status, created_at, customer_id) in rows {
+        if only.is_some_and(|ids| !ids.contains(&id)) {
+            continue;
+        }
         let labels = member_labels(state, &id).await.join(",");
         let tiers = sqlx::query_scalar::<_, String>(
             "SELECT p.name FROM products p JOIN members_products mp ON mp.product_id = p.id WHERE mp.member_id = ?",
@@ -3734,7 +4532,7 @@ async fn build_members_csv(state: &AppState) -> Option<Vec<u8>> {
 }
 
 /// Today's date, for the dated filenames Ghost's exports carry.
-fn export_date_stamp() -> String {
+pub(crate) fn export_date_stamp() -> String {
     ghost_core::dates::now_db().chars().take(10).collect()
 }
 
@@ -3750,11 +4548,25 @@ fn csv_download(filename: &str, body: Vec<u8>) -> Response {
 }
 
 /// Every member as CSV, as a file download.
-async fn members_export(State(state): State<AppState>, headers: HeaderMap) -> Response {
+async fn members_export(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Query(q): Query<HashMap<String, String>>,
+) -> Response {
     if let Err(r) = require_role(&state, &headers, Role::Administrator).await {
         return r;
     }
-    match build_members_csv(&state).await {
+    // `?filter=` is the view the list was showing when Export was clicked —
+    // exporting the whole site from a filtered screen is the kind of surprise
+    // you only notice after mailing the wrong people.
+    let only = match q.get("filter").map(|s| s.trim()).filter(|s| !s.is_empty()) {
+        None => None,
+        Some(view) => match repos::members::browse(&state.db, Some(view), -1, 1).await {
+            Ok((rows, _)) => Some(rows.into_iter().map(|m| m.id).collect::<HashSet<String>>()),
+            Err(_) => return members_flash("error", "That filter did not parse, so nothing was exported."),
+        },
+    };
+    match build_members_csv(&state, only.as_ref()).await {
         Some(body) => csv_download(&format!("members.{}.csv", export_date_stamp()), body),
         None => members_flash("error", "Could not build the export."),
     }
@@ -4221,6 +5033,259 @@ async fn member_labels(state: &AppState, member_id: &str) -> Vec<String> {
     .unwrap_or_default()
 }
 
+
+/// How one post did: read on the web, received in the inbox, and the members
+/// it brought in.
+///
+/// Ghost puts this behind every post in the list, and it is the screen the
+/// per-post figures exist for. The numbers come from the same function the
+/// `/stats/posts/{id}/stats` endpoint serves, so the page and the API cannot
+/// drift apart.
+async fn post_analytics_page(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+) -> Response {
+    let (user, actor_role) = match require_role(&state, &headers, Role::Author).await {
+        Ok(a) => (a.user, a.role),
+        Err(r) => return r,
+    };
+    let Ok(Some(post)) = repos::posts::find_by_id(&state.db, &id).await else {
+        return page_for_role(actor_role, "Not found", "posts", Some(&user), "<div class='banner error'>That post no longer exists.</div>", true).into_response();
+    };
+    let Some(stats) = ghost_api::stats::post_stats_value(&state, &id).await else {
+        return page_for_role(actor_role, "Not found", "posts", Some(&user), "<div class='banner error'>That post no longer exists.</div>", true).into_response();
+    };
+
+    let figure = |n: i64| n.to_string();
+    let tile = |label: &str, value: String, note: &str| {
+        format!(
+            r#"<div class="tile"><div class="label">{}</div><div class="value">{}</div><div class="delta">{}</div></div>"#,
+            esc(label), esc(&value), esc(note)
+        )
+    };
+    let views = stats["views"].as_i64().unwrap_or(0);
+    let visitors = stats["visitors"].as_i64().unwrap_or(0);
+    let free = stats["free_members"].as_i64().unwrap_or(0);
+    let paid = stats["paid_members"].as_i64().unwrap_or(0);
+
+    // The email card only appears for a post that was emailed; a web-only
+    // post has no open rate, and a zero would read as a bad one.
+    let email_card = match stats["email"].as_object() {
+        None => String::new(),
+        Some(email) => {
+            let number = |key: &str| email.get(key).and_then(serde_json::Value::as_i64).unwrap_or(0);
+            let rate = |key: &str| match email.get(key).and_then(serde_json::Value::as_i64) {
+                Some(value) => format!("{value}%"),
+                // Null rather than zero: nothing delivered yet means the
+                // rate is not known, which is not the same as none.
+                None => "—".to_string(),
+            };
+            let status = email.get("status").and_then(serde_json::Value::as_str).unwrap_or("");
+            let failed = number("failed");
+            format!(
+                r#"<div class="section">Email</div>
+<div class="tiles rise" style="--i:3">
+{sent}{delivered}{opened}{clicked}
+</div>
+<div class="card rows rise" style="--i:4">
+<div class="row"><span class="ic tint-blue">{send_ic}</span>
+<div class="body"><span class="title">Delivery</span><span class="detail">{status_note}</span></div>
+<div class="trailing"><span class="chip {chip}">{status}</span></div></div>
+{failures}
+</div>"#,
+                sent = tile("Sent", figure(number("sent")), "recipients"),
+                delivered = tile("Delivered", figure(number("delivered")), "accepted by their provider"),
+                opened = tile("Open rate", rate("open_rate"), &format!("{} opened", number("opened"))),
+                clicked = tile("Click rate", rate("click_rate"), &format!("{} clicked a link", number("clicked"))),
+                send_ic = svg("send"),
+                status = esc(status),
+                chip = if status == "submitted" { "published" } else if status == "failed" { "draft" } else { "scheduled" },
+                status_note = if status == "submitting" {
+                    "This send is still going out."
+                } else if status == "failed" {
+                    "This send did not finish. Retrying addresses only the recipients it missed."
+                } else {
+                    "This send finished."
+                },
+                failures = if failed == 0 {
+                    String::new()
+                } else {
+                    format!(
+                        r#"<div class="row"><span class="ic tint-red">{icon}</span>
+<div class="body"><span class="title">{failed} could not be delivered</span><span class="detail">Bounced or refused by the recipient's provider.</span></div></div>"#,
+                        icon = svg("delete"),
+                    )
+                },
+            )
+        }
+    };
+
+    // Where the readers came from. Direct traffic is a real answer, so it is
+    // named rather than left blank.
+    let mut referrers: Vec<(String, i64, i64)> = Vec::new();
+    for path in post_paths_for(&state, &post).await {
+        let rows = sqlx::query_as::<_, (Option<String>, i64, i64)>(
+            "SELECT COALESCE(referrer_source, referrer), COUNT(*), COUNT(DISTINCT viewer) \
+             FROM page_views WHERE path = ? GROUP BY 1 ORDER BY COUNT(*) DESC",
+        )
+        .bind(&path)
+        .fetch_all(&state.db)
+        .await
+        .unwrap_or_default();
+        for (source, views, visitors) in rows {
+            referrers.push((source.unwrap_or_else(|| "Direct".into()), views, visitors));
+        }
+    }
+    referrers.sort_by_key(|(_, views, _)| -views);
+    referrers.truncate(10);
+    let referrer_rows: String = referrers
+        .iter()
+        .map(|(source, views, _)| {
+            analytics_row(&svg("send"), "purple", source, &format!("{views} views"), &figure(*views), None)
+        })
+        .collect();
+
+    let title = post.title.clone().unwrap_or_else(|| "Untitled".into());
+    page_for_role(
+        actor_role,
+        "Post analytics",
+        "posts",
+        Some(&user),
+        &format!(
+            r#"<header class="page-head rise"><a class="icon-btn" style="transform:rotate(180deg)" href="/ghost/posts/" title="Back to posts">{back}</a>
+<div><h1>{title}</h1><p class="sub">{status} · {published}</p></div>
+<div class="actions"><a class="btn tonal" href="/ghost/posts/{id}/">Edit</a></div></header>
+<div class="section">Web</div>
+<div class="tiles rise" style="--i:1">
+{views_tile}{visitors_tile}{free_tile}{paid_tile}
+</div>
+<div class="section">Sources</div>
+<div class="card rows rise" style="--i:2">{referrer_rows}</div>
+{email_card}
+<p class="muted" style="margin:18px 0 0">Members are counted where a signup or a subscription was attributed to this post, not where a member happened to be reading when they joined.</p>"#,
+            back = svg("chevron"),
+            title = esc(&title),
+            status = esc(&post.status),
+            published = esc(post.published_at.as_deref().unwrap_or("not published").get(..10).unwrap_or("")),
+            id = esc(&id),
+            views_tile = tile("Views", figure(views), "page loads"),
+            visitors_tile = tile("Visitors", figure(visitors), "unique, counted daily"),
+            free_tile = tile("Free signups", figure(free), "attributed to this post"),
+            paid_tile = tile("Paid conversions", figure(paid), "attributed to this post"),
+            referrer_rows = analytics_rows(referrer_rows, "No traffic recorded for this post yet."),
+            email_card = email_card,
+        ),
+        true,
+    )
+    .into_response()
+}
+
+/// The site paths a post is reachable at, for matching page views.
+async fn post_paths_for(state: &AppState, post: &ghost_core::models::Post) -> Vec<String> {
+    let router = state.router.read().await.clone();
+    let json = ghost_core::models::post_to_json(post, &[], &[], "");
+    let path = match router.permalink_for(&json) {
+        Some((_, permalink)) => ghost_routing::tree::build_permalink(&permalink, &json),
+        None => format!("/{}/", post.slug.clone().unwrap_or_default()),
+    };
+    let bare = path.trim_end_matches('/').to_string();
+    if bare.is_empty() { vec!["/".into()] } else { vec![format!("{bare}/"), bare] }
+}
+
+/// A member's activity, as the rows of a card.
+///
+/// One line per event, newest first, in the member's own words rather than
+/// the event table's: "Opened Issue 14" rather than `email_opened_event`.
+async fn member_activity_card(state: &AppState, member_id: &str) -> String {
+    let events = ghost_api::member_events::events_for_member(state, member_id, 30).await;
+    if events.is_empty() {
+        return String::new();
+    }
+    let rows: String = events
+        .iter()
+        .map(|event| {
+            let kind = event["type"].as_str().unwrap_or("");
+            let data = &event["data"];
+            let extra = &data["extra"];
+            let post_title = extra["post"]["title"].as_str().unwrap_or("");
+            let email_title = extra["email"]["title"].as_str().unwrap_or("");
+            let (icon, tint, title, detail) = match kind {
+                "signup_event" => ("ghost", "blue", "Signed up".to_string(), String::new()),
+                "login_event" => ("ghost", "blue", "Signed in".to_string(), String::new()),
+                "subscription_event" => {
+                    let kind = extra["type"].as_str().unwrap_or("started");
+                    let delta = extra["mrr_delta"].as_i64().unwrap_or(0);
+                    (
+                        "tags",
+                        "amber",
+                        format!("Subscription {kind}"),
+                        if delta == 0 { String::new() } else { format!("{} MRR", money(delta, extra["currency"].as_str())) },
+                    )
+                }
+                "cancel_event" => ("tags", "red", "Cancelled their subscription".to_string(), String::new()),
+                "payment_event" => (
+                    "tags",
+                    "green",
+                    format!("Paid {}", money(extra["amount"].as_i64().unwrap_or(0), extra["currency"].as_str())),
+                    String::new(),
+                ),
+                "newsletter_event" => ("mail", "green", "Changed their newsletter preferences".to_string(), String::new()),
+                "email_change_event" => ("mail", "blue", "Changed their email address".to_string(), String::new()),
+                "comment_event" => ("comment", "purple", "Commented".to_string(), post_title.to_string()),
+                "click_event" => (
+                    "send",
+                    "purple",
+                    "Clicked a link in an email".to_string(),
+                    extra["link"]["to"].as_str().unwrap_or("").to_string(),
+                ),
+                "feedback_event" => (
+                    "send",
+                    "purple",
+                    if extra["score"].as_i64() == Some(1) { "More like this".to_string() } else { "Less like this".to_string() },
+                    post_title.to_string(),
+                ),
+                "email_sent_event" => ("send", "blue", "Was sent an email".to_string(), email_title.to_string()),
+                "email_delivered_event" => ("send", "green", "Received an email".to_string(), email_title.to_string()),
+                "email_opened_event" => ("send", "green", "Opened an email".to_string(), email_title.to_string()),
+                "email_failed_event" => ("send", "red", "An email could not be delivered".to_string(), email_title.to_string()),
+                other => ("ghost", "blue", other.replace('_', " "), String::new()),
+            };
+            let at = data["created_at"].as_str().unwrap_or("");
+            analytics_row(
+                &svg(icon),
+                tint,
+                &title,
+                &if detail.is_empty() { esc(&at[..10.min(at.len())]) } else { format!("{} · {}", esc(&detail), esc(&at[..10.min(at.len())])) },
+                "",
+                None,
+            )
+        })
+        .collect();
+    format!(
+        r#"<div class="section">Activity</div>
+<div class="card rows rise" style="--i:6">{rows}</div>"#
+    )
+}
+
+/// An amount in a currency's smallest unit, as money.
+fn money(amount: i64, currency: Option<&str>) -> String {
+    let code = currency.unwrap_or("usd").to_uppercase();
+    let symbol = match code.as_str() {
+        "USD" => "$",
+        "EUR" => "\u{20ac}",
+        "GBP" => "\u{a3}",
+        _ => "",
+    };
+    let whole = amount / 100;
+    let cents = (amount % 100).abs();
+    if symbol.is_empty() {
+        format!("{whole}.{cents:02} {code}")
+    } else {
+        format!("{symbol}{whole}.{cents:02}")
+    }
+}
+
 async fn member_edit_page(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -4417,6 +5482,7 @@ async fn member_edit_page(
 </div>
 </form>
 {commenting_card}
+{activity_card}
 <div class="section">Danger zone</div>
 <div class="card rows rise" style="--i:5">
 <div class="row"><span class="ic tint-red">{del}</span>
@@ -4447,6 +5513,7 @@ async fn member_edit_page(
             newsletter_rows = newsletter_rows,
             metafields_card = metafields_card,
             commenting_card = comments::member_commenting_card(&mid, &commenting, comment_count),
+            activity_card = member_activity_card(&state, &mid).await,
             status_opts = select_options(
                 &[("free", "Free"), ("comped", "Complimentary — paid access, no charge")],
                 &status
@@ -4551,6 +5618,33 @@ async fn member_edit_save(
     member_edit_flash(&id, "ok", "Member saved.")
 }
 
+/// Find or create the label row for `name`, returning its id.
+///
+/// `labels.name` is unique, so an existing row is reused rather than
+/// duplicated — the same rule the member editor's picker follows.
+async fn ensure_label(state: &AppState, name: &str) -> Option<String> {
+    let existing: Option<String> = sqlx::query_scalar("SELECT id FROM labels WHERE name = ?")
+        .bind(name)
+        .fetch_optional(&state.db)
+        .await
+        .ok()
+        .flatten();
+    if let Some(lid) = existing {
+        return Some(lid);
+    }
+    let lid = ghost_core::ids::new_id();
+    let now = ghost_core::dates::now_db();
+    sqlx::query("INSERT INTO labels (id, name, created_at, updated_at) VALUES (?, ?, ?, ?)")
+        .bind(&lid)
+        .bind(name)
+        .bind(&now)
+        .bind(&now)
+        .execute(&state.db)
+        .await
+        .ok()?;
+    Some(lid)
+}
+
 /// Replace a member's labels with the comma-separated list, creating any
 /// label that does not exist yet (Ghost does the same from its label picker).
 async fn sync_member_labels(state: &AppState, member_id: &str, csv: &str) {
@@ -4558,7 +5652,6 @@ async fn sync_member_labels(state: &AppState, member_id: &str, csv: &str) {
         .bind(member_id)
         .execute(&state.db)
         .await;
-    let now = ghost_core::dates::now_db();
     let mut seen: Vec<String> = Vec::new();
     for raw in csv.split(',') {
         let name = raw.trim();
@@ -4566,30 +5659,8 @@ async fn sync_member_labels(state: &AppState, member_id: &str, csv: &str) {
             continue;
         }
         seen.push(name.to_string());
-        // labels.name is unique, so reuse an existing row rather than failing
-        let existing: Option<String> = sqlx::query_scalar("SELECT id FROM labels WHERE name = ?")
-            .bind(name)
-            .fetch_optional(&state.db)
-            .await
-            .ok()
-            .flatten();
-        let label_id = match existing {
-            Some(lid) => lid,
-            None => {
-                let lid = ghost_core::ids::new_id();
-                if sqlx::query("INSERT INTO labels (id, name, created_at, updated_at) VALUES (?, ?, ?, ?)")
-                    .bind(&lid)
-                    .bind(name)
-                    .bind(&now)
-                    .bind(&now)
-                    .execute(&state.db)
-                    .await
-                    .is_err()
-                {
-                    continue;
-                }
-                lid
-            }
+        let Some(label_id) = ensure_label(state, name).await else {
+            continue;
         };
         let _ = sqlx::query(
             "INSERT INTO members_labels (id, member_id, label_id, sort_order) VALUES (?, ?, ?, 0)",
@@ -4638,16 +5709,15 @@ async fn member_create(State(state): State<AppState>, headers: HeaderMap, Form(f
     }
 }
 
-async fn member_delete(State(state): State<AppState>, Path(id): Path<String>, headers: HeaderMap) -> Response {
-    let (user, _actor_role) = match require_role(&state, &headers, Role::Administrator).await {
-        Ok(a) => (a.user, a.role),
-        Err(r) => return r,
-    };
+/// Remove one member and everything pointing at them. Shared by the row's
+/// own delete and the list's batch delete so the two can never diverge in
+/// what a "deleted member" leaves behind.
+async fn delete_member(state: &AppState, actor_id: &str, id: &str) -> bool {
     // Who they were, read before the row goes: a delete webhook carrying
     // only an id tells a CRM nothing it can act on.
     let gone: Option<(String, Option<String>)> =
         sqlx::query_as("SELECT email, name FROM members WHERE id = ?")
-            .bind(&id)
+            .bind(id)
             .fetch_optional(&state.db)
             .await
             .ok()
@@ -4656,16 +5726,169 @@ async fn member_delete(State(state): State<AppState>, Path(id): Path<String>, he
     // clear the join tables first — FKs point at members
     for table in ["members_products", "members_newsletters", "members_labels", "members_stripe_customers", "subscriptions"] {
         let _ = sqlx::query(&format!("DELETE FROM {table} WHERE member_id = ?"))
-            .bind(&id)
+            .bind(id)
             .execute(&state.db)
             .await;
     }
-    let _ = sqlx::query("DELETE FROM members WHERE id = ?").bind(&id).execute(&state.db).await;
-    let _ = repos::actions::record(&state.db, "members", &id, &user.id, "deleted").await;
+    let _ = sqlx::query("DELETE FROM members WHERE id = ?").bind(id).execute(&state.db).await;
+    let _ = repos::actions::record(&state.db, "members", id, actor_id, "deleted").await;
+    let existed = gone.is_some();
     if let Some((email, name)) = gone {
-        fire_member_webhook(&state, "member.deleted", &id, &email, name.as_deref().unwrap_or(""));
+        fire_member_webhook(state, "member.deleted", id, &email, name.as_deref().unwrap_or(""));
     }
+    existed
+}
+
+async fn member_delete(State(state): State<AppState>, Path(id): Path<String>, headers: HeaderMap) -> Response {
+    let (user, _actor_role) = match require_role(&state, &headers, Role::Administrator).await {
+        Ok(a) => (a.user, a.role),
+        Err(r) => return r,
+    };
+    delete_member(&state, &user.id, &id).await;
     members_flash("ok", "Member deleted.")
+}
+
+/// What the members list's batch bar posted. `ids` repeats under one name,
+/// and `label` arrives as a list because the add and remove popovers each
+/// hold an input under that name — whichever was filled is the one that
+/// means anything.
+#[derive(Debug, Default)]
+struct BulkMembersForm {
+    action: String,
+    ids: Vec<String>,
+    label: Vec<String>,
+}
+
+impl BulkMembersForm {
+    fn parse(body: &str) -> Self {
+        let mut f = BulkMembersForm::default();
+        for (k, v) in form_urlencoded::parse(body.as_bytes()) {
+            match k.as_ref() {
+                "action" => f.action = v.into_owned(),
+                "ids" => f.ids.push(v.into_owned()),
+                "label" => f.label.push(v.into_owned()),
+                _ => {}
+            }
+        }
+        f
+    }
+}
+
+impl<S: Send + Sync> axum::extract::FromRequest<S> for BulkMembersForm {
+    type Rejection = Response;
+    async fn from_request(req: axum::extract::Request, state: &S) -> Result<Self, Self::Rejection> {
+        let bytes = axum::body::Bytes::from_request(req, state)
+            .await
+            .map_err(axum::response::IntoResponse::into_response)?;
+        Ok(BulkMembersForm::parse(&String::from_utf8_lossy(&bytes)))
+    }
+}
+
+/// The members list's batch actions: add label, remove label, delete —
+/// Ghost's own three. Labels are created by name when they do not exist,
+/// exactly as the member editor's picker does.
+async fn members_bulk(State(state): State<AppState>, headers: HeaderMap, form: BulkMembersForm) -> Response {
+    let (user, _actor_role) = match require_role(&state, &headers, Role::Administrator).await {
+        Ok(a) => (a.user, a.role),
+        Err(r) => return r,
+    };
+    if form.ids.is_empty() {
+        return members_flash("error", "Nothing was selected.");
+    }
+    let label = form
+        .label
+        .iter()
+        .rev()
+        .map(|l| l.trim().to_string())
+        .find(|l| !l.is_empty());
+
+    let mut done = 0usize;
+    match form.action.as_str() {
+        "delete" => {
+            for id in &form.ids {
+                if delete_member(&state, &user.id, id).await {
+                    done += 1;
+                }
+            }
+            if done == 0 {
+                return members_flash("error", "Those members no longer exist.");
+            }
+            members_flash("ok", &format!("Deleted {} {}.", done, if done == 1 { "member" } else { "members" }))
+        }
+        "add_label" | "remove_label" => {
+            let Some(label) = label else {
+                return members_flash("error", "Type or pick a label first.");
+            };
+            let adding = form.action == "add_label";
+            let label_id = if adding {
+                match ensure_label(&state, &label).await {
+                    Some(lid) => lid,
+                    None => return members_flash("error", "The label could not be saved."),
+                }
+            } else {
+                // Removing never creates anything; an unknown name simply
+                // matches nothing, which is what was asked for.
+                match sqlx::query_scalar::<_, String>("SELECT id FROM labels WHERE name = ?")
+                    .bind(&label)
+                    .fetch_optional(&state.db)
+                    .await
+                    .ok()
+                    .flatten()
+                {
+                    Some(lid) => lid,
+                    None => {
+                        return members_flash("ok", &format!("No member has the label “{label}”."))
+                    }
+                }
+            };
+            for id in &form.ids {
+                if adding {
+                    let _ = sqlx::query(
+                        "INSERT INTO members_labels (id, member_id, label_id, sort_order) VALUES (?, ?, ?, 0) \
+                         ON CONFLICT DO NOTHING",
+                    )
+                    .bind(ghost_core::ids::new_id())
+                    .bind(id)
+                    .bind(&label_id)
+                    .execute(&state.db)
+                    .await;
+                } else {
+                    let _ = sqlx::query("DELETE FROM members_labels WHERE member_id = ? AND label_id = ?")
+                        .bind(id)
+                        .bind(&label_id)
+                        .execute(&state.db)
+                        .await;
+                }
+                done += 1;
+            }
+            let verb = if adding { "added to" } else { "removed from" };
+            members_flash(
+                "ok",
+                &format!("Label “{label}” {verb} {} {}.", done, if done == 1 { "member" } else { "members" }),
+            )
+        }
+        "unsubscribe" => {
+            // Off every newsletter, not deleted: the member keeps their
+            // account, their tier and their access. Ghost's own bulk
+            // unsubscribe does the same.
+            for id in &form.ids {
+                let _ = sqlx::query("DELETE FROM members_newsletters WHERE member_id = ?")
+                    .bind(id)
+                    .execute(&state.db)
+                    .await;
+                done += 1;
+            }
+            members_flash(
+                "ok",
+                &format!(
+                    "Unsubscribed {} {} from every newsletter.",
+                    done,
+                    if done == 1 { "member" } else { "members" }
+                ),
+            )
+        }
+        _ => members_flash("error", "Unknown batch action."),
+    }
 }
 
 /// Redirect back to the members page carrying a one-shot banner.
@@ -4739,36 +5962,61 @@ async fn posts_list_impl(state: &AppState, headers: &HeaderMap, post_type: &str,
         .map(|(key, _)| *key)
         .unwrap_or("newest");
 
+    let nql = flash.get("nql").map(String::as_str).unwrap_or("");
+
+    // The site's tags, for the batch bar's tag picker. Internal tags (Ghost
+    // names them `#something`) are machinery, not something to bulk-apply
+    // from a list, so they stay out of the picker.
+    let tags: Vec<(String, String)> = sqlx::query_as(
+        "SELECT id, name FROM tags WHERE name NOT LIKE '#%' ORDER BY name COLLATE NOCASE LIMIT 200",
+    )
+    .fetch_all(&state.db)
+    .await
+    .unwrap_or_default();
+
     let mut cards = posts::load_cards(state, listing.posts).await;
     posts::sort_cards(&mut cards, sort);
     let list = if cards.is_empty() {
-        let (title, detail) = if selected.0 == "all" {
-            ("Nothing here yet", "Everything you write shows up here, newest first.")
-        } else {
-            ("Nothing in this view", "Switch tabs to see the rest.")
+        // A filter that matched nothing has to offer the way back. Without
+        // it the toolbar is gone with the rows, and the only route out of an
+        // over-narrow filter is editing the address bar.
+        let (title, detail) = match (nql.trim().is_empty(), selected.0) {
+            (false, _) => ("Nothing matches this filter", "Clear it to see the rest."),
+            (true, "all") => ("Nothing here yet", "Everything you write shows up here, newest first."),
+            _ => ("Nothing in this view", "Switch tabs to see the rest."),
         };
         format!(
             r#"<div class="card padded rise" style="--i:1;text-align:center;padding:48px 20px">
 <p style="margin:0 0 4px;font-weight:600;font-size:17px">{title}</p>
 <p class="muted" style="margin:0 0 20px">{detail}</p>
-<a class="btn" href="{base}new/">{add} New {singular}</a></div>"#,
+{action}</div>"#,
             title = esc(title),
             detail = esc(detail),
-            base = base,
-            add = svg("add"),
-            singular = singular,
+            action = if nql.trim().is_empty() {
+                format!(
+                    r#"<a class="btn" href="{base}new/">{add} New {singular}</a>"#,
+                    base = base,
+                    add = svg("add"),
+                    singular = singular,
+                )
+            } else {
+                format!(r#"<a class="btn tonal" href="{base}">Clear filter</a>"#)
+            },
         )
     } else {
         format!(
-            r#"<div class="list-tools rise" style="--i:0">
+            r#"<div data-batch>
+<div class="list-tools rise" style="--i:0">
 <div class="search">{search}<input data-filter type="search" placeholder="Search {plural} by title, author or excerpt" aria-label="Search {label}"></div>
-{sorter}</div>
-{grid}"#,
+{filter_menu}{sorter}</div>
+{grid}
+</div>"#,
             search = svg("search"),
             plural = plural,
             label = label,
-            sorter = posts::sort_picker(base, selected.0, sort),
-            grid = posts::grid(&cards, base),
+            filter_menu = posts::filter_menu(base, selected.0, sort, nql),
+            sorter = posts::sort_picker(base, selected.0, sort, nql),
+            grid = posts::grid(&cards, base, &tags),
         )
     };
 
@@ -4791,7 +6039,7 @@ async fn posts_list_impl(state: &AppState, headers: &HeaderMap, post_type: &str,
             base = base,
             add = svg("add"),
             singular = singular,
-            filters = posts::filter_bar(base, selected.0, sort, &counts),
+            filters = posts::filter_bar(base, selected.0, sort, nql, &counts),
             list = list,
         ),
         true,
@@ -5012,6 +6260,55 @@ fn chip_set(name: &str, options: &[(String, String)], selected: &[String], empty
         })
         .collect();
     format!(r#"<div class="chips">{chips}</div>"#)
+}
+
+/// The NQL filter control the three list pages share, sitting in the toolbar
+/// beside search as a peer of the sort menu.
+///
+/// It used to be a script-injected button that opened a `<dialog>` of bare
+/// browser widgets; everything it can do is here instead, in the admin's own
+/// controls. The filter itself is a plain GET form, so it applies without
+/// script and is linkable — `carry` holds the hidden inputs (tab, sort) that
+/// must survive the submit, or the act of filtering would silently reset the
+/// rest of the view. Saved views need the API, so the script fills the
+/// `[data-views]` slot; with no script the filter field still works and the
+/// slot stays empty rather than leaving a dead button on the toolbar.
+pub(crate) fn filter_menu(base: &str, resource: &str, nql: &str, carry: &str, examples: &str) -> String {
+    let on = !nql.trim().is_empty();
+    format!(
+        r#"<details class="sort-menu filter-menu{active}" data-menu>
+<summary>{tune}<span class="fm-text">Filter</span>{dot}{caret}</summary>
+<div class="pop">
+<form method="get" action="{base}">{carry}
+<label class="field"><input name="nql" data-nql value="{nql}" placeholder=" " autocomplete="off" spellcheck="false" class="code"><span>NQL filter</span></label>
+<p class="fm-hint">{examples}</p>
+<div class="fm-actions"><button class="btn small" type="submit">{check} Apply</button>{clear}</div>
+</form>
+<p class="fm-title">Saved views</p>
+<div class="fm-views" data-views="{resource}"></div>
+<div class="fm-save">
+<label class="field"><input data-view-name placeholder=" " autocomplete="off"><span>Name this view</span></label>
+<button class="btn tonal small" type="button" data-view-save>{folder} Save view</button>
+</div>
+</div>
+</details>"#,
+        active = if on { " on" } else { "" },
+        base = base,
+        carry = carry,
+        nql = esc(nql),
+        resource = esc(resource),
+        examples = esc(examples),
+        tune = svg("tune"),
+        check = svg("check"),
+        folder = svg("folder"),
+        caret = SELECT_CARET,
+        dot = if on { r#"<span class="fm-dot" aria-label="a filter is active"></span>"# } else { "" },
+        clear = if on {
+            format!(r#"<a class="btn tonal small" href="{base}">Clear</a>"#)
+        } else {
+            String::new()
+        },
+    )
 }
 
 /// The segmented filter bar the list pages share. Each tab is a `filter=`
@@ -5573,10 +6870,10 @@ html {{ font-size: 62.5%; }}
 /// script changes with this admin rather than with Koenig, so the number
 /// moves for either: a browser holding a stale bridge would keep a broken
 /// editor (and a word count that never counts) until its cache expired.
-const KOENIG_VERSION: &str = "1.8.14";
+const KOENIG_VERSION: &str = "1.8.15";
 
 /// Where the editor's scripts live, version-stamped.
-const ASSETS: &str = concat!("/ghost/assets/", "1.8.14");
+const ASSETS: &str = concat!("/ghost/assets/", "1.8.15");
 
 /// Vendored editor runtime. Serving these from the binary keeps the admin a
 /// single self-contained process — no CDN, and no network at all once the
@@ -6091,14 +7388,18 @@ async fn editor_create_impl(state: &AppState, headers: &HeaderMap, mut form: Edi
             fire_post_webhooks(state, post_type, &post, "added", false);
             if post.status == "published" {
                 notify_slack_published(state, &post).await;
+                announce_published(state, &post).await;
             }
             if let Scheduling::At(delivery) = schedule {
                 let _ = repos::posts::set_delivery(&state.db, &post.id, delivery).await;
             }
             if going_out {
-                return match send_post_as_newsletter(state, &post.id).await {
+                return match queue_newsletter_send(state, &post.id).await {
                     Ok(n) => {
-                        let message = format!("Published and emailed to {n} subscriber{}.", if n == 1 { "" } else { "s" });
+                        // The send is under way rather than finished: the
+                        // count is who it is going to, and the post's
+                        // analytics page is where its progress shows.
+                        let message = format!("Published. Sending to {n} subscriber{}.", if n == 1 { "" } else { "s" });
                         if json_mode { editor_saved_json(&state, &post, &message, "ok").await } else { posts_flash("ok", &message) }
                     }
                     Err(e) => {
@@ -6160,6 +7461,13 @@ fn posts_flash(kind: &str, message: &str) -> Response {
 }
 
 /// A path carrying a one-shot banner for the page it lands on.
+/// One query-string value, escaped for both the URL and the attribute it is
+/// written into — the NQL filters the list toolbars carry between links are
+/// full of `+`, `:` and quotes, every one of which has to survive the trip.
+pub(crate) fn url_value(value: &str) -> String {
+    esc(&form_urlencoded::byte_serialize(value.as_bytes()).collect::<String>())
+}
+
 fn with_flash(path: &str, kind: &str, message: &str) -> String {
     let encoded: String = form_urlencoded::Serializer::new(String::new())
         .append_pair(kind, message)
@@ -6284,6 +7592,28 @@ fn truncate_chars(s: &str, max: usize) -> String {
 /// Fire-and-forget by design: a wedged or misconfigured webhook must not fail
 /// a publish that has already happened, so a failure is logged and the
 /// editor's response is unaffected. Ghost treats it the same way.
+/// Tell the rest of the web about a published post: the search engines that
+/// take an IndexNow ping, and the sites it links to.
+///
+/// Beside the Slack notification because they are the same moment, and
+/// spawned for the same reason: a publish does not wait on anybody else.
+pub(crate) async fn announce_published(state: &AppState, post: &ghost_core::models::Post) {
+    let site_url = state.site_url();
+    let router = state.router.read().await.clone();
+    let json = ghost_core::models::post_to_json(post, &[], &[], "");
+    let path = match router.permalink_for(&json) {
+        Some((_, permalink)) => ghost_routing::tree::build_permalink(&permalink, &json),
+        None => format!("/{}/", post.slug.clone().unwrap_or_default()),
+    };
+    ghost_api::announce::published(
+        state,
+        format!("{site_url}{path}"),
+        // Absolute URLs, so a relative link in the body is not mistaken for
+        // an external site worth notifying.
+        ghost_core::url::absolutize_html(&site_url, post.html.as_deref().unwrap_or("")),
+    );
+}
+
 async fn notify_slack_published(state: &AppState, post: &ghost_core::models::Post) {
     let Some(cfg) = ghost_api::slack::SlackConfig::from_settings(&state.settings) else {
         return;
@@ -6336,14 +7666,142 @@ enum BulkTransport {
     Smtp,
 }
 
-/// Render and send `post` to its subscribers.
+impl BulkTransport {
+    /// How many recipients one batch carries. Mailgun's own ceiling for a
+    /// `recipient-variables` send; for a relay, which has no batch API, a
+    /// smaller number that only decides how often progress is written down.
+    fn batch_size(&self) -> usize {
+        match self {
+            BulkTransport::Mailgun(_) => ghost_mail::MAILGUN_BATCH_SIZE,
+            BulkTransport::Smtp => 100,
+        }
+    }
+}
+
+/// Render and send `post` to its subscribers, and wait for it to finish.
 ///
-/// Returns how many messages were accepted.
+/// Returns how many messages were accepted. Used by the scheduler, which has
+/// nobody waiting on a response and does want the outcome in its log.
 async fn send_post_as_newsletter(state: &AppState, post_id: &str) -> Result<usize, String> {
+    deliver_newsletter(state, post_id, None).await
+}
+
+/// Send and wait, for the send-loop tests.
+///
+/// The publish path queues instead, so there is otherwise no way in from
+/// outside the crate to a send whose outcome can be asserted on.
+#[doc(hidden)]
+pub async fn send_newsletter_for_test(state: &AppState, post_id: &str) -> Result<usize, String> {
+    send_post_as_newsletter(state, post_id).await
+}
+
+/// Hand a send off to run on its own, and report how many it will go to.
+///
+/// A large list is minutes of provider requests even in batches of a
+/// thousand, and holding the publish request open for all of it means any
+/// proxy in front of the server can time the author out and leave them with
+/// no idea whether their newsletter went. So everything that can be known
+/// up front is checked up front — the post, the newsletter, the transport,
+/// whether there is anybody to send to — and only then does the work start
+/// in the background, with the `emails` row as its progress record.
+async fn queue_newsletter_send(state: &AppState, post_id: &str) -> Result<usize, String> {
+    let recipients = newsletter_preflight(state, post_id).await?;
+    let state = state.clone();
+    let post = post_id.to_string();
+    tokio::spawn(async move {
+        match deliver_newsletter(&state, &post, None).await {
+            Ok(sent) => tracing::info!("newsletter: {post} emailed to {sent} subscriber(s)"),
+            Err(e) => tracing::warn!("newsletter: {post} was published but not emailed: {e}"),
+        }
+    });
+    Ok(recipients)
+}
+
+/// Everything about a send that can be refused before any mail moves, and
+/// the number of people it would go to.
+///
+/// Deliberately the same checks, in the same order, that the send itself
+/// makes: the point is that an author is told "no newsletter configured"
+/// while they are still looking at the screen, rather than finding it in a
+/// log afterwards.
+async fn newsletter_preflight(state: &AppState, post_id: &str) -> Result<usize, String> {
     let Ok(Some(post)) = repos::posts::find_by_id(&state.db, post_id).await else {
         return Err("post not found".into());
     };
     if newsletter_already_sent(state, post_id).await {
+        return Err("This post has already been emailed.".into());
+    }
+    let newsletter = match post.newsletter_id.as_deref() {
+        Some(id) => repos::newsletters::find_by_id(&state.db, id).await.ok().flatten(),
+        None => repos::newsletters::default_newsletter(&state.db).await.ok().flatten(),
+    };
+    let Some(newsletter) = newsletter else {
+        return Err("No active newsletter to send on. Create one in Settings → Newsletters.".into());
+    };
+    let title = state.settings.get_str("title").unwrap_or_else(|| "Ghost".into());
+    let mail_cfg = ghost_mail::MailConfig::from_settings(&state.settings, &title, &state.site_url());
+    if ghost_mail::MailgunConfig::from_settings(&state.settings, &mail_cfg).is_none() && !mail_cfg.uses_relay() {
+        return Err("No bulk transport is configured. Set up Mailgun in \
+                    Settings → Newsletters, or an SMTP relay in Settings → Email."
+            .into());
+    }
+    let recipients = newsletter_audience(state, &post, &newsletter).await?;
+    if recipients.is_empty() {
+        return Err("No subscribers to send to.".into());
+    }
+    Ok(recipients.len())
+}
+
+/// Who a send goes to: the newsletter's subscribers the post's visibility
+/// allows, narrowed by any audience filter saved against the post.
+async fn newsletter_audience(
+    state: &AppState,
+    post: &ghost_core::models::Post,
+    newsletter: &repos::newsletters::Newsletter,
+) -> Result<Vec<Subscriber>, String> {
+    let audience = ghost_api::newsletter_audience::load(state, &post.id).await.map_err(|e| e.message())?;
+    let mut recipients = newsletter_recipients(
+        &state.db,
+        &newsletter.id,
+        if audience.include_preview { "public" } else { &post.visibility },
+        &post.id,
+    )
+    .await;
+    if let Some(filter) = audience.filter.as_deref().filter(|s| !s.is_empty()) {
+        let (members, _) = repos::members::browse(&state.db, Some(filter), -1, 1).await.map_err(|e| e.message())?;
+        let emails: std::collections::HashSet<String> =
+            members.into_iter().map(|member| member.email.to_lowercase()).collect();
+        recipients.retain(|member| emails.contains(&member.email.to_lowercase()));
+    }
+    Ok(recipients)
+}
+
+/// Send again to the recipients an earlier send could not reach.
+///
+/// Everything is resolved the same way as the first time — audience, tiers,
+/// body variants — and then narrowed to the members whose recipient row says
+/// `failed`, so a retry cannot mail anybody twice. The original record is
+/// reused rather than replaced: its counts, batches and failure history are
+/// the account of the whole send, not of one attempt at it.
+pub async fn retry_email(state: &AppState, email_id: &str) -> Result<usize, String> {
+    let post_id: Option<String> = sqlx::query_scalar("SELECT post_id FROM emails WHERE id = ?")
+        .bind(email_id)
+        .fetch_optional(&state.db)
+        .await
+        .ok()
+        .flatten();
+    let Some(post_id) = post_id else {
+        return Err("No such email.".into());
+    };
+    deliver_newsletter(state, &post_id, Some(email_id)).await
+}
+
+async fn deliver_newsletter(state: &AppState, post_id: &str, retry: Option<&str>) -> Result<usize, String> {
+    let Ok(Some(post)) = repos::posts::find_by_id(&state.db, post_id).await else {
+        return Err("post not found".into());
+    };
+    // A retry is the one case where an existing record is not a refusal.
+    if retry.is_none() && newsletter_already_sent(state, post_id).await {
         return Err("This post has already been emailed.".into());
     }
 
@@ -6378,12 +7836,49 @@ async fn send_post_as_newsletter(state: &AppState, post_id: &str) -> Result<usiz
         }
     };
 
-    let audience=ghost_api::newsletter_audience::load(state,&post.id).await.map_err(|e|e.message())?;
-    let mut recipients = newsletter_recipients(&state.db, &newsletter.id, if audience.include_preview {"public"} else {&post.visibility}, &post.id).await;
-    if let Some(filter)=audience.filter.as_deref().filter(|s|!s.is_empty()) {
-        let (members,_)=repos::members::browse(&state.db,Some(filter),-1,1).await.map_err(|e|e.message())?;
-        let emails:std::collections::HashSet<String>=members.into_iter().map(|member|member.email.to_lowercase()).collect();
-        recipients.retain(|member|emails.contains(&member.email.to_lowercase()));
+    let mut recipients = newsletter_audience(state, &post, &newsletter).await?;
+
+    // The host's two email ceilings, checked once the audience is known
+    // because both are about its size. Ghost asks them in this order and for
+    // different reasons: `members` is "is this list already bigger than the
+    // plan allows", which a site can become without sending anything;
+    // `emails` is "would this send go over the allowance for the period",
+    // which is about this send specifically.
+    if let Err(e) = state
+        .limits
+        .error_if_is_over(&state.db, "members", ghost_db::limits::Check::default())
+        .await
+    {
+        return Err(e.message());
+    }
+    if let Err(e) = state
+        .limits
+        .error_if_would_go_over(&state.db, "emails", ghost_db::limits::Check::adding(recipients.len() as i64))
+        .await
+    {
+        return Err(e.message());
+    }
+
+    if let Some(email_id) = retry {
+        let failed: std::collections::HashSet<String> = sqlx::query_scalar::<_, String>(
+            "SELECT member_uuid FROM email_recipients WHERE email_id = ? AND status = 'failed' AND member_uuid IS NOT NULL",
+        )
+        .bind(email_id)
+        .fetch_all(&state.db)
+        .await
+        .unwrap_or_default()
+        .into_iter()
+        .collect();
+        recipients.retain(|member| failed.contains(&member.uuid));
+        if recipients.is_empty() {
+            return Err("Every recipient of this email was reached; there is nothing to retry.".into());
+        }
+        // Their old rows go, so this attempt writes the current one. The
+        // failure records stay: they are the history of what went wrong.
+        let _ = sqlx::query("DELETE FROM email_recipients WHERE email_id = ? AND status = 'failed'")
+            .bind(email_id)
+            .execute(&state.db)
+            .await;
     }
     if recipients.is_empty() {
         return Err("No subscribers to send to.".into());
@@ -6519,69 +8014,42 @@ async fn send_post_as_newsletter(state: &AppState, post_id: &str) -> Result<usiz
         .filter(|s| !s.trim().is_empty())
         .unwrap_or_else(|| post_title.clone());
 
-    let mut sent = 0usize;
-    let mut last_error: Option<String> = None;
-    let mut variants:HashMap<String,(String,String)>=HashMap::new();
-    for sub in &recipients {
-        let tiers=ghost_db::repos::tiers::member_tier_ids(&state.db,&sqlx::query_scalar::<_,String>("SELECT id FROM members WHERE uuid=?").bind(&sub.uuid).fetch_one(&state.db).await.map_err(|e|e.to_string())?).await.map_err(|e|e.message())?;
-        let access=ghost_core::comments::check_post_tier_access(&post.visibility,Some(&sub.status),&post.tier_ids,&tiers);
-        let variant_key=format!("{}:{access}",sub.status);
-        if !variants.contains_key(&variant_key){
-            let mut variant=post_ctx.clone();
-            let raw=if access{post.html.as_deref().unwrap_or("")}else{post.html.as_deref().unwrap_or("").split_once("<!--members-only-->").map(|(preview,_)|preview).unwrap_or("")};
-            variant.html=ghost_core::url::absolutize_html(&site_url,&ghost_core::models::segment_html(raw,Some(&sub.status)));
-            variant.plaintext=ghost_mail::newsletter::plaintext(&variant.html);variant.paywall=!access;
-            let body=ghost_mail::newsletter::NewsletterEmail{site:&site_ctx,newsletter:&newsletter,post:&variant,latest_posts:&latest,comments_enabled:rendered.comments_enabled}.render().map_err(|e|e.message())?;
-            let body=ghost_api::newsletter_events::track_links(state,&post.id,&body).await.map_err(|e|e.message())?;
-            variants.insert(variant_key.clone(),(body.clone(),ghost_mail::newsletter::plaintext(&body)));
-        }
-        let (template_html,template_text)=variants.get(&variant_key).unwrap();
-        // Per-recipient unsubscribe link, same HMAC the members API verifies.
-        let key = hmac_hex(&secret, &sub.uuid);
-        let member = ghost_mail::newsletter::Recipient {
-            uuid: sub.uuid.clone(),
-            email: sub.email.clone(),
-            name: Some(sub.name.clone()).filter(|n| !n.trim().is_empty()),
-            status: sub.status.clone(),
-            created_at: ghost_core::dates::short_date_in_zone(&sub.created_at, &timezone),
-            unsubscribe_url: format!(
-                "{site_url}/unsubscribe/?uuid={}&key={key}",
-                sub.uuid
-            ),
-            manage_account_url: format!("{site_url}/#/portal/account"),
-            key,
-        };
-        let msg = ghost_mail::Message {
-            to: sub.email.clone(),
-            subject: subject.clone(),
-            html: ghost_mail::newsletter::personalize(&template_html, &member),
-            text: ghost_mail::newsletter::personalize(&template_text, &member),
-        };
-        let delivered = match &bulk {
-            BulkTransport::Mailgun(mg) => ghost_mail::send_mailgun(mg, &msg).await.map(|_| ()),
-            BulkTransport::Smtp => ghost_mail::send(&mail_cfg, &msg).await,
-        };
-        match delivered {
-            Ok(()) => sent += 1,
-            Err(e) => {
-                tracing::warn!("newsletter: {} failed: {}", sub.email, e.message());
-                last_error = Some(e.message());
-            }
-        }
-    }
-
-    // Record the send so the post cannot be mailed twice.
+    // The `emails` row is written before the first message rather than after
+    // the last, for two reasons: its id is what the open pixel in each body
+    // points at, and `post_id` is unique, so the row is also the lock that
+    // stops a second send racing this one. Counts and status are settled as
+    // the send progresses: pending → submitting → submitted or failed.
+    let email_id = retry.map(str::to_owned).unwrap_or_else(ghost_core::ids::new_id);
     let now = ghost_core::dates::now_db();
-    let newsletter_id = Some(newsletter.id.clone());
-    let _ = sqlx::query(
-        "INSERT INTO emails (id, post_id, status, recipient_filter, email_count, delivered_count,          subject, `from`, html, plaintext, source, submitted_at, newsletter_id, created_at, updated_at)          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'html', ?, ?, ?, ?)",
+    // Everyone the audience resolved to, before access and duplicate
+    // addresses narrow it down. `preflight_email_count` is what is left.
+    let candidate_count = recipients.len();
+    let send_options = SendOptions {
+        track_opens: state.settings.get_bool("email_track_opens"),
+        track_clicks: state.settings.get_bool("email_track_clicks"),
+    };
+    let manage_account_url = format!("{site_url}/#/portal/account");
+    let claimed = if retry.is_some() {
+        // Back to `pending` with the previous attempt's error cleared, so the
+        // status reads as this attempt rather than the last one.
+        sqlx::query("UPDATE emails SET status='pending', error=NULL, updated_at=? WHERE id=?")
+            .bind(&now)
+            .bind(&email_id)
+            .execute(&state.db)
+            .await
+    } else {
+        sqlx::query(
+        "INSERT INTO emails (id, uuid, post_id, status, recipient_filter, email_count, candidate_count, \
+         subject, `from`, html, plaintext, source, source_type, track_opens, track_clicks, \
+         feedback_enabled, submitted_at, newsletter_id, created_at, updated_at) \
+         VALUES (?, ?, ?, 'pending', ?, ?, ?, ?, ?, ?, ?, 'html', 'html', ?, ?, ?, ?, ?, ?, ?)",
     )
-    .bind(ghost_core::ids::new_id())
+    .bind(&email_id)
+    .bind(ghost_core::ids::uuid_v4())
     .bind(post_id)
-    .bind(if sent > 0 { "submitted" } else { "failed" })
     .bind(&post.visibility)
-    .bind(recipients.len() as i64)
-    .bind(sent as i64)
+    .bind(candidate_count as i64)
+    .bind(candidate_count as i64)
     .bind(&subject)
     // the envelope sender, whichever transport carried it
     .bind(&mail_cfg.from_address)
@@ -6589,18 +8057,341 @@ async fn send_post_as_newsletter(state: &AppState, post_id: &str) -> Result<usiz
     // what subscribers actually received
     .bind(&template_html)
     .bind(&template_text)
+    .bind(send_options.track_opens)
+    .bind(send_options.track_clicks)
+    .bind(newsletter.feedback_enabled)
     .bind(&now)
-    .bind(newsletter_id)
+    .bind(newsletter.id.clone())
     .bind(&now)
     .bind(&now)
     .execute(&state.db)
+    .await
+    };
+    // `post_id` is unique on `emails`, so this insert is the claim on sending
+    // this post. Losing it means another send got there first — which is the
+    // one thing between a queued send and a subscriber being mailed twice,
+    // so it has to be an error rather than something to carry on past.
+    if let Err(e) = claimed {
+        tracing::warn!("newsletter: could not claim the send for {post_id}: {e}");
+        return Err("This post is already being emailed.".into());
+    }
+
+    // --- prepare ----------------------------------------------------------
+    //
+    // A batch addresses many people with one body, so every recipient in it
+    // has to resolve the same body: same access to the post, same segment,
+    // and — because a member with no name has the name row cut out of the
+    // document rather than filled in — the same answer to "has a name".
+    // Those three make the group; the transport's limit chops each group into
+    // batches.
+    let mut groups: std::collections::BTreeMap<(String, bool, bool), Vec<Prepared>> = Default::default();
+    let mut variants: HashMap<String, (String, String)> = HashMap::new();
+    let mut fatal: Option<String> = None;
+    let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
+    for sub in &recipients {
+        macro_rules! or_abort {($result:expr) => {match $result {Ok(value)=>value,Err(e)=>{fatal=Some(e);break}}}}
+        // Mailgun keys `recipient-variables` by address, so a repeated
+        // address would quietly shrink the batch below the count recorded
+        // against it. Dropped here, where it can be counted as excluded.
+        if !seen.insert(sub.email.to_lowercase()) {
+            continue;
+        }
+        let member_id=or_abort!(sqlx::query_scalar::<_,String>("SELECT id FROM members WHERE uuid=?").bind(&sub.uuid).fetch_one(&state.db).await.map_err(|e|e.to_string()));
+        let tiers=or_abort!(ghost_db::repos::tiers::member_tier_ids(&state.db,&member_id).await.map_err(|e|e.message()));
+        let access=ghost_core::comments::check_post_tier_access(&post.visibility,Some(&sub.status),&post.tier_ids,&tiers);
+        let variant_key=format!("{}:{access}",sub.status);
+        if !variants.contains_key(&variant_key){
+            let mut variant=post_ctx.clone();
+            let raw=if access{post.html.as_deref().unwrap_or("")}else{post.html.as_deref().unwrap_or("").split_once("<!--members-only-->").map(|(preview,_)|preview).unwrap_or("")};
+            variant.html=ghost_core::url::absolutize_html(&site_url,&ghost_core::models::segment_html(raw,Some(&sub.status)));
+            variant.plaintext=ghost_mail::newsletter::plaintext(&variant.html);variant.paywall=!access;
+            let body=or_abort!(ghost_mail::newsletter::NewsletterEmail{site:&site_ctx,newsletter:&newsletter,post:&variant,latest_posts:&latest,comments_enabled:rendered.comments_enabled}.render().map_err(|e|e.message()));
+            let body=or_abort!(ghost_api::newsletter_events::track_links(state,&post.id,&body).await.map_err(|e|e.message()));
+            // Plaintext is taken before the pixel goes in: an invisible image
+            // has nothing to say in a text-only reader.
+            let text=ghost_mail::newsletter::plaintext(&body);
+            let body=ghost_api::newsletter_events::track_opens(state,&email_id,&body);
+            variants.insert(variant_key.clone(),(body,text));
+        }
+        let name = Some(sub.name.clone()).filter(|n| !n.trim().is_empty());
+        // Per-recipient unsubscribe link, same HMAC the members API verifies.
+        let key = hmac_hex(&secret, &sub.uuid);
+        groups.entry((sub.status.clone(), access, name.is_some())).or_default().push(Prepared {
+            member_id,
+            recipient: ghost_mail::newsletter::Recipient {
+                uuid: sub.uuid.clone(),
+                email: sub.email.clone(),
+                name,
+                status: sub.status.clone(),
+                created_at: ghost_core::dates::short_date_in_zone(&sub.created_at, &timezone),
+                unsubscribe_url: format!("{site_url}/unsubscribe/?uuid={}&key={key}", sub.uuid),
+                manage_account_url: manage_account_url.clone(),
+                key,
+            },
+        });
+    }
+
+    let preflight: usize = groups.values().map(Vec::len).sum();
+    // Nothing to send and a reason why: the record goes away so the post can
+    // be tried again, and the recipient rows cascade with it.
+    if preflight == 0 {
+        if retry.is_none() {
+            let _ = sqlx::query("DELETE FROM emails WHERE id=?").bind(&email_id).execute(&state.db).await;
+        }
+        return Err(fatal.unwrap_or_else(|| "No subscribers to send to.".into()));
+    }
+    let prepared_at = ghost_core::dates::now_db();
+    let _ = if retry.is_some() {
+        sqlx::query("UPDATE emails SET status='submitting', prepared_at=?, updated_at=? WHERE id=?")
+            .bind(&prepared_at)
+            .bind(&prepared_at)
+            .bind(&email_id)
+            .execute(&state.db)
+            .await
+    } else {
+        sqlx::query(
+            "UPDATE emails SET status='submitting', email_count=?, preflight_email_count=?, \
+             preparation_excluded_count=?, prepared_at=?, updated_at=? WHERE id=?",
+        )
+        .bind(preflight as i64)
+        .bind(preflight as i64)
+        .bind((candidate_count.saturating_sub(preflight)) as i64)
+        .bind(&prepared_at)
+        .bind(&prepared_at)
+        .bind(&email_id)
+        .execute(&state.db)
+        .await
+    };
+
+    // --- send -------------------------------------------------------------
+    let mut sent = 0usize;
+    let mut last_error: Option<String> = None;
+    for ((status, access, named), members) in groups {
+        let (body, text) = variants.get(&format!("{status}:{access}")).cloned().unwrap_or_default();
+        // The body is rewritten once per group, not once per member: the
+        // per-member values become provider placeholders.
+        let batch_html = ghost_mail::newsletter::personalize(
+            &body,
+            &ghost_mail::newsletter::batch_placeholders(&status, named, true, &manage_account_url),
+        );
+        let batch_text = ghost_mail::newsletter::personalize(
+            &text,
+            &ghost_mail::newsletter::batch_placeholders(&status, named, false, &manage_account_url),
+        );
+        let segment = format!("status:{status} access:{access} named:{named}");
+        for chunk in members.chunks(bulk.batch_size()) {
+            let batch_id = match ghost_api::newsletter_events::create_batch(state, &email_id, &segment, chunk.len()).await {
+                Ok(id) => id,
+                Err(e) => {
+                    // Without a batch record the send would be unreportable
+                    // and unretryable, which is worse than stopping.
+                    fatal = Some(e.message());
+                    break;
+                }
+            };
+            let outcome = match &bulk {
+                BulkTransport::Mailgun(mg) => {
+                    send_mailgun_chunk(mg, &email_id, &subject, &batch_html, &batch_text, chunk, named, &send_options).await
+                }
+                BulkTransport::Smtp => {
+                    send_smtp_chunk(&mail_cfg, &subject, &body, &text, chunk).await
+                }
+            };
+            let batch_error = outcome.error.clone();
+            for (member, provider_id, error) in outcome.recipients {
+                match &error {
+                    None => sent += 1,
+                    Some(message) => last_error = Some(message.clone()),
+                }
+                // Losing a record must not stop a send: the subscriber has
+                // the email either way, and a missing statistic is the
+                // lesser problem.
+                if let Err(e) = ghost_api::newsletter_events::record_recipient(
+                    state,
+                    ghost_api::newsletter_events::RecipientRecord {
+                        email_id: &email_id,
+                        batch_id: Some(&batch_id),
+                        member_id: &member.member_id,
+                        member_uuid: &member.recipient.uuid,
+                        email: &member.recipient.email,
+                        provider_id: provider_id.as_deref(),
+                        error: error.as_deref(),
+                    },
+                )
+                .await
+                {
+                    tracing::warn!("newsletter: could not record recipient {}: {}", member.recipient.email, e.message());
+                }
+            }
+            let accepted = chunk.len() - outcome.failed;
+            let _ = ghost_api::newsletter_events::settle_batch(
+                state,
+                &batch_id,
+                outcome.provider_id.as_deref(),
+                accepted,
+                batch_error.as_deref(),
+            )
+            .await;
+        }
+        if fatal.is_some() {
+            break;
+        }
+    }
+
+    // A send that fell over before reaching anybody can be tried again, so
+    // its record — which is also the lock that stops a post being emailed
+    // twice — goes away with it; the recipient rows cascade. One that did
+    // reach somebody keeps its record, because the alternative is mailing
+    // those subscribers a second time.
+    if fatal.is_some() && sent == 0 && retry.is_none() {
+        let _ = sqlx::query("DELETE FROM emails WHERE id=?").bind(&email_id).execute(&state.db).await;
+        return Err(fatal.unwrap_or_default());
+    }
+
+    // Settle the record now the outcome is known.
+    let error = fatal.or_else(|| {
+        (sent == 0).then(|| last_error.clone().unwrap_or_else(|| "no messages were accepted".into()))
+    });
+    // Counted from the rows rather than from this attempt's tallies, so a
+    // retry reports the whole send and not just the part it just fixed.
+    let _ = sqlx::query(
+        "UPDATE emails SET status=?, \
+         delivered_count=(SELECT COUNT(*) FROM email_recipients WHERE email_id=emails.id AND status='sent'), \
+         failed_count=(SELECT COUNT(*) FROM email_recipients WHERE email_id=emails.id AND status='failed'), \
+         error=?, updated_at=? WHERE id=?",
+    )
+    .bind(if error.is_none() { "submitted" } else { "failed" })
+    .bind(error.as_deref())
+    .bind(ghost_core::dates::now_db())
+    .bind(&email_id)
+    .execute(&state.db)
     .await;
 
-    if sent == 0 {
-        return Err(last_error.unwrap_or_else(|| "no messages were accepted".into()));
+    match error {
+        Some(error) => Err(error),
+        None => Ok(sent),
     }
-    Ok(sent)
 }
+
+/// A recipient with everything the send needs about them resolved.
+#[derive(Clone)]
+struct Prepared {
+    member_id: String,
+    recipient: ghost_mail::newsletter::Recipient,
+}
+
+/// Whether the provider should be asked to track opens and clicks on its
+/// side. Separate from this port's own pixel and redirects, which work on
+/// every transport.
+struct SendOptions {
+    track_opens: bool,
+    track_clicks: bool,
+}
+
+/// What one chunk's submission produced, per recipient and as a whole.
+struct ChunkOutcome {
+    /// `(member, provider id for their message, why it failed)`.
+    recipients: Vec<(Prepared, Option<String>, Option<String>)>,
+    provider_id: Option<String>,
+    error: Option<String>,
+    failed: usize,
+}
+
+/// One Mailgun request for the whole chunk.
+///
+/// This is the change that makes a large list send in minutes rather than
+/// hours: a thousand addresses, one request, and the per-member values go as
+/// `recipient-variables` for Mailgun to substitute. Each recipient's
+/// Message-Id is computed the same way on both sides, so a delivery or open
+/// event still lands on the right member.
+async fn send_mailgun_chunk(
+    mg: &ghost_mail::MailgunConfig,
+    email_id: &str,
+    subject: &str,
+    html: &str,
+    text: &str,
+    chunk: &[Prepared],
+    named: bool,
+    options: &SendOptions,
+) -> ChunkOutcome {
+    let batch: Vec<ghost_mail::BatchRecipient> = chunk
+        .iter()
+        .map(|member| ghost_mail::BatchRecipient {
+            email: member.recipient.email.clone(),
+            variables: ghost_mail::newsletter::batch_variables(&member.recipient, named),
+        })
+        .collect();
+    let message = ghost_mail::BatchMessage {
+        subject: subject.to_string(),
+        html: html.to_string(),
+        text: text.to_string(),
+        email_id: email_id.to_string(),
+        track_opens: options.track_opens,
+        track_clicks: options.track_clicks,
+    };
+    match ghost_mail::send_mailgun_batch(mg, &message, &batch).await {
+        Ok(outcome) => ChunkOutcome {
+            recipients: chunk
+                .iter()
+                .map(|member| {
+                    let provider_id =
+                        ghost_mail::recipient_message_id(email_id, &member.recipient.email, &mg.domain);
+                    (member.clone(), Some(provider_id), None)
+                })
+                .collect(),
+            provider_id: outcome.provider_id,
+            error: None,
+            failed: 0,
+        },
+        // Mailgun takes or refuses a batch whole, so one refusal is a
+        // failure for everyone in it.
+        Err(e) => {
+            let message = e.message();
+            tracing::warn!("newsletter: batch of {} refused: {message}", chunk.len());
+            ChunkOutcome {
+                recipients: chunk.iter().map(|member| (member.clone(), None, Some(message.clone()))).collect(),
+                provider_id: None,
+                error: Some(message),
+                failed: chunk.len(),
+            }
+        }
+    }
+}
+
+/// One message per recipient, for a plain SMTP relay.
+///
+/// A relay has no batch API and no recipient variables, so this is still a
+/// message at a time — but it is chunked like the Mailgun path so that a
+/// stalled send says how far it got, and so one refusal is one recipient
+/// rather than the whole send.
+async fn send_smtp_chunk(
+    mail_cfg: &ghost_mail::MailConfig,
+    subject: &str,
+    html: &str,
+    text: &str,
+    chunk: &[Prepared],
+) -> ChunkOutcome {
+    let mut recipients = Vec::with_capacity(chunk.len());
+    let mut failed = 0;
+    for member in chunk {
+        let msg = ghost_mail::Message {
+            to: member.recipient.email.clone(),
+            subject: subject.to_string(),
+            html: ghost_mail::newsletter::personalize(html, &member.recipient),
+            text: ghost_mail::newsletter::personalize(text, &member.recipient),
+        };
+        match ghost_mail::send(mail_cfg, &msg).await {
+            Ok(()) => recipients.push((member.clone(), None, None)),
+            Err(e) => {
+                tracing::warn!("newsletter: {} failed: {}", member.recipient.email, e.message());
+                failed += 1;
+                recipients.push((member.clone(), None, Some(e.message())));
+            }
+        }
+    }
+    ChunkOutcome { recipients, provider_id: None, error: None, failed }
+}
+
 
 /// HMAC-SHA256 hex, for the unsubscribe key. Mirrors the members API so the
 /// links this emits validate there.
@@ -6762,6 +8553,7 @@ async fn editor_save(State(state): State<AppState>, Path(id): Path<String>, head
             fire_tag_link_webhooks(&state, &post_type, &post, &tags_before, &form.tags).await;
             if !was_published && post.status == "published" {
                 notify_slack_published(&state, &post).await;
+                announce_published(&state, &post).await;
             }
             let list = if post_type == "page" { "/ghost/pages/" } else { "/ghost/posts/" };
             // What the script's banner should say, if anything: only a change
@@ -6850,6 +8642,192 @@ async fn post_delete(State(state): State<AppState>, Path(id): Path<String>, head
 
 async fn page_delete(State(state): State<AppState>, Path(id): Path<String>, headers: HeaderMap) -> Response {
     delete_impl(&state, &headers, &id, "page").await
+}
+
+/// What the batch bar on the posts and pages list posted: one action, and
+/// the rows it applies to repeating under one name. `Form` would keep only
+/// the last of the repeated keys, so this parses the body itself — the same
+/// arrangement the member editor's newsletter checkboxes use.
+#[derive(Debug, Default)]
+struct BulkPostsForm {
+    action: String,
+    ids: Vec<String>,
+    /// The access popover's choice. Only read by `visibility`.
+    visibility: String,
+    /// The tag picker's ticked chips. Only read by `tags`, where an empty
+    /// list is a real answer — it clears every tag — so it cannot be
+    /// distinguished by emptiness the way `visibility` can.
+    tags: Vec<String>,
+}
+
+impl BulkPostsForm {
+    fn parse(body: &str) -> Self {
+        let mut f = BulkPostsForm::default();
+        for (k, v) in form_urlencoded::parse(body.as_bytes()) {
+            match k.as_ref() {
+                "action" => f.action = v.into_owned(),
+                "ids" => f.ids.push(v.into_owned()),
+                "visibility" => f.visibility = v.into_owned(),
+                "tags" => f.tags.push(v.into_owned()),
+                _ => {}
+            }
+        }
+        f
+    }
+}
+
+impl<S: Send + Sync> axum::extract::FromRequest<S> for BulkPostsForm {
+    type Rejection = Response;
+    async fn from_request(req: axum::extract::Request, state: &S) -> Result<Self, Self::Rejection> {
+        let bytes = axum::body::Bytes::from_request(req, state)
+            .await
+            .map_err(axum::response::IntoResponse::into_response)?;
+        Ok(BulkPostsForm::parse(&String::from_utf8_lossy(&bytes)))
+    }
+}
+
+/// The posts and pages list's batch actions: feature, unfeature, delete.
+///
+/// Ghost applies bulk edits item by item under the same permission checks
+/// as the single-item endpoints, and so does this — an Author who cannot
+/// touch someone else's post selects it alongside their own and the banner
+/// reports what was skipped rather than refusing the whole request. That
+/// matters for the list too: the alternative is a page that empties itself
+/// of rows the user never had visible rights over.
+async fn bulk_impl(state: &AppState, headers: &HeaderMap, form: &BulkPostsForm, post_type: &str) -> Response {
+    let actor = match require_actor(state, headers).await {
+        Ok(a) => a,
+        Err(r) => return r,
+    };
+    let base = if post_type == "page" { "/ghost/pages/" } else { "/ghost/posts/" };
+    let (word, plural) = if post_type == "page" { ("page", "pages") } else { ("post", "posts") };
+    if form.ids.is_empty() {
+        return Redirect::to(&with_flash(base, "error", "Nothing was selected.")).into_response();
+    }
+    if !matches!(
+        form.action.as_str(),
+        "delete" | "feature" | "unfeature" | "publish" | "draft" | "visibility" | "tags"
+    ) {
+        return Redirect::to(&with_flash(base, "error", "Unknown batch action.")).into_response();
+    }
+    // Validate the one argument an action carries before touching anything,
+    // so a typo cannot half-apply across a selection.
+    if form.action == "visibility" && !matches!(form.visibility.as_str(), "public" | "members" | "paid") {
+        return Redirect::to(&with_flash(base, "error", "Choose who can read them first."))
+            .into_response();
+    }
+
+    let mut done = 0usize;
+    let mut skipped = 0usize;
+    for id in &form.ids {
+        if !may_edit_post(state, &actor, id).await {
+            skipped += 1;
+            continue;
+        }
+        if matches!(form.action.as_str(), "publish" | "draft" | "visibility" | "tags") {
+            // These go through the repo's own update, as the single-post
+            // editor does: status changes touch `published_at`, and tags are
+            // a join table, neither of which a bare UPDATE would get right.
+            let changes = repos::posts::PostChanges {
+                status: match form.action.as_str() {
+                    "publish" => Some("published".to_string()),
+                    "draft" => Some("draft".to_string()),
+                    _ => None,
+                },
+                visibility: (form.action == "visibility").then(|| form.visibility.clone()),
+                tag_ids: (form.action == "tags").then(|| form.tags.clone()),
+                ..Default::default()
+            };
+            // The type check keeps an id lifted from one list from acting on
+            // the other kind of row, as the other branches do.
+            let wrong_kind = repos::posts::find_by_id(&state.db, id)
+                .await
+                .ok()
+                .flatten()
+                .is_none_or(|p| p.post_type != post_type);
+            if wrong_kind {
+                skipped += 1;
+                continue;
+            }
+            match repos::posts::update(&state.db, id, &changes).await {
+                Ok(p) => {
+                    let _ = repos::actions::record(&state.db, post_type, id, &actor.user.id, "edited").await;
+                    fire_post_webhooks(state, post_type, &p, "edited", p.status == "published");
+                    done += 1;
+                }
+                Err(_) => skipped += 1,
+            }
+            continue;
+        }
+        if form.action == "delete" {
+            // Read it before it goes, as the single delete does: a webhook
+            // that cannot name what was deleted is not much use to a listener.
+            // The type check keeps an id lifted from one list from acting on
+            // the other kind of row.
+            let doomed = repos::posts::find_by_id(&state.db, id)
+                .await
+                .ok()
+                .flatten()
+                .filter(|p| p.post_type == post_type);
+            let Some(p) = doomed else {
+                skipped += 1;
+                continue;
+            };
+            let _ = repos::posts::destroy(&state.db, id).await;
+            let _ = repos::actions::record(&state.db, post_type, id, &actor.user.id, "deleted").await;
+            fire_post_webhooks(state, post_type, &p, "deleted", p.status == "published");
+        } else {
+            // `AND type = ?` keeps an id lifted from one list from acting on
+            // the other kind of row.
+            let _ = sqlx::query("UPDATE posts SET featured = ?, updated_at = ? WHERE id = ? AND type = ?")
+                .bind(form.action == "feature")
+                .bind(ghost_core::dates::now_db())
+                .bind(id)
+                .bind(post_type)
+                .execute(&state.db)
+                .await;
+            let _ = repos::actions::record(&state.db, post_type, id, &actor.user.id, "edited").await;
+            if let Some(p) = repos::posts::find_by_id(&state.db, id).await.ok().flatten() {
+                fire_post_webhooks(state, post_type, &p, "edited", p.status == "published");
+            }
+        }
+        done += 1;
+    }
+
+    if done == 0 {
+        return Redirect::to(&with_flash(
+            base,
+            "error",
+            &format!("None of those {plural} are yours to change."),
+        ))
+        .into_response();
+    }
+    let verb = match form.action.as_str() {
+        "delete" => "Deleted",
+        "feature" => "Featured",
+        "unfeature" => "Unfeatured",
+        "publish" => "Published",
+        "draft" => "Moved to drafts:",
+        "visibility" => "Changed access on",
+        _ => "Retagged",
+    };
+    let mut message = format!("{verb} {} {}.", done, if done == 1 { word } else { plural });
+    if skipped > 0 {
+        message.push_str(&format!(
+            " {} {} skipped — not yours to change.",
+            skipped,
+            if skipped == 1 { word } else { plural }
+        ));
+    }
+    Redirect::to(&with_flash(base, "ok", &message)).into_response()
+}
+
+async fn posts_bulk(State(state): State<AppState>, headers: HeaderMap, form: BulkPostsForm) -> Response {
+    bulk_impl(&state, &headers, &form, "post").await
+}
+
+async fn pages_bulk(State(state): State<AppState>, headers: HeaderMap, form: BulkPostsForm) -> Response {
+    bulk_impl(&state, &headers, &form, "page").await
 }
 
 // ---------------------------------------------------------------------------
@@ -8254,6 +10232,10 @@ const SETTINGS_GROUPS: &[SettingsGroup] = &[
     SettingsGroup { slug: "code-injection", title: "Code injection", icon: "code", tint: "purple", items: &["Site head", "Site foot"] },
     SettingsGroup { slug: "site", title: "Announcement", icon: "flag", tint: "amber", items: &["Announcement bar", "Background", "Visibility"] },
     SettingsGroup { slug: "membership", title: "Membership", icon: "ghost", tint: "teal", items: &["Access", "Spam filters", "Tiers", "Signup portal", "Gift subscriptions", "Tips & donations", "Custom fields"] },
+    // This port's own feature, so it has no Ghost sidebar slot to mirror; it
+    // sits with Membership because it is the other thing readers (and agents)
+    // can be charged for.
+    SettingsGroup { slug: "machine-payments", title: "Machine payments", icon: "integrations", tint: "pink", items: &["Pricing", "Stripe cards & Link", "Stablecoins", "Payment activity"] },
     SettingsGroup { slug: "email", title: "Email", icon: "mail", tint: "blue", items: &["Transactional email", "SMTP server", "Sender identity", "Send a test"] },
     SettingsGroup { slug: "newsletters", title: "Newsletters", icon: "send", tint: "purple", items: &["Newsletter sending", "Default recipients", "Mailgun", "Region"] },
     SettingsGroup { slug: "growth", title: "Growth", icon: "globe", tint: "slate", items: &["Network", "Ghost Explore", "Recommendations", "Signup forms", "Offers"] },
@@ -8341,6 +10323,13 @@ const SETTINGS_INDEX: &[(&str, &str, &str)] = &[
     ("membership", "Spam filters", "Blocked email domains"),
     ("membership", "Custom fields", "Field name"),
     ("membership", "Custom fields", "Member access"),
+    ("machine-payments", "Pricing", "Price per article"),
+    ("machine-payments", "Pricing", "Currency"),
+    ("machine-payments", "Stripe cards & Link", "Stripe business network profile ID"),
+    ("machine-payments", "Stablecoins", "Tempo USDC"),
+    ("machine-payments", "Stablecoins", "Base USDC"),
+    ("machine-payments", "Stablecoins", "Deposit addresses"),
+    ("machine-payments", "Payment activity", "Recent payment attempts"),
     ("growth", "Offers", "Discount code"),
     ("growth", "Offers", "Free trial"),
     ("membership", "Gift subscriptions", "Shareable link"),
@@ -8762,6 +10751,28 @@ fn textbox(name: &str, label: &str, value: &str) -> String {
 }
 
 /// Redirect back to a settings group page carrying a one-shot banner.
+/// A settings flash, or the same message as JSON for an API client.
+///
+/// The four file-handling handlers below are reached two ways: from the
+/// admin's own forms, which want a redirect and a banner, and from the Admin
+/// API, where a redirect to an HTML page is useless. One handler either way
+/// means the validation and the writing cannot drift between them.
+fn flash(headers: &HeaderMap, group: &str, kind: &str, message: &str) -> Response {
+    if !wants_json(headers) {
+        return settings_flash(group, kind, message);
+    }
+    let status = if kind == "error" { StatusCode::UNPROCESSABLE_ENTITY } else { StatusCode::OK };
+    if kind == "error" {
+        (
+            status,
+            axum::Json(serde_json::json!({"errors":[{"message":message,"errorType":"ValidationError"}]})),
+        )
+            .into_response()
+    } else {
+        (status, axum::Json(serde_json::json!({"meta":{"message":message}}))).into_response()
+    }
+}
+
 fn settings_flash(group: &str, kind: &str, message: &str) -> Response {
     let encoded: String = form_urlencoded::Serializer::new(String::new())
         .append_pair(kind, message)
@@ -13031,7 +15042,13 @@ async fn recommendation_new(
     .execute(&state.db)
     .await;
     match res {
-        Ok(_) => settings_flash("growth", "ok", "Recommendation added."),
+        Ok(_) => {
+            // Tell them they have been recommended, by sending a webmention
+            // between the two sites' recommendation files. That is how the
+            // other end's "who recommends me" screen learns about it.
+            ghost_api::mentions::announce_recommendation(&state, url.clone());
+            settings_flash("growth", "ok", "Recommendation added.")
+        }
         Err(e) => settings_flash("growth", "error", &format!("Could not add it: {e}")),
     }
 }
@@ -13827,6 +15844,7 @@ async fn code_injection_save(State(state): State<AppState>, headers: HeaderMap, 
 
 /// Ghost export shape: `{db: [{meta: {…}, data: {posts, tags, users, …}}]}`.
 /// Kept as a pure function over the fetched rows so it can be unit-tested.
+#[cfg(test)]
 fn build_ghost_export(posts: &[ghost_core::models::Post], tags: &[ghost_core::models::Tag], site_url: &str) -> serde_json::Value {
     let post_rows: Vec<serde_json::Value> = posts
         .iter()
@@ -13884,28 +15902,14 @@ fn build_ghost_export(posts: &[ghost_core::models::Post], tags: &[ghost_core::mo
 
 /// The content export as a JSON string: posts, pages and tags in Ghost's
 /// export shape. Shared by the standalone download and the backup bundle.
-async fn build_content_export(state: &AppState) -> String {
-    let q = repos::posts::BrowsePosts {
-        filter: None,
-        order: None,
-        limit: 100_000,
-        page: 1,
-        post_type: None,
-        public: false,
-        include_authors: false,
-        include_tags: false,
-    };
-    let posts = repos::posts::browse(&state.db, &q)
-        .await
-        .map(|p| p.posts)
-        .unwrap_or_default();
-    let (tags, _) =
-        repos::tags::browse(&state.db, None, None, 100_000, 1, false, true).await.unwrap_or_default();
-    let export = build_ghost_export(&posts, &tags, &state.site_url());
-    serde_json::to_string_pretty(&export).unwrap_or_default()
+pub(crate) async fn build_content_export(state: &AppState) -> String {
+    match ghost_db::transfer::export(&state.db).await {
+        Ok(value) => serde_json::to_string_pretty(&value).unwrap_or_default(),
+        Err(error) => { tracing::error!("Content export failed: {}", error.message()); String::new() }
+    }
 }
 
-async fn migration_export_content(State(state): State<AppState>, headers: HeaderMap) -> Response {
+pub(crate) async fn migration_export_content(State(state): State<AppState>, headers: HeaderMap) -> Response {
     if let Err(r) = require_role(&state, &headers, Role::Administrator).await {
         return r;
     }
@@ -13923,18 +15927,12 @@ async fn migration_export_content(State(state): State<AppState>, headers: Header
         .into_response()
 }
 
-/// Ghost's post-analytics columns, less the ones this port has no source for.
-///
-/// Ghost drops a column rather than filling it with zeroes when the site does
-/// not track that number — an empty `clicks` column reads as "nobody clicked",
-/// which is a different and wrong claim. The same rule applies here: there is
-/// no per-post click or signup attribution in this schema, so `clicks`,
-/// `signups` and `paid_conversions` are absent rather than blank. `views` is
-/// in their place because this port's own analytics does count those.
+/// Post analytics from native page views, newsletter clicks and attributed
+/// membership/subscription events. These CSV fields share the report sources.
 const POST_ANALYTICS_COLUMNS: &[&str] = &[
     "id", "title", "url", "author", "status", "created_at", "updated_at", "published_at",
     "featured", "tags", "post_access", "email_recipients", "newsletter_name", "sends", "opens",
-    "views", "feedback_more_like_this", "feedback_less_like_this",
+    "views", "feedback_more_like_this", "feedback_less_like_this", "clicks", "signups", "paid_conversions",
 ];
 
 /// Per-post sends, opens, views and feedback, as a CSV.
@@ -14002,6 +16000,9 @@ async fn build_post_analytics_csv(state: &AppState) -> Option<Vec<u8>> {
         };
         let (more, less) = (feedback(1).await, feedback(0).await);
 
+        let clicks:i64=sqlx::query_scalar("SELECT COUNT(*) FROM newsletter_clicks c JOIN newsletter_links l ON l.id=c.link_id WHERE l.post_id=?").bind(&p.id).fetch_one(&state.db).await.unwrap_or(0);
+        let signups:i64=sqlx::query_scalar("SELECT COUNT(*) FROM members_created_events WHERE attribution_id=? AND attribution_type='post'").bind(&p.id).fetch_one(&state.db).await.unwrap_or(0);
+        let conversions:i64=sqlx::query_scalar("SELECT COUNT(*) FROM members_subscription_created_events WHERE attribution_id=? AND attribution_type='post'").bind(&p.id).fetch_one(&state.db).await.unwrap_or(0);
         let record = [
             p.id.clone(),
             p.title.clone().unwrap_or_default(),
@@ -14021,6 +16022,7 @@ async fn build_post_analytics_csv(state: &AppState) -> Option<Vec<u8>> {
             views.to_string(),
             more.to_string(),
             less.to_string(),
+            clicks.to_string(), signups.to_string(), conversions.to_string(),
         ];
         w.write_record(&record).ok()?;
     }
@@ -14141,7 +16143,7 @@ async fn build_export_archive(
             zip.write_all(build_content_export(state).await.as_bytes()).ok()?;
         }
         if want("members") {
-            if let Some(csv) = build_members_csv(state).await {
+            if let Some(csv) = build_members_csv(state, None).await {
                 zip.start_file("members.csv", opts).ok()?;
                 zip.write_all(&csv).ok()?;
             }
@@ -14204,7 +16206,7 @@ async fn migration_export_all(
     }
 }
 
-async fn migration_export_themes(State(state): State<AppState>, headers: HeaderMap) -> Response {
+pub(crate) async fn migration_export_themes(State(state): State<AppState>, headers: HeaderMap) -> Response {
     if let Err(r) = require_role(&state, &headers, Role::Administrator).await {
         return r;
     }
@@ -14238,134 +16240,15 @@ impl ImportCounts {
 
 /// Insert posts/pages/tags from a Ghost export file's `data` object.
 async fn run_import(state: &AppState, owner_id: &str, data: &serde_json::Value) -> Result<ImportCounts, ghost_core::GhostError> {
-    let mut counts = ImportCounts::default();
-
-    // tags first (keyed by export id so posts can map them over)
-    let mut tag_ids: HashMap<String, String> = HashMap::new();
-    if let Some(tags) = data.get("tags").and_then(|t| t.as_array()) {
-        for t in tags {
-            let name = t.get("name").and_then(|v| v.as_str()).unwrap_or("").trim().to_string();
-            if name.is_empty() {
-                continue;
-            }
-            let existing: Option<String> = sqlx::query_scalar("SELECT id FROM tags WHERE name = ?")
-                .bind(&name)
-                .fetch_optional(&state.db)
-                .await
-                .ok()
-                .flatten();
-            if let Some(id) = existing {
-                tag_ids.insert(t.get("id").and_then(|v| v.as_str()).unwrap_or("").to_string(), id);
-                continue;
-            }
-            if let Ok(tag) = repos::tags::insert(
-                &state.db,
-                &repos::tags::NewTag {
-                    name: name.clone(),
-                    description: t.get("description").and_then(|v| v.as_str()).map(str::to_string),
-                    ..Default::default()
-                },
-            )
-            .await
-            {
-                counts.tags += 1;
-                tag_ids.insert(t.get("id").and_then(|v| v.as_str()).unwrap_or("").to_string(), tag.id);
-            }
-        }
-    }
-
-    if let Some(posts) = data.get("posts").and_then(|p| p.as_array()) {
-        for p in posts {
-            let title = p.get("title").and_then(|v| v.as_str()).unwrap_or("Untitled").trim().to_string();
-            // A Ghost export carries `lexical`; this server's own export
-            // carries `markdown`. Keep whichever arrived, so the editor
-            // reopens the real source rather than a rendering of it.
-            let markdown = p
-                .get("markdown")
-                .and_then(|v| v.as_str())
-                .filter(|m| !m.trim().is_empty())
-                .map(str::to_string);
-            let lexical = p
-                .get("lexical")
-                .and_then(|v| v.as_str())
-                .filter(|l| !l.trim().is_empty())
-                .map(str::to_string);
-            let post_type = match p.get("type").and_then(|v| v.as_str()) {
-                Some("page") => "page",
-                _ => "post",
-            };
-            let tag_ids: Vec<String> = p
-                .get("tags")
-                .and_then(|v| v.as_array())
-                .map(|a| {
-                    a.iter()
-                        .filter_map(|t| t.get("id").and_then(|v| v.as_str()))
-                        .filter_map(|id| tag_ids.get(id).cloned())
-                        .collect()
-                })
-                .unwrap_or_default();
-            let (html, plaintext, reading_time) = match (&markdown, &lexical) {
-                (Some(md), _) => ghost_render::markdown::render_markdown(md),
-                (None, source) => {
-                    // The export's own `html` is Ghost's rendering of the
-                    // lexical and is preferred; rendering it here is the
-                    // fallback for an export that omitted it.
-                    let html = p
-                        .get("html")
-                        .and_then(|v| v.as_str())
-                        .filter(|h| !h.trim().is_empty())
-                        .map(str::to_string)
-                        .unwrap_or_else(|| source.as_deref().map(ghost_render::lexical::to_html).unwrap_or_default());
-                    let plain = ghost_render::markdown::html_to_plaintext(&html);
-                    let rt = ghost_render::markdown::reading_time(&plain);
-                    (html, plain, rt)
-                }
-            };
-            let new = repos::posts::NewPost {
-                tier_ids: Vec::new(),
-                title,
-                slug: p.get("slug").and_then(|v| v.as_str()).map(str::to_string),
-                lexical,
-                markdown,
-                html: Some(html),
-                plaintext: Some(plaintext),
-                custom_excerpt: p.get("custom_excerpt").and_then(|v| v.as_str()).map(str::to_string),
-                feature_image: p.get("feature_image").and_then(|v| v.as_str()).map(str::to_string),
-                featured: p.get("featured").and_then(|v| v.as_bool()).unwrap_or(false),
-                post_type: post_type.to_string(),
-                status: if p.get("visibility").and_then(|v| v.as_str()) == Some("tiers") { "draft".to_string() } else { p.get("status").and_then(|v| v.as_str()).unwrap_or("draft").to_string() },
-                visibility: p.get("visibility").and_then(|v| v.as_str()).unwrap_or("public").to_string(),
-                published_at: None,
-                codeinjection_head: p.get("codeinjection_head").and_then(|v| v.as_str()).map(str::to_string),
-                codeinjection_foot: p.get("codeinjection_foot").and_then(|v| v.as_str()).map(str::to_string),
-                custom_template: p.get("custom_template").and_then(|v| v.as_str()).map(str::to_string),
-                canonical_url: p.get("canonical_url").and_then(|v| v.as_str()).map(str::to_string),
-                show_title_and_feature_image: p.get("show_title_and_feature_image").and_then(|v| v.as_bool()),
-                meta_title: None,
-                meta_description: None,
-                og_title: None,
-                og_description: None,
-                og_image: None,
-                twitter_title: None,
-                twitter_description: None,
-                twitter_image: None,
-                email_subject: None,
-                feature_image_alt: None,
-                feature_image_caption: None,
-                author_ids: vec![],
-                tag_ids,
-                reading_time,
-            };
-            if repos::posts::insert(&state.db, &new, owner_id).await.is_ok() {
-                if post_type == "page" {
-                    counts.pages += 1;
-                } else {
-                    counts.posts += 1;
-                }
-            }
-        }
-    }
-    Ok(counts)
+    let prepared=ghost_api::publishing::prepare_content_import(data);
+    ghost_db::transfer::import(&state.db, &prepared, owner_id).await?;
+    state.settings.reload(&state.db).await?;
+    let posts = data["posts"].as_array().cloned().unwrap_or_default();
+    Ok(ImportCounts {
+        posts: posts.iter().filter(|p|p["type"] != "page").count(),
+        pages: posts.iter().filter(|p|p["type"] == "page").count(),
+        tags: data["tags"].as_array().map_or(0, Vec::len),
+    })
 }
 
 /// What came out of an uploaded archive.
@@ -14458,7 +16341,7 @@ fn after_segment(path: &str, marker: &str) -> Option<String> {
 }
 
 /// The universal importer: a Ghost export as JSON, or a zip holding one.
-async fn migration_import(
+pub(crate) async fn migration_import(
     State(state): State<AppState>,
     headers: HeaderMap,
     mut multipart: Multipart,
@@ -14468,16 +16351,16 @@ async fn migration_import(
         Err(r) => return r,
     };
     while let Ok(Some(field)) = multipart.next_field().await {
-        if field.name() != Some("file") {
+        if !matches!(field.name(), Some("file" | "importfile")) {
             continue;
         }
         let filename = field.file_name().unwrap_or_default().to_ascii_lowercase();
         let data = match field.bytes().await {
             Ok(d) => d.to_vec(),
-            Err(e) => return settings_flash("migration", "error", &format!("Upload failed: {e}")),
+            Err(e) => return flash(&headers, "migration", "error", &format!("Upload failed: {e}")),
         };
         if data.is_empty() {
-            return settings_flash("migration", "error", "That file is empty.");
+            return flash(&headers, "migration", "error", "That file is empty.");
         }
 
         // A zip starts "PK\x03\x04". Sniffing the bytes rather than trusting
@@ -14495,14 +16378,14 @@ async fn migration_import(
                     match contents.export {
                         Some(bytes) => (bytes, note),
                         None if contents.media_restored > 0 => {
-                            return settings_flash(
+                            return flash(&headers, 
                                 "migration",
                                 "ok",
                                 &format!("No export file in that archive, but{note}"),
                             )
                         }
                         None => {
-                            return settings_flash(
+                            return flash(&headers, 
                                 "migration",
                                 "error",
                                 "That archive holds no Ghost export file and no media.",
@@ -14510,7 +16393,7 @@ async fn migration_import(
                         }
                     }
                 }
-                Err(e) => return settings_flash("migration", "error", &e.message()),
+                Err(e) => return flash(&headers, "migration", "error", &e.message()),
             }
         } else {
             (data, String::new())
@@ -14519,7 +16402,7 @@ async fn migration_import(
         let parsed: serde_json::Value = match serde_json::from_slice(&json) {
             Ok(v) => v,
             Err(e) => {
-                return settings_flash("migration", "error", &format!("Not a valid JSON file: {e}"))
+                return flash(&headers, "migration", "error", &format!("Not a valid JSON file: {e}"))
             }
         };
         let data = parsed
@@ -14530,25 +16413,25 @@ async fn migration_import(
         return match data {
             Some(data) => match run_import(&state, &user.id, data).await {
                 Ok(counts) => {
-                    settings_flash("migration", "ok", &format!("{}{media_note}", counts.message()))
+                    flash(&headers, "migration", "ok", &format!("{}{media_note}", counts.message()))
                 }
-                Err(e) => settings_flash("migration", "error", &e.message()),
+                Err(e) => flash(&headers, "migration", "error", &e.message()),
             },
-            None => settings_flash(
+            None => flash(&headers, 
                 "migration",
                 "error",
                 "That file doesn't look like a Ghost export (no db[0].data).",
             ),
         };
     }
-    settings_flash("migration", "error", "No file was uploaded.")
+    flash(&headers, "migration", "error", "No file was uploaded.")
 }
 
 // --- labs: the redirects and routes files, uploadable and downloadable ---
 
 /// The current redirects.yaml, as Ghost's Labs screen offers it. A site that
 /// has never uploaded any gets the neutral document rather than an error.
-async fn redirects_download(State(state): State<AppState>, headers: HeaderMap) -> Response {
+pub(crate) async fn redirects_download(State(state): State<AppState>, headers: HeaderMap) -> Response {
     if let Err(r) = require_role(&state, &headers, Role::Administrator).await {
         return r;
     }
@@ -14566,37 +16449,37 @@ async fn redirects_download(State(state): State<AppState>, headers: HeaderMap) -
         .into_response()
 }
 
-async fn redirects_upload(State(state): State<AppState>, headers: HeaderMap, mut multipart: Multipart) -> Response {
+pub(crate) async fn redirects_upload(State(state): State<AppState>, headers: HeaderMap, mut multipart: Multipart) -> Response {
     if let Err(r) = require_role(&state, &headers, Role::Administrator).await {
         return r;
     }
     while let Ok(Some(field)) = multipart.next_field().await {
-        if field.name() != Some("file") {
+        if !matches!(field.name(), Some("file" | "redirects")) {
             continue;
         }
         let text = match field.text().await {
             Ok(t) => t,
-            Err(e) => return settings_flash("advanced", "error", &format!("Upload failed: {e}")),
+            Err(e) => return flash(&headers, "advanced", "error", &format!("Upload failed: {e}")),
         };
         // Parse before writing anything: a malformed file never reaches the
         // disk, let alone the live redirect table.
         let parsed = match ghost_routing::redirects::parse_redirects_yaml(&text) {
             Ok(r) => r,
-            Err(e) => return settings_flash("advanced", "error", &format!("Not a valid redirects file: {e}")),
+            Err(e) => return flash(&headers, "advanced", "error", &format!("Not a valid redirects file: {e}")),
         };
         let path = state.config.content_path().join("redirects.yaml");
         if let Err(e) = tokio::fs::write(&path, &text).await {
-            return settings_flash("advanced", "error", &format!("Could not write redirects.yaml: {e}"));
+            return flash(&headers, "advanced", "error", &format!("Could not write redirects.yaml: {e}"));
         }
         let count = ghost_routing::redirects::rules_map(&parsed).len();
         *state.redirects.write().await = Arc::new(parsed);
         fire_site_changed(&state);
-        return settings_flash("advanced", "ok", &format!("Redirects uploaded — {count} rule{s} in force.", s = if count == 1 { "" } else { "s" }));
+        return flash(&headers, "advanced", "ok", &format!("Redirects uploaded — {count} rule{s} in force.", s = if count == 1 { "" } else { "s" }));
     }
-    settings_flash("advanced", "error", "No file was uploaded.")
+    flash(&headers, "advanced", "error", "No file was uploaded.")
 }
 
-async fn routes_download(State(state): State<AppState>, headers: HeaderMap) -> Response {
+pub(crate) async fn routes_download(State(state): State<AppState>, headers: HeaderMap) -> Response {
     if let Err(r) = require_role(&state, &headers, Role::Administrator).await {
         return r;
     }
@@ -14618,29 +16501,29 @@ async fn routes_download(State(state): State<AppState>, headers: HeaderMap) -> R
 /// parsed *and* built into a router tree before anything is written — then
 /// the tree is swapped in and the active theme is recompiled against it,
 /// because a theme's resolvers and template choices are derived from routes.
-async fn routes_upload(State(state): State<AppState>, headers: HeaderMap, mut multipart: Multipart) -> Response {
+pub(crate) async fn routes_upload(State(state): State<AppState>, headers: HeaderMap, mut multipart: Multipart) -> Response {
     if let Err(r) = require_role(&state, &headers, Role::Administrator).await {
         return r;
     }
     while let Ok(Some(field)) = multipart.next_field().await {
-        if field.name() != Some("file") {
+        if !matches!(field.name(), Some("file" | "routes")) {
             continue;
         }
         let text = match field.text().await {
             Ok(t) => t,
-            Err(e) => return settings_flash("advanced", "error", &format!("Upload failed: {e}")),
+            Err(e) => return flash(&headers, "advanced", "error", &format!("Upload failed: {e}")),
         };
         let settings = match ghost_routing::routes_yaml::parse_routes_yaml(&text) {
             Ok(s) => s,
-            Err(e) => return settings_flash("advanced", "error", &format!("Not a valid routes file: {e}")),
+            Err(e) => return flash(&headers, "advanced", "error", &format!("Not a valid routes file: {e}")),
         };
         let tree = match ghost_routing::RouterTree::build(&settings) {
             Ok(t) => t,
-            Err(e) => return settings_flash("advanced", "error", &format!("These routes cannot be routed: {e}")),
+            Err(e) => return flash(&headers, "advanced", "error", &format!("These routes cannot be routed: {e}")),
         };
         let path = state.config.content_path().join("routes.yaml");
         if let Err(e) = tokio::fs::write(&path, &text).await {
-            return settings_flash("advanced", "error", &format!("Could not write routes.yaml: {e}"));
+            return flash(&headers, "advanced", "error", &format!("Could not write routes.yaml: {e}"));
         }
         *state.router.write().await = Arc::new(tree);
         // The theme was compiled against the old routes; recompile it against
@@ -14648,16 +16531,16 @@ async fn routes_upload(State(state): State<AppState>, headers: HeaderMap, mut mu
         // theme in place — said out loud rather than half-reported.
         let theme = ghost_api::themes::active_theme_name(&state);
         if let Err(e) = ghost_api::themes::activate(&state, &theme).await {
-            return settings_flash(
+            return flash(&headers, 
                 "advanced",
                 "error",
                 &format!("Routes are in force, but the theme could not be rebuilt against them: {}", e.message()),
             );
         }
         fire_site_changed(&state);
-        return settings_flash("advanced", "ok", "Routes uploaded — routing and the theme have been rebuilt.");
+        return flash(&headers, "advanced", "ok", "Routes uploaded — routing and the theme have been rebuilt.");
     }
-    settings_flash("advanced", "error", "No file was uploaded.")
+    flash(&headers, "advanced", "error", "No file was uploaded.")
 }
 
 // --- history: the actions audit log ---
@@ -14793,7 +16676,7 @@ async fn history_page(
 
 /// Tables wiped by "delete all content" (Ghost's danger zone keeps users and
 /// settings) — everything post/tag-shaped plus their join and revision tables.
-const CONTENT_TABLES: &[&str] = &[
+pub(crate) const CONTENT_TABLES: &[&str] = &[
     "posts", "posts_meta", "posts_tags", "posts_authors", "posts_products",
     "post_revisions", "mobiledoc_revisions", "tags", "snippets", "emails",
     "email_batches", "email_recipients", "email_recipient_failures",
@@ -14815,7 +16698,7 @@ const SITE_TABLES: &[&str] = &[
     "brute", "tokens", "milestones",
 ];
 
-async fn wipe_tables(db: &sqlx::SqlitePool, tables: &[&str]) -> usize {
+pub(crate) async fn wipe_tables(db: &sqlx::SqlitePool, tables: &[&str]) -> usize {
     let mut wiped = 0;
     for table in tables {
         if sqlx::query(&format!("DELETE FROM {table}")).execute(db).await.is_ok() {
@@ -15592,6 +17475,17 @@ async fn staff_invite(State(state): State<AppState>, headers: HeaderMap, Form(fo
     let email = form.email.trim().to_lowercase();
     if !email.contains('@') {
         return staff_flash("error", "Enter a valid email address.");
+    }
+    // The host's staff ceiling, which counts pending invites as well as
+    // users. Contributors are exempt, as in Ghost.
+    if form.role != "Contributor" {
+        if let Err(e) = state
+            .limits
+            .error_if_would_go_over(&state.db, "staff", ghost_db::limits::Check::default())
+            .await
+        {
+            return staff_flash("error", &e.message());
+        }
     }
     let invite = match repos::staff::create_invite(&state.db, &email, &form.role).await {
         Ok(i) => i,
@@ -17644,6 +19538,33 @@ mod tests {
         assert!(super::newsletter_recipients(&pool, "newsletter", "tiers", "missing-post").await.is_empty());
     }
 
+    #[tokio::test]
+    async fn the_newsletters_tab_counts_what_sending_recorded() {
+        let pool = sqlx::sqlite::SqlitePoolOptions::new().max_connections(1)
+            .connect("sqlite::memory:").await.unwrap();
+        sqlx::migrate!("../../migrations").run(&pool).await.unwrap();
+        // Nothing sent yet, so nothing to report — and no divide by zero.
+        assert_eq!(super::newsletter_open_stats(&pool, "-30 days").await, (0, 0));
+
+        sqlx::query("INSERT INTO emails (id, post_id, status, email_count, created_at) VALUES ('an-email', 'a-post', 'submitted', 3, datetime('now'))")
+            .execute(&pool).await.unwrap();
+        let now = ghost_core::dates::now_db();
+        for (id, status, opened) in [("one", "sent", true), ("two", "sent", false), ("three", "failed", false)] {
+            sqlx::query("INSERT INTO email_recipients (id, email_id, member_id, status, opened_at, created_at) VALUES (?, 'an-email', ?, ?, ?, ?)")
+                .bind(id).bind(id).bind(status).bind(opened.then(|| now.clone())).bind(&now)
+                .execute(&pool).await.unwrap();
+        }
+        // Two delivered, one of them opened. The message that never left is
+        // not in the denominator.
+        assert_eq!(super::newsletter_open_stats(&pool, "-30 days").await, (2, 1));
+
+        // An opened send from before the window does not raise the rate in it.
+        sqlx::query("INSERT INTO email_recipients (id, email_id, member_id, status, opened_at, created_at) VALUES ('old', 'an-email', 'old', 'sent', datetime('now','-60 days'), datetime('now','-60 days'))")
+            .execute(&pool).await.unwrap();
+        assert_eq!(super::newsletter_open_stats(&pool, "-30 days").await, (2, 1));
+        assert_eq!(super::newsletter_open_stats(&pool, "-90 days").await, (3, 2));
+    }
+
     #[test]
     fn module_pages_share_one_admin_only_sidebar_entry() {
         for active in ["modules", "analytics", "comments", "automations"] {
@@ -17672,6 +19593,45 @@ mod tests {
             assert!(!html.contains("<b>Admin</b>"));
             assert!(!html.contains("<span>Ghost</span>"));
         }).await;
+    }
+
+    /// The members view's NQL has to survive whatever is typed into the
+    /// search box: every NQL metacharacter is stripped, and the result has
+    /// to still parse — a member called O'Brien (VIP) is searched for by
+    /// typing exactly that.
+    #[test]
+    fn members_nql_strips_syntax_and_parses() {
+        let nql = super::members_nql("free", "O'Brien (VIP)", "").unwrap();
+        assert!(ghost_nql::parse(&nql).is_ok(), "{nql}");
+        assert!(nql.contains("status:free"), "{nql}");
+        assert!(!nql.contains('\'') || nql.matches('\'').count() == 6, "{nql}");
+
+        let both = super::members_nql("paid", "ak", "").unwrap();
+        assert!(ghost_nql::parse(&both).is_ok(), "{both}");
+        assert!(both.starts_with("status:paid+("), "{both}");
+
+        assert_eq!(super::members_nql("all", "", ""), None);
+        assert_eq!(super::members_nql("all", "   ", ""), None);
+        // an unknown status key is not a filter this page offers
+        assert_eq!(super::members_nql("bogus", "", ""), None);
+    }
+
+    /// The toolbar's filter joins the tab and the search rather than
+    /// replacing them, and is parenthesised on the way in — an `or` inside a
+    /// typed filter must not reach across the `+` and swallow `status:`.
+    #[test]
+    fn a_typed_filter_narrows_the_tab_rather_than_replacing_it() {
+        let both = super::members_nql("paid", "", "label:vip,label:beta").unwrap();
+        assert_eq!(both, "status:paid+(label:vip,label:beta)");
+        assert!(ghost_nql::parse(&both).is_ok(), "{both}");
+
+        let all_three = super::members_nql("free", "ak", "label:vip").unwrap();
+        assert!(ghost_nql::parse(&all_three).is_ok(), "{all_three}");
+        assert!(all_three.starts_with("status:free+(label:vip)+("), "{all_three}");
+
+        // on its own it is still the whole filter
+        assert_eq!(super::members_nql("all", "", "label:vip"), Some("(label:vip)".into()));
+        assert_eq!(super::members_nql("all", "", "   "), None);
     }
 
     #[test]
@@ -18196,7 +20156,9 @@ mod tests {
         // Membership: Ghost keeps both in config.json, this port exposes them
         // in the UI, and they belong next to the membership features that
         // send the mail. Features is this port's own group — the Comments
-        // and Automations system switches have no Ghost page to mirror.
+        // and Automations system switches have no Ghost page to mirror —
+        // and so is Machine payments, which slots in beside Membership as
+        // the other thing readers (and agents) can be charged for.
         //
         // Design & branding and Navigation moved here out of the left rail,
         // which is also where Ghost keeps them; Announcement is what is left
@@ -18215,11 +20177,16 @@ mod tests {
             titles,
             ["General settings", "Staff", "Analytics",
              "Design & branding", "Navigation", "Code injection", "Announcement",
-             "Membership", "Email", "Newsletters", "Growth", "Features", "Integrations",
+             "Membership", "Machine payments", "Email", "Newsletters", "Growth",
+             "Features", "Integrations",
              "Migration tools", "Advanced", "History", "Danger zone"]
         );
         // every group has a working page at its slug
         assert!(SETTINGS_GROUPS.iter().all(|g| !g.slug.is_empty() && !g.items.is_empty()));
+        // and an icon the set actually holds — an unknown name renders an
+        // empty square where every other row has a glyph
+        assert!(SETTINGS_GROUPS.iter().all(|g| !icon(g.icon).is_empty()), "missing icon");
+        assert!(MODULES.iter().all(|m| !icon(m.2).is_empty()), "missing icon");
         // the two groups that keep their own top-level page are the only ones
         // that do not live under /ghost/settings/
         for g in SETTINGS_GROUPS {
@@ -18513,18 +20480,11 @@ mod tests {
 
     #[test]
     fn post_analytics_columns_only_promise_what_is_measured() {
-        // Ghost drops a column rather than filling it with zeroes when the
-        // site does not track it; an empty `clicks` would read as "nobody
-        // clicked", which is a different and wrong claim.
-        for absent in ["clicks", "signups", "paid_conversions"] {
-            assert!(
-                !POST_ANALYTICS_COLUMNS.contains(&absent),
-                "{absent} has no source in this schema and must not be a column"
-            );
-        }
-        for present in ["id", "title", "url", "sends", "opens", "views", "feedback_more_like_this"] {
+        for present in ["id", "title", "url", "sends", "opens", "views", "feedback_more_like_this", "clicks", "signups", "paid_conversions"] {
             assert!(POST_ANALYTICS_COLUMNS.contains(&present), "{present} is missing");
         }
+        let unique:std::collections::HashSet<_>=POST_ANALYTICS_COLUMNS.iter().collect();
+        assert_eq!(unique.len(),POST_ANALYTICS_COLUMNS.len());
     }
 
     #[test]
@@ -18703,15 +20663,235 @@ async fn forgot_password_page() -> Response {
 
 async fn social_page(State(state):State<AppState>,headers:HeaderMap)->Response{
     let actor=match require_role(&state,&headers,Role::Editor).await{Ok(actor)=>actor,Err(response)=>return response};
-    page_for_role(actor.role,"Social web","modules",Some(&actor.user),r#"<header class="page-head"><div><h1>Social web</h1><p class="sub">Your publication on the fediverse</p></div></header><div id="native-social" class="card padded"><p role="status">Loading your social web…</p></div><script src="/ghost/assets/1.8.14/native-social.js" defer></script>"#,true).into_response()
+    page_for_role(actor.role,"Social web","modules",Some(&actor.user),r#"<header class="page-head"><div><h1>Social web</h1><p class="sub">Your publication on the fediverse</p></div></header><div id="native-social" class="card padded"><p role="status">Loading your social web…</p></div><script src="/ghost/assets/1.8.15/native-social.js" defer></script>"#,true).into_response()
 }
 
 async fn machine_payments_page(State(state):State<AppState>,headers:HeaderMap)->Response{
     let actor=match require_role(&state,&headers,Role::Administrator).await{Ok(actor)=>actor,Err(response)=>return response};
-    page_for_role(actor.role,"Machine payments","modules",Some(&actor.user),r#"<header class="page-head"><div><h1>Machine payments</h1><p class="sub">Paid access to individual articles for AI agents</p></div></header><div class="card padded" id="machine-payments"><p role="status">Loading payment settings…</p></div><script src="/ghost/assets/1.8.14/machine-payments.js" defer></script>"#,true).into_response()
+    let group=SETTINGS_GROUPS.iter().find(|g|g.slug=="machine-payments").unwrap();
+    page_for_role(actor.role,"Machine payments","settings",Some(&actor.user),&format!(
+        r#"{head}<div class="card padded" id="machine-payments"><p role="status">Loading payment settings…</p></div><script src="/ghost/assets/1.8.15/machine-payments.js" defer></script>"#,
+        // No header Save button: the form the JS builds carries its own, and
+        // saving has to run through the JSON API rather than a form POST.
+        head=group_head(group,None),
+    ),true).into_response()
 }
 
 async fn checkout_design_page(State(state):State<AppState>,headers:HeaderMap)->Response {
     let actor=match require_role(&state,&headers,Role::Administrator).await {Ok(actor)=>actor,Err(response)=>return response};
-    page_for_role(actor.role,"Checkout design","settings",Some(&actor.user),r#"<header class="page-head"><div><h1>Checkout design</h1><p class="sub">Style the payment page for paid memberships</p></div></header><div class="card padded" id="checkout-design"><p role="status">Loading checkout design…</p></div><script src="/ghost/assets/1.8.14/checkout-design.js" defer></script>"#,true).into_response()
+    page_for_role(actor.role,"Checkout design","settings",Some(&actor.user),r#"<header class="page-head"><div><h1>Checkout design</h1><p class="sub">Style the payment page for paid memberships</p></div></header><div class="card padded" id="checkout-design"><p role="status">Loading checkout design…</p></div><script src="/ghost/assets/1.8.15/checkout-design.js" defer></script>"#,true).into_response()
+}
+
+// ---------------------------------------------------------------------------
+// media inliner
+// ---------------------------------------------------------------------------
+
+/// Rehost the remote images posts point at.
+///
+/// An imported post almost always still links to the site it came from, so
+/// the pictures vanish the day that site does. This walks every post's body,
+/// fetches each image hosted on one of `domains`, saves it under
+/// `content/images/`, and rewrites the post to point at the local copy.
+///
+/// Scoped to named domains on purpose. Ghost's own endpoint is too, and for
+/// the same reason: "inline the images from my old blog" is a migration step,
+/// while "inline every image on the internet" is a way to fill a disk.
+pub(crate) async fn inline_remote_media(
+    state: &AppState,
+    domains: &[String],
+) -> Result<serde_json::Value, ghost_core::GhostError> {
+    let posts: Vec<(String, Option<String>, Option<String>)> =
+        sqlx::query_as("SELECT id, html, lexical FROM posts WHERE html IS NOT NULL OR lexical IS NOT NULL")
+            .fetch_all(&state.db)
+            .await
+            .map_err(|e| ghost_core::GhostError::Db(e.to_string()))?;
+
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(20))
+        .redirect(reqwest::redirect::Policy::limited(3))
+        .build()
+        .unwrap_or_default();
+    // One fetch per distinct URL however many posts carry it, and the map is
+    // also what makes the rewrite consistent across html and lexical.
+    let mut rehosted: HashMap<String, String> = HashMap::new();
+    let mut failed = 0usize;
+    let mut changed_posts = 0usize;
+
+    for (id, html, lexical) in posts {
+        let mut new_html = html.clone();
+        let mut new_lexical = lexical.clone();
+        let mut touched = false;
+        let sources: Vec<String> = [html.as_deref(), lexical.as_deref()]
+            .into_iter()
+            .flatten()
+            .flat_map(remote_image_urls)
+            .collect();
+        for url in sources {
+            if !domains.iter().any(|domain| url_host_matches(&url, domain)) {
+                continue;
+            }
+            let local = match rehosted.get(&url) {
+                Some(local) => local.clone(),
+                None => match fetch_and_store_image(state, &client, &url).await {
+                    Ok(local) => {
+                        rehosted.insert(url.clone(), local.clone());
+                        local
+                    }
+                    Err(e) => {
+                        tracing::debug!("media inliner: {url} could not be rehosted: {}", e.message());
+                        failed += 1;
+                        continue;
+                    }
+                },
+            };
+            if let Some(body) = new_html.as_mut() {
+                if body.contains(&url) {
+                    *body = body.replace(&url, &local);
+                    touched = true;
+                }
+            }
+            if let Some(body) = new_lexical.as_mut() {
+                // Lexical holds the URL inside a JSON string, so the escaped
+                // form is what appears there.
+                let escaped = url.replace('/', "\\/");
+                if body.contains(&url) || body.contains(&escaped) {
+                    *body = body.replace(&url, &local).replace(&escaped, &local.replace('/', "\\/"));
+                    touched = true;
+                }
+            }
+        }
+        if touched {
+            let _ = sqlx::query("UPDATE posts SET html = ?, lexical = ?, updated_at = ? WHERE id = ?")
+                .bind(&new_html)
+                .bind(&new_lexical)
+                .bind(ghost_core::dates::now_db())
+                .bind(&id)
+                .execute(&state.db)
+                .await;
+            changed_posts += 1;
+        }
+    }
+    Ok(serde_json::json!({
+        "inlined": rehosted.len(),
+        "posts_updated": changed_posts,
+        "failed": failed,
+    }))
+}
+
+/// Absolute `http(s)` image URLs in a document.
+fn remote_image_urls(body: &str) -> Vec<String> {
+    const EXTENSIONS: &[&str] = &[".jpg", ".jpeg", ".png", ".gif", ".webp", ".avif", ".svg"];
+    let mut found = Vec::new();
+    for marker in ["http://", "https://"] {
+        let mut from = 0;
+        while let Some(at) = body[from..].find(marker) {
+            let start = from + at;
+            // A URL ends at the first character that cannot be in one.
+            let end = body[start..]
+                .find(|c: char| c.is_whitespace() || matches!(c, '"' | '\'' | '<' | '>' | ')' | '\\'))
+                .map(|e| start + e)
+                .unwrap_or(body.len());
+            let url = &body[start..end];
+            let lower = url.to_ascii_lowercase();
+            let path = lower.split(['?', '#']).next().unwrap_or(&lower);
+            if EXTENSIONS.iter().any(|ext| path.ends_with(ext)) {
+                found.push(url.to_string());
+            }
+            from = end.max(start + marker.len());
+        }
+    }
+    found.sort();
+    found.dedup();
+    found
+}
+
+/// Whether a URL's host is, or is a subdomain of, `domain`.
+fn url_host_matches(url: &str, domain: &str) -> bool {
+    let Ok(parsed) = reqwest::Url::parse(url) else { return false };
+    let Some(host) = parsed.host_str().map(str::to_ascii_lowercase) else { return false };
+    let domain = domain.trim_start_matches("www.");
+    let host = host.trim_start_matches("www.");
+    host == domain || host.ends_with(&format!(".{domain}"))
+}
+
+/// Fetch one image and save it where an upload would have gone.
+async fn fetch_and_store_image(
+    state: &AppState,
+    client: &reqwest::Client,
+    url: &str,
+) -> Result<String, ghost_core::GhostError> {
+    // The same guard the webmention receiver uses: this fetches a URL that
+    // came out of post content, which an import put there.
+    let Some(parsed) = ghost_api::mentions::fetchable(url) else {
+        return Err(ghost_core::GhostError::BadRequest("not a fetchable URL".into()));
+    };
+    let response = client
+        .get(parsed)
+        .send()
+        .await
+        .map_err(|e| ghost_core::GhostError::BadRequest(e.to_string()))?;
+    if !response.status().is_success() {
+        return Err(ghost_core::GhostError::BadRequest(format!("returned {}", response.status())));
+    }
+    let content_type = response
+        .headers()
+        .get(header::CONTENT_TYPE)
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("")
+        .split(';')
+        .next()
+        .unwrap_or("")
+        .to_ascii_lowercase();
+    let extension = match content_type.as_str() {
+        "image/jpeg" | "image/jpg" => "jpg",
+        "image/png" => "png",
+        "image/gif" => "gif",
+        "image/webp" => "webp",
+        "image/avif" => "avif",
+        "image/svg+xml" => "svg",
+        other => return Err(ghost_core::GhostError::BadRequest(format!("unsupported type {other}"))),
+    };
+    const MAX_BYTES: usize = 25 * 1024 * 1024;
+    let bytes = response.bytes().await.map_err(|e| ghost_core::GhostError::BadRequest(e.to_string()))?;
+    if bytes.len() > MAX_BYTES {
+        return Err(ghost_core::GhostError::BadRequest("larger than the upload limit".into()));
+    }
+
+    // Same layout as an upload: `content/images/YYYY/MM/name.ext`.
+    let stamp = ghost_core::dates::now_db();
+    let (year, month) = (&stamp[..4], &stamp[5..7]);
+    let dir = state.config.images_dir().join(year).join(month);
+    tokio::fs::create_dir_all(&dir)
+        .await
+        .map_err(|e| ghost_core::GhostError::Internal(format!("could not create the image directory: {e}")))?;
+    let stem: String = url
+        .rsplit('/')
+        .next()
+        .unwrap_or("image")
+        .split(['?', '#'])
+        .next()
+        .unwrap_or("image")
+        .chars()
+        .filter(|c| c.is_ascii_alphanumeric() || *c == '-' || *c == '_')
+        .take(60)
+        .collect();
+    let stem = if stem.is_empty() { "image".to_string() } else { stem };
+    // Suffixed with a short random tail, so two sources with the same file
+    // name do not overwrite one another.
+    let name = format!("{stem}-{}.{extension}", ghost_core::ids::random_hex(4));
+    let path = dir.join(&name);
+    tokio::fs::write(&path, &bytes)
+        .await
+        .map_err(|e| ghost_core::GhostError::Internal(format!("could not write the image: {e}")))?;
+    let local = format!("/content/images/{year}/{month}/{name}");
+    // Through the storage adapter, so an S3-backed install gets the same
+    // treatment as a local one.
+    ghost_api::storage::publish_upload(
+        state,
+        &format!("{year}/{month}/{name}"),
+        &content_type,
+        &bytes,
+        local,
+    )
+    .await
 }

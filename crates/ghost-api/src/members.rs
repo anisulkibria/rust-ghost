@@ -52,6 +52,8 @@ pub fn members_router() -> Router<AppState> {
         .route("/members", get(magic_link_landing))
         .route("/members/api/site", get(read_site))
         .route("/members/api/site/", get(read_site))
+        .route("/members/api/announcement", get(read_announcement))
+        .route("/members/api/announcement/", get(read_announcement))
         .route("/members/api/integrity-token", get(integrity_token))
         .route("/members/api/integrity-token/", get(integrity_token))
         .route("/members/api/offers/{id}", get(read_offer))
@@ -68,6 +70,8 @@ pub fn members_router() -> Router<AppState> {
         )
         .route("/members/api/member/metafields", get(get_metafields).put(put_metafields))
         .route("/members/api/member/metafields/", get(get_metafields).put(put_metafields))
+        .route("/members/api/verify-otc", post(verify_otc))
+        .route("/members/api/verify-otc/", post(verify_otc))
         .route("/members/api/send-magic-link", post(send_magic_link))
         .route("/members/api/send-magic-link/", post(send_magic_link))
         .route("/members/api/session", get(get_identity).delete(delete_session))
@@ -168,6 +172,10 @@ struct CheckoutRequest {
     #[serde(rename = "cancelUrl")]
     cancel_url: Option<String>,
     metadata: Option<Value>,
+    /// The pages Portal saw this visitor on, newest last — the same field it
+    /// sends with a magic link, and what a paid signup is attributed from.
+    #[serde(rename = "urlHistory")]
+    url_history: Option<Value>,
     /// Portal sends the offer's id when a visitor arrives on an offer URL.
     #[serde(rename = "offerId")]
     offer_id: Option<String>,
@@ -331,6 +339,7 @@ async fn create_checkout_session(
         &uuid,
         trial.max(0) as u32,
         checkout_offer.as_ref(),
+        compact_url_history(req.url_history.as_ref()).as_deref(),
     )
     .await
     {
@@ -1137,6 +1146,7 @@ async fn stripe_webhook(State(state): State<AppState>, headers: HeaderMap, body:
         "customer.subscription.created" | "customer.subscription.updated" | "customer.subscription.deleted" => {
             handle_subscription_change(&state, &object).await
         }
+        "invoice.payment_succeeded" | "invoice.paid" => handle_invoice_paid(&state, &object).await,
         _ => Ok(())
     };
     if let Err(error)=result {
@@ -1145,6 +1155,46 @@ async fn stripe_webhook(State(state): State<AppState>, headers: HeaderMap, body:
     }
     // Acknowledge only after local persistence succeeds.
     (StatusCode::OK, "ok").into_response()
+}
+
+/// Portal's URL history, small enough to ride on a Stripe metadata value.
+///
+/// Stripe caps a metadata value at 500 characters, so only the fields that
+/// attribution actually reads are kept and the oldest entries are dropped
+/// until it fits. Losing the oldest is the right trade: the most recent page
+/// is the one a signup is credited to.
+fn compact_url_history(history: Option<&Value>) -> Option<String> {
+    const LIMIT: usize = 500;
+    let entries = history?.as_array()?;
+    let mut compact: Vec<Value> = entries
+        .iter()
+        .map(|entry| {
+            let field = |key: &str| entry.get(key).and_then(Value::as_str).filter(|v| !v.is_empty());
+            let mut kept = serde_json::Map::new();
+            for key in ["path", "referrerSource", "referrerMedium", "referrerUrl"] {
+                if let Some(value) = field(key) {
+                    kept.insert(key.to_string(), json!(value));
+                }
+            }
+            Value::Object(kept)
+        })
+        .filter(|entry| !entry.as_object().is_some_and(serde_json::Map::is_empty))
+        .collect();
+    while !compact.is_empty() {
+        let encoded = Value::Array(compact.clone()).to_string();
+        if encoded.len() <= LIMIT {
+            return Some(encoded);
+        }
+        compact.remove(0);
+    }
+    None
+}
+
+/// Exposed for the test that pins the trimming, since the caller is a
+/// handler that would otherwise need Stripe to reach it.
+#[doc(hidden)]
+pub fn compact_url_history_for_test(history: Option<&Value>) -> Option<String> {
+    compact_url_history(history)
 }
 
 /// A completed checkout: find or create the member, attach the customer.
@@ -1177,7 +1227,9 @@ async fn handle_checkout_completed(state: &AppState, cfg: &ghost_stripe::StripeC
         Some(m) => Some(m),
         None if !email.is_empty() => match member_by_email(state, &email).await {
             Some(m) => Some(m),
-            None => create_member(state, &email, None, &Value::Null).await,
+            // A member created by a completed checkout: the attribution
+            // that matters is on the subscription, recorded below.
+            None => create_member(state, &email, None, &Value::Null, &Default::default()).await,
         },
         None => None,
     };
@@ -1222,6 +1274,21 @@ async fn handle_checkout_completed(state: &AppState, cfg: &ghost_stripe::StripeC
         }
     }
 
+    // What they paid, whichever flow this was. A one-off support payment has
+    // no subscription behind it, so without this it would leave no trace on
+    // the member beyond a Stripe customer row.
+    if let Some(amount) = obj.get("amount_total").and_then(Value::as_i64).filter(|a| *a > 0) {
+        let source = if obj.get("mode").and_then(Value::as_str) == Some("payment") { "donation" } else { "stripe" };
+        let _ = crate::member_events::record_payment(
+            state,
+            &member.id,
+            amount,
+            obj.get("currency").and_then(Value::as_str),
+            source,
+        )
+        .await;
+    }
+
     // The session carries only the subscription id, so fetch the real thing
     // rather than guessing its state.
     if let Some(sub_id) = obj.get("subscription").and_then(|s| s.as_str()) {
@@ -1231,13 +1298,173 @@ async fn handle_checkout_completed(state: &AppState, cfg: &ghost_stripe::StripeC
     Ok(())
 }
 
-/// A subscription was created, changed or cancelled: record it and move the
-/// member between free and paid accordingly.
-async fn handle_subscription_change(state: &AppState, sub: &Value) -> ghost_core::Result<()> {
-    if let Some(member)=ghost_db::repos::subscriptions::sync(&state.db,sub).await? {
-        if matches!(sub["status"].as_str(),Some("active"|"trialing")) {crate::automations_engine::trigger_for_member(state,&member).await;}
+/// A renewal. Stripe sends this for every period after the first, which the
+/// checkout session covers — so without it a year-old subscription shows one
+/// payment and eleven months of silence.
+async fn handle_invoice_paid(state: &AppState, invoice: &Value) -> ghost_core::Result<()> {
+    let customer = invoice
+        .get("customer")
+        .and_then(Value::as_str)
+        .or_else(|| invoice.pointer("/customer/id").and_then(Value::as_str))
+        .unwrap_or("");
+    let amount = invoice
+        .get("amount_paid")
+        .or_else(|| invoice.get("amount_due"))
+        .and_then(Value::as_i64)
+        .unwrap_or(0);
+    if customer.is_empty() || amount <= 0 {
+        return Ok(());
+    }
+    let member: Option<String> =
+        sqlx::query_scalar("SELECT member_id FROM members_stripe_customers WHERE customer_id = ? LIMIT 1")
+            .bind(customer)
+            .fetch_optional(&state.db)
+            .await
+            .map_err(|e| ghost_core::GhostError::Db(e.to_string()))?;
+    if let Some(member) = member {
+        let _ = crate::member_events::record_payment(
+            state,
+            &member,
+            amount,
+            invoice.get("currency").and_then(Value::as_str),
+            "stripe",
+        )
+        .await;
     }
     Ok(())
+}
+
+/// A subscription was created, changed or cancelled: record it and move the
+/// member between free and paid accordingly.
+pub(crate) async fn handle_subscription_change(state: &AppState, sub: &Value) -> ghost_core::Result<()> {
+    let subscription_id = sub["id"].as_str().unwrap_or("");
+    // Snapshotted before the sync, because every event here is the
+    // difference the sync made: the member's status, what they were paying,
+    // and whether the subscription was already winding down.
+    let before = subscription_snapshot(state, subscription_id).await;
+    let Some(member) = ghost_db::repos::subscriptions::sync(&state.db, sub).await? else {
+        return Ok(());
+    };
+    let after = subscription_snapshot(state, subscription_id).await;
+
+    let status: Option<String> = sqlx::query_scalar("SELECT status FROM members WHERE id = ?")
+        .bind(&member)
+        .fetch_optional(&state.db)
+        .await
+        .ok()
+        .flatten();
+    if let Some(status) = status.as_deref() {
+        let _ = crate::member_events::record_status_change(state, &member, before.status.as_deref(), status).await;
+    }
+
+    let currency = after.currency.clone().or_else(|| before.currency.clone());
+    let kind = match (before.mrr, after.mrr) {
+        // Nothing there before and paying now: the subscription has started.
+        (0, mrr) if mrr > 0 && before.status.is_none() => "created",
+        (prior, 0) if prior > 0 => "canceled",
+        _ => "updated",
+    };
+    let _ = crate::member_events::record_paid_change(
+        state,
+        crate::member_events::PaidChange {
+            member_id: &member,
+            kind,
+            subscription_id: Some(subscription_id),
+            from_plan: before.price_id.as_deref(),
+            to_plan: after.price_id.as_deref(),
+            from_status: before.stripe_status.as_deref(),
+            to_status: after.stripe_status.as_deref(),
+            currency: currency.as_deref(),
+            source: "stripe",
+            mrr_delta: after.mrr - before.mrr,
+        },
+    )
+    .await;
+
+    if kind == "created" {
+        // A paid signup carries the same attribution a free one does, from
+        // the page history Portal put in the checkout session's metadata.
+        let attribution = crate::member_events::attribution_from_history(
+            state,
+            sub.pointer("/metadata/ghost_url_history").and_then(|h| h.as_str()).and_then(|h| serde_json::from_str(h).ok()).as_ref().unwrap_or(&Value::Null),
+        )
+        .await;
+        let _ =
+            crate::member_events::record_subscription_created(state, &member, Some(subscription_id), &attribution).await;
+    }
+    // A cancellation at period end is not a status change yet — they keep
+    // their access until it runs out — so it is its own event.
+    if after.cancel_at_period_end && !before.cancel_at_period_end {
+        let _ = crate::member_events::record_cancellation(
+            state,
+            &member,
+            Some(subscription_id),
+            after.price_id.as_deref(),
+        )
+        .await;
+    }
+
+    if matches!(sub["status"].as_str(), Some("active" | "trialing")) {
+        crate::automations_engine::trigger_for_member(state, &member).await;
+    }
+    Ok(())
+}
+
+/// What a subscription was worth and where it stood, for comparing either
+/// side of a sync.
+#[derive(Default)]
+struct SubscriptionSnapshot {
+    /// The member's status before the sync, `None` when the subscription is
+    /// not in the database yet.
+    status: Option<String>,
+    stripe_status: Option<String>,
+    price_id: Option<String>,
+    currency: Option<String>,
+    cancel_at_period_end: bool,
+    /// Monthly recurring revenue in the currency's smallest unit, zero for a
+    /// subscription that is not currently paying.
+    mrr: i64,
+}
+
+async fn subscription_snapshot(state: &AppState, subscription_id: &str) -> SubscriptionSnapshot {
+    let row: Option<(String, Option<String>, Option<String>, bool, Option<i64>, Option<String>, Option<String>)> =
+        sqlx::query_as(
+            "SELECT s.status, s.stripe_price_id, s.plan_currency, s.cancel_at_period_end, s.plan_amount, \
+                    s.plan_interval, m.status \
+             FROM subscriptions s \
+             JOIN members_stripe_customers c ON c.customer_id = s.customer_id \
+             JOIN members m ON m.id = c.member_id \
+             WHERE s.subscription_id = ? LIMIT 1",
+        )
+        .bind(subscription_id)
+        .fetch_optional(&state.db)
+        .await
+        .ok()
+        .flatten();
+    let Some((stripe_status, price_id, currency, cancel_at_period_end, amount, interval, member_status)) = row else {
+        return SubscriptionSnapshot::default();
+    };
+    let paying = matches!(stripe_status.as_str(), "active" | "trialing");
+    SubscriptionSnapshot {
+        status: Some(member_status.unwrap_or_default()),
+        stripe_status: Some(stripe_status),
+        price_id,
+        currency,
+        cancel_at_period_end,
+        mrr: if paying { monthly_equivalent(amount.unwrap_or(0), interval.as_deref().unwrap_or("month")) } else { 0 },
+    }
+}
+
+/// A yearly plan's monthly worth, rounded the way Ghost rounds it: down to
+/// the smallest currency unit, so twelve months of a rounded figure never
+/// exceeds the year's actual price.
+fn monthly_equivalent(amount: i64, interval: &str) -> i64 {
+    match interval {
+        "year" => amount / 12,
+        "week" => amount * 52 / 12,
+        "day" => amount * 365 / 12,
+        _ => amount,
+    }
 }
 
 async fn stripe_unavailable() -> Response {
@@ -1296,6 +1523,12 @@ fn now_rfc3339() -> String {
 // ---------------------------------------------------------------------------
 // session cookie
 // ---------------------------------------------------------------------------
+
+/// A signed member cookie, for the tests that need a signed-in reader.
+#[doc(hidden)]
+pub fn member_cookie_for_test(state: &AppState, transient_id: &str) -> String {
+    format!("{SESSION_COOKIE}={}", cookie_value(state, transient_id))
+}
 
 fn cookie_value(state: &AppState, transient_id: &str) -> String {
     let sig = hmac_sha256_hex(&theme_secret(state), transient_id);
@@ -1503,6 +1736,64 @@ async fn member_json(state: &AppState, m: &Member) -> Value {
         "newsletters": newsletters,
         "email_suppression": crate::newsletter_events::suppression(state, &m.email).await,
     })
+}
+
+// ---------------------------------------------------------------------------
+// GET /members/api/announcement
+// ---------------------------------------------------------------------------
+
+/// What the announcement bar widget asks for on every page load.
+///
+/// The decision is per-visitor, which is the whole reason this is an endpoint
+/// and not part of the rendered page: `announcement_visibility` holds some
+/// subset of `visitors`, `free_members` and `paid_members`, and which one the
+/// caller falls into depends on their member cookie. Ghost returns the
+/// announcement when the caller matches, and *nothing at all* — not an empty
+/// object — when they do not, which is how the script knows to stay away.
+///
+/// Note that `visitors` means a signed-out reader specifically, not "anyone":
+/// a logged-in member does not see a visitors-only announcement.
+async fn read_announcement(State(state): State<AppState>, headers: HeaderMap) -> Response {
+    let content = state
+        .settings
+        .get_str("announcement_content")
+        .filter(|c| !c.is_empty());
+    let Some(content) = content else {
+        return no_content();
+    };
+    let visibility = match state.settings.get("announcement_visibility") {
+        Some(Value::Array(a)) => a,
+        // Older rows hold the list as a JSON string, the same way `labs` does.
+        Some(Value::String(s)) => serde_json::from_str(&s).unwrap_or_default(),
+        _ => Vec::new(),
+    };
+    let shown_to = |audience: &str| visibility.iter().any(|v| v.as_str() == Some(audience));
+
+    let member = current_member(&state, &headers).await;
+    let visible = match &member {
+        None => shown_to("visitors"),
+        Some(m) if m.status == "free" => shown_to("free_members"),
+        Some(_) => shown_to("paid_members"),
+    };
+    if !visible {
+        return no_content();
+    }
+    private_json(
+        StatusCode::OK,
+        json!({
+            // The widget writes this into the bar as HTML. Ghost's own
+            // announcement field is a rich-text input that stores HTML
+            // already; this port's Settings → Site field takes Markdown, so
+            // it is converted here rather than at save time — a site that has
+            // had an announcement written for a while keeps working, and the
+            // stored value stays the thing the author typed.
+            "announcement": ghost_render::markdown::to_html(&content),
+            "announcement_background": state
+                .settings
+                .get_str("announcement_background")
+                .unwrap_or_else(|| "dark".into()),
+        }),
+    )
 }
 
 // ---------------------------------------------------------------------------
@@ -1909,6 +2200,11 @@ struct MagicLinkRequest {
     redirect: Option<String>,
     #[serde(rename = "integrityToken")]
     integrity_token: Option<String>,
+    /// The pages Portal saw this visitor on, newest last. Portal keeps them
+    /// in local storage and posts them with the signup; they are what a
+    /// signup's attribution is worked out from.
+    #[serde(rename = "urlHistory")]
+    url_history: Option<Value>,
     /// Portal's honeypot field; a real browser leaves it empty.
     honeypot: Option<String>,
 }
@@ -1977,6 +2273,13 @@ async fn send_magic_link(
     }
 
     let token = ids::random_hex(32);
+    // The token row's own id, which is what Portal is handed as `otcRef`.
+    let token_id = ids::new_id();
+    // A sign-in code only when the install asks for one, and only for the
+    // flows a member would be typing it into: a subscription confirmation is
+    // not a sign-in.
+    let code = (otc_enabled(&state) && matches!(action, "signin" | "signup"))
+        .then(|| one_time_code(&state, &token));
     let data = json!({
         "email": email,
         "action": action,
@@ -1984,13 +2287,17 @@ async fn send_magic_link(
         "newsletters": req.newsletters,
         "redirect": req.redirect,
         "requested_type": requested_type,
+        // Carried through the token rather than resolved now: the member row
+        // is only created when the link is used, and that is where a signup
+        // is recorded.
+        "url_history": req.url_history,
     });
     let now = now_rfc3339();
     if let Err(e) = sqlx::query(
         "INSERT INTO tokens (id, token, uuid, data, created_at, updated_at, used_count, otc_used_count) \
          VALUES (?, ?, ?, ?, ?, ?, 0, 0)",
     )
-    .bind(ids::new_id())
+    .bind(&token_id)
     .bind(&token)
     .bind(ids::uuid_v4())
     .bind(data.to_string())
@@ -2022,9 +2329,10 @@ async fn send_magic_link(
     // Failures are logged — Settings → Email has a test button that reports
     // transport errors synchronously, which is the right place to debug them.
     let bg = state.clone();
+    let code_bg = code.clone();
     let (email_bg, action_bg, link_bg) = (email.clone(), action.to_string(), link.clone());
     tokio::spawn(async move {
-        if let Err(e) = send_magic_link_email(&bg, &email_bg, &action_bg, &link_bg).await {
+        if let Err(e) = send_magic_link_email(&bg, &email_bg, &action_bg, &link_bg, code_bg.as_deref()).await {
             tracing::error!(
                 "members: could not send {action_bg} email to {email_bg}: {}",
                 e.message()
@@ -2032,7 +2340,168 @@ async fn send_magic_link(
         }
     });
 
-    private_json(StatusCode::CREATED, json!({}))
+    // `otcRef` is what Portal posts back with the code. It names the token
+    // without being the token: holding it is not enough to sign in, which is
+    // the whole point of a second factor arriving by email.
+    private_json(StatusCode::CREATED, json!({"otcRef": code.as_ref().map(|_| token_id.clone())}))
+}
+
+/// How many wrong codes a single link will tolerate before it is spent.
+const OTC_MAX_ATTEMPTS: i64 = 5;
+
+/// The six-digit code for a magic-link token.
+///
+/// Derived rather than stored: it is an HMAC of the token under the site's
+/// own `members_otc_secret`, reduced to six digits. Nothing extra has to be
+/// kept, the code cannot be read out of the database, and it is only as
+/// guessable as five attempts against a 24-hour token allow.
+fn one_time_code(state: &AppState, token: &str) -> String {
+    let secret = state
+        .settings
+        .get_str("members_otc_secret")
+        .filter(|s| !s.is_empty())
+        .unwrap_or_else(|| theme_secret(state));
+    let digest = hmac_sha256_hex(&secret, &format!("otc:{token}"));
+    // The first 32 bits of the digest, modulo a million: a uniform six
+    // digits, zero-padded so the length never gives anything away.
+    let bits = u32::from_str_radix(&digest[..8], 16).unwrap_or(0);
+    format!("{:06}", bits % 1_000_000)
+}
+
+/// The code for a token, for the test that signs in with one. A test cannot
+/// read the emailed code, and deriving it a second way in the test would
+/// prove only that the test agrees with itself.
+#[doc(hidden)]
+pub fn one_time_code_for_test(state: &AppState, token: &str) -> String {
+    one_time_code(state, token)
+}
+
+/// Whether this install signs members in with a code as well as a link.
+fn otc_enabled(state: &AppState) -> bool {
+    state.settings.get_bool("members_email_otc_enabled")
+}
+
+#[derive(serde::Deserialize, Default)]
+#[serde(default)]
+struct VerifyOtcRequest {
+    #[serde(rename = "otcRef")]
+    otc_ref: Option<String>,
+    otc: Option<String>,
+    #[serde(rename = "integrityToken")]
+    integrity_token: Option<String>,
+    redirect: Option<String>,
+}
+
+/// `POST /members/api/verify-otc` — sign in with the code from the email.
+///
+/// The same outcome as following the link: the token is burned and a session
+/// cookie is set. Which is why it is held to the same conditions — single
+/// use, 24 hours — and why a wrong code costs an attempt.
+async fn verify_otc(
+    State(state): State<AppState>,
+    axum::Json(req): axum::Json<VerifyOtcRequest>,
+) -> Response {
+    match &req.integrity_token {
+        Some(t) if integrity_token_valid(&state, t) => {}
+        _ => {
+            return api_error(
+                StatusCode::BAD_REQUEST,
+                "Your request has expired, please reload the page and try again.",
+                "BadRequestError",
+            )
+        }
+    }
+    let (Some(reference), Some(submitted)) = (req.otc_ref.as_deref(), req.otc.as_deref()) else {
+        return api_error(StatusCode::BAD_REQUEST, "A verification code is required.", "BadRequestError");
+    };
+    let submitted: String = submitted.chars().filter(char::is_ascii_digit).collect();
+
+    let row = sqlx::query_as::<_, (String, String, String, i64, i64, String)>(
+        "SELECT id, token, data, used_count, otc_used_count, created_at FROM tokens WHERE id = ? LIMIT 1",
+    )
+    .bind(reference)
+    .fetch_optional(&state.db)
+    .await
+    .ok()
+    .flatten();
+    // One answer for every way this can fail, so the endpoint cannot be used
+    // to tell a real reference from a made-up one.
+    let refused = || api_error(StatusCode::UNAUTHORIZED, "That code is not valid.", "UnauthorizedError");
+    let Some((token_id, token, data, used_count, attempts, created_at)) = row else {
+        return refused();
+    };
+    if used_count > 0 || attempts >= OTC_MAX_ATTEMPTS {
+        return refused();
+    }
+    let expired = chrono::NaiveDateTime::parse_from_str(&created_at, "%Y-%m-%d %H:%M:%S")
+        .map(|t| chrono::Utc::now().naive_utc().signed_duration_since(t).num_seconds() > MAGIC_TOKEN_VALIDITY_SECS)
+        .unwrap_or(false);
+    if expired {
+        return refused();
+    }
+    if !secure_eq(&one_time_code(&state, &token), &submitted) {
+        // The attempt is counted whether or not the code was right, so a
+        // guessing run runs out rather than continuing indefinitely.
+        let _ = sqlx::query("UPDATE tokens SET otc_used_count = otc_used_count + 1, updated_at = ? WHERE id = ?")
+            .bind(now_rfc3339())
+            .bind(&token_id)
+            .execute(&state.db)
+            .await;
+        return refused();
+    }
+
+    let data: Value = serde_json::from_str(&data).unwrap_or(Value::Null);
+    let email = data.get("email").and_then(|e| e.as_str()).unwrap_or("").to_string();
+    if email.is_empty() {
+        return refused();
+    }
+    let name = data.get("name").and_then(|n| n.as_str()).map(str::to_owned);
+    let requested_newsletters = data.get("newsletters").cloned().unwrap_or(Value::Null);
+    let url_history = data.get("url_history").cloned().unwrap_or(Value::Null);
+
+    // Burned before the session is issued, the same way the link is, so two
+    // submissions cannot race two signups through.
+    let consumed = sqlx::query(
+        "UPDATE tokens SET used_count = used_count + 1, first_used_at = ?, updated_at = ? WHERE id = ? AND used_count = 0",
+    )
+    .bind(now_rfc3339())
+    .bind(now_rfc3339())
+    .bind(&token_id)
+    .execute(&state.db)
+    .await;
+    if !consumed.is_ok_and(|result| result.rows_affected() == 1) {
+        return refused();
+    }
+
+    let member = match member_by_email(&state, &email).await {
+        Some(m) => {
+            let _ = crate::member_events::record_login(&state, &m.id).await;
+            m
+        }
+        None => {
+            let attribution = crate::member_events::attribution_from_history(&state, &url_history).await;
+            match create_member(&state, &email, name.as_deref(), &requested_newsletters, &attribution).await {
+                Some(m) => m,
+                None => return refused(),
+            }
+        }
+    };
+    let _ = sqlx::query("UPDATE members SET last_seen_at = ?, updated_at = ? WHERE id = ?")
+        .bind(now_rfc3339())
+        .bind(now_rfc3339())
+        .bind(&member.id)
+        .execute(&state.db)
+        .await;
+
+    (
+        StatusCode::OK,
+        [
+            (header::SET_COOKIE, set_cookie_header(&state, &member.transient_id)),
+            (header::CACHE_CONTROL, "private, no-store".to_string()),
+        ],
+        axum::Json(json!({"success": true, "redirect": req.redirect})),
+    )
+        .into_response()
 }
 
 /// Render and deliver the magic-link email for `action`.
@@ -2047,6 +2516,7 @@ async fn send_magic_link_email(
     email: &str,
     action: &str,
     link: &str,
+    code: Option<&str>,
 ) -> ghost_core::Result<()> {
     let site_url = state.site_url();
     let site_title = state.settings.get_str("title").unwrap_or_else(|| "Ghost".into());
@@ -2057,9 +2527,12 @@ async fn send_magic_link_email(
     let cfg = ghost_mail::MailConfig::from_settings(&state.settings, &site_title, &site_url);
     let msg = ghost_mail::Message {
         to: email.to_string(),
-        subject: kind.subject(&site_title),
-        html: ghost_mail::templates::magic_link_html(kind, &site_title, &domain, email, link, &accent),
-        text: ghost_mail::templates::magic_link_text(kind, &site_title, &domain, email, link),
+        subject: match code {
+            Some(code) => kind.subject_with_code(&site_title, code),
+            None => kind.subject(&site_title),
+        },
+        html: ghost_mail::templates::magic_link_html(kind, &site_title, &domain, email, link, &accent, code),
+        text: ghost_mail::templates::magic_link_text(kind, &site_title, &domain, email, link, code),
     };
     match ghost_mail::send(&cfg, &msg).await {
         Ok(()) => Ok(()),
@@ -2128,6 +2601,7 @@ async fn magic_link_landing(
     let action = data.get("action").and_then(|a| a.as_str()).unwrap_or("signin").to_string();
     let name = data.get("name").and_then(|n| n.as_str()).map(|s| s.to_string());
     let requested_newsletters = data.get("newsletters").cloned().unwrap_or(Value::Null);
+    let url_history = data.get("url_history").cloned().unwrap_or(Value::Null);
 
     // Burn the token before issuing the session, so a double-click cannot
     // race two signups through.
@@ -2140,11 +2614,22 @@ async fn magic_link_landing(
     if !consumed.is_ok_and(|result|result.rows_affected()==1) { return fail("TokenExpired"); }
 
     let member = match member_by_email(&state, &email).await {
-        Some(m) => m,
-        None => match create_member(&state, &email, name.as_deref(), &requested_newsletters).await {
-            Some(m) => m,
-            None => return fail("InvalidLink"),
-        },
+        Some(m) => {
+            // An existing member following a magic link is signing in, which
+            // is the one thing that makes a login timeline possible: there
+            // is no password here to count attempts of.
+            if let Err(e) = crate::member_events::record_login(&state, &m.id).await {
+                tracing::warn!("members: could not record the signin for {email}: {}", e.message());
+            }
+            m
+        }
+        None => {
+            let attribution = crate::member_events::attribution_from_history(&state, &url_history).await;
+            match create_member(&state, &email, name.as_deref(), &requested_newsletters, &attribution).await {
+                Some(m) => m,
+                None => return fail("InvalidLink"),
+            }
+        }
     };
 
     let _ = sqlx::query("UPDATE members SET last_seen_at = ?, updated_at = ? WHERE id = ?")
@@ -2182,6 +2667,7 @@ async fn create_member(
     email: &str,
     name: Option<&str>,
     requested_newsletters: &Value,
+    attribution: &crate::member_events::Attribution,
 ) -> Option<Member> {
     let id = ids::new_id();
     let now = now_rfc3339();
@@ -2201,12 +2687,12 @@ async fn create_member(
     .await
     .ok()?;
 
-    let _ = sqlx::query("INSERT INTO members_created_events (id, member_id, source, created_at) VALUES (?, ?, 'member', ?)")
-        .bind(ids::new_id())
-        .bind(&id)
-        .bind(&now)
-        .execute(&state.db)
-        .await;
+    // `member` is Ghost's source for a signup the visitor made themselves,
+    // as against `import` or `admin`. The attribution beside it is which
+    // page they were reading when they did.
+    if let Err(e) = crate::member_events::record_signup(state, &id, "member", attribution).await {
+        tracing::warn!("members: could not record the signup for {email}: {}", e.message());
+    }
 
     let ids_requested: Vec<String> = requested_newsletters
         .as_array()
@@ -2383,10 +2869,23 @@ async fn update_member(
 
 /// Replace a member's subscriptions with exactly `list`.
 async fn set_member_newsletters(state: &AppState, member_id: &str, list: &[Value]) {
+    // What they were subscribed to before, so the change can be recorded as
+    // the two events it is rather than as a wholesale replacement. An
+    // unsubscribe is the interesting half, and a delete-then-insert leaves
+    // no trace of it.
+    let before: std::collections::HashSet<String> =
+        sqlx::query_scalar::<_, String>("SELECT newsletter_id FROM members_newsletters WHERE member_id = ?")
+            .bind(member_id)
+            .fetch_all(&state.db)
+            .await
+            .unwrap_or_default()
+            .into_iter()
+            .collect();
     let _ = sqlx::query("DELETE FROM members_newsletters WHERE member_id = ?")
         .bind(member_id)
         .execute(&state.db)
         .await;
+    let mut after = std::collections::HashSet::new();
     for n in list {
         let Some(nid) = n.get("id").and_then(|i| i.as_str()) else {
             continue;
@@ -2399,6 +2898,14 @@ async fn set_member_newsletters(state: &AppState, member_id: &str, list: &[Value
         .bind(nid)
         .execute(&state.db)
         .await;
+        after.insert(nid.to_string());
+    }
+    for subscribed in after.difference(&before) {
+        let _ = crate::member_events::record_newsletter_change(state, member_id, Some(subscribed), true, "member").await;
+    }
+    for unsubscribed in before.difference(&after) {
+        let _ =
+            crate::member_events::record_newsletter_change(state, member_id, Some(unsubscribed), false, "member").await;
     }
 }
 
@@ -2667,8 +3174,8 @@ fn scheduled_gift_date(date:Option<&str>,timezone:&str)->std::result::Result<Opt
     Ok(Some(at.with_timezone(&chrono::Utc).format("%Y-%m-%d %H:%M:%S").to_string()))
 }
 /// Native worker with persistent retry state. A process restart does not lose a delivery.
-pub fn spawn_gift_delivery(state:AppState){tokio::spawn(async move{loop{deliver_due_gifts(&state).await;tokio::time::sleep(std::time::Duration::from_secs(30)).await;}});}
-async fn deliver_due_gifts(state:&AppState){
+pub fn spawn_gift_delivery(state:AppState){tokio::spawn(async move{loop{deliver_due_gifts(&state).await;if let Err(e)=send_due_gift_reminders(&state).await{tracing::warn!("Gift reminders: {}",e.message());}tokio::time::sleep(std::time::Duration::from_secs(30)).await;}});}
+pub(crate) async fn deliver_due_gifts(state:&AppState){
     let due=sqlx::query_scalar::<_,String>("SELECT token FROM scheduled_gift_deliveries WHERE sent_at IS NULL AND attempts<12 AND datetime(deliver_at)<=datetime('now') AND (last_attempt_at IS NULL OR datetime(last_attempt_at)<datetime('now','-5 minutes')) LIMIT 50")
         .fetch_all(&state.db).await.unwrap_or_default();
     for token in due{
@@ -2683,3 +3190,37 @@ async fn deliver_due_gifts(state:&AppState){
         }
     }
 }
+
+/// Persist reminder scheduling separately from gift data, so retries and process
+/// restarts cannot erase a successful send. Only redeemed, expiring gifts qualify.
+pub async fn send_due_gift_reminders(state:&AppState)->ghost_core::Result<u64>{
+    let db_error=|e:sqlx::Error|ghost_core::GhostError::Db(e.to_string());
+    let gifts=sqlx::query_scalar::<_,String>("SELECT token FROM tokens WHERE json_valid(data) AND json_extract(data,'$.gift')=1 AND json_extract(data,'$.status')='redeemed'").fetch_all(&state.db).await.map_err(db_error)?;
+    for token in gifts {
+        let Some(gift)=find_gift(state,&token).await else{continue};
+        let Some(at)=gift.redeemed_at.as_deref().and_then(|s|ghost_core::dates::from_db_string(s).or_else(||chrono::DateTime::parse_from_rfc3339(s).ok().map(|d|d.with_timezone(&chrono::Utc))))else{continue};
+        let end=months_after(at,gift.total_months);let due=end-chrono::Duration::days(7);
+        sqlx::query("INSERT INTO gift_reminders(token,due_at) VALUES(?,?) ON CONFLICT(token) DO NOTHING").bind(&token).bind(due.format("%Y-%m-%d %H:%M:%S").to_string()).execute(&state.db).await.map_err(db_error)?;
+    }
+    let due=sqlx::query_scalar::<_,String>("SELECT token FROM gift_reminders WHERE sent_at IS NULL AND attempts<12 AND datetime(due_at)<=datetime('now') AND (claimed_at IS NULL OR datetime(claimed_at)<datetime('now','-1 hour')) LIMIT 50").fetch_all(&state.db).await.map_err(db_error)?;
+    let mut sent=0;
+    for token in due{
+        let Some(gift)=find_gift(state,&token).await else{continue};
+        let Some(member_id)=gift.redeemed_by.as_deref()else{continue};
+        let member=sqlx::query_as::<_,(String,Option<String>,String)>("SELECT m.email,m.name,mp.expiry_at FROM members m JOIN members_products mp ON mp.member_id=m.id WHERE m.id=? AND mp.product_id=? AND mp.expiry_at IS NOT NULL AND datetime(mp.expiry_at)>datetime('now','+3 days') AND NOT EXISTS(SELECT 1 FROM members_stripe_customers c JOIN subscriptions s ON s.customer_id=c.customer_id WHERE c.member_id=m.id AND s.status IN ('active','trialing')) ORDER BY mp.expiry_at DESC LIMIT 1").bind(member_id).bind(&gift.tier_id).fetch_optional(&state.db).await.map_err(db_error)?;
+        let Some((email,_name,end))=member else{continue};
+        let claimed=sqlx::query("UPDATE gift_reminders SET claimed_at=?,attempts=attempts+1 WHERE token=? AND sent_at IS NULL AND (claimed_at IS NULL OR datetime(claimed_at)<datetime('now','-1 hour'))").bind(ghost_core::dates::now_db()).bind(&token).execute(&state.db).await.map_err(db_error)?;
+        if claimed.rows_affected()!=1{continue}
+        let link=format!("{}/#/portal/signup",state.site_url());
+        let cfg=ghost_mail::MailConfig::from_settings(&state.settings,&state.settings.site_name(),&state.site_url());
+        let end=ghost_core::dates::short_date_in_zone(&end,&state.settings.get_str("timezone").unwrap_or_else(||"Etc/UTC".into()));
+        let text=format!("Your gift subscription to {} ends on {end}. Subscribe to keep your access: {link}",state.settings.site_name());
+        match ghost_mail::send(&cfg,&ghost_mail::Message{to:email,subject:format!("Your gift subscription ends on {end}"),html:format!("<p>{}</p><p><a href=\"{link}\">Keep your subscription</a></p>",text.replace('&',"&amp;").replace('<',"&lt;").replace('>',"&gt;")),text}).await{
+            Ok(())=>{sqlx::query("UPDATE gift_reminders SET sent_at=?,last_error=NULL WHERE token=?").bind(ghost_core::dates::now_db()).bind(&token).execute(&state.db).await.map_err(db_error)?;sent+=1;},
+            Err(e)=>{sqlx::query("UPDATE gift_reminders SET last_error=? WHERE token=?").bind(e.message()).bind(&token).execute(&state.db).await.map_err(db_error)?;}
+        }
+    }
+    Ok(sent)
+}
+
+pub(crate) async fn subscriptions_for(state:&AppState,id:&str)->Vec<Value>{subscriptions::list(state,id).await}

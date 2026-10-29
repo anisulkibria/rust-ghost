@@ -105,3 +105,79 @@ ActivityPub actor returned 404. A private SQLite backup was taken before migrati
 
 Do not mark all audit findings resolved until the remaining items are implemented
 and tested. Keep legacy staged/unstaged user work intact.
+
+## Follow-up parity fixes — 29 October 2026
+
+The gaps in `ghost-feature-audit-2026-10-29.md` are being addressed in the
+working tree. The current implementation adds transactional content transfer
+with full supported-table columns and relationship/id remapping; per-send
+open/click tracking for automation revisions; persistent gift expiry reminders;
+the automated-email compatibility facade and shared design/sender controls;
+missing bulk/CSV/staff/invitation/key/subscription APIs; filtered bulk link
+editing; newsletter sender verification; Mailgun analytics reconciliation jobs;
+individual theme downloads; and the PUT thumbnail-upload alias.
+
+Media processing now includes AVIF decoding/encoding and animated GIF resizing.
+`img_url` uses retained local originals to serve variants of assets whose
+originals were uploaded to the configured S3 asset host. SVG stays vector.
+Transistor cards render from Lexical, substitute member/publication identities
+on the site, and become personalized listening links in newsletters.
+
+Native analytics now collects all five UTM fields and exports measured clicks,
+signups and paid conversions. Optional local geolocation uses a host-supplied
+MaxMind database; optional Tinybird frontend access accepts a read-scoped token.
+Experimental app APIs validate and normalize server-fetched manifests, check
+reviewed digests, retain approval history, recheck sessions, suspend changed
+manifests, and uninstall. They remain gated by `labs.apps`.
+
+Configuration (no Docker or database server needed):
+
+```json
+{
+  "hostSettings": {
+    "analytics": {
+      "geoipDatabase": "/path/to/GeoLite2-Country.mmdb",
+      "tinybird": {
+        "readToken": "YOUR_READ_ONLY_FRONTEND_TOKEN",
+        "expiresAt": "2026-12-01T00:00:00Z"
+      }
+    }
+  }
+}
+```
+
+Both analytics integrations are optional. Supply and refresh your own licensed
+MMDB data and Tinybird credentials. Configured Tinybird clients query their
+configured Tinybird service; native SQL reports continue to work independently.
+AVIF codecs are Rust libraries; on x86 the decoder dependency uses NASM for its
+assembly optimizations. Keep the Rust toolchain current and install NASM on x86
+build hosts. No AVIF system library is required.
+
+Gift reminders run from the existing gift worker. Mailgun analytics jobs run
+from a separate persistent queue and are scheduled/cancelled through the Ghost
+email analytics endpoints. Sender verification tokens are hashed, expire after
+a day, and are consumed once through the corresponding verification endpoint.
+No live Stripe payment, production newsletter, or third-party app installation
+was initiated by this work.
+
+Final verification: `cargo test --workspace --offline --quiet` passed with
+613 tests passed, 0 failed and 2 existing tests ignored. The test runner
+needed loopback access for its isolated SMTP, webhook and port-selection fixtures.
+`node --test crates/ghost-admin-ui/tests/koenig-saving.cjs` passed all 9 tests,
+and `git diff --check` passed.
+
+Coverage includes content round trips and rollback, standard Ghost multipart
+imports and CSV requests, canonical publication dates, newsletter previews/test
+sends against a local SMTP server, expiring single-use verification tokens,
+per-send automation opens/clicks, scoped link changes, password/key rotation,
+app manifest validation and feature gating, gift reminder deduplication, AVIF
+conversion, GIF frame/timing preservation, remote image URLs and Ghost's actual
+Transistor render output. Live provider and real-browser acceptance testing
+remain separate from these regression results.
+
+Migration `0028_parity_workflows.sql` is embedded and applies on the next server
+startup. The running publication was not restarted or migrated during this work.
+For configured Tinybird clients, `hostSettings.analytics.tinybird.stats` can
+supply the public `endpoint`, `endpointBrowser`, `version` and `datasource`
+properties exposed by `/config`; credential fields are excluded from that
+response. The external service still needs its datasets/pipes configured.

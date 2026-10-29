@@ -55,6 +55,27 @@ mod tests {
 
 /// Main entrypoint for every non-asset site path.
 pub async fn entrypoint(State(state): State<AppState>, uri: Uri, headers: HeaderMap) -> Response {
+    // The IndexNow key file, which a search engine fetches to confirm that
+    // whoever submitted a URL controls this site. Checked here rather than
+    // routed: `/{key}.txt` is not a shape this router can express, and a
+    // bare `/{key}` would shadow every one-segment permalink. Comparing
+    // before answering also means the endpoint cannot be used to read the
+    // key — you have to know it to be told it.
+    if let Some(requested) = uri.path().strip_prefix('/').and_then(|p| p.strip_suffix(".txt")) {
+        if let Some(configured) = ghost_api::announce::indexnow_key(&state) {
+            if configured == requested {
+                return (
+                    [
+                        (header::CONTENT_TYPE, "text/plain; charset=utf-8"),
+                        (header::CACHE_CONTROL, "public, max-age=3600"),
+                    ],
+                    configured,
+                )
+                    .into_response();
+            }
+        }
+    }
+
     let path = uri.path().to_string();
     let query = uri.query().map(str::to_string);
 

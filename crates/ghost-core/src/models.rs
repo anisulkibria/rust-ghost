@@ -228,10 +228,21 @@ pub fn segment_html(html:&str,status:Option<&str>)->String {
         regex::Regex::new(r"(?s)<!--kg-gated-block:begin ([^\n]+?)\s*-->(.*?)<!--kg-gated-block:end-->").unwrap());
     let paid=matches!(status,Some("paid"|"comped"|"gift"));
     BLOCKS.replace_all(html, |caps: &regex::Captures<'_>| {
-        let show=caps[1].split_whitespace().any(|param|match param {
+        let mut show=caps[1].split_whitespace().any(|param|match param {
             "nonMember:true"=>status.is_none(),"member:true"=>status.is_some(),
             "freeMember:true"=>status==Some("free"),"paidMember:true"=>paid,_=>false
         });
+        if let Some(status)=status {
+            static SEGMENT:std::sync::LazyLock<regex::Regex>=std::sync::LazyLock::new(||regex::Regex::new(r#"memberSegment:"([^"]*)""#).unwrap());
+            if let Some(segment)=SEGMENT.captures(&caps[1]){
+                let status=if paid{"paid"}else{status};
+                show|=segment[1].split(',').any(|group|!group.is_empty()&&group.split('+').all(|term|{
+                    let Some(value)=term.trim().strip_prefix("status:")else{return false};
+                    let value=value.trim_matches('\'');
+                    if let Some(not)=value.strip_prefix('-'){status!=not}else{status==value}
+                }));
+            }
+        }
         if show{caps[2].to_string()}else{String::new()}
     }).into_owned()
 }
@@ -416,4 +427,17 @@ pub fn pagination_json(page: i64, limit: i64, total: i64) -> Value {
         "next": if page < pages { Some(page + 1) } else { None },
         "prev": if page > 1 { Some(page - 1) } else { None },
     })
+}
+
+#[cfg(test)]
+mod segment_membership_tests {
+    use super::*;
+    #[test]
+    fn current_ghost_member_segments_gate_podcast_content(){
+        let all=r#"<!--kg-gated-block:begin nonMember:false memberSegment:"status:free,status:-free" --><p>Podcast</p><!--kg-gated-block:end-->"#;
+        assert_eq!(segment_html(all,None),"");
+        for status in ["free","paid","comped","gift"]{assert_eq!(segment_html(all,Some(status)),"<p>Podcast</p>");}
+        let paid=r#"<!--kg-gated-block:begin nonMember:false memberSegment:"status:-free" --><p>Paid</p><!--kg-gated-block:end-->"#;
+        assert_eq!(segment_html(paid,Some("free")),"");assert_eq!(segment_html(paid,Some("gift")),"<p>Paid</p>");
+    }
 }

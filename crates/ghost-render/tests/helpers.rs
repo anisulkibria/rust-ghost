@@ -1012,6 +1012,55 @@ fn ghost_head_links_the_comment_counts_script() {
     assert!(!render("{{ghost_head}}", &off).contains("comment-counts.min.js"));
 }
 
+/// The announcement bar goes out as Ghost's widget, not as markup, because
+/// the audience is per-member and a dismissal has to outlive the page.
+#[test]
+fn ghost_head_links_the_announcement_bar_widget() {
+    let mut data = commentable();
+    data["site"]["announcement_content"] = json!("<p>We moved</p>");
+    data["site"]["announcement_visibility"] = json!(["visitors", "paid_members"]);
+
+    let out = render("{{ghost_head}}", &data);
+    assert!(
+        out.contains(&format!(
+            r#"<script defer src="https://cdn.jsdelivr.net/ghost/announcement-bar@~{}/umd/announcement-bar.min.js""#,
+            ghost_render::apps::ANNOUNCEMENT_BAR_VERSION
+        )),
+        "{out}"
+    );
+    assert!(out.contains(r#"data-announcement-bar="https://site.test""#), "{out}");
+    assert!(
+        out.contains(r#"data-api-url="https://site.test/members/api/announcement/""#),
+        "{out}"
+    );
+    // The content itself is never in the page — that is the point, since the
+    // page is cacheable and the answer is not.
+    assert!(!out.contains("We moved"), "{out}");
+
+    // Nothing to announce, or nobody to announce it to, means no tag at all.
+    let mut nobody = data.clone();
+    nobody["site"]["announcement_visibility"] = json!([]);
+    assert!(!render("{{ghost_head}}", &nobody).contains("announcement-bar"), "visibility []");
+
+    let mut empty = data.clone();
+    empty["site"]["announcement_content"] = json!("");
+    assert!(!render("{{ghost_head}}", &empty).contains("announcement-bar"), "empty content");
+
+    // And it is no longer in the foot, where this port used to render it.
+    assert!(!render("{{ghost_foot}}", &data).contains("announcement"), "foot");
+}
+
+/// Without this link nothing can send us a webmention: a sender discovers the
+/// endpoint from the page it is linking to.
+#[test]
+fn ghost_head_advertises_the_webmention_endpoint() {
+    let out = render("{{ghost_head}}", &root_with_post());
+    assert!(
+        out.contains(r#"<link href="https://example.com/webmentions/receive/" rel="webmention">"#),
+        "{out}"
+    );
+}
+
 // ---------------------------------------------------------------------------
 // meta / head
 // ---------------------------------------------------------------------------
@@ -1279,4 +1328,26 @@ fn feature_image_caption_renders_html_in_theme_contexts() {
     assert_eq!(render("{{{feature_image_caption}}}", &data), data["feature_image_caption"].as_str().unwrap());
     assert_eq!(render("{{title}}", &data), "&lt;b&gt;Title&lt;/b&gt;");
     assert_eq!(render("{{! feature_image_caption}}", &data), "");
+}
+
+#[test]
+fn remote_storage_images_use_local_originals_for_responsive_variants(){
+    let mut data=root_with_post();
+    data["post"]["feature_image"]=json!("https://assets.example.org/images/2026/10/remote.avif");
+    data["config"]["storage_image_prefix"]=json!("https://assets.example.org/images/");
+    check(&[
+        ("{{img_url post.feature_image}}",&data,"https://assets.example.org/images/2026/10/remote.avif"),
+        (r#"{{img_url post.feature_image size="s" format="webp" absolute="true"}}"#,&data,"https://example.com/content/images/size/w300/format/webp/2026/10/remote.avif"),
+    ]);
+}
+
+#[test]
+fn transistor_content_uses_member_and_publication_identity_at_render_time(){
+    let mut data=root_with_post();
+    let lexical=r#"{"root":{"children":[{"type":"transistor","version":1}]}}"#;
+    data["html"]=json!(ghost_render::lexical::to_html(lexical));
+    data["member"]=json!({"uuid":"member-123"});data["site"]["site_uuid"]=json!("publication-456");
+    let html=registry().render_template("{{content}}",&data).unwrap();
+    assert!(html.contains("/ghost/embed/member-123?ctx=publication%2D456"),"{html}");
+    assert!(!html.contains("%7Buuid%7D"));
 }

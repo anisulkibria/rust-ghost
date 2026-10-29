@@ -190,6 +190,7 @@ async fn main() {
         redirects: Arc::new(RwLock::new(Arc::new(redirects))),
         setup_done: Arc::new(AtomicBool::new(false)),
         frontend_key: Arc::new(RwLock::new(None)),
+        limits: Arc::new(ghost_db::limits::Limits::load(&config.host_settings)),
     };
     state.refresh_setup_flag().await;
     // the configured theme may be gone — record whichever one we fell back to
@@ -213,6 +214,7 @@ async fn main() {
     // chain has nobody making a request when it comes due.
     ghost_api::automations_engine::spawn(state.clone());
     ghost_api::members::spawn_gift_delivery(state.clone());
+    ghost_api::email_analytics::spawn(state.clone());
     ghost_api::explore::spawn(state.clone());
     ghost_api::federation::spawn(state.clone());
     let app = mount(build_app(state), subdir);
@@ -316,6 +318,13 @@ fn build_app(state: AppState) -> axum::Router {
         .nest("/admin", ghost_api::admin::admin_router()
             .merge(ghost_api::admin_comments::admin_comments_router())
             .merge(ghost_api::automations::automations_router())
+            // Retrying an email means rendering and sending it again, which
+            // lives in the admin crate; the rest of the emails family is in
+            // `ghost-api`. Merged here so the whole family shares a prefix.
+            .merge(ghost_admin_ui::email_retry_router())
+            // Import, export, themes and the settings files: the operations
+            // the admin already performs, as the REST a client can reach.
+            .merge(ghost_admin_ui::rest::router())
             .merge(axum::Router::new()
                 .nest("/images", ghost_api::images::images_router())
                 .nest("/media", ghost_api::images::media_router())
@@ -350,6 +359,14 @@ fn build_app(state: AppState) -> axum::Router {
     // /members/* — Portal's backend. Merged (not nested) at the site root,
     // since Portal builds these URLs from the site origin and carries the
     // /members prefix itself.
+    // Endpoints a stranger or another site has to be able to reach: the
+    // webmention receiver, the recommendations file other Ghost sites read,
+    // the public half of the signing key, and a member's entitlement token.
+    let open_endpoints = ghost_api::mentions::public_router()
+        .merge(ghost_api::identity::public_router())
+        .merge(ghost_api::automation_tracking::public_router())
+        .with_state(state.clone());
+
     let members = ghost_api::members::members_router()
         // `/members/api/comments/*` — where the CDN-hosted comments widget
         // is hardcoded to look, so it is merged at the site root alongside
@@ -365,5 +382,6 @@ fn build_app(state: AppState) -> axum::Router {
     site.nest("/ghost", backend.merge(admin_ui))
         .merge(admin_root)
         .merge(members)
+        .merge(open_endpoints)
 }
 

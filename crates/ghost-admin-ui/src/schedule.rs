@@ -86,6 +86,7 @@ async fn publish_one(state: &AppState, due: &repos::posts::DuePost) {
 
     if status == "published" {
         crate::notify_slack_published(state, &post).await;
+        crate::announce_published(state, &post).await;
     }
 
     if due.delivery.email {

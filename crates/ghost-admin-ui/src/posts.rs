@@ -127,18 +127,156 @@ pub async fn load_cards(state: &AppState, posts: Vec<Post>) -> Vec<Card> {
 // rendering
 // ---------------------------------------------------------------------------
 
-/// The whole list.
-pub fn grid(cards: &[Card], base: &str) -> String {
+/// The whole list. `tags` are the site's tags, for the batch bar's tag
+/// picker — passed in rather than fetched here so the list renders from one
+/// round of queries.
+pub fn grid(cards: &[Card], base: &str, tags: &[(String, String)]) -> String {
     // The reach and open-rate columns are only worth their width if anything
     // in this list was actually emailed. On a site that has never sent a
     // newsletter they would be two columns of nothing on every row.
     let emailed = cards.iter().any(|c| c.sent > 0);
+    let plural = if base.contains("/pages/") { "pages" } else { "posts" };
     let items: String = cards
         .iter()
         .enumerate()
         .map(|(i, card)| row(card, base, i, emailed))
         .collect();
-    format!(r#"<div class="post-list">{items}</div>"#)
+    format!(
+        r#"<div class="post-list">
+{head}
+{items}
+<div class="filter-empty" data-filter-empty><p>No {plural} match &#8220;<b data-query></b>&#8221;.</p>
+<button class="btn tonal small" type="button" data-filter-clear>Clear search</button></div>
+</div>
+{bar}"#,
+        head = head_row(base, plural, emailed),
+        items = items,
+        plural = plural,
+        bar = batch_form(base, plural, tags),
+    )
+}
+
+/// The strip above the rows: a select-all checkbox and the column names.
+///
+/// The rows are not a `<table>`, so the strip re-creates their column
+/// geometry with the same fixed widths — its labels have to sit over the
+/// columns they name, or they are decoration. Select-all here (rather than
+/// in a toolbar) is the M3 data-table pattern: it sits in the column it
+/// acts on, and its indeterminate state says "some of this page".
+fn head_row(_base: &str, plural: &str, emailed: bool) -> String {
+    // The email columns only exist when something was sent; the header
+    // mirrors the rows or it would label empty space.
+    // Each label sits in a cell the width of the stat under it, right-aligned
+    // like the number — a bare span is as wide as its own text, which left
+    // "Views" floating 30px off the column it names.
+    let email_heads = if emailed {
+        r#"<div class="lh-stat"><span class="lh-label">Sent</span></div><div class="lh-stat"><span class="lh-label">Opened</span></div>"#.to_string()
+    } else {
+        String::new()
+    };
+    format!(
+        r#"<div class="list-head">
+<label class="row-check" title="Select all {plural}"><input type="checkbox" data-select-all form="batch-list" aria-label="Select all {plural}"><span class="box">{check}</span></label>
+<span class="lh-spacer" aria-hidden="true"></span>
+<div class="lh-main"><span class="lh-label">Title</span></div>
+<div class="lh-status"><span class="lh-label">Status</span></div>
+<div class="lh-stats"><div class="lh-stat"><span class="lh-label">Views</span></div>{email_heads}</div>
+</div>"#,
+        plural = plural,
+        check = svg("check"),
+        email_heads = email_heads,
+    )
+}
+
+/// The batch form: everything the selection can do, floating.
+///
+/// It is a sibling of the rows, not their parent, so the per-row delete
+/// forms stay valid HTML — the checkboxes join this form by `form=`
+/// association instead. Visibility is CSS (`:has` a ticked box), so no
+/// script is needed to bring it up; the script only maintains the count.
+///
+/// Every bulk action the list offers lives here. Publish, unpublish, access
+/// and tags used to be a script-built `<select>` and an "Apply to selected"
+/// button sitting permanently above the list, next to a second column of raw
+/// checkboxes; they are plain submit buttons on this bar now, so there is one
+/// selection, one place its actions live, and nothing on screen until a row
+/// is actually ticked.
+fn batch_form(base: &str, plural: &str, tags: &[(String, String)]) -> String {
+    let word = if plural == "pages" { "page" } else { "post" };
+    // The two pickers follow the members bar's: chips in a popover that opens
+    // out of the bar, each submitting the same form it hangs inside.
+    let access_chips: String = [
+        ("public", "Public", "Anyone can read it"),
+        ("members", "Members only", "Signed-in members"),
+        ("paid", "Paid members only", "Members on a paid plan"),
+    ]
+    .iter()
+    .map(|(value, label, hint)| {
+        format!(
+            r#"<label class="fchip" title="{hint}"><input type="radio" name="visibility" value="{value}" required><span class="ck">{check}</span>{label}</label>"#,
+            check = svg("check"),
+        )
+    })
+    .collect();
+    let tag_chips: String = if tags.is_empty() {
+        r#"<p class="muted" style="margin:4px 0 0;font-size:12.5px">No tags exist yet.</p>"#.to_string()
+    } else {
+        tags.iter()
+            .map(|(id, name)| {
+                format!(
+                    r#"<label class="fchip"><input type="checkbox" name="tags" value="{id}"><span class="ck">{check}</span>{name}</label>"#,
+                    id = esc(id),
+                    name = esc(name),
+                    check = svg("check"),
+                )
+            })
+            .collect()
+    };
+    format!(
+        r#"<form id="batch-list" class="batch" method="post" action="{base}bulk/" data-word="{word}">
+<div class="batch-bar">
+<span class="bb-count"><b data-count>0 {word}s</b> selected</span>
+<button class="bb-btn" type="submit" name="action" value="publish">{globe} Publish</button>
+<button class="bb-btn" type="submit" name="action" value="draft">{hide} Unpublish</button>
+<button class="bb-btn" type="submit" name="action" value="feature">{star} Feature</button>
+<button class="bb-btn" type="submit" name="action" value="unfeature">{star_off} Unfeature</button>
+<details class="batch-pop" data-menu>
+<summary class="bb-btn">{lock} Access</summary>
+<div class="pop">
+<p class="pop-title">Who can read the selected {plural}</p>
+<div class="chips" style="margin-bottom:12px">{access_chips}</div>
+<button class="btn" type="submit" name="action" value="visibility">{check} Set access</button>
+</div>
+</details>
+<details class="batch-pop" data-menu>
+<summary class="bb-btn">{tags_icon} Tags</summary>
+<div class="pop">
+<p class="pop-title">Tags for the selected {plural}</p>
+<div class="chips" style="margin-bottom:12px">{tag_chips}</div>
+<button class="btn tonal" type="submit" name="action" value="tags">{check} Replace tags</button>
+<p>Whatever is ticked becomes the complete set of tags; ticking none clears them.</p>
+</div>
+</details>
+<button class="bb-btn danger" type="submit" name="action" value="delete"
+ data-confirm="Delete selected {plural}|The selected {plural} will be permanently deleted."
+ data-confirm-one="Delete 1 {word}|This {word} will be permanently deleted."
+ data-confirm-many="Delete {{n}} {plural}|The {{n}} selected {plural} will be permanently deleted.">{del} Delete</button>
+</div>
+</form>"#,
+        base = base,
+        plural = plural,
+        word = word,
+        star = svg("star"),
+        star_off = svg("star"),
+        globe = svg("globe"),
+        hide = svg("hide"),
+        lock = svg("lock"),
+        tags_icon = svg("tags"),
+        check = svg("check"),
+        del = svg("delete"),
+        access_chips = access_chips,
+        tag_chips = tag_chips,
+    )
 }
 
 /// One post as a row.
@@ -158,6 +296,7 @@ fn row(c: &Card, base: &str, index: usize, show_email: bool) -> String {
 
     format!(
         r#"<article class="post-row rise" style="--i:{delay}" data-filterable>
+<label class="row-check"><input type="checkbox" form="batch-list" name="ids" value="{id}" aria-label="Select {title_attr}"><span class="box">{check}</span></label>
 <a class="post-row-link" href="{base}{id}/">
 {thumb}
 <div class="post-row-main">
@@ -167,12 +306,30 @@ fn row(c: &Card, base: &str, index: usize, show_email: bool) -> String {
 <div class="post-row-status">{status}</div>
 <div class="post-row-stats">{stats}</div>
 </a>
+<div class="row-end">{analytics}
 <form class="post-row-action" method="post" action="{base}{id}/delete/" data-confirm="Delete {what}|&#8220;{title_attr}&#8221; will be permanently deleted.">
 <button class="icon-btn danger" title="Delete" aria-label="Delete {title_attr}">{del}</button></form>
+</div>
 </article>"#,
         delay = delay,
         base = base,
         id = esc(&p.id),
+        check = svg("check"),
+        // Only a published post has anything to report on, and only a post —
+        // a page is not emailed and is not attributed to. The slot is held
+        // open either way, so the delete button lands in the same place on
+        // every row rather than sliding left on rows with nothing to analyse.
+        analytics = if is_page || !matches!(p.status.as_str(), "published" | "sent") {
+            r#"<span class="post-row-action" aria-hidden="true"></span>"#.to_string()
+        } else {
+            format!(
+                r#"<a class="post-row-action icon-btn" href="{base}{id}/analytics/" title="Analytics" aria-label="Analytics for {title_attr}">{chart}</a>"#,
+                base = base,
+                id = esc(&p.id),
+                title_attr = esc(title),
+                chart = svg("chart"),
+            )
+        },
         thumb = thumbnail(p),
         title = esc(title),
         title_attr = esc(title),
@@ -427,35 +584,79 @@ fn title_of(c: &Card) -> &str {
     c.post.title.as_deref().unwrap_or("Untitled")
 }
 
-/// The sort picker, as a `<select>` that navigates on change.
+/// The sort picker, as a menu of links.
 ///
-/// It keeps the current filter in the link so changing the order does not
-/// silently drop you back to "All".
-pub fn sort_picker(base: &str, filter: &str, active: &str) -> String {
-    let options: String = SORTS
+/// A `<select>` was the one native control left on this toolbar, and it
+/// looked it. Each order is a plain link (carrying the current filter, as
+/// the select's handler tried to), so it navigates without script; the
+/// open/close is the same `<details>` menu the rest of the admin uses.
+pub fn sort_picker(base: &str, filter: &str, active: &str, nql: &str) -> String {
+    let active_label = SORTS
+        .iter()
+        .find(|(key, _)| *key == active)
+        .map(|(_, label)| *label)
+        .unwrap_or("Newest first");
+    // An active NQL filter has to survive a change of order, the same way the
+    // tab does — reordering a filtered list silently dropping the filter is
+    // how a control loses its user's trust.
+    let carry = if nql.trim().is_empty() {
+        String::new()
+    } else {
+        format!("&amp;nql={}", crate::url_value(nql))
+    };
+    let items: String = SORTS
         .iter()
         .map(|(key, label)| {
             format!(
-                r#"<option value="{key}"{on}>{label}</option>"#,
-                on = if *key == active { " selected" } else { "" },
+                r#"<a class="menu-item{on}" href="{base}?filter={filter}&amp;sort={key}{carry}"><span class="ck">{check}</span>{label}</a>"#,
+                on = if *key == active { " on" } else { "" },
+                base = base,
+                filter = esc(filter),
+                key = key,
+                carry = carry,
+                check = if *key == active { svg("check") } else { String::new() },
                 label = esc(label),
             )
         })
         .collect();
     format!(
-        r#"<label class="sort-picker"><span class="sr-only">Sort {base_label}</span>
-<select onchange="location.href='{base}?filter={filter}&amp;sort='+this.value">{options}</select>{caret}</label>"#,
-        base_label = if base.contains("/pages/") { "pages" } else { "posts" },
-        base = base,
-        filter = esc(filter),
-        options = options,
+        r#"<details class="sort-menu" data-menu>
+<summary><span class="sr-only">Sort {plural}: </span>{active_label}{caret}</summary>
+<div class="pop">{items}</div>
+</details>"#,
+        plural = if base.contains("/pages/") { "pages" } else { "posts" },
+        active_label = esc(active_label),
         caret = crate::SELECT_CARET,
+        items = items,
     )
 }
 
-/// The status filter bar.
-pub fn filter_bar(base: &str, active: &str, sort: &str, counts: &HashMap<String, i64>) -> String {
-    crate::seg_filter_bar(FILTERS, base, active, &format!("&amp;sort={}", esc(sort)), counts)
+/// The status filter bar. The sort and any NQL filter ride along, so moving
+/// between tabs narrows the current view rather than replacing it.
+pub fn filter_bar(base: &str, active: &str, sort: &str, nql: &str, counts: &HashMap<String, i64>) -> String {
+    let mut suffix = format!("&amp;sort={}", esc(sort));
+    if !nql.trim().is_empty() {
+        suffix.push_str(&format!("&amp;nql={}", crate::url_value(nql)));
+    }
+    crate::seg_filter_bar(FILTERS, base, active, &suffix, counts)
+}
+
+/// The NQL filter menu for this list, with the tab and sort carried as
+/// hidden inputs so applying a filter keeps the rest of the view.
+pub fn filter_menu(base: &str, filter: &str, sort: &str, nql: &str) -> String {
+    let carry = format!(
+        r#"<input type="hidden" name="filter" value="{filter}"><input type="hidden" name="sort" value="{sort}">"#,
+        filter = esc(filter),
+        sort = esc(sort),
+    );
+    let resource = if base.contains("/pages/") { "pages" } else { "posts" };
+    crate::filter_menu(
+        base,
+        resource,
+        nql,
+        &carry,
+        "status:draft+featured:true · tag:news · authors:jane",
+    )
 }
 
 #[cfg(test)]
@@ -504,13 +705,13 @@ mod tests {
     fn the_filter_bar_hides_empty_buckets_but_keeps_the_active_one() {
         let counts: HashMap<String, i64> =
             [("published".to_string(), 3i64)].into_iter().collect();
-        let bar = filter_bar("/ghost/posts/", "all", "newest", &counts);
+        let bar = filter_bar("/ghost/posts/", "all", "newest", "", &counts);
         assert!(bar.contains(">Published<"), "{bar}");
         // nothing is scheduled, so that tab is not offered
         assert!(!bar.contains(">Scheduled<"), "{bar}");
 
         // unless it is the one in force, which must stay clickable
-        let bar = filter_bar("/ghost/posts/", "scheduled", "newest", &counts);
+        let bar = filter_bar("/ghost/posts/", "scheduled", "newest", "", &counts);
         assert!(bar.contains(">Scheduled<"), "{bar}");
         assert!(bar.contains(r#"class="seg on""#), "{bar}");
     }
@@ -585,9 +786,13 @@ mod tests {
 
     #[test]
     fn the_sort_picker_keeps_the_current_filter() {
-        let picker = sort_picker("/ghost/posts/", "draft", "views");
+        let picker = sort_picker("/ghost/posts/", "draft", "views", "");
         assert!(picker.contains("filter=draft"), "{picker}");
-        assert!(picker.contains(r#"<option value="views" selected>"#), "{picker}");
+        // the active order is both what the closed menu shows and the one
+        // item carrying the check
+        assert!(picker.contains("Most viewed"), "{picker}");
+        assert_eq!(picker.matches(svg("check").as_str()).count(), 1, "{picker}");
+        assert!(picker.contains(r#"href="/ghost/posts/?filter=draft&amp;sort=oldest""#), "{picker}");
     }
 
     /// Changing the order must not silently move you back to "All", and
@@ -595,7 +800,7 @@ mod tests {
     #[test]
     fn filter_and_sort_survive_each_other() {
         let counts: HashMap<String, i64> = [("draft".to_string(), 2i64)].into_iter().collect();
-        let bar = filter_bar("/ghost/posts/", "draft", "views", &counts);
+        let bar = filter_bar("/ghost/posts/", "draft", "views", "", &counts);
         assert!(bar.contains("sort=views"), "{bar}");
     }
 
@@ -610,5 +815,121 @@ mod tests {
                 );
             }
         }
+    }
+
+    fn one_card(id: &str) -> Card {
+        Card {
+            post: Post { id: id.into(), title: Some("A title".into()), status: "draft".into(), ..Default::default() },
+            timezone: "Etc/UTC".into(),
+            authors: vec![],
+            newsletter: None,
+            sent: 0,
+            opened: 0,
+            views: 0,
+        }
+    }
+
+    /// The rows and the floating bar must join the same form — the whole
+    /// batch selection hangs off that one `form=` association, so a drift
+    /// here would tick boxes that submit nothing.
+    #[test]
+    fn rows_and_bar_share_the_batch_form() {
+        let html = grid(&[one_card("p1"), one_card("p2")], "/ghost/posts/", &[]);
+        assert_eq!(html.matches(r#"form="batch-list""#).count(), 3, "{html}");
+        assert!(html.contains(r#"<form id="batch-list" class="batch" method="post" action="/ghost/posts/bulk/""#), "{html}");
+        assert!(html.contains(r#"action="/ghost/pages/bulk/""#) == false);
+        // every row can be named for screen readers
+        assert!(html.matches(r#"aria-label="Select A title""#).count() == 2, "{html}");
+    }
+
+    #[test]
+    fn the_pages_list_points_its_own_bulk_endpoint() {
+        let html = grid(&[one_card("pg1")], "/ghost/pages/", &[]);
+        assert!(html.contains(r#"action="/ghost/pages/bulk/""#), "{html}");
+        assert!(html.contains("data-word=\"page\""), "{html}");
+    }
+
+    /// The header strip only names the email columns when the rows carry
+    /// them, or it would label empty space.
+    #[test]
+    fn the_header_mirrors_the_email_columns() {
+        let quiet = grid(&[one_card("p1")], "/ghost/posts/", &[]);
+        assert!(!quiet.contains(">Sent<"), "{quiet}");
+        let mut emailed = one_card("p2");
+        emailed.sent = 12;
+        let loud = grid(&[emailed], "/ghost/posts/", &[]);
+        assert!(loud.contains(">Sent<") && loud.contains(">Opened<"), "{loud}");
+    }
+
+    /// One checkbox per row, and one select-all. A second selection UI used
+    /// to be injected over this one by a script, which is what a duplicate
+    /// column of raw checkboxes on every row looked like from the outside.
+    #[test]
+    fn a_row_offers_exactly_one_checkbox() {
+        let html = grid(&[one_card("p1"), one_card("p2")], "/ghost/posts/", &[]);
+        assert_eq!(html.matches(r#"type="checkbox""#).count(), 3, "{html}");
+        assert_eq!(html.matches("data-select-all").count(), 1, "{html}");
+        // and every one of them is the drawn control, never a bare input
+        assert_eq!(html.matches(r#"class="row-check""#).count(), 3, "{html}");
+    }
+
+    /// Every bulk action the list offers is a button on the one bar, posting
+    /// to the one endpoint — not a `<select>` sitting above the list.
+    #[test]
+    fn the_batch_bar_carries_every_bulk_action() {
+        let tags = [("t1".to_string(), "News".to_string())];
+        let html = grid(&[one_card("p1")], "/ghost/posts/", &tags);
+        for action in ["publish", "draft", "feature", "unfeature", "visibility", "tags", "delete"] {
+            assert!(html.contains(&format!(r#"name="action" value="{action}""#)), "no {action}: {html}");
+        }
+        // the pickers' own inputs post alongside the action
+        assert!(html.contains(r#"name="visibility" value="paid""#), "{html}");
+        assert!(html.contains(r#"name="tags" value="t1""#), "{html}");
+        assert!(html.contains(">News<"), "{html}");
+    }
+
+    /// A list with no tags still offers the picker, saying so, rather than
+    /// an empty popover that looks broken.
+    #[test]
+    fn the_tag_picker_says_when_there_is_nothing_to_pick() {
+        let html = grid(&[one_card("p1")], "/ghost/posts/", &[]);
+        assert!(html.contains("No tags exist yet."), "{html}");
+    }
+
+    /// A filter has to survive every other control on the toolbar, or
+    /// changing the sort silently widens the list back out.
+    #[test]
+    fn the_toolbar_carries_an_active_filter_between_its_controls() {
+        let nql = "status:draft+featured:true";
+        let picker = sort_picker("/ghost/posts/", "all", "newest", nql);
+        assert!(picker.contains("nql=status%3Adraft%2Bfeatured%3Atrue"), "{picker}");
+
+        let counts: HashMap<String, i64> = [("draft".to_string(), 3i64)].into_iter().collect();
+        let bar = filter_bar("/ghost/posts/", "all", "newest", nql, &counts);
+        assert!(bar.contains("nql=status%3Adraft%2Bfeatured%3Atrue"), "{bar}");
+
+        // and with no filter nothing extra is appended
+        assert!(!sort_picker("/ghost/posts/", "all", "newest", "").contains("nql="));
+    }
+
+    /// The filter menu reflects its own state: the field is filled, the pill
+    /// is marked active and a way out is offered. An applied filter that
+    /// looks identical to no filter is how people lose rows.
+    #[test]
+    fn the_filter_menu_shows_whether_a_filter_is_on() {
+        let off = filter_menu("/ghost/posts/", "all", "newest", "");
+        assert!(!off.contains("fm-dot"), "{off}");
+        assert!(!off.contains(">Clear<"), "{off}");
+
+        let on = filter_menu("/ghost/posts/", "all", "newest", "tag:news");
+        assert!(on.contains(r#"class="sort-menu filter-menu on""#), "{on}");
+        assert!(on.contains("fm-dot") && on.contains(">Clear<"), "{on}");
+        assert!(on.contains(r#"value="tag:news""#), "{on}");
+        // the tab and sort ride along, so filtering does not reset the view
+        assert!(on.contains(r#"name="filter" value="all""#), "{on}");
+        assert!(on.contains(r#"name="sort" value="newest""#), "{on}");
+        // and the saved-views slot names what the script should fetch
+        assert!(on.contains(r#"data-views="posts""#), "{on}");
+        assert!(filter_menu("/ghost/pages/", "all", "newest", "").contains(r#"data-views="pages""#));
     }
 }

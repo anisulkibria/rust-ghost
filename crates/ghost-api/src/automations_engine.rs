@@ -220,7 +220,7 @@ async fn process_step(state: &AppState, step: &StepToRun) {
                 let _ = repo::finish_step(&state.db, step, "member unsubscribed").await;
                 return;
             }
-            match send_automation_email_for(state, &member, subject, lexical,&step.automation_action_revision_id).await {
+            match send_automation_email_for(state, &member, subject, lexical,&step.automation_action_revision_id,&step.id).await {
                 Ok(()) => {
                     // Recording is best-effort: the email is already gone, and
                     // losing a statistic is not worth re-sending it.
@@ -231,6 +231,8 @@ async fn process_step(state: &AppState, step: &StepToRun) {
                         &member.uuid,
                         &member.email,
                         member.name.as_deref(),
+                        state.settings.get_bool("email_track_opens"),
+                        state.settings.get_bool("email_track_clicks"),
                     )
                     .await
                     {
@@ -307,6 +309,9 @@ pub async fn send_automation_email(
 pub async fn send_automation_email_with_design(
     state:&AppState,member:&MemberSnapshotLike<'_>,subject:&str,lexical:&str,design_id:Option<&str>,
 )->Result<(),String>{
+    send_automation_email_tracked(state,member,subject,lexical,design_id,None).await
+}
+async fn send_automation_email_tracked(state:&AppState,member:&MemberSnapshotLike<'_>,subject:&str,lexical:&str,design_id:Option<&str>,revision:Option<(&str,&str)>)->Result<(),String>{
     let site_url = state.site_url();
     let title = state.settings.get_str("title").unwrap_or_else(|| "Ghost".into());
     let timezone = state.settings.get_str("timezone").unwrap_or_else(|| "Etc/UTC".into());
@@ -337,7 +342,7 @@ pub async fn send_automation_email_with_design(
     };
 
     let body_html =
-        ghost_core::url::absolutize_html(&site_url, &ghost_render::lexical::to_html(lexical));
+        ghost_core::url::absolutize_html(&site_url, &ghost_core::models::segment_html(&ghost_render::lexical::to_html(lexical),Some(member.status)));
     // Derived from the rendered HTML rather than from the Lexical nodes: a
     // body written as a markdown card has no text nodes to walk, and the
     // rendered form is what the reader actually gets either way.
@@ -385,6 +390,7 @@ pub async fn send_automation_email_with_design(
     let html = rendered
         .render()
         .map_err(|e| format!("could not render the automation email: {}", e.message()))?;
+    let html=match revision {Some((revision,send_id))=>crate::automation_tracking::instrument_for_send(state,revision,member.uuid,send_id,&html).await.map_err(|e|e.message())?,None=>html};
     let text = ghost_mail::newsletter::plaintext(&html);
 
     // The unsubscribe link lands on the updates-and-announcements preference
@@ -408,7 +414,19 @@ pub async fn send_automation_email_with_design(
     let html = ghost_mail::newsletter::personalize(&html, &recipient);
     let text = ghost_mail::newsletter::personalize(&text, &recipient);
 
-    let cfg = ghost_mail::MailConfig::from_settings(&state.settings, &title, &site_url);
+    let mut cfg = ghost_mail::MailConfig::from_settings(&state.settings, &title, &site_url);
+    if let Some(name)=state.settings.get_str("automated_email_sender_name").filter(|s|!s.is_empty()){cfg.from_name=name;}
+    if let Some(email)=state.settings.get_str("automated_email_sender_email").filter(|s|!s.is_empty()){cfg.from_address=email;}
+    if let Some(reply)=state.settings.get_str("automated_email_sender_reply_to").filter(|s|!s.is_empty()){cfg.reply_to=Some(reply);}
+    if let Some(id)=design_id {
+        if let Ok(Some(raw))=sqlx::query_scalar::<_,String>("SELECT settings FROM email_design_settings WHERE id=?").bind(id).fetch_optional(&state.db).await{
+            if let Ok(values)=serde_json::from_str::<serde_json::Value>(&raw){
+                if let Some(v)=values["sender_name"].as_str().filter(|s|!s.is_empty()){cfg.from_name=v.into();}
+                if let Some(v)=values["sender_email"].as_str().filter(|s|!s.is_empty()){cfg.from_address=v.into();}
+                if let Some(v)=values["sender_reply_to"].as_str().filter(|s|!s.is_empty()){cfg.reply_to=Some(v.into());}
+            }
+        }
+    }
     let msg = ghost_mail::Message {
         to: member.email.to_string(),
         subject: subject.to_string(),
@@ -418,8 +436,9 @@ pub async fn send_automation_email_with_design(
 
     // Mailgun when it is configured, since that is what the newsletter uses
     // and an automation email is the same kind of mail to the same people.
-    if let Some(mg) = ghost_mail::MailgunConfig::from_settings(&state.settings, &cfg) {
-        return ghost_mail::send_mailgun(&mg, &msg).await.map(|_| ()).map_err(|e| e.message());
+    if let Some(mut mg) = ghost_mail::MailgunConfig::from_settings(&state.settings, &cfg) {
+        mg.from_address=cfg.from_address.clone();mg.from_name=cfg.from_name.clone();
+        return ghost_mail::send_mailgun_with_reply(&mg, &msg,cfg.reply_to.as_deref()).await.map(|_| ()).map_err(|e| e.message());
     }
     ghost_mail::send(&cfg, &msg).await.map_err(|e| e.message())
 }
@@ -453,9 +472,10 @@ async fn send_automation_email_for(
     subject: &str,
     lexical: &str,
     revision_id:&str,
+    send_id:&str,
 ) -> Result<(), String> {
     let design_id:Option<String>=sqlx::query_scalar("SELECT email_design_setting_id FROM automation_action_revisions WHERE id=?").bind(revision_id).fetch_one(&state.db).await.map_err(|e|e.to_string())?;
-    send_automation_email_with_design(state, &member.borrowed(), subject, lexical,design_id.as_deref()).await
+    send_automation_email_tracked(state, &member.borrowed(), subject, lexical,design_id.as_deref(),Some((revision_id,send_id))).await
 }
 
 // ---------------------------------------------------------------------------
@@ -570,4 +590,13 @@ mod tests {
         assert!(POLL_REQUESTED.swap(false, Ordering::Relaxed));
         assert!(!POLL_REQUESTED.swap(false, Ordering::Relaxed));
     }
+}
+
+pub async fn preview_email(state:&AppState,subject:&str,lexical:&str,design:Option<&str>)->Result<String,String>{
+    let newsletter=ghost_db::repos::newsletters::default_newsletter(&state.db).await.map_err(|e|e.message())?.ok_or("Create a newsletter first")?;
+    let newsletter=crate::automation_designs::apply(state,newsletter,design).await.map_err(|e|e.message())?;
+    let newsletter=ghost_db::repos::newsletters::Newsletter{show_post_title_section:false,show_feature_image:false,show_latest_posts:false,show_share_button:false,feedback_enabled:false,show_comment_cta:false,..newsletter};
+    let site=ghost_mail::newsletter::SiteContext{title:state.settings.site_name(),url:state.site_url(),icon_url:state.settings.get_str("icon"),locale:state.settings.get_str("locale").unwrap_or_else(||"en".into()),direction:"ltr".into(),accent_color:state.settings.get_str("accent_color").unwrap_or_default()};
+    let post=ghost_mail::newsletter::PostContext{title:subject.into(),html:ghost_core::url::absolutize_html(&state.site_url(),&ghost_render::lexical::to_html(lexical)),email_only:true,..Default::default()};
+    ghost_mail::newsletter::NewsletterEmail{site:&site,newsletter:&newsletter,post:&post,latest_posts:&[],comments_enabled:false}.render().map_err(|e|e.message())
 }

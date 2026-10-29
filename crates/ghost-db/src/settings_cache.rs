@@ -36,6 +36,12 @@ impl SettingsCache {
         Ok(Self { map: RwLock::new(map) })
     }
 
+    pub async fn reload(&self, pool: &SqlitePool) -> Result<()> {
+        let loaded = Self::load(pool).await?;
+        *self.map.write().unwrap() = loaded.map.into_inner().unwrap();
+        Ok(())
+    }
+
     /// A cache over values that are already in hand, with no database behind
     /// it. For tests of the code that *reads* settings — the render context in
     /// particular, whose derived keys are worth asserting without standing up

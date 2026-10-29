@@ -16,6 +16,19 @@ pub enum GhostError {
     NoPermissionError { message: String, context: Option<String> },
     #[error("{0}")]
     BadRequest(String),
+    /// A limit the *host* has placed on this site has been reached — see
+    /// [`crate::limits`]. Kept separate from `NoPermissionError` because the
+    /// answer is different: nothing about who is asking would change it, and
+    /// the only way through is to change the plan, which is what `help`
+    /// points at. `details` carries Ghost's `errorDetails`: the limit's name,
+    /// its ceiling and the current total, which is what lets a client say
+    /// "47 of 50 staff users" rather than just refusing.
+    #[error("{message}")]
+    HostLimitError {
+        message: String,
+        details: serde_json::Value,
+        help: Option<String>,
+    },
     #[error("Incorrect data passed to {name}")]
     IncorrectUsage { name: String, message: String },
     #[error("Theme error: {0}")]
@@ -45,7 +58,7 @@ impl GhostError {
             | GhostError::BadRequest(_) => 422,
             GhostError::NotFoundError { .. } => 404,
             GhostError::UnauthorizedError { .. } => 401,
-            GhostError::NoPermissionError { .. } => 403,
+            GhostError::NoPermissionError { .. } | GhostError::HostLimitError { .. } => 403,
             _ => 500,
         }
     }
@@ -58,6 +71,7 @@ impl GhostError {
             GhostError::NoPermissionError { .. } => "NoPermissionError",
             GhostError::IncorrectUsage { .. } => "IncorrectUsageError",
             GhostError::BadRequest(_) => "BadRequestError",
+            GhostError::HostLimitError { .. } => "HostLimitError",
             GhostError::ThemeError(_) => "ThemeError",
             GhostError::ConfigError(_) => "ConfigurationError",
             GhostError::Io(_) | GhostError::Db(_) | GhostError::Internal(_) => "InternalServerError",
@@ -74,6 +88,7 @@ impl GhostError {
             GhostError::UnauthorizedError { message, .. } => message.clone(),
             GhostError::NoPermissionError { message, .. } => message.clone(),
             GhostError::BadRequest(m) => m.clone(),
+            GhostError::HostLimitError { message, .. } => message.clone(),
             GhostError::IncorrectUsage { message, .. } => message.clone(),
             GhostError::ThemeError(m) => m.clone(),
             GhostError::ConfigError(m) => m.clone(),
@@ -98,11 +113,20 @@ impl GhostError {
 
     /// Serialize to Ghost's API error shape.
     pub fn to_api_json(&self) -> serde_json::Value {
-        serde_json::json!({
+        let mut body = serde_json::json!({
             "message": self.message(),
             "errorType": self.error_type(),
             "context": self.context(),
-        })
+        });
+        // A host limit carries two extra fields Ghost's clients read: what the
+        // limit was, and where to go about it.
+        if let GhostError::HostLimitError { details, help, .. } = self {
+            body["errorDetails"] = details.clone();
+            if let Some(help) = help {
+                body["help"] = serde_json::json!(help);
+            }
+        }
+        body
     }
 }
 

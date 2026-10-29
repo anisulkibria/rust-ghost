@@ -1200,6 +1200,8 @@ pub async fn record_email_sent(
     member_uuid: &str,
     member_email: &str,
     member_name: Option<&str>,
+    track_opens: bool,
+    track_clicks: bool,
 ) -> Result<()> {
     sqlx::query(
         "UPDATE automation_action_revisions \
@@ -1215,7 +1217,7 @@ pub async fn record_email_sent(
         "INSERT INTO automated_email_recipients \
          (id, automation_action_revision_id, automation_run_step_id, member_id, member_uuid, \
           member_email, member_name, track_opens, track_clicks, created_at, updated_at) \
-         VALUES (?, ?, ?, ?, ?, ?, ?, 0, 0, ?, ?)",
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
     )
     .bind(ids::new_id())
     .bind(&step.automation_action_revision_id)
@@ -1224,6 +1226,8 @@ pub async fn record_email_sent(
     .bind(member_uuid)
     .bind(member_email)
     .bind(member_name)
+    .bind(track_opens)
+    .bind(track_clicks)
     .bind(&now)
     .bind(&now)
     .execute(pool)

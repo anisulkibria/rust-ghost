@@ -32,8 +32,8 @@ fn upload_router(kind: Kind) -> Router<AppState> {
         .route("/upload", post(move |s, h, m| upload(s, h, m, kind)))
         .route("/upload/", post(move |s, h, m| upload(s, h, m, kind)))
         // Koenig's video/audio cards send a generated poster frame here.
-        .route("/thumbnail/upload", post(move |s, h, m| upload(s, h, m, Kind::Image)))
-        .route("/thumbnail/upload/", post(move |s, h, m| upload(s, h, m, Kind::Image)))
+        .route("/thumbnail/upload", post(move |s, h, m| upload(s, h, m, Kind::Image)).put(move |s, h, m| upload(s, h, m, Kind::Image)))
+        .route("/thumbnail/upload/", post(move |s, h, m| upload(s, h, m, Kind::Image)).put(move |s, h, m| upload(s, h, m, Kind::Image)))
         // Axum caps request bodies at 2 MB by default, which is below every
         // limit this module enforces — without this, the size check below
         // would never be the thing that rejected a large upload.
@@ -157,6 +157,16 @@ async fn upload(State(state): State<AppState>, headers: HeaderMap, mut multipart
         if data.len() > kind.max_bytes() {
             let message = format!("file too large (max {}MB)", kind.max_bytes() / 1024 / 1024);
             return error(StatusCode::PAYLOAD_TOO_LARGE, &message, "ValidationError");
+        }
+        // And the host's own ceiling, if it has set one. This one is unusual
+        // among the limits: the figure being compared is the size of the file
+        // in hand, not a count taken from the database, so it is passed in.
+        if let Err(e) = state
+            .limits
+            .error_if_is_over(&state.db, "uploads", ghost_db::limits::Check::of_size(data.len() as i64))
+            .await
+        {
+            return crate::error_json(&e);
         }
 
         // content/<kind>/YYYY/MM/<name>-<random>.<ext>, as Ghost lays it out.

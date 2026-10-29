@@ -18,6 +18,17 @@ pub fn admin_router() -> Router<AppState> {
         .merge(crate::admin_members::router())
         .merge(crate::password_reset::router())
         .merge(crate::management::router())
+        .merge(crate::member_events::admin_router())
+        .merge(crate::stats::admin_router())
+        .merge(crate::mentions::admin_router())
+        .merge(crate::notifications::admin_router())
+        .merge(crate::identity::admin_router())
+        .merge(crate::admin_rest::admin_router())
+        .merge(crate::compat::router())
+        .merge(crate::apps::router())
+        .merge(crate::email_analytics::router())
+        .merge(crate::automated_emails::router())
+        .merge(crate::automation_tracking::admin_router())
         .merge(crate::federation::admin_router())
         .merge(crate::machine_payments::admin_router())
         .merge(crate::automation_designs::router())
@@ -49,8 +60,8 @@ pub fn admin_router() -> Router<AppState> {
         // for `/users/me/?include=roles`, and Ghost's `prettyUrls` middleware
         // makes both spellings resolve there.
         .route("/users/{id}/", get(admin_read_user).put(admin_edit_user))
-        .route("/users/password", post(change_password))
-        .route("/users/password/", post(change_password))
+        .route("/users/password", post(change_password).put(change_password))
+        .route("/users/password/", post(change_password).put(change_password))
         // newsletters
         .route("/newsletters/", get(admin_browse_newsletters).post(admin_add_newsletter))
         .route("/newsletters", get(admin_browse_newsletters).post(admin_add_newsletter))
@@ -194,6 +205,13 @@ async fn admin_add_newsletter(
     if let Err(r) = crate::permissions::require(&state, &headers, crate::permissions::Role::Administrator).await {
         return r;
     }
+    if let Err(e) = state
+        .limits
+        .error_if_would_go_over(&state.db, "newsletters", ghost_db::limits::Check::default())
+        .await
+    {
+        return crate::error_json(&e);
+    }
     let name = body
         .get("newsletters")
         .and_then(|v| v.as_array())
@@ -265,11 +283,22 @@ async fn admin_edit_newsletter(
     if let Some(v) = nullable("sender_name") {
         n.sender_name = v;
     }
+    let mut verification_pending=false;
     if let Some(v) = nullable("sender_email") {
-        n.sender_email = v;
+        match v {
+            Some(email) if n.sender_email.as_deref()!=Some(email.as_str()) => {
+                if let Err(e)=crate::compat::request_email_verification(&state,"newsletter",&id,"sender_email",&email).await{return from_ghost(e)}
+                verification_pending=true;
+            }
+            None=>n.sender_email=None,
+            _=>{}
+        }
     }
     if let Some(v) = text("sender_reply_to") {
-        n.sender_reply_to = v;
+        if v.contains('@') && v!=n.sender_reply_to {
+            if let Err(e)=crate::compat::request_email_verification(&state,"newsletter",&id,"sender_reply_to",&v).await{return from_ghost(e)}
+            verification_pending=true;
+        } else if matches!(v.as_str(),"newsletter"|"support") {n.sender_reply_to=v;}
     }
     if let Some(v) = text("status") {
         n.status = v;
@@ -373,8 +402,8 @@ async fn admin_edit_newsletter(
 
     match repos::newsletters::update(&state.db, &n).await {
         Ok(()) => match repos::newsletters::find_by_id(&state.db, &id).await {
-            Ok(Some(fresh)) => ok_json(json!({ "newsletters": [newsletter_json(&fresh)] })),
-            _ => ok_json(json!({ "newsletters": [newsletter_json(&n)] })),
+            Ok(Some(fresh)) => ok_json(json!({ "newsletters": [newsletter_json(&fresh)],"meta":{"sent_email_verification":verification_pending} })),
+            _ => ok_json(json!({ "newsletters": [newsletter_json(&n)],"meta":{"sent_email_verification":verification_pending} })),
         },
         Err(e) => from_ghost(e),
     }
@@ -387,7 +416,7 @@ async fn admin_edit_newsletter(
 const SESSION_COOKIE: &str = "ghost-admin-api-session";
 
 /// The session id carried on a request, verified or not.
-fn session_id_from(headers: &HeaderMap) -> Option<String> {
+pub fn session_id_from(headers: &HeaderMap) -> Option<String> {
     headers
         .get(header::COOKIE)?
         .to_str()
@@ -611,7 +640,7 @@ async fn login(State(state): State<AppState>, headers: HeaderMap, Json(body): Js
     resp
 }
 
-fn admin_user_json(u: &ghost_core::models::User) -> Value {
+pub(crate) fn admin_user_json(u: &ghost_core::models::User) -> Value {
     let mut j = ghost_core::models::user_public_json(u, None);
     if let Value::Object(m) = &mut j {
         m.insert("email".into(), json!(u.email));
@@ -1316,12 +1345,15 @@ async fn change_password(State(state): State<AppState>, headers: HeaderMap, Json
         Err(r) => return r,
     };
     if headers.contains_key(header::AUTHORIZATION) { return crate::permissions::denied(); }
-    let old = body.get("password").and_then(|p| p.get("oldPassword")).or_else(|| body.get("oldPassword")).and_then(Value::as_str).unwrap_or("").to_string();
+    let data=body.pointer("/password/0").or_else(||body.get("password")).unwrap_or(&body);
+    if data.get("user_id").and_then(Value::as_str).is_some_and(|id|id!=user.id){return crate::permissions::denied()}
+    let old = data.get("oldPassword").and_then(Value::as_str).unwrap_or("").to_string();
     let hash = user.password.clone().unwrap_or_default();
     let verified = tokio::task::spawn_blocking(move || bcrypt::verify(old, &hash)).await;
     if !matches!(verified, Ok(Ok(true))) { return crate::permissions::denied(); }
-    let pw = body.get("password").and_then(|p| p.get("newPassword")).or_else(|| body.get("newPassword")).and_then(|v| v.as_str()).unwrap_or("");
-    if pw.len() < 10 {
+    let pw = data.get("newPassword").and_then(|v| v.as_str()).unwrap_or("");
+    if data.get("ne2Password").and_then(Value::as_str).is_some_and(|confirm|confirm!=pw){return err(StatusCode::UNPROCESSABLE_ENTITY,"Passwords do not match","ValidationError")}
+    if pw.len() < 10 || pw.len()>72 {
         return err(StatusCode::UNPROCESSABLE_ENTITY, "Password must be at least 10 characters", "ValidationError");
     }
     let pw = pw.to_string();
@@ -1422,7 +1454,7 @@ async fn require_integration_admin(state: &AppState, headers: &HeaderMap) -> Res
     Ok(user)
 }
 
-async fn integration_json(state: &AppState, integration: &ghost_core::models::Integration) -> Result<Value, ghost_core::GhostError> {
+pub(crate) async fn integration_json(state: &AppState, integration: &ghost_core::models::Integration) -> Result<Value, ghost_core::GhostError> {
     let mut value = serde_json::to_value(integration)?;
     value["api_keys"] = json!(repos::api_keys::find_by_integration(&state.db, &integration.id).await?);
     value["webhooks"] = json!(repos::webhooks::list_for_integration(&state.db, &integration.id).await?
@@ -1461,6 +1493,14 @@ async fn admin_read_integration(State(state): State<AppState>, Path(id): Path<St
 async fn admin_add_integration(State(state): State<AppState>, headers: HeaderMap, Json(body): Json<Value>) -> Response {
     let user = match require_integration_admin(&state, &headers).await { Ok(user) => user, Err(response) => return response };
     let Some(input) = first_of(&body, "integrations") else { return err(StatusCode::BAD_REQUEST, "No integration was given", "BadRequestError") };
+    // Custom integrations are a plan feature on a hosted site.
+    if let Err(e) = state
+        .limits
+        .error_if_would_go_over(&state.db, "customIntegrations", ghost_db::limits::Check::default())
+        .await
+    {
+        return crate::error_json(&e);
+    }
     let name = input.get("name").and_then(Value::as_str).unwrap_or("");
     match repos::integrations::create_custom(&state.db, name, input.get("description").and_then(Value::as_str)).await {
         Ok(item) => {

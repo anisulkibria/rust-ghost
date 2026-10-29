@@ -342,8 +342,16 @@ pub async fn create_checkout_session(
     member_uuid: &str,
     trial_days: u32,
     offer: Option<&CheckoutOffer<'_>>,
+    // `url_history` is where the buyer had been before checkout, for
+    // attributing the subscription. It goes on the subscription rather than
+    // the session because Stripe does not copy session metadata onto the
+    // subscription, and the subscription is what the webhook reads.
+    url_history: Option<&str>,
 ) -> Result<String> {
-    let form = subscription_checkout_form(price_id, customer_email, success_url, cancel_url, member_uuid, trial_days, offer);
+    let mut form = subscription_checkout_form(price_id, customer_email, success_url, cancel_url, member_uuid, trial_days, offer);
+    if let Some(history) = url_history.filter(|h| !h.is_empty()) {
+        form.push(("subscription_data[metadata][ghost_url_history]".to_string(), history.to_string()));
+    }
     let v = post(cfg, "/checkout/sessions", &form).await?;
     v.get("url")
         .and_then(|x| x.as_str())
@@ -685,4 +693,8 @@ pub async fn checkout_preview(cfg:&StripeConfig,price_id:&str,site_url:&str)->Re
     let mut form=subscription_checkout_form(price_id,None,site_url,site_url,"",0,None);
     form.push(("metadata[ghost_checkout_preview]".into(),"true".into()));form.push(("expires_at".into(),(chrono::Utc::now().timestamp()+31*60).to_string()));
     let session=post(cfg,"/checkout/sessions",&form).await?;session["url"].as_str().map(str::to_owned).ok_or_else(||GhostError::BadRequest("Stripe returned no checkout page".into()))
+}
+
+pub async fn create_subscription(cfg: &StripeConfig, customer: &str, price: &str) -> Result<serde_json::Value> {
+    post(cfg,"/subscriptions",&[("customer".into(),customer.into()),("items[0][price]".into(),price.into()),("payment_behavior".into(),"error_if_incomplete".into())]).await
 }

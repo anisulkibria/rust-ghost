@@ -459,6 +459,16 @@ async fn add(
         Err(e) => return api_error(&e),
         Ok(_) => {}
     }
+    // And the host's own cap on top of the engine's, which a hosting plan
+    // may set lower. Ghost counts only automations that are active *and*
+    // have actions, so a draft does not use up the allowance.
+    if let Err(e) = state
+        .limits
+        .error_if_would_go_over(&state.db, "limitAutomations", ghost_db::limits::Check::default())
+        .await
+    {
+        return crate::error_json(&e);
+    }
 
     let Some(data) = body_automation(&body) else {
         return err(StatusCode::UNPROCESSABLE_ENTITY, "Invalid automation payload.", "ValidationError");
@@ -681,7 +691,7 @@ async fn performance_stats(
 
 /// Send one of an automation's emails to an address, so the author can see
 /// what it looks like before anyone else does.
-async fn send_test_email(
+pub(crate) async fn send_test_email(
     State(state): State<AppState>,
     Path(id): Path<String>,
     headers: HeaderMap,
@@ -719,6 +729,8 @@ async fn send_test_email(
             "ValidationError",
         );
     };
+    let subject=body.get("subject").and_then(Value::as_str).unwrap_or(subject);
+    let lexical=body.get("lexical").and_then(Value::as_str).unwrap_or(lexical);
     if subject.trim().is_empty() || rules::is_empty_lexical(lexical) {
         return err(
             StatusCode::UNPROCESSABLE_ENTITY,

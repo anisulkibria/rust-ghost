@@ -312,6 +312,13 @@ pub fn list(state: &AppState) -> Vec<InstalledTheme> {
 
 /// Compile `name` and swap it in as the live theme, persisting the choice.
 pub async fn activate(state: &AppState, name: &str) -> Result<()> {
+    // A hosted plan can restrict which themes a site may run. Checked here
+    // rather than in the two handlers that call this, so the admin screen and
+    // the REST route cannot disagree about it.
+    state
+        .limits
+        .error_if_would_go_over(&state.db, "customThemes", ghost_db::limits::Check::value(name))
+        .await?;
     let dir = theme_dir_for(state, name)?;
     if !dir.is_dir() {
         return Err(GhostError::NotFoundError {
@@ -358,6 +365,25 @@ pub async fn delete(state: &AppState, name: &str) -> Result<()> {
 /// `filename` is the uploaded file's name; it names the theme when the archive
 /// carries no usable `package.json` name.
 pub async fn install_zip(state: &AppState, filename: &str, data: Vec<u8>) -> Result<String> {
+    // An uploaded zip is by definition not on any allowlist — nobody knows
+    // what is inside it yet — so on a plan that restricts themes this always
+    // refuses. Ghost does the same thing by passing a name that cannot match.
+    if state.limits.is_limited("customThemes") {
+        state
+            .limits
+            .error_if_would_go_over(&state.db, "customThemes", ghost_db::limits::Check::value("."))
+            .await?;
+    }
+    install_zip_unchecked(state, filename, data).await
+}
+
+/// [`install_zip`] without the theme-allowlist check.
+///
+/// Separate so that [`install_official`] can make that decision for itself:
+/// it knows the theme's name before the download, which the upload path never
+/// does, and an allowlist that names a handful of themes is meant to permit
+/// those themes rather than refuse every archive.
+async fn install_zip_unchecked(state: &AppState, filename: &str, data: Vec<u8>) -> Result<String> {
     let themes_dir = state.config.themes_dir();
     tokio::fs::create_dir_all(&themes_dir).await?;
 
@@ -536,8 +562,21 @@ pub async fn install_official(state: &AppState, slug: &str) -> Result<String> {
         message: format!("'{slug}' is not an official Ghost theme"),
         context: None,
     })?;
+    // Ghost lets an official theme through a `customThemes` allowlist that
+    // names more than one theme, on the grounds that the restriction is there
+    // to stop arbitrary code rather than to pick a single design. An
+    // allowlist of exactly one theme is the other case, and does mean one.
+    if state.limits.allowlist_len("customThemes") == Some(1) {
+        state
+            .limits
+            .error_if_would_go_over(&state.db, "customThemes", ghost_db::limits::Check::value(slug))
+            .await?;
+    }
     let data = download_zipball(theme.repo).await?;
-    let installed = install_zip(state, &format!("{}.zip", theme.slug), data).await?;
+    // The upload path's own check would refuse this, since a downloaded
+    // archive is as unknown to an allowlist as an uploaded one — so go round
+    // it, having just made the decision that belongs here.
+    let installed = install_zip_unchecked(state, &format!("{}.zip", theme.slug), data).await?;
     tracing::info!("official theme '{}' installed from {}", installed, theme.repo);
     Ok(installed)
 }

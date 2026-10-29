@@ -21,6 +21,15 @@ pub struct Config {
     pub admin: serde_json::Value,
     #[serde(default)]
     pub storage: serde_json::Value,
+    /// What the *host* has decided about this site, as opposed to what its
+    /// owner has: plan limits, the billing URL, the subscription's start date.
+    ///
+    /// Empty on a self-hosted install, which is what makes every limit
+    /// inactive there — see [`crate::limits`]. It is config rather than
+    /// settings deliberately: these are terms the site is being run under, so
+    /// the site's own admin screens must not be able to edit them.
+    #[serde(default, rename = "hostSettings")]
+    pub host_settings: serde_json::Value,
     /// HTTPS. `true` means "get certificates from Let's Encrypt and serve
     /// them"; see [`Ssl`].
     #[serde(default)]
@@ -519,6 +528,7 @@ mod tests {
             mail: serde_json::Value::Null,
             admin: serde_json::Value::Null,
             storage: serde_json::Value::Null,
+            host_settings: serde_json::Value::Null,
             ssl: Ssl::default(),
             env: "test".into(),
             base_dir: PathBuf::from("/tmp"),

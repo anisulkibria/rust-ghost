@@ -76,6 +76,7 @@ impl Fixture {
             ))),
             setup_done: Arc::new(AtomicBool::new(true)),
             frontend_key: Arc::new(RwLock::new(Some(content_key.clone()))),
+            limits: Arc::new(ghost_db::limits::Limits::default()),
         };
         let app = ghost_front::site_router(state.clone())
             .merge(ghost_api::members::members_router().with_state(state.clone()))

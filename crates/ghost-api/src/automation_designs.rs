@@ -52,6 +52,9 @@ const TEXT: &[&str] = &[
     "button_corners",
     "image_corners",
     "footer_content",
+    "sender_name",
+    "sender_email",
+    "sender_reply_to",
 ];
 const FLAGS: &[&str] = &[
     "show_header_icon",
@@ -60,7 +63,7 @@ const FLAGS: &[&str] = &[
     "show_badge",
     "show_subscription_details",
 ];
-fn validate(settings: &Value) -> Result<()> {
+pub(crate) fn validate(settings: &Value) -> Result<()> {
     let Some(settings) = settings.as_object() else {
         return Err(bad("Email design must be an object"));
     };
@@ -107,7 +110,15 @@ pub async fn apply(
     newsletter: ghost_db::repos::newsletters::Newsletter,
     id: Option<&str>,
 ) -> Result<ghost_db::repos::newsletters::Newsletter> {
-    let Some(id) = id else { return Ok(newsletter) };
+    let Some(id) = id else {
+        if let Some(settings)=state.settings.get("automated_email_design") {
+            validate(&settings)?;
+            let mut value=serde_json::to_value(newsletter).map_err(|e|GhostError::Internal(e.to_string()))?;
+            for (key,val) in settings.as_object().unwrap(){value[key]=val.clone();}
+            return serde_json::from_value(value).map_err(|e|GhostError::Internal(e.to_string()));
+        }
+        return Ok(newsletter)
+    };
     let settings: Option<String> =
         sqlx::query_scalar("SELECT settings FROM email_design_settings WHERE id=?")
             .bind(id)
@@ -257,4 +268,11 @@ async fn edit(
         return error(db(e));
     }
     Json(json!({"design":{"id":id,"settings":settings}})).into_response()
+}
+
+pub(crate) fn design_values(newsletter:&ghost_db::repos::newsletters::Newsletter)->Value{
+    let source=serde_json::to_value(newsletter).unwrap_or(Value::Null);
+    let mut fields=serde_json::Map::new();
+    for key in COLORS.iter().chain(TEXT).chain(FLAGS){if let Some(value)=source.get(*key).filter(|v|!v.is_null()){fields.insert((*key).into(),value.clone());}}
+    Value::Object(fields)
 }

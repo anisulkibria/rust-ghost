@@ -398,15 +398,164 @@ impl MailgunConfig {
     }
 }
 
+/// How many recipients Mailgun accepts in one `recipient-variables` send.
+/// Ghost's own default, and its hard ceiling on a batch.
+pub const MAILGUN_BATCH_SIZE: usize = 1000;
+
+/// One addressee of a batch, with the values its placeholders resolve to.
+#[derive(Debug, Clone)]
+pub struct BatchRecipient {
+    pub email: String,
+    /// Mailgun recipient variables, by variable name.
+    pub variables: std::collections::BTreeMap<String, String>,
+}
+
+/// A batch body. The html and text carry `%recipient.<name>%` placeholders
+/// rather than per-member values, which is what lets one request address a
+/// thousand people.
+#[derive(Debug, Clone)]
+pub struct BatchMessage {
+    pub subject: String,
+    pub html: String,
+    pub text: String,
+    /// The `emails` row this batch belongs to. Mailgun echoes it back on
+    /// every event as `email-id`, and it is the prefix of each recipient's
+    /// Message-Id.
+    pub email_id: String,
+    pub track_opens: bool,
+    pub track_clicks: bool,
+}
+
+/// What a batch submission produced.
+#[derive(Debug, Clone)]
+pub struct BatchOutcome {
+    /// Mailgun's id for the request. `None` when the batch carried a
+    /// per-recipient Message-Id, which is the case here: Mailgun echoes the
+    /// template back rather than an id that identifies anything.
+    pub provider_id: Option<String>,
+    pub accepted: usize,
+}
+
+/// Each recipient's own Message-Id, so replies do not all thread together and
+/// a delivery event can be attributed to one member.
+///
+/// Mailgun mints one Message-Id per API call, so a batch would otherwise
+/// share it. Built exactly as Ghost builds it — `{email_id}.{digest}@{domain}`
+/// with the address hashed rather than exposed — and deterministic in the
+/// pair, so a retried batch reuses the same ids instead of orphaning the
+/// events already recorded against them.
+pub fn recipient_message_id(email_id: &str, recipient: &str, domain: &str) -> String {
+    use sha2::{Digest, Sha256};
+    let digest = hex::encode(Sha256::digest(format!("{email_id}:{recipient}").as_bytes()));
+    format!("{email_id}.{}@{domain}", &digest[..32])
+}
+
+/// The recipient variable the `Message-Id` header is templated from.
+pub const MESSAGE_ID_VARIABLE: &str = "message_id";
+
+/// Send one batch through Mailgun.
+///
+/// `recipients` must be no longer than [`MAILGUN_BATCH_SIZE`] and must hold
+/// no duplicate addresses: `recipient-variables` is keyed by address, so a
+/// duplicate would silently reduce the send.
+pub async fn send_mailgun_batch(
+    cfg: &MailgunConfig,
+    msg: &BatchMessage,
+    recipients: &[BatchRecipient],
+) -> Result<BatchOutcome> {
+    if recipients.is_empty() {
+        return Err(GhostError::EmailError("a batch needs at least one recipient".into()));
+    }
+    if recipients.len() > MAILGUN_BATCH_SIZE {
+        return Err(GhostError::EmailError(format!(
+            "mailgun accepts at most {MAILGUN_BATCH_SIZE} recipients per batch, got {}",
+            recipients.len()
+        )));
+    }
+
+    let mut variables = serde_json::Map::new();
+    for recipient in recipients {
+        let mut values: serde_json::Map<String, serde_json::Value> = recipient
+            .variables
+            .iter()
+            .map(|(name, value)| (name.clone(), serde_json::Value::String(value.clone())))
+            .collect();
+        values.insert(
+            MESSAGE_ID_VARIABLE.into(),
+            recipient_message_id(&msg.email_id, &recipient.email, &cfg.domain).into(),
+        );
+        variables.insert(recipient.email.clone(), values.into());
+    }
+    if variables.len() != recipients.len() {
+        // Two recipients resolved to one key, so the request would address
+        // fewer people than the caller counted. Better to refuse than to
+        // under-send and record it as a success.
+        return Err(GhostError::EmailError(format!(
+            "batch holds duplicate addresses: {} recipients, {} distinct",
+            recipients.len(),
+            variables.len()
+        )));
+    }
+
+    let mut form = reqwest::multipart::Form::new()
+        .text("from", format!("{} <{}>", cfg.from_name, cfg.from_address))
+        .text("subject", msg.subject.clone())
+        .text("text", msg.text.clone())
+        .text("html", msg.html.clone())
+        .text("recipient-variables", serde_json::Value::Object(variables).to_string())
+        // The header is a template; the substituted value is per recipient.
+        .text("h:Message-Id", format!("<%recipient.{MESSAGE_ID_VARIABLE}%>"))
+        .text("h:Sender", cfg.from_address.clone())
+        .text("h:Auto-Submitted", "auto-generated")
+        .text("h:X-Auto-Response-Suppress", "OOF, AutoReply")
+        // Echoed back on every event, so an event can be traced to the send.
+        .text("v:email-id", msg.email_id.clone())
+        .text("o:tag", "ghost-email")
+        .text("o:tag", "bulk-email")
+        .text("o:tracking-opens", if msg.track_opens { "yes" } else { "no" })
+        .text("o:tracking-clicks", if msg.track_clicks { "yes" } else { "no" });
+    for recipient in recipients {
+        form = form.text("to", recipient.email.clone());
+    }
+
+    let resp = reqwest::Client::new()
+        .post(cfg.messages_url())
+        .basic_auth("api", Some(&cfg.api_key))
+        .multipart(form)
+        .send()
+        .await
+        .map_err(|e| GhostError::EmailError(format!("mailgun request failed: {e}")))?;
+
+    let status = resp.status();
+    let body = resp.text().await.unwrap_or_default();
+    if !status.is_success() {
+        return Err(GhostError::EmailError(format!("mailgun returned {status}: {body}")));
+    }
+    // Mailgun hands back the Message-Id it was given, which for this send is
+    // the unsubstituted template — it identifies nothing, so it is dropped
+    // rather than stored against the batch.
+    let provider_id = serde_json::from_str::<serde_json::Value>(&body)
+        .ok()
+        .and_then(|v| v.get("id").and_then(|i| i.as_str()).map(str::to_owned))
+        .map(|id| id.trim().trim_matches(|c| c == '<' || c == '>').to_string())
+        .filter(|id| !id.is_empty() && !id.contains(&format!("%recipient.{MESSAGE_ID_VARIABLE}%")));
+    Ok(BatchOutcome { provider_id, accepted: recipients.len() })
+}
+
 /// Send one message through Mailgun. Returns Mailgun's message id.
 pub async fn send_mailgun(cfg: &MailgunConfig, msg: &Message) -> Result<String> {
-    let form = reqwest::multipart::Form::new()
+    send_mailgun_with_reply(cfg,msg,None).await
+}
+
+pub async fn send_mailgun_with_reply(cfg:&MailgunConfig,msg:&Message,reply_to:Option<&str>)->Result<String>{
+    let mut form = reqwest::multipart::Form::new()
         .text("from", format!("{} <{}>", cfg.from_name, cfg.from_address))
         .text("to", msg.to.clone())
         .text("subject", msg.subject.clone())
         .text("text", msg.text.clone())
         .text("html", msg.html.clone());
 
+    if let Some(reply_to)=reply_to.filter(|s|!s.is_empty()){form=form.text("h:Reply-To",reply_to.to_owned());}
     let resp = reqwest::Client::new()
         .post(cfg.messages_url())
         // Mailgun authenticates with HTTP basic auth, user literally "api".

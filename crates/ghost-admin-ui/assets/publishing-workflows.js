@@ -39,21 +39,42 @@
     button('Newsletter links',tools,async function(){var data=await request('links/?post_id='+encodeURIComponent(id));var modal=dialog('Newsletter links');if(!data.links.length)el('p','Links appear after sending a newsletter with click tracking enabled.',modal);data.links.forEach(function(link){var row=el('div',null,modal);el('p',link.clicks+' clicks · '+link.unique_clicks+' members',row);var url=input('Destination',row,link.to,'url');button('Update destination',row,async function(){await request('links/'+link.id+'/','PUT',{links:[{to:url.value}]});notice('Destination updated');});});});
   }
 
-  var list=document.querySelector('.post-list');
-  if(list && /\/(posts|pages)\/$/.test(location.pathname)) {
-    var resource=location.pathname.match(/\/(posts|pages)\/$/)[1];
-    var panel=el('div',null,list.parentNode);panel.style.cssText='display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:16px';list.before(panel);
-    var action=el('select',null,panel);action.className='btn tonal small';[['draft','Move to drafts'],['publish','Publish'],['feature','Feature'],['unfeature','Unfeature'],['visibility','Change access'],['tags','Replace tags']].forEach(function(v){var option=el('option',v[1],action);option.value=v[0];});
-    list.querySelectorAll('.post-row').forEach(function(row){var link=row.querySelector('.post-row-link');if(!link)return;var id=link.getAttribute('href').split('/').filter(Boolean).pop();var checkbox=el('input',null,row);checkbox.type='checkbox';checkbox.dataset.postSelection=id;checkbox.setAttribute('aria-label','Select '+(row.querySelector('h2')||link).textContent.trim());checkbox.style.cssText='width:20px;height:20px;margin:0 10px;flex:none';row.prepend(checkbox);});
-    var all=el('input',null,panel);all.type='checkbox';all.setAttribute('aria-label','Select all visible posts');all.onchange=function(){list.querySelectorAll('[data-post-selection]').forEach(function(box){if(box.closest('.post-row').style.display!=='none')box.checked=all.checked;});};
-    async function apply(extra){var ids=Array.from(list.querySelectorAll('[data-post-selection]:checked')).map(function(box){return box.dataset.postSelection;});if(!ids.length)throw new Error('Select at least one post.');await request(resource+'/bulk/','POST',Object.assign({ids:ids,action:action.value},extra));location.reload();}
-    button('Apply to selected',panel,async function(){if(action.value==='visibility'){var modal=dialog('Change access');var select=el('select',null,modal);['public','members','paid'].forEach(function(value){var opt=el('option',value,select);opt.value=value;});button('Apply',modal,function(){return apply({visibility:select.value});});}else if(action.value==='tags'){var data=await request('tags/?limit=all');var modal=dialog('Replace tags');var selected=[];data.tags.forEach(function(tag){var label=el('label',null,modal);label.style.display='block';var box=el('input',null,label);box.type='checkbox';box.onchange=function(){selected=selected.filter(function(id){return id!==tag.id;});if(box.checked)selected.push(tag.id);};el('span',tag.name,label);});button('Replace tags',modal,function(){return apply({tags:selected});});}else await apply({});});
-    button('Filter and saved views',panel,function(){openViews(resource);});
+  // Saved views. The control itself — the "Filter" menu in each list's
+  // toolbar, its NQL field and its Apply button — is server-rendered and
+  // works without script; this only fills in the part that needs the API:
+  // the list of views this user has saved, and the button that saves one.
+  // Anything injected here lands inside the rendered popover, so it inherits
+  // the admin's own styles rather than arriving as bare browser widgets.
+  var viewsSlot=document.querySelector('[data-views]');
+  if(viewsSlot){
+    var resource=viewsSlot.getAttribute('data-views');
+    var nqlField=document.querySelector('[data-nql]');
+    function go(filter){location.href=location.pathname+(filter?'?nql='+encodeURIComponent(filter):'');}
+    function paint(views){
+      viewsSlot.textContent='';
+      if(!views.length){el('p','Saved views appear here.',viewsSlot).className='muted tiny';return;}
+      views.forEach(function(view){
+        var row=el('div',null,viewsSlot);row.className='view-row';
+        var open=el('button',view.name,row);open.type='button';open.className='view-open';open.title=view.filter;
+        open.onclick=function(){go(view.filter);};
+        var drop=el('button',null,row);drop.type='button';drop.className='icon-btn danger tiny';
+        drop.setAttribute('aria-label','Delete the view '+view.name);drop.innerHTML='&times;';
+        drop.onclick=async function(){try{await request('views/'+view.id+'/','DELETE');row.remove();if(!viewsSlot.children.length)paint([]);}catch(error){notice(error.message);}};
+      });
+    }
+    var saveName=document.querySelector('[data-view-name]');
+    var saveBtn=document.querySelector('[data-view-save]');
+    if(saveBtn)saveBtn.addEventListener('click',async function(){
+      var name=(saveName&&saveName.value||'').trim();
+      var filter=(nqlField&&nqlField.value||'').trim();
+      if(!name||!filter){notice('Name the view and give it a filter first.');return;}
+      saveBtn.disabled=true;
+      try{await request('views/','POST',{resource:resource,name:name,filter:filter});saveName.value='';notice('View saved');paint((await request('views/?resource='+resource)).views);}
+      catch(error){notice(error.message);}finally{saveBtn.disabled=false;}
+    });
+    request('views/?resource='+resource).then(function(data){paint(data.views);}).catch(function(){viewsSlot.textContent='';});
   }
-  async function openViews(resource){var modal=dialog('Filter and saved views');var filter=input('NQL filter',modal,new URLSearchParams(location.search).get('nql')||'');el('p',resource==='members'?'Examples: status:paid+labels:vip or created_at:>2026-01-01':'Examples: status:draft+featured:true or tags:news',modal);button('Apply filter',modal,function(){location.href=location.pathname+'?nql='+encodeURIComponent(filter.value);});var name=input('View name',modal);button('Save this view',modal,async function(){await request('views/','POST',{resource:resource,name:name.value,filter:filter.value});notice('View saved');});var data=await request('views/?resource='+resource);data.views.forEach(function(view){var row=el('div',null,modal);button(view.name,row,function(){location.href=location.pathname+'?nql='+encodeURIComponent(view.filter);});button('Delete',row,async function(){await request('views/'+view.id+'/','DELETE');row.remove();});});}
-  var memberList=location.pathname.match(/\/members\/$/);if(memberList){var heading=document.querySelector('h1');if(heading)button('Filter and saved views',heading.parentNode,function(){openViews('members');});}
 
-  if(memberList){var rows=Array.from(document.querySelectorAll('[data-filterable]')).filter(function(row){return row.querySelector('a[href*="/members/"]');});var heading=document.querySelector('h1');if(heading){var controls=el('div',null,heading.parentNode.parentNode);controls.style.cssText='display:flex;gap:8px;flex-wrap:wrap';var selected=[];rows.forEach(function(row){var href=row.querySelector('a[href*="/members/"]').getAttribute('href');var id=href.split('/').filter(Boolean).pop();var box=el('input',null,row);box.type='checkbox';box.setAttribute('aria-label','Select member');box.style.cssText='width:20px;height:20px';row.prepend(box);box.onchange=function(){selected=selected.filter(function(value){return value!==id;});if(box.checked)selected.push(id);};});var selectAll=el('input',null,controls);selectAll.type='checkbox';selectAll.setAttribute('aria-label','Select this page');selectAll.onchange=function(){rows.forEach(function(row){var box=row.querySelector('input[type="checkbox"]');box.checked=selectAll.checked;box.onchange();});};button('Bulk actions',controls,async function(){var modal=dialog('Member bulk actions');el('p',selected.length+' members selected on this page.',modal);var filteredLabel=el('label',null,modal);var filtered=el('input',null,filteredLabel);filtered.type='checkbox';el('span',' Apply to every member matching the current filter',filteredLabel);async function apply(action,extra){var selection=filtered.checked?{filter:new URLSearchParams(location.search).get('nql')||'created_at:>1900-01-01'}:{ids:selected};await request('members/bulk/','POST',Object.assign({action:action},selection,extra||{}));location.reload();}button('Unsubscribe from newsletters',modal,function(){return apply('unsubscribe');});var labels=await request('labels/');var select=el('select',null,modal);labels.labels.forEach(function(label){var option=el('option',label.name,select);option.value=label.id;});button('Add label',modal,function(){return apply('label',{label_id:select.value});});button('Remove label',modal,function(){return apply('unlabel',{label_id:select.value});});var confirm=input('Type DELETE to permanently delete the selected members',modal);button('Delete members',modal,function(){if(confirm.value!=='DELETE')throw new Error('Type DELETE to confirm.');return apply('delete');});});button('Export filtered members',controls,function(){location.href=api+'members/export/?filter='+encodeURIComponent(new URLSearchParams(location.search).get('nql')||'');});}}
   var member=location.pathname.match(/\/members\/([^/]+)\/$/);if(member&&!['import','new'].includes(member[1])){var heading=document.querySelector('h1');if(heading)button('View as member',heading.parentNode,async function(){var result=await request('members/'+member[1]+'/signin_urls/');outputLink('Single-use member sign-in link',result.member_signin_urls[0].url);});}
 
   // Theme-declared custom image fields keep their URL input and add uploads.

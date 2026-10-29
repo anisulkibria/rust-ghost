@@ -15,6 +15,13 @@ struct Fixture {
 
 impl Fixture {
     async fn new() -> Self {
+        Self::with_host_settings(json!(null)).await
+    }
+
+    /// The same fixture with `hostSettings` filled in, for the limit checks:
+    /// on a self-hosted install no limit is configured and there is nothing
+    /// to test, so the only way to exercise them is to be a host.
+    async fn with_host_settings(host_settings: Value) -> Self {
         let db = sqlx::sqlite::SqlitePoolOptions::new().max_connections(1).connect("sqlite::memory:").await.unwrap();
         sqlx::migrate!("../../migrations").run(&db).await.unwrap();
         ghost_db::seed::seed_if_empty(&db).await.unwrap();
@@ -27,7 +34,8 @@ impl Fixture {
         ]));
         let config = serde_json::from_value(json!({
             "url": "https://example.test", "server": {},
-            "database": {"connection": {"filename": ":memory:"}}, "paths": {}
+            "database": {"connection": {"filename": ":memory:"}}, "paths": {},
+            "hostSettings": host_settings,
         })).unwrap();
         let routes = ghost_routing::routes_yaml::parse_routes_yaml(ghost_routing::routes_yaml::DEFAULT_ROUTES_YAML).unwrap();
         let router = Arc::new(ghost_routing::RouterTree::build(&routes).unwrap());
@@ -44,6 +52,7 @@ impl Fixture {
             theme: Arc::new(RwLock::new(Arc::new(theme))), router: Arc::new(RwLock::new(router)),
             redirects: Arc::new(RwLock::new(Arc::new(ghost_routing::redirects::Redirects::default()))),
             setup_done: Arc::new(AtomicBool::new(true)), frontend_key: Arc::new(RwLock::new(Some(content_key.clone()))),
+            limits: Arc::new(ghost_db::limits::Limits::load(&host_settings)),
         };
         let app = Router::new().nest("/admin", ghost_api::admin::admin_router().merge(ghost_api::automations::automations_router()).merge(ghost_api::admin_comments::admin_comments_router()))
             .nest("/content", ghost_api::content::content_router())
@@ -720,4 +729,1120 @@ async fn stripe_retries_events_when_subscription_persistence_fails() {
     let response=app.oneshot(Request::builder().method("POST").uri("/members/webhooks/stripe/").header("stripe-signature",format!("t={now},v1={signature}")).body(Body::from(event)).unwrap()).await.unwrap();
     assert_eq!(response.status(),StatusCode::SERVICE_UNAVAILABLE);
     let status:String=sqlx::query_scalar("SELECT status FROM members WHERE id='retry-member'").fetch_one(&f.state.db).await.unwrap();assert_eq!(status,"free");
+}
+
+#[tokio::test]
+async fn newsletter_opens_are_recorded_once_per_recipient_and_only_for_signed_requests() {
+    use sha2::{Digest,Sha256};
+    let f=Fixture::new().await;
+    let mut state=f.state.clone();
+    state.settings=Arc::new(state.settings.with_overrides([("email_track_opens".into(),json!(true)),("members_email_auth_secret".into(),json!("fixture-open-secret"))]));
+    sqlx::query("INSERT INTO members (id,uuid,transient_id,email,status,created_at) VALUES ('open-member','open-uuid','open-transient','reader@example.test','free',datetime('now'))").execute(&state.db).await.unwrap();
+    sqlx::query("INSERT INTO emails (id,post_id,status,email_count,created_at) VALUES ('open-email','open-post','submitting',1,datetime('now'))").execute(&state.db).await.unwrap();
+    ghost_api::newsletter_events::record_recipient(&state,ghost_api::newsletter_events::RecipientRecord{
+        email_id:"open-email",batch_id:None,member_id:"open-member",member_uuid:"open-uuid",
+        email:"reader@example.test",provider_id:Some("<provider-id@mg.example>"),error:None,
+    }).await.unwrap();
+    // The send is what makes the member's open rate computable at all.
+    let counts=|state:AppState| async move {
+        let recipient:(String,Option<String>,Option<String>)=sqlx::query_as("SELECT status,delivered_at,opened_at FROM email_recipients WHERE email_id='open-email'").fetch_one(&state.db).await.unwrap();
+        let opened:i64=sqlx::query_scalar("SELECT opened_count FROM emails WHERE id='open-email'").fetch_one(&state.db).await.unwrap();
+        let member:(i64,i64,Option<i64>)=sqlx::query_as("SELECT email_count,email_opened_count,email_open_rate FROM members WHERE id='open-member'").fetch_one(&state.db).await.unwrap();
+        (recipient,opened,member)
+    };
+    let (recipient,opened,member)=counts(state.clone()).await;
+    assert_eq!(recipient.0,"sent");assert!(recipient.1.is_some());assert!(recipient.2.is_none());
+    assert_eq!((opened,member),(0,(1,0,None)));
+    // The provider id is stored unbracketed, the way Mailgun reports it back.
+    let provider:String=sqlx::query_scalar("SELECT mailgun_message_id FROM email_recipients WHERE email_id='open-email'").fetch_one(&state.db).await.unwrap();
+    assert_eq!(provider,"provider-id@mg.example");
+
+    // The pixel is signed with the same uuid + HMAC pair the unsubscribe link
+    // carries; an unsigned or wrongly signed request records nothing.
+    let secret=b"fixture-open-secret";let mut padded=[0u8;64];padded[..secret.len()].copy_from_slice(secret);
+    let mut inner=Sha256::new();inner.update(padded.map(|b|b^0x36));inner.update("open-uuid");
+    let mut outer=Sha256::new();outer.update(padded.map(|b|b^0x5c));outer.update(inner.finalize());
+    let signature=hex::encode(outer.finalize());
+    let app=ghost_api::newsletter_events::public_router().with_state(state.clone());
+    let pixel=|uri:String| {
+        let app=app.clone();
+        async move { app.oneshot(Request::builder().uri(uri).body(Body::empty()).unwrap()).await.unwrap() }
+    };
+    for uri in ["/r/o/open-email/".to_string(), "/r/o/open-email/?m=open-uuid".to_string(), format!("/r/o/open-email/?m=open-uuid&k={}","0".repeat(64))] {
+        let response=pixel(uri.clone()).await;
+        // Always an image: a broken icon mid-newsletter is worse than a lost stat.
+        assert_eq!(response.status(),StatusCode::OK,"{uri}");
+        assert_eq!(response.headers()["content-type"],"image/gif");
+        assert_eq!(counts(state.clone()).await.1,0,"{uri} recorded an open it should not have");
+    }
+    let uri=format!("/r/o/open-email/?m=open-uuid&k={signature}");
+    for replay in [false,true] {
+        let response=pixel(uri.clone()).await;
+        assert_eq!(response.status(),StatusCode::OK);
+        let body=to_bytes(response.into_body(),1_000).await.unwrap();
+        assert_eq!(&body[..6],b"GIF89a");
+        let (recipient,opened,member)=counts(state.clone()).await;
+        // Counted on the first fetch and not again: a client that loads the
+        // image on every scroll must not move the numbers.
+        assert!(recipient.2.is_some(),"first open was not stored");
+        assert_eq!((opened,member),(1,(1,1,Some(100))),"replay={replay} double-counted");
+    }
+
+    // The same counter, reached from Mailgun's own open event. Matched to the
+    // recipient by the provider id, and guarded against the pixel's count.
+    let mut state=state.clone();
+    state.settings=Arc::new(state.settings.with_overrides([("mailgun_webhook_signing_key".into(),json!("fixture-signing-key"))]));
+    let app=ghost_api::newsletter_events::public_router().with_state(state.clone());
+    let timestamp=chrono::Utc::now().timestamp().to_string();let token="open-token";
+    let mut padded=[0u8;64];padded[..19].copy_from_slice(b"fixture-signing-key");
+    let mut inner=Sha256::new();inner.update(padded.map(|b|b^0x36));inner.update(format!("{timestamp}{token}"));
+    let mut outer=Sha256::new();outer.update(padded.map(|b|b^0x5c));outer.update(inner.finalize());let webhook_signature=hex::encode(outer.finalize());
+    let event=|id:&str,kind:&str| json!({"signature":{"timestamp":timestamp,"token":token,"signature":webhook_signature},
+        "event-data":{"id":id,"event":kind,"recipient":"reader@example.test","message":{"headers":{"message-id":"provider-id@mg.example"}}}});
+    let response=app.clone().oneshot(Request::builder().method("POST").uri("/members/webhooks/mailgun/").header("content-type","application/json").body(Body::from(event("mg-open","opened").to_string())).unwrap()).await.unwrap();
+    assert_eq!(response.status(),StatusCode::OK);
+    assert_eq!(counts(state.clone()).await.1,1,"the provider event double-counted an open the pixel already had");
+
+    // A delivery event for a recipient the provider has not confirmed yet.
+    sqlx::query("UPDATE email_recipients SET delivered_at=NULL WHERE email_id='open-email'").execute(&state.db).await.unwrap();
+    let response=app.oneshot(Request::builder().method("POST").uri("/members/webhooks/mailgun/").header("content-type","application/json").body(Body::from(event("mg-delivered","delivered").to_string())).unwrap()).await.unwrap();
+    assert_eq!(response.status(),StatusCode::OK);
+    assert!(counts(state.clone()).await.0.1.is_some(),"the delivery event was not recorded");
+}
+
+#[tokio::test]
+async fn the_open_pixel_goes_inside_the_body_and_only_when_tracking_is_on() {
+    let f=Fixture::new().await;
+    let off=ghost_api::newsletter_events::track_opens(&f.state,"an-email","<html><body><p>Hi</p></body></html>");
+    assert_eq!(off,"<html><body><p>Hi</p></body></html>","tracking is off by default, so nothing is added");
+    let mut state=f.state.clone();
+    state.settings=Arc::new(state.settings.with_overrides([("email_track_opens".into(),json!(true))]));
+    let on=ghost_api::newsletter_events::track_opens(&state,"an-email","<html><body><p>Hi</p></body></html>");
+    assert!(on.contains(r#"<p>Hi</p><img src="https://example.test/r/o/an-email/?m=%%{uuid}%%&amp;k=%%{key}%%" width="1" height="1""#),"{on}");
+    assert!(on.ends_with("</body></html>"),"{on}");
+    // No body element to sit inside: appended rather than dropped.
+    assert!(ghost_api::newsletter_events::track_opens(&state,"an-email","<p>Fragment</p>").starts_with("<p>Fragment</p><img src="),"fragment");
+}
+
+#[tokio::test]
+async fn a_lexical_only_post_renders_its_media_and_layout_cards() {
+    let f=Fixture::new().await;
+    // A post created through the Admin API with no `html` is the case that
+    // reaches the Rust renderer: there is no browser Koenig to supply it.
+    let lexical=json!({"root":{"type":"root","version":1,"direction":"ltr","format":"","indent":0,"children":[
+        {"type":"audio","version":1,"src":"/content/media/track.mp3","title":"Episode 1","duration":214},
+        {"type":"video","version":1,"src":"/content/media/clip.mp4","thumbnailSrc":"/t.jpg","width":1920,"height":1080,"duration":42},
+        {"type":"product","version":1,"productTitle":"A product","productDescription":"<p>Good</p>","productButtonEnabled":true,"productButton":"Buy","productUrl":"https://example.test/buy"},
+        {"type":"header","version":2,"header":"A header","subheader":"A subheader","layout":"full","backgroundColor":"#000000"},
+        {"type":"signup","version":1,"header":"Join","layout":"wide","backgroundColor":"accent"},
+        {"type":"call-to-action","version":1,"layout":"minimal","textValue":"<p>Sponsored</p>","showButton":true,"buttonText":"Go","buttonUrl":"https://example.test/ad"},
+        {"type":"paragraph","version":1,"children":[{"type":"tk","version":1,"text":"TK","format":0,"detail":0,"mode":"normal","style":""},{"type":"text","version":1,"text":" follow up","format":0,"detail":0,"mode":"normal","style":""}]}
+    ]}}).to_string();
+    let (status,created)=f.request("POST","/admin/posts/?formats=html,lexical",json!({"posts":[{"title":"Every card","lexical":lexical,"status":"published"}]}),None).await;
+    assert_eq!(status,StatusCode::CREATED,"{created}");
+    let html=created["posts"][0]["html"].as_str().unwrap();
+    // Each of these used to render as nothing at all.
+    for class in ["kg-audio-card","kg-video-card","kg-product-card","kg-header-card kg-v2","kg-signup-card","kg-cta-card"] {
+        assert!(html.contains(class),"{class} is missing from {html}");
+    }
+    // The players carry the hooks the theme's cards.min.js binds to.
+    assert!(html.contains(r#"<audio src="/content/media/track.mp3" preload="metadata">"#),"{html}");
+    assert!(html.contains("kg-video-seek-slider"),"{html}");
+    // Portal's signup form, and the editor's TK marker as plain text.
+    assert!(html.contains(r#"data-members-form="signup""#),"{html}");
+    assert!(html.contains("<p>TK follow up</p>"),"{html}");
+    // The stored column is what the frontend serves, so it has them too.
+    let stored:String=sqlx::query_scalar("SELECT html FROM posts WHERE id=?").bind(created["posts"][0]["id"].as_str().unwrap()).fetch_one(&f.state.db).await.unwrap();
+    assert_eq!(stored,html);
+}
+
+#[tokio::test]
+async fn the_emails_family_reports_status_batches_and_who_was_missed() {
+    let f=Fixture::new().await;
+    sqlx::query("INSERT INTO members (id,uuid,transient_id,email,name,status,created_at) VALUES ('m1','u1','t1','bounced@example.test','Bo','free',datetime('now'))").execute(&f.state.db).await.unwrap();
+    sqlx::query("INSERT INTO emails (id,uuid,post_id,status,email_count,candidate_count,preflight_email_count,delivered_count,failed_count,opened_count,subject,source_type,created_at) \
+                 VALUES ('e1','e-uuid','p1','submitted',3,4,3,2,1,1,'Issue one','html',datetime('now'))").execute(&f.state.db).await.unwrap();
+    for (id,status,segment,count,submitted) in [("b1","submitted","status:free access:true named:true",2,2),("b2","failed","status:free access:true named:false",1,0)] {
+        sqlx::query("INSERT INTO email_batches (id,email_id,status,member_segment,recipient_count,submitted_count,created_at) VALUES (?,'e1',?,?,?,?,datetime('now'))")
+            .bind(id).bind(status).bind(segment).bind(count).bind(submitted).execute(&f.state.db).await.unwrap();
+    }
+    sqlx::query("INSERT INTO email_recipient_failures (id,email_id,batch_id,member_id,message,severity,code,failed_at) VALUES ('f1','e1','b2','m1','550 no such mailbox','permanent',550,datetime('now'))")
+        .execute(&f.state.db).await.unwrap();
+
+    let (status,list)=f.request("GET","/admin/emails/",Value::Null,None).await;
+    assert_eq!(status,StatusCode::OK,"{list}");
+    assert_eq!(list["emails"][0]["id"],"e1");
+    // The counts Ghost keeps, including the ones that say how the audience
+    // narrowed between being chosen and being sent to.
+    assert_eq!(list["emails"][0]["candidate_count"],4);
+    assert_eq!(list["emails"][0]["preflight_email_count"],3);
+    assert_eq!(list["emails"][0]["source_type"],"html");
+
+    let (_,read)=f.request("GET","/admin/emails/e1/",Value::Null,None).await;
+    assert_eq!(read["emails"][0]["subject"],"Issue one");
+    assert_eq!(f.request("GET","/admin/emails/nope/",Value::Null,None).await.0,StatusCode::NOT_FOUND);
+
+    let (_,batches)=f.request("GET","/admin/emails/e1/batches/",Value::Null,None).await;
+    assert_eq!(batches["batches"].as_array().unwrap().len(),2);
+    assert_eq!(batches["batches"][0]["member_segment"],"status:free access:true named:true");
+    assert_eq!(batches["batches"][1]["submitted_count"],0);
+
+    // The question this answers is "which address bounced", so the member is
+    // joined in rather than left as an id.
+    let (_,failures)=f.request("GET","/admin/emails/e1/recipient-failures/",Value::Null,None).await;
+    assert_eq!(failures["failures"][0]["member_email"],"bounced@example.test");
+    assert_eq!(failures["failures"][0]["member_name"],"Bo");
+    assert_eq!(failures["failures"][0]["severity"],"permanent");
+    assert_eq!(failures["failures"][0]["code"],550);
+
+    let (status,progress)=f.request("GET","/admin/emails/e1/status/",Value::Null,None).await;
+    assert_eq!(status,StatusCode::OK,"{progress}");
+    assert_eq!(progress["emails"][0]["status"],"submitted");
+    assert_eq!(progress["emails"][0]["batch_count"],2);
+    assert_eq!(progress["emails"][0]["submitted_batch_count"],1);
+
+    // A contributor has no business reading the mailing list's bounces.
+    let (_,cookie)=f.staff("Contributor","emails-contributor").await;
+    for path in ["/admin/emails/","/admin/emails/e1/","/admin/emails/e1/batches/","/admin/emails/e1/recipient-failures/","/admin/emails/e1/status/"] {
+        let response=f.app.clone().oneshot(Request::builder().uri(path).header("cookie",&cookie).body(Body::empty()).unwrap()).await.unwrap();
+        assert_eq!(response.status(),StatusCode::FORBIDDEN,"{path}");
+    }
+}
+
+#[tokio::test]
+async fn a_provider_failure_event_records_who_was_missed_and_corrects_the_counts() {
+    use sha2::{Digest,Sha256};
+    let f=Fixture::new().await;
+    let mut state=f.state.clone();
+    state.settings=Arc::new(state.settings.with_overrides([("mailgun_webhook_signing_key".into(),json!("fixture-signing-key"))]));
+    sqlx::query("INSERT INTO members (id,uuid,transient_id,email,status,created_at) VALUES ('fm','fu','ft','gone@example.test','free',datetime('now'))").execute(&state.db).await.unwrap();
+    sqlx::query("INSERT INTO emails (id,post_id,status,email_count,delivered_count,created_at) VALUES ('fe','fp','submitted',1,1,datetime('now'))").execute(&state.db).await.unwrap();
+    ghost_api::newsletter_events::record_recipient(&state,ghost_api::newsletter_events::RecipientRecord{
+        email_id:"fe",batch_id:None,member_id:"fm",member_uuid:"fu",email:"gone@example.test",
+        provider_id:Some("fe.digest@mg.example"),error:None,
+    }).await.unwrap();
+
+    let app=ghost_api::newsletter_events::public_router().with_state(state.clone());
+    let timestamp=chrono::Utc::now().timestamp().to_string();let token="fail-token";
+    let mut padded=[0u8;64];padded[..19].copy_from_slice(b"fixture-signing-key");
+    let mut inner=Sha256::new();inner.update(padded.map(|b|b^0x36));inner.update(format!("{timestamp}{token}"));
+    let mut outer=Sha256::new();outer.update(padded.map(|b|b^0x5c));outer.update(inner.finalize());let signature=hex::encode(outer.finalize());
+    let event=json!({"signature":{"timestamp":timestamp,"token":token,"signature":signature},
+        "event-data":{"id":"mg-fail","event":"failed","severity":"permanent","recipient":"gone@example.test",
+            "message":{"headers":{"message-id":"fe.digest@mg.example"}},
+            "delivery-status":{"code":"550","message":"mailbox unavailable","enhanced-code":"5.1.1"}}});
+    for replay in [false,true] {
+        let response=app.clone().oneshot(Request::builder().method("POST").uri("/members/webhooks/mailgun/").header("content-type","application/json").body(Body::from(event.to_string())).unwrap()).await.unwrap();
+        assert_eq!(response.status(),StatusCode::OK,"replay={replay}");
+    }
+    // Recorded once, however many times the provider redelivers the event.
+    let failures:Vec<(String,Option<i64>,Option<String>,Option<String>)>=sqlx::query_as(
+        "SELECT message,code,enhanced_code,severity FROM email_recipient_failures WHERE email_id='fe'",
+    ).fetch_all(&state.db).await.unwrap();
+    assert_eq!(failures.len(),1,"{failures:?}");
+    assert_eq!(failures[0].0,"mailbox unavailable");
+    assert_eq!(failures[0].1,Some(550));
+    assert_eq!(failures[0].2.as_deref(),Some("5.1.1"));
+    assert_eq!(failures[0].3.as_deref(),Some("permanent"));
+    // A message the provider accepted and then could not deliver is no
+    // longer a delivery, so the counts move back.
+    let recipient:(String,Option<String>)=sqlx::query_as("SELECT status,error FROM email_recipients WHERE email_id='fe'").fetch_one(&state.db).await.unwrap();
+    assert_eq!(recipient.0,"failed");
+    assert_eq!(recipient.1.as_deref(),Some("mailbox unavailable"));
+    let counts:(i64,i64)=sqlx::query_as("SELECT delivered_count,failed_count FROM emails WHERE id='fe'").fetch_one(&state.db).await.unwrap();
+    assert_eq!(counts,(0,1));
+}
+
+#[tokio::test]
+async fn a_signup_is_attributed_to_the_post_it_came_from() {
+    let f=Fixture::new().await;
+    let (_,created)=f.request("POST","/admin/posts/",json!({"posts":[{"title":"The post that converted","slug":"converter","status":"published"}]}),None).await;
+    let post_id=created["posts"][0]["id"].as_str().unwrap().to_string();
+    let (_,tag)=f.request("POST","/admin/tags/",json!({"tags":[{"name":"Topic","slug":"topic"}]}),None).await;
+    let tag_id=tag["tags"][0]["id"].as_str().unwrap().to_string();
+
+    // Portal's url history: oldest first, with the referrer on the entry
+    // that came in from outside.
+    let history=json!([
+        {"path":"/?utm_source=newsletter&utm_medium=email&utm_campaign=launch","referrerSource":"Google","referrerMedium":"search","referrerUrl":"https://www.google.com/"},
+        {"path":"/tag/topic/"},
+        {"path":"/converter/"}
+    ]);
+    let attribution=ghost_api::member_events::attribution_from_history(&f.state,&history).await;
+    // The most recent resolvable page is the one credited — the last thing
+    // they were reading when they signed up.
+    assert_eq!(attribution.kind.as_deref(),Some("post"));
+    assert_eq!(attribution.id.as_deref(),Some(post_id.as_str()));
+    assert_eq!(attribution.url.as_deref(),Some("/converter/"));
+    // The referrer is the earliest one named: the thing that first sent them.
+    assert_eq!(attribution.referrer_source.as_deref(),Some("Google"));
+    assert_eq!(attribution.referrer_medium.as_deref(),Some("search"));
+    // Campaign tags come off the URL they arrived on.
+    assert_eq!(attribution.utm_source.as_deref(),Some("newsletter"));
+    assert_eq!(attribution.utm_campaign.as_deref(),Some("launch"));
+
+    // A tag archive is a resource too, when it is the last page they saw.
+    let tagged=ghost_api::member_events::attribution_from_history(&f.state,&json!([{"path":"/tag/topic/"}])).await;
+    assert_eq!((tagged.kind.as_deref(),tagged.id.as_deref()),(Some("tag"),Some(tag_id.as_str())));
+    // A page that resolves to nothing creditable still answers the question.
+    let home=ghost_api::member_events::attribution_from_history(&f.state,&json!([{"path":"/"}])).await;
+    assert_eq!(home.kind.as_deref(),Some("url"));
+    assert_eq!(home.id,None);
+    // Nothing at all is not an error.
+    assert_eq!(ghost_api::member_events::attribution_from_history(&f.state,&Value::Null).await.kind,None);
+
+    // And the recorded signup carries all of it, which is what makes the
+    // post's own analytics answerable.
+    sqlx::query("INSERT INTO members (id,uuid,transient_id,email,status,created_at) VALUES ('am','au','at','attributed@example.test','free',datetime('now'))").execute(&f.state.db).await.unwrap();
+    ghost_api::member_events::record_signup(&f.state,"am","member",&attribution).await.unwrap();
+    let row:(Option<String>,Option<String>,Option<String>,Option<String>,String)=sqlx::query_as(
+        "SELECT attribution_id,attribution_type,referrer_source,utm_campaign,source FROM members_created_events WHERE member_id='am'",
+    ).fetch_one(&f.state.db).await.unwrap();
+    assert_eq!(row,(Some(post_id.clone()),Some("post".into()),Some("Google".into()),Some("launch".into()),"member".into()));
+
+    let (status,stats)=f.request("GET",&format!("/admin/stats/posts/{post_id}/growth/"),Value::Null,None).await;
+    assert_eq!(status,StatusCode::OK,"{stats}");
+    assert_eq!(stats["stats"][0]["free_members"],1);
+    assert_eq!(stats["stats"][0]["paid_members"],0);
+
+    let (_,top)=f.request("GET","/admin/stats/top-posts/?days=30",Value::Null,None).await;
+    let found=top["stats"].as_array().unwrap().iter().find(|p|p["post_id"]==post_id.as_str()).unwrap().clone();
+    assert_eq!(found["free_members"],1);
+
+    let (_,counts)=f.request("POST","/admin/stats/posts-member-counts/",json!({"ids":[post_id]}),None).await;
+    assert_eq!(counts["stats"][0][&post_id]["free"],1);
+    assert_eq!(counts["stats"][0][&post_id]["total"],1);
+
+    let (_,sources)=f.request("GET","/admin/stats/top-sources-growth/?days=30",Value::Null,None).await;
+    assert_eq!(sources["stats"][0]["source"],"Google");
+    assert_eq!(sources["stats"][0]["free_members"],1);
+}
+
+#[tokio::test]
+async fn the_member_activity_feed_merges_every_kind_of_event() {
+    let f=Fixture::new().await;
+    sqlx::query("INSERT INTO members (id,uuid,transient_id,email,name,status,created_at) VALUES ('fm','fu','ft','busy@example.test','Busy','paid',datetime('now'))").execute(&f.state.db).await.unwrap();
+    sqlx::query("INSERT INTO members (id,uuid,transient_id,email,status,created_at) VALUES ('other','ou','ot','quiet@example.test','free',datetime('now'))").execute(&f.state.db).await.unwrap();
+    let events=&f.state;
+    ghost_api::member_events::record_signup(events,"fm","member",&Default::default()).await.unwrap();
+    ghost_api::member_events::record_login(events,"fm").await.unwrap();
+    ghost_api::member_events::record_status_change(events,"fm",Some("free"),"paid").await.unwrap();
+    ghost_api::member_events::record_email_change(events,"fm","old@example.test","busy@example.test").await.unwrap();
+    ghost_api::member_events::record_newsletter_change(events,"fm",None,false,"member").await.unwrap();
+    ghost_api::member_events::record_payment(events,"fm",1200,Some("usd"),"stripe").await.unwrap();
+    ghost_api::member_events::record_subscription_created(events,"fm",Some("sub_1"),&Default::default()).await.unwrap();
+    ghost_api::member_events::record_cancellation(events,"fm",Some("sub_1"),Some("price_1")).await.unwrap();
+    ghost_api::member_events::record_paid_change(events,ghost_api::member_events::PaidChange{
+        member_id:"fm",kind:"created",subscription_id:Some("sub_1"),from_plan:None,to_plan:Some("price_1"),
+        from_status:None,to_status:Some("active"),currency:Some("usd"),source:"stripe",mrr_delta:500,
+    }).await.unwrap();
+    ghost_api::member_events::record_signup(events,"other","admin",&Default::default()).await.unwrap();
+
+    // Emails this member was sent, which only exist because sending now
+    // writes a row per recipient.
+    sqlx::query("INSERT INTO emails (id,post_id,status,email_count,created_at) VALUES ('fe','fp','submitted',1,datetime('now'))").execute(&f.state.db).await.unwrap();
+    ghost_api::newsletter_events::record_recipient(events,ghost_api::newsletter_events::RecipientRecord{
+        email_id:"fe",batch_id:None,member_id:"fm",member_uuid:"fu",email:"busy@example.test",provider_id:Some("p1"),error:None,
+    }).await.unwrap();
+
+    let (status,feed)=f.request("GET","/admin/members/fm/events/",Value::Null,None).await;
+    assert_eq!(status,StatusCode::OK,"{feed}");
+    let kinds:Vec<&str>=feed["events"].as_array().unwrap().iter().filter_map(|e|e["type"].as_str()).collect();
+    for expected in ["signup_event","login_event","email_change_event","newsletter_event","payment_event","subscription_event","cancel_event","email_sent_event","email_delivered_event"] {
+        assert!(kinds.contains(&expected),"{expected} is missing from {kinds:?}");
+    }
+    // One member's feed is one member's: the other member's signup is not in it.
+    assert!(feed["events"].as_array().unwrap().iter().all(|e|e["data"]["member"]["id"]=="fm"),"{feed}");
+    // Newest first, which is what makes a feed readable.
+    let times:Vec<&str>=feed["events"].as_array().unwrap().iter().filter_map(|e|e["data"]["created_at"].as_str()).collect();
+    assert!(times.windows(2).all(|w|w[0]>=w[1]),"{times:?}");
+    // The payment says what was paid.
+    let payment=feed["events"].as_array().unwrap().iter().find(|e|e["type"]=="payment_event");
+    assert!(payment.is_some(),"{feed}");
+
+    // The whole-site feed has both members, and filters to a type on request.
+    let (_,all)=f.request("GET","/admin/members/events/",Value::Null,None).await;
+    let members:std::collections::HashSet<&str>=all["events"].as_array().unwrap().iter().filter_map(|e|e["data"]["member"]["id"].as_str()).collect();
+    assert!(members.contains("fm") && members.contains("other"),"{members:?}");
+    let (_,only)=f.request("GET","/admin/members/events/?filter=type:[login_event,payment_event]",Value::Null,None).await;
+    assert!(!only["events"].as_array().unwrap().is_empty());
+    assert!(only["events"].as_array().unwrap().iter().all(|e|matches!(e["type"].as_str(),Some("login_event"|"payment_event"))),"{only}");
+
+    assert_eq!(f.request("GET","/admin/members/nobody/events/",Value::Null,None).await.0,StatusCode::NOT_FOUND);
+    let (_,cookie)=f.staff("Contributor","events-contributor").await;
+    let response=f.app.clone().oneshot(Request::builder().uri("/admin/members/events/").header("cookie",&cookie).body(Body::empty()).unwrap()).await.unwrap();
+    assert_eq!(response.status(),StatusCode::FORBIDDEN);
+}
+
+#[tokio::test]
+async fn member_and_revenue_stats_are_built_from_the_event_timeline() {
+    let f=Fixture::new().await;
+    for (id,status) in [("s1","paid"),("s2","free"),("s3","comped")] {
+        sqlx::query("INSERT INTO members (id,uuid,transient_id,email,status,created_at) VALUES (?,?,?,?,?,datetime('now'))")
+            .bind(id).bind(format!("u{id}")).bind(format!("t{id}")).bind(format!("{id}@example.test")).bind(status)
+            .execute(&f.state.db).await.unwrap();
+        ghost_api::member_events::record_signup(&f.state,id,"member",&Default::default()).await.unwrap();
+    }
+    // An upgrade partway through: the member counts as paid from the day it
+    // happened, not from the day they signed up.
+    ghost_api::member_events::record_status_change(&f.state,"s1",Some("free"),"paid").await.unwrap();
+
+    let (status,counts)=f.request("GET","/admin/stats/member_count/?days=7",Value::Null,None).await;
+    assert_eq!(status,StatusCode::OK,"{counts}");
+    assert_eq!(counts["meta"]["totals"]["paid"],1);
+    assert_eq!(counts["meta"]["totals"]["free"],1);
+    assert_eq!(counts["meta"]["totals"]["comped"],1);
+    let today=counts["stats"].as_array().unwrap().last().unwrap().clone();
+    assert_eq!(today["free"],3,"the three signups are three free members on the day");
+    assert_eq!(today["paid"],1,"the upgrade is a paid member on the day it happened");
+
+    // MRR is a running total of deltas, so a cancellation takes it back down
+    // rather than leaving history that never happened.
+    for (kind,delta) in [("created",1000),("updated",500),("canceled",-400)] {
+        ghost_api::member_events::record_paid_change(&f.state,ghost_api::member_events::PaidChange{
+            member_id:"s1",kind,subscription_id:Some("sub_1"),from_plan:None,to_plan:None,
+            from_status:None,to_status:None,currency:Some("usd"),source:"stripe",mrr_delta:delta,
+        }).await.unwrap();
+    }
+    let (_,revenue)=f.request("GET","/admin/stats/mrr/?days=7",Value::Null,None).await;
+    assert_eq!(revenue["meta"]["totals"][0]["mrr"],1100);
+    assert_eq!(revenue["meta"]["totals"][0]["currency"],"usd");
+    assert_eq!(revenue["stats"].as_array().unwrap().last().unwrap()["mrr"],1100);
+
+    // Newsletter subscribers: both directions are events, so an unsubscribe
+    // is visible rather than just absent.
+    sqlx::query("INSERT INTO newsletters (id,name,slug,created_at) VALUES ('nl','Weekly','weekly',datetime('now'))").execute(&f.state.db).await.unwrap();
+    ghost_api::member_events::record_newsletter_change(&f.state,"s1",Some("nl"),true,"member").await.unwrap();
+    ghost_api::member_events::record_newsletter_change(&f.state,"s2",Some("nl"),true,"member").await.unwrap();
+    ghost_api::member_events::record_newsletter_change(&f.state,"s2",Some("nl"),false,"member").await.unwrap();
+    let (_,subscribers)=f.request("GET","/admin/stats/subscriber-count/?days=7",Value::Null,None).await;
+    let today=subscribers["stats"].as_array().unwrap().last().unwrap().clone();
+    assert_eq!((today["subscribed"].as_i64(),today["unsubscribed"].as_i64(),today["net"].as_i64()),(Some(2),Some(1),Some(1)));
+
+    // These are per-staff-member figures about the business, so they are not
+    // to be cached by anything between here and the browser.
+    let response=f.app.clone().oneshot(Request::builder().uri("/admin/stats/mrr/").header("cookie",&f.cookie).body(Body::empty()).unwrap()).await.unwrap();
+    assert_eq!(response.headers()["cache-control"],"private, no-store");
+}
+
+#[tokio::test]
+async fn traffic_stats_report_sources_locations_and_one_posts_numbers() {
+    let f=Fixture::new().await;
+    let (_,created)=f.request("POST","/admin/posts/",json!({"posts":[{"title":"Read me","slug":"read-me","status":"published"}]}),None).await;
+    let post_id=created["posts"][0]["id"].as_str().unwrap().to_string();
+    for (path,viewer,source,medium,country) in [
+        ("/read-me/","v1",Some("Google"),Some("search"),Some("GB")),
+        ("/read-me/","v2",Some("Google"),Some("search"),Some("GB")),
+        ("/read-me/","v3",None,None,Some("US")),
+        ("/other/","v4",Some("Twitter"),Some("social"),None),
+    ] {
+        sqlx::query("INSERT INTO page_views (id,path,viewer,audience,created_at,referrer_source,referrer_medium,country) VALUES (?,?,?,'public',datetime('now'),?,?,?)")
+            .bind(ghost_core::ids::new_id()).bind(path).bind(viewer).bind(source).bind(medium).bind(country)
+            .execute(&f.state.db).await.unwrap();
+    }
+
+    let (status,stats)=f.request("GET",&format!("/admin/stats/posts/{post_id}/stats/"),Value::Null,None).await;
+    assert_eq!(status,StatusCode::OK,"{stats}");
+    assert_eq!(stats["stats"][0]["views"],3);
+    assert_eq!(stats["stats"][0]["visitors"],3);
+    // Not emailed, so there is no email section rather than a row of zeros.
+    assert!(stats["stats"][0]["email"].is_null(),"{stats}");
+
+    let (_,refs)=f.request("GET",&format!("/admin/stats/posts/{post_id}/top-referrers/"),Value::Null,None).await;
+    assert_eq!(refs["stats"][0]["source"],"Google");
+    assert_eq!(refs["stats"][0]["views"],2);
+    // A visit with no referrer is direct traffic, which is an answer.
+    assert!(refs["stats"].as_array().unwrap().iter().any(|r|r["source"]=="Direct"),"{refs}");
+
+    let (_,content)=f.request("GET","/admin/stats/top-content/?days=7",Value::Null,None).await;
+    assert_eq!(content["stats"][0]["path"],"/read-me/");
+    assert_eq!(content["stats"][0]["views"],3);
+
+    let (_,sources)=f.request("GET","/admin/stats/referrers/?days=7",Value::Null,None).await;
+    assert_eq!(sources["stats"][0]["source"],"Google");
+    assert_eq!(sources["stats"][0]["medium"],"search");
+
+    let (_,places)=f.request("GET","/admin/stats/locations/?days=7",Value::Null,None).await;
+    let gb=places["stats"].as_array().unwrap().iter().find(|p|p["country"]=="GB").unwrap().clone();
+    assert_eq!(gb["visitors"],2);
+    // A view with no country is unknown rather than guessed at.
+    assert!(places["stats"].as_array().unwrap().iter().any(|p|p["country"].is_null()),"{places}");
+
+    let (_,visitors)=f.request("POST","/admin/stats/posts-visitor-counts/",json!({"ids":[post_id]}),None).await;
+    assert_eq!(visitors["stats"][0][&post_id],3);
+
+    let (_,views)=f.request("GET","/admin/stats/top-posts-views/?days=7",Value::Null,None).await;
+    assert_eq!(views["stats"][0]["post_id"],post_id.as_str());
+    assert_eq!(views["stats"][0]["views"],3);
+}
+
+#[tokio::test]
+async fn a_posts_email_figures_come_from_its_recipient_records() {
+    let f=Fixture::new().await;
+    let (_,created)=f.request("POST","/admin/posts/",json!({"posts":[{"title":"Emailed","slug":"emailed","status":"published"}]}),None).await;
+    let post_id=created["posts"][0]["id"].as_str().unwrap().to_string();
+    sqlx::query("INSERT INTO emails (id,post_id,status,email_count,delivered_count,opened_count,failed_count,subject,created_at) VALUES ('pe',?,'submitted',10,8,4,2,'Emailed',datetime('now'))")
+        .bind(&post_id).execute(&f.state.db).await.unwrap();
+    sqlx::query("INSERT INTO members (id,uuid,transient_id,email,status,created_at) VALUES ('cm','cu','ct','clicker@example.test','free',datetime('now'))").execute(&f.state.db).await.unwrap();
+    sqlx::query("INSERT INTO newsletter_links (id,post_id,from_url,to_url,created_at,updated_at) VALUES ('nl1',?,'https://a.example','https://a.example',datetime('now'),datetime('now'))")
+        .bind(&post_id).execute(&f.state.db).await.unwrap();
+    sqlx::query("INSERT INTO newsletter_clicks (id,link_id,member_uuid,created_at) VALUES ('c1','nl1','cu',datetime('now'))").execute(&f.state.db).await.unwrap();
+
+    let (_,stats)=f.request("GET",&format!("/admin/stats/posts/{post_id}/stats/"),Value::Null,None).await;
+    let email=stats["stats"][0]["email"].clone();
+    assert_eq!(email["sent"],10);
+    assert_eq!(email["delivered"],8);
+    assert_eq!(email["opened"],4);
+    assert_eq!(email["failed"],2);
+    assert_eq!(email["clicked"],1);
+    // Rates are over what was delivered, not over what was sent.
+    assert_eq!(email["open_rate"],50);
+    assert_eq!(email["click_rate"],13);
+
+    let (_,newsletters)=f.request("GET","/admin/stats/newsletter-stats/?days=7",Value::Null,None).await;
+    assert_eq!(newsletters["stats"][0]["title"],"Emailed");
+    assert_eq!(newsletters["stats"][0]["open_rate"],50);
+
+    // A send with nothing delivered yet has an unknown rate, not a zero one.
+    sqlx::query("UPDATE emails SET delivered_count=0, opened_count=0 WHERE id='pe'").execute(&f.state.db).await.unwrap();
+    let (_,pending)=f.request("GET",&format!("/admin/stats/posts/{post_id}/stats/"),Value::Null,None).await;
+    assert!(pending["stats"][0]["email"]["open_rate"].is_null(),"{pending}");
+}
+
+#[tokio::test]
+async fn a_checkouts_page_history_is_trimmed_to_fit_stripes_metadata() {
+    // Stripe caps a metadata value at 500 characters, and a browsing session
+    // can be longer than that. The oldest entries go first, because the most
+    // recent page is the one a signup is credited to.
+    let long: Vec<Value> = (0..60)
+        .map(|n| json!({"path": format!("/a-fairly-long-post-slug-number-{n}/"), "referrerSource": "Google", "title": "dropped"}))
+        .collect();
+    let compact = ghost_api::members::compact_url_history_for_test(Some(&json!(long))).unwrap();
+    assert!(compact.len() <= 500, "{} characters", compact.len());
+    let kept: Value = serde_json::from_str(&compact).unwrap();
+    let kept = kept.as_array().unwrap();
+    assert!(!kept.is_empty());
+    // The last page browsed survives; the first does not.
+    assert_eq!(kept.last().unwrap()["path"], "/a-fairly-long-post-slug-number-59/");
+    assert!(!compact.contains("number-0/"), "the oldest entry was kept over a newer one");
+    // Only the fields attribution reads are carried.
+    assert!(kept[0].get("title").is_none(), "an unused field was sent to Stripe");
+    assert!(kept[0].get("referrerSource").is_some());
+
+    // Nothing to carry is not an error, and an entry with nothing usable in
+    // it is dropped rather than sent as an empty object.
+    assert_eq!(ghost_api::members::compact_url_history_for_test(None), None);
+    assert_eq!(ghost_api::members::compact_url_history_for_test(Some(&json!([{"other": "x"}]))), None);
+    let one = ghost_api::members::compact_url_history_for_test(Some(&json!([{"path": "/p/"}]))).unwrap();
+    assert_eq!(one, r#"[{"path":"/p/"}]"#);
+}
+
+#[tokio::test]
+async fn a_webmention_is_only_kept_when_the_source_really_links_here() {
+    let f=Fixture::new().await;
+    let (_,created)=f.request("POST","/admin/posts/",json!({"posts":[{"title":"Linked to","slug":"linked-to","status":"published"}]}),None).await;
+    let post_id=created["posts"][0]["id"].as_str().unwrap().to_string();
+
+    let source="https://theirs.example/their-post/";
+    let target="https://example.test/linked-to/";
+
+    // A source that does not link here is refused, and nothing is stored.
+    let no_link="<html><head><title>Theirs</title></head><body><p>No link.</p></body></html>";
+    assert!(ghost_api::mentions::store_verified(&f.state,source,target,no_link).await.is_err());
+    let stored:i64=sqlx::query_scalar("SELECT COUNT(*) FROM mentions").fetch_one(&f.state.db).await.unwrap();
+    assert_eq!(stored,0,"an unverified mention was stored");
+
+    // Now it does link here, and says who it is.
+    let linked=format!(
+        r#"<html><head><title>Fallback</title><meta property="og:title" content="Their post">
+        <meta property="og:site_name" content="Their Blog">
+        <meta name="description" content="What they said."></head>
+        <body><p>See <a href="{target}">this</a>.</p></body></html>"#
+    );
+    ghost_api::mentions::store_verified(&f.state,source,target,&linked).await.unwrap();
+    let row:(String,Option<String>,Option<String>,Option<String>,Option<String>,bool,bool)=sqlx::query_as(
+        "SELECT source,source_title,source_site_title,source_excerpt,resource_id,verified,deleted FROM mentions",
+    ).fetch_one(&f.state.db).await.unwrap();
+    assert_eq!(row.0,source);
+    assert_eq!(row.1.as_deref(),Some("Their post"));
+    assert_eq!(row.2.as_deref(),Some("Their Blog"));
+    assert_eq!(row.3.as_deref(),Some("What they said."));
+    // The target resolved to the post it points at, which is what lets a
+    // mention be shown against a post.
+    assert_eq!(row.4.as_deref(),Some(post_id.as_str()));
+    assert!(row.5 && !row.6);
+
+    // Sending it twice updates the one mention rather than adding a second.
+    ghost_api::mentions::store_verified(&f.state,source,target,&linked).await.unwrap();
+    let total:i64=sqlx::query_scalar("SELECT COUNT(*) FROM mentions").fetch_one(&f.state.db).await.unwrap();
+    assert_eq!(total,1);
+
+    let (status,mentions)=f.request("GET","/admin/mentions/",Value::Null,None).await;
+    assert_eq!(status,StatusCode::OK,"{mentions}");
+    assert_eq!(mentions["mentions"][0]["source_site_title"],"Their Blog");
+    assert_eq!(mentions["mentions"][0]["resource_title"],"Linked to");
+
+    // A source that has stopped linking here is marked withdrawn, not left
+    // standing as a mention that is no longer true.
+    assert!(ghost_api::mentions::store_verified(&f.state,source,target,"<html><body><p>Removed.</p></body></html>").await.is_err());
+    let deleted:bool=sqlx::query_scalar("SELECT deleted FROM mentions").fetch_one(&f.state.db).await.unwrap();
+    assert!(deleted);
+    let (_,after)=f.request("GET","/admin/mentions/",Value::Null,None).await;
+    assert!(after["mentions"].as_array().unwrap().is_empty(),"{after}");
+}
+
+#[tokio::test]
+async fn an_incoming_recommendation_is_a_mention_from_another_sites_recommendations_file() {
+    let f=Fixture::new().await;
+    let now=ghost_core::dates::now_db();
+    for (id,source,title) in [
+        ("m1","https://friend.example/.well-known/recommendations.json","Friend"),
+        ("m2","https://stranger.example/.well-known/recommendations.json","Stranger"),
+        ("m3","https://someone.example/a-post/","Not a recommendation"),
+    ] {
+        sqlx::query("INSERT INTO mentions (id,source,source_site_title,target,verified,deleted,revalidation_failure_count,created_at) VALUES (?,?,?,'https://example.test/',1,0,0,?)")
+            .bind(id).bind(source).bind(title).bind(&now).execute(&f.state.db).await.unwrap();
+    }
+    // This site recommends the first one back.
+    sqlx::query("INSERT INTO recommendations (id,url,title,description,one_click_subscribe,featured,created_at,updated_at) VALUES ('r1','https://friend.example','Friend','',0,0,?,?)")
+        .bind(&now).bind(&now).execute(&f.state.db).await.unwrap();
+
+    let (status,incoming)=f.request("GET","/admin/incoming_recommendations/",Value::Null,None).await;
+    assert_eq!(status,StatusCode::OK,"{incoming}");
+    let list=incoming["incoming_recommendations"].as_array().unwrap();
+    // The ordinary link is not a recommendation.
+    assert_eq!(list.len(),2,"{incoming}");
+    let friend=list.iter().find(|r|r["url"]=="https://friend.example").unwrap();
+    assert_eq!(friend["title"],"Friend");
+    // Mutual, which is the thing the screen exists to tell you.
+    assert_eq!(friend["recommending_back"],true);
+    let stranger=list.iter().find(|r|r["url"]=="https://stranger.example").unwrap();
+    assert_eq!(stranger["recommending_back"],false);
+
+    // And this site publishes what it recommends, so another Ghost can find it.
+    let public=ghost_api::mentions::public_router().with_state(f.state.clone());
+    let response=public.oneshot(Request::builder().uri("/.well-known/recommendations.json").body(Body::empty()).unwrap()).await.unwrap();
+    assert_eq!(response.status(),StatusCode::OK);
+    let published:Value=serde_json::from_slice(&to_bytes(response.into_body(),100_000).await.unwrap()).unwrap();
+    assert_eq!(published[0]["url"],"https://friend.example");
+}
+
+#[tokio::test]
+async fn notifications_are_raised_once_and_dismissed_per_user() {
+    let f=Fixture::new().await;
+    // Raising the same notice twice leaves one: a condition that keeps
+    // recurring should not fill the board.
+    ghost_api::notifications::notify(&f.state,"stripe-key","alert","Your Stripe key has expired.").await.unwrap();
+    ghost_api::notifications::notify(&f.state,"stripe-key","alert","Your Stripe key has expired.").await.unwrap();
+    let (status,list)=f.request("GET","/admin/notifications/",Value::Null,None).await;
+    assert_eq!(status,StatusCode::OK,"{list}");
+    assert_eq!(list["notifications"].as_array().unwrap().len(),1,"{list}");
+    let id=list["notifications"][0]["id"].as_str().unwrap().to_string();
+    assert_eq!(list["notifications"][0]["message"],"Your Stripe key has expired.");
+
+    // An integration can raise one too.
+    let (status,added)=f.request("POST","/admin/notifications/",json!({"notifications":[{"message":"Deploy finished","status":"alert"}]}),None).await;
+    assert_eq!(status,StatusCode::CREATED,"{added}");
+    assert_eq!(f.request("POST","/admin/notifications/",json!({"notifications":[{"message":"  "}]}),None).await.0,StatusCode::UNPROCESSABLE_ENTITY);
+
+    // Dismissing is per user: the owner stops seeing it, another admin does not.
+    assert_eq!(f.request("DELETE",&format!("/admin/notifications/{id}/"),Value::Null,None).await.0,StatusCode::NO_CONTENT);
+    let (_,mine)=f.request("GET","/admin/notifications/",Value::Null,None).await;
+    assert!(mine["notifications"].as_array().unwrap().iter().all(|n|n["id"]!=id.as_str()),"{mine}");
+    let (_,cookie)=f.staff("Administrator","other-admin").await;
+    let response=f.app.clone().oneshot(Request::builder().uri("/admin/notifications/").header("cookie",&cookie).body(Body::empty()).unwrap()).await.unwrap();
+    let theirs:Value=serde_json::from_slice(&to_bytes(response.into_body(),100_000).await.unwrap()).unwrap();
+    assert!(theirs["notifications"].as_array().unwrap().iter().any(|n|n["id"]==id.as_str()),"{theirs}");
+
+    assert_eq!(f.request("DELETE","/admin/notifications/nope/",Value::Null,None).await.0,StatusCode::NOT_FOUND);
+}
+
+#[tokio::test]
+async fn a_member_can_sign_in_with_the_code_from_the_email() {
+    let f=Fixture::new().await;
+    let mut state=f.state.clone();
+    state.settings=Arc::new(state.settings.with_overrides([
+        ("members_email_otc_enabled".into(),json!(true)),
+        ("members_otc_secret".into(),json!("fixture-otc-secret")),
+        ("theme_session_secret".into(),json!("fixture-theme-secret")),
+    ]));
+    let app=ghost_api::members::members_router().with_state(state.clone());
+
+    let integrity=async |app: Router| {
+        let response=app.oneshot(Request::builder().uri("/members/api/integrity-token").body(Body::empty()).unwrap()).await.unwrap();
+        String::from_utf8(to_bytes(response.into_body(),10_000).await.unwrap().to_vec()).unwrap()
+    };
+    let token=integrity(app.clone()).await;
+    let response=app.clone().oneshot(Request::builder().method("POST").uri("/members/api/send-magic-link")
+        .header("content-type","application/json")
+        .body(Body::from(json!({"email":"reader@example.test","emailType":"signup","integrityToken":token}).to_string())).unwrap()).await.unwrap();
+    assert_eq!(response.status(),StatusCode::CREATED);
+    let body:Value=serde_json::from_slice(&to_bytes(response.into_body(),10_000).await.unwrap()).unwrap();
+    // The reference names the token without being it: holding it is not
+    // enough to sign in, which is the point of a code arriving by email.
+    let reference=body["otcRef"].as_str().expect("an otcRef was not issued").to_string();
+    let raw:String=sqlx::query_scalar("SELECT token FROM tokens WHERE id=?").bind(&reference).fetch_one(&state.db).await.unwrap();
+    assert_ne!(reference,raw);
+
+    let code=ghost_api::members::one_time_code_for_test(&state,&raw);
+    assert_eq!(code.len(),6);
+    assert!(code.chars().all(|c|c.is_ascii_digit()),"{code}");
+
+    let verify=async |app: Router, payload: Value| {
+        app.oneshot(Request::builder().method("POST").uri("/members/api/verify-otc")
+            .header("content-type","application/json").body(Body::from(payload.to_string())).unwrap()).await.unwrap()
+    };
+    // A wrong code is refused and costs an attempt.
+    let token2=integrity(app.clone()).await;
+    let response=verify(app.clone(),json!({"otcRef":reference,"otc":"000000","integrityToken":token2})).await;
+    assert_eq!(response.status(),StatusCode::UNAUTHORIZED);
+    let attempts:i64=sqlx::query_scalar("SELECT otc_used_count FROM tokens WHERE id=?").bind(&reference).fetch_one(&state.db).await.unwrap();
+    assert_eq!(attempts,1);
+    // So is a made-up reference, with the same answer, so the endpoint
+    // cannot be used to tell a real one from a guess.
+    let token3=integrity(app.clone()).await;
+    assert_eq!(verify(app.clone(),json!({"otcRef":"nope","otc":code,"integrityToken":token3})).await.status(),StatusCode::UNAUTHORIZED);
+
+    // The right code signs them in and sets the session cookie.
+    let token4=integrity(app.clone()).await;
+    let response=verify(app.clone(),json!({"otcRef":reference,"otc":code,"integrityToken":token4})).await;
+    assert_eq!(response.status(),StatusCode::OK);
+    assert!(response.headers().get("set-cookie").is_some(),"no session cookie was set");
+    let member:(String,String)=sqlx::query_as("SELECT email,status FROM members WHERE email='reader@example.test'").fetch_one(&state.db).await.unwrap();
+    assert_eq!(member,("reader@example.test".into(),"free".into()));
+    // Single use, like the link: the token is spent.
+    let token5=integrity(app.clone()).await;
+    assert_eq!(verify(app,json!({"otcRef":reference,"otc":code,"integrityToken":token5})).await.status(),StatusCode::UNAUTHORIZED);
+}
+
+#[tokio::test]
+async fn a_comment_can_be_disliked_as_well_as_liked() {
+    let f=Fixture::new().await;
+    let mut state=f.state.clone();
+    state.settings=Arc::new(state.settings.with_overrides([("comments_enabled".into(),json!("all"))]));
+    let (_,created)=f.request("POST","/admin/posts/",json!({"posts":[{"title":"Discussed","status":"published"}]}),None).await;
+    let post_id=created["posts"][0]["id"].as_str().unwrap().to_string();
+    sqlx::query("INSERT INTO members (id,uuid,transient_id,email,name,status,created_at) VALUES ('dm','du','dt','reactor@example.test','R','free',datetime('now'))")
+        .execute(&state.db).await.unwrap();
+    sqlx::query("INSERT INTO comments (id,post_id,member_id,html,status,created_at,updated_at) VALUES ('c1',?,'dm','<p>Hi</p>','published',datetime('now'),datetime('now'))")
+        .bind(&post_id).execute(&state.db).await.unwrap();
+
+    let app=ghost_api::comments::comments_router().with_state(state.clone());
+    // A real signed member cookie: the signature is what makes it a session.
+    let cookie=ghost_api::members::member_cookie_for_test(&state,"dt");
+    let react=|app: Router, method: &'static str, path: String, cookie: String| async move {
+        app.oneshot(Request::builder().method(method).uri(path).header("cookie",cookie).body(Body::empty()).unwrap()).await.unwrap()
+    };
+    assert_eq!(react(app.clone(),"POST","/members/api/comments/c1/dislike/".into(),cookie.clone()).await.status(),StatusCode::NO_CONTENT);
+    let score:i64=sqlx::query_scalar("SELECT score FROM comment_likes WHERE comment_id='c1'").fetch_one(&state.db).await.unwrap();
+    assert_eq!(score,-1,"a dislike is stored as a negative score");
+    // Twice is refused, with its own wording.
+    assert_eq!(react(app.clone(),"POST","/members/api/comments/c1/dislike/".into(),cookie.clone()).await.status(),StatusCode::BAD_REQUEST);
+
+    // Liking something they had disliked moves the reaction rather than
+    // leaving both: a member has one opinion per comment.
+    assert_eq!(react(app.clone(),"POST","/members/api/comments/c1/like/".into(),cookie.clone()).await.status(),StatusCode::NO_CONTENT);
+    let rows:Vec<i64>=sqlx::query_scalar("SELECT score FROM comment_likes WHERE comment_id='c1'").fetch_all(&state.db).await.unwrap();
+    assert_eq!(rows,[1]);
+
+    // The counts are reported separately, and a dislike is not a like.
+    let response=react(app.clone(),"GET",format!("/members/api/comments/post/{post_id}/"),cookie.clone()).await;
+    let body:Value=serde_json::from_slice(&to_bytes(response.into_body(),1_000_000).await.unwrap()).unwrap();
+    assert_eq!(body["comments"][0]["count"]["likes"],1);
+    assert_eq!(body["comments"][0]["count"]["dislikes"],0);
+    assert_eq!(body["comments"][0]["liked"],true);
+
+    // Removing a reaction that is not there is a 404, per direction.
+    assert_eq!(react(app.clone(),"DELETE","/members/api/comments/c1/dislike/".into(),cookie.clone()).await.status(),StatusCode::NOT_FOUND);
+    assert_eq!(react(app.clone(),"DELETE","/members/api/comments/c1/like/".into(),cookie.clone()).await.status(),StatusCode::NO_CONTENT);
+
+    // And a moderator can see who reacted which way.
+    sqlx::query("INSERT INTO comment_likes (id,comment_id,member_id,score,created_at) VALUES ('l1','c1','dm',-1,datetime('now'))")
+        .execute(&f.state.db).await.unwrap();
+    let (status,dislikes)=f.request("GET","/admin/comments/c1/dislikes/",Value::Null,None).await;
+    assert_eq!(status,StatusCode::OK,"{dislikes}");
+    assert_eq!(dislikes["dislikes"][0]["email"],"reactor@example.test");
+    let (_,likes)=f.request("GET","/admin/comments/c1/likes/",Value::Null,None).await;
+    assert!(likes["likes"].as_array().unwrap().is_empty(),"a dislike was counted as a like: {likes}");
+}
+
+#[tokio::test]
+async fn an_identity_token_is_signed_and_verifiable_against_the_published_key() {
+    let f=Fixture::new().await;
+    let (status,identity)=f.request("GET","/admin/identities/",Value::Null,None).await;
+    assert_eq!(status,StatusCode::OK,"{identity}");
+    let token=identity["identities"][0]["token"].as_str().expect("no token issued").to_string();
+
+    let public=ghost_api::mentions::public_router();
+    let _=public; // the jwks route lives on the identity router
+    let app=ghost_api::identity::public_router().with_state(f.state.clone());
+    let response=app.clone().oneshot(Request::builder().uri("/.well-known/jwks.json").body(Body::empty()).unwrap()).await.unwrap();
+    assert_eq!(response.status(),StatusCode::OK);
+    let jwks:Value=serde_json::from_slice(&to_bytes(response.into_body(),100_000).await.unwrap()).unwrap();
+    let kid=jwks["keys"][0]["kid"].as_str().unwrap();
+    // The key in the set is the key that signed, which is how a verifier
+    // picks the right one.
+    assert_eq!(jsonwebtoken::decode_header(&token).unwrap().kid.as_deref(),Some(kid));
+    assert_eq!(jwks["keys"][0]["alg"],"RS256");
+
+    let (_,public_pem)=ghost_api::identity::keys(&f.state).await.unwrap();
+    let claims=ghost_api::identity::verify(&public_pem,&token,"https://example.test").expect("the token did not verify");
+    assert_eq!(claims["sub"],"owner@example.test");
+
+    // Unauthenticated callers get no token, and a member with no session
+    // gets no entitlement token either.
+    let response=f.app.clone().oneshot(Request::builder().uri("/admin/identities/").body(Body::empty()).unwrap()).await.unwrap();
+    assert_eq!(response.status(),StatusCode::UNAUTHORIZED);
+    let response=app.oneshot(Request::builder().uri("/members/api/entitlements").body(Body::empty()).unwrap()).await.unwrap();
+    assert_eq!(response.status(),StatusCode::UNAUTHORIZED);
+}
+
+#[tokio::test]
+async fn the_rest_surface_ghosts_clients_expect_is_reachable() {
+    let f=Fixture::new().await;
+    let (_,created)=f.request("POST","/admin/posts/",json!({"posts":[{"title":"A Post About Things","status":"published"}]}),None).await;
+    let post_id=created["posts"][0]["id"].as_str().unwrap().to_string();
+
+    // Slug generation, which the editor asks for before saving.
+    let (status,slug)=f.request("GET","/admin/slugs/post/A%20Post%20About%20Things/",Value::Null,None).await;
+    assert_eq!(status,StatusCode::OK,"{slug}");
+    // The title is taken, so the next one is suffixed.
+    assert_eq!(slug["slugs"][0]["slug"],"a-post-about-things-2");
+    // Excluding the post itself gives it its own slug back.
+    let (_,own)=f.request("GET",&format!("/admin/slugs/post/A%20Post%20About%20Things/{post_id}/"),Value::Null,None).await;
+    assert_eq!(own["slugs"][0]["slug"],"a-post-about-things");
+    assert_eq!(f.request("GET","/admin/slugs/nonsense/x/",Value::Null,None).await.0,StatusCode::UNPROCESSABLE_ENTITY);
+
+    // What the admin client needs to know about the install, and nothing secret.
+    let (_,config)=f.request("GET","/admin/config/",Value::Null,None).await;
+    assert_eq!(config["config"]["database"],"sqlite3");
+    assert_eq!(config["config"]["version"],ghost_core::GHOST_VERSION);
+    let serialised=config.to_string();
+    assert!(!serialised.contains("secret") && !serialised.contains("sk_"),"{serialised}");
+
+    // Staff lookups by email and slug, which Ghost's clients use.
+    let (status,user)=f.request("GET","/admin/users/email/owner@example.test/",Value::Null,None).await;
+    assert_eq!(status,StatusCode::OK,"{user}");
+    assert_eq!(user["users"][0]["email"],"owner@example.test");
+    let slug=user["users"][0]["slug"].as_str().unwrap().to_string();
+    let (_,by_slug)=f.request("GET",&format!("/admin/users/slug/{slug}/"),Value::Null,None).await;
+    assert_eq!(by_slug["users"][0]["email"],"owner@example.test");
+    assert_eq!(f.request("GET","/admin/users/email/nobody@example.test/",Value::Null,None).await.0,StatusCode::NOT_FOUND);
+
+    // A staff token is your own and nobody else's.
+    let owner=user["users"][0]["id"].as_str().unwrap().to_string();
+    let (status,minted)=f.request("PUT",&format!("/admin/users/{owner}/token/"),Value::Null,None).await;
+    assert_eq!(status,StatusCode::OK,"{minted}");
+    let secret=minted["apiKey"]["secret"].as_str().unwrap().to_string();
+    let (_,read)=f.request("GET",&format!("/admin/users/{owner}/token/"),Value::Null,None).await;
+    assert_eq!(read["apiKey"]["secret"],secret);
+    let (_,cookie)=f.staff("Administrator","nosy-admin").await;
+    let response=f.app.clone().oneshot(Request::builder().uri(format!("/admin/users/{owner}/token/")).header("cookie",&cookie).body(Body::empty()).unwrap()).await.unwrap();
+    assert_eq!(response.status(),StatusCode::FORBIDDEN,"another admin could read a staff token");
+
+    // Recommendations CRUD.
+    let (status,added)=f.request("POST","/admin/recommendations/",json!({"recommendations":[{"url":"https://friend.example","title":"Friend"}]}),None).await;
+    assert_eq!(status,StatusCode::CREATED,"{added}");
+    let rec_id=added["recommendations"][0]["id"].as_str().unwrap().to_string();
+    assert_eq!(f.request("POST","/admin/recommendations/",json!({"recommendations":[{"url":"https://friend.example"}]}),None).await.0,StatusCode::UNPROCESSABLE_ENTITY);
+    assert_eq!(f.request("POST","/admin/recommendations/",json!({"recommendations":[{"url":"javascript:alert(1)"}]}),None).await.0,StatusCode::UNPROCESSABLE_ENTITY);
+    let (_,edited)=f.request("PUT",&format!("/admin/recommendations/{rec_id}/"),json!({"recommendations":[{"title":"Renamed"}]}),None).await;
+    assert_eq!(edited["recommendations"][0]["title"],"Renamed");
+    assert_eq!(f.request("DELETE",&format!("/admin/recommendations/{rec_id}/"),Value::Null,None).await.0,StatusCode::NO_CONTENT);
+    assert_eq!(f.request("GET",&format!("/admin/recommendations/{rec_id}/"),Value::Null,None).await.0,StatusCode::NOT_FOUND);
+
+    // Search index for pages and staff, which the admin's own search needs.
+    let (_,pages)=f.request("GET","/admin/search-index/pages/",Value::Null,None).await;
+    assert!(pages["pages"].is_array());
+    let (_,staff)=f.request("GET","/admin/search-index/users/",Value::Null,None).await;
+    assert!(staff["users"].as_array().unwrap().iter().any(|u|u["slug"]==slug.as_str()));
+
+    // Feedback counts for a post.
+    let (_,feedback)=f.request("GET",&format!("/admin/feedback/{post_id}/"),Value::Null,None).await;
+    assert_eq!(feedback["feedback"][0]["more_like_this"],0);
+
+    // Signing a member out everywhere moves the id their cookie carries.
+    sqlx::query("INSERT INTO members (id,uuid,transient_id,email,status,created_at) VALUES ('sm','su','before','out@example.test','free',datetime('now'))")
+        .execute(&f.state.db).await.unwrap();
+    assert_eq!(f.request("DELETE","/admin/members/sm/sessions/",Value::Null,None).await.0,StatusCode::NO_CONTENT);
+    let transient:String=sqlx::query_scalar("SELECT transient_id FROM members WHERE id='sm'").fetch_one(&f.state.db).await.unwrap();
+    assert_ne!(transient,"before");
+    assert_eq!(f.request("DELETE","/admin/members/nope/sessions/",Value::Null,None).await.0,StatusCode::NOT_FOUND);
+
+    // Ghost's own spelling of a gift link and of a bulk edit.
+    let (status,gift)=f.request("POST",&format!("/admin/posts/{post_id}/gift_links/"),Value::Null,None).await;
+    assert_eq!(status,StatusCode::OK,"{gift}");
+    // Ghost's body shape, not this port's, since the path is Ghost's.
+    let (status,bulk)=f.request("PUT","/admin/posts/bulk/",json!({"bulk":{"action":"draft","meta":{"ids":[post_id]}}}),None).await;
+    assert!(status.is_success(),"{bulk}");
+    let status_now:String=sqlx::query_scalar("SELECT status FROM posts WHERE id=?").bind(&post_id).fetch_one(&f.state.db).await.unwrap();
+    assert_eq!(status_now,"draft","the bulk action did not take effect");
+    // And its spelling of an email preview.
+    let (status,preview)=f.request("GET",&format!("/admin/email_previews/posts/{post_id}/"),Value::Null,None).await;
+    assert_eq!(status,StatusCode::OK,"{preview}");
+}
+
+#[tokio::test]
+async fn ghost_bulk_delete_requires_selection_and_respects_resource_kind(){
+    let f=Fixture::new().await;
+    let (_,post)=f.request("POST","/admin/posts/",json!({"posts":[{"title":"Delete me"}]}),None).await;
+    let id=post["posts"][0]["id"].as_str().unwrap();
+    let (_,kept)=f.request("POST","/admin/pages/",json!({"pages":[{"title":"Keep page"}]}),None).await;
+    let page=kept["pages"][0]["id"].as_str().unwrap();
+    assert_eq!(f.request("DELETE","/admin/posts/",Value::Null,None).await.0,StatusCode::UNPROCESSABLE_ENTITY);
+    let (status,result)=f.request("DELETE",&format!("/admin/posts/?filter=id:{id}"),Value::Null,None).await;
+    assert_eq!(status,StatusCode::OK,"{result}");assert_eq!(result["bulk"]["meta"]["stats"]["successful"],1);
+    assert_eq!(f.request("GET",&format!("/admin/pages/{page}/"),Value::Null,None).await.0,StatusCode::OK);
+}
+
+#[tokio::test]
+async fn ghost_bulk_link_payload_is_filtered_and_invalid_filters_never_edit_every_link(){
+    let f=Fixture::new().await;
+    f.state.settings.set(&f.state.db,"email_track_clicks",&json!(true)).await.unwrap();
+    let mut post_ids=Vec::new();
+    for title in ["One","Two"] {let (_,post)=f.request("POST","/admin/posts/",json!({"posts":[{"title":title}]}),None).await;post_ids.push(post["posts"][0]["id"].as_str().unwrap().to_string());}
+    for id in &post_ids{ghost_api::newsletter_events::track_links(&f.state,id,"<a href=\"https://old.example/path\">Old</a>").await.unwrap();}
+    let body=json!({"bulk":{"action":"updateLink","meta":{"link":{"to":"https://new.example/path"}}}});
+    assert_eq!(f.request("PUT","/admin/links/bulk/",body.clone(),None).await.0,StatusCode::UNPROCESSABLE_ENTITY);
+    let path=format!("/admin/links/bulk/?filter=post_id:{}",post_ids[0]);
+    let (status,result)=f.request("PUT",&path,body,None).await;assert_eq!(status,StatusCode::OK,"{result}");assert_eq!(result["bulk"]["meta"]["stats"]["successful"],1);
+    let urls:Vec<String>=sqlx::query_scalar("SELECT to_url FROM newsletter_links ORDER BY rowid").fetch_all(&f.state.db).await.unwrap();assert_eq!(urls,["https://new.example/path","https://old.example/path"]);
+}
+
+#[tokio::test]
+async fn automation_opens_and_clicks_update_the_original_revision_once(){
+    use ghost_core::automations::{Action,ActionKind,Status};
+    let f=Fixture::new().await;
+    f.state.settings.set(&f.state.db,"email_track_opens",&json!(true)).await.unwrap();f.state.settings.set(&f.state.db,"email_track_clicks",&json!(true)).await.unwrap();
+    let actions=[Action{id:"tracked-action".into(),kind:ActionKind::SendEmail{subject:"Hello".into(),lexical:"{}".into()}}];
+    repos::automations::create(&f.state.db,&repos::automations::AutomationInput{name:"Tracked",description:"",status:Status::Inactive,trigger_tier_scope:None,trigger_tier_ids:&[],actions:&actions,edges:&[]}).await.unwrap();
+    let revision:String=sqlx::query_scalar("SELECT id FROM automation_action_revisions WHERE action_id='tracked-action'").fetch_one(&f.state.db).await.unwrap();
+    let body=ghost_api::automation_tracking::instrument(&f.state,&revision,"reader-uuid","<body><a href=\"https://example.org/article\">Read</a></body>").await.unwrap();
+    assert!(body.contains("/r/a/o/"));assert!(body.contains("/r/a/c/"));
+    let token:String=sqlx::query_scalar("SELECT token FROM automation_tracking").fetch_one(&f.state.db).await.unwrap();
+    let link:String=sqlx::query_scalar("SELECT id FROM automation_links").fetch_one(&f.state.db).await.unwrap();
+    assert!(ghost_api::automation_tracking::record(&f.state,&token,None).await.unwrap());assert!(!ghost_api::automation_tracking::record(&f.state,&token,None).await.unwrap());
+    assert!(ghost_api::automation_tracking::record(&f.state,&token,Some(&link)).await.unwrap());assert!(!ghost_api::automation_tracking::record(&f.state,&token,Some(&link)).await.unwrap());
+    assert!(!ghost_api::automation_tracking::record(&f.state,&token,Some("other-link")).await.unwrap());
+    let counts:(i64,i64)=sqlx::query_as("SELECT email_opened_count,email_clicked_count FROM automation_action_revisions WHERE id=?").bind(revision).fetch_one(&f.state.db).await.unwrap();assert_eq!(counts,(1,1));
+}
+
+#[tokio::test]
+async fn verification_tokens_are_expiring_and_single_use(){
+    use sha2::{Digest,Sha256};
+    let f=Fixture::new().await;
+    sqlx::query("INSERT INTO newsletters(id,name,slug,created_at)VALUES('verify-nl','Verify','verify',datetime('now'))").execute(&f.state.db).await.unwrap();
+    for (token,expiry)in [("valid-verification","+1 day"),("expired-verification","-1 day")]{
+        sqlx::query("INSERT INTO email_verifications(token_hash,resource_type,resource_id,field,value,expires_at)VALUES(?,'newsletter','verify-nl','sender_email','verified@example.test',datetime('now',?))").bind(hex::encode(Sha256::digest(token.as_bytes()))).bind(expiry).execute(&f.state.db).await.unwrap();
+    }
+    assert_eq!(f.request("PUT","/admin/newsletters/verifications/",json!({"token":"expired-verification"}),None).await.0,StatusCode::UNPROCESSABLE_ENTITY);
+    assert_eq!(f.request("PUT","/admin/newsletters/verifications/",json!({"token":"valid-verification"}),None).await.0,StatusCode::OK);
+    assert_eq!(f.request("PUT","/admin/newsletters/verifications/",json!({"token":"valid-verification"}),None).await.0,StatusCode::UNPROCESSABLE_ENTITY);
+    let email:String=sqlx::query_scalar("SELECT sender_email FROM newsletters WHERE id='verify-nl'").fetch_one(&f.state.db).await.unwrap();assert_eq!(email,"verified@example.test");
+}
+
+#[tokio::test]
+async fn experimental_app_lifecycle_is_gated_and_cannot_fetch_private_hosts(){
+    let f=Fixture::new().await;
+    assert_eq!(f.request("GET","/admin/apps/installations/",Value::Null,None).await.0,StatusCode::NOT_FOUND);
+    f.state.settings.set(&f.state.db,"labs",&json!({"apps":true})).await.unwrap();
+    let (status,body)=f.request("GET","/admin/apps/installations/",Value::Null,None).await;assert_eq!(status,StatusCode::OK);assert_eq!(body["app_installations"],json!([]));
+    assert_eq!(f.request("POST","/admin/apps/installations/preview/",json!({"app_installation_previews":[{"manifest_url":"https://127.0.0.1/private.json"}]}),None).await.0,StatusCode::UNPROCESSABLE_ENTITY);
+}
+
+#[tokio::test]
+async fn member_csv_api_round_trip_keeps_labels_preferences_and_complimentary_tiers(){
+    let f=Fixture::new().await;
+    sqlx::query("INSERT INTO products(id,name,slug,type,created_at)VALUES('csv-tier','Gold CSV','gold-csv','paid',datetime('now'))").execute(&f.state.db).await.unwrap();
+    sqlx::query("INSERT INTO newsletters(id,name,slug,status,created_at)VALUES('csv-nl','CSV newsletter','csv-nl','active',datetime('now'))").execute(&f.state.db).await.unwrap();
+    let csv="email,name,note,subscribed_to_emails,complimentary_plan,labels,tiers\r\nreader-csv@example.test,Reader,Imported,true,true,VIP,Gold CSV\r\n";
+    let body=format!("--csv-boundary\r\nContent-Disposition: form-data; name=\"membersfile\"; filename=\"members.csv\"\r\nContent-Type: text/csv\r\n\r\n{csv}\r\n--csv-boundary--\r\n");
+    let response=f.app.clone().oneshot(Request::builder().method("POST").uri("/admin/members/upload/").header("cookie",&f.cookie).header("content-type","multipart/form-data; boundary=csv-boundary").body(Body::from(body)).unwrap()).await.unwrap();
+    let status=response.status();let bytes=to_bytes(response.into_body(),1_000_000).await.unwrap();assert_eq!(status,StatusCode::OK,"{}",String::from_utf8_lossy(&bytes));
+    let response=f.app.clone().oneshot(Request::builder().uri("/admin/members/upload/?filter=email:'reader-csv@example.test'").header("cookie",&f.cookie).body(Body::empty()).unwrap()).await.unwrap();
+    assert_eq!(response.status(),StatusCode::OK);let bytes=to_bytes(response.into_body(),1_000_000).await.unwrap();
+    let mut reader=csv::Reader::from_reader(bytes.as_ref());let rows:Vec<HashMap<String,String>>=reader.deserialize().collect::<Result<_,_>>().unwrap();assert_eq!(rows.len(),1);assert_eq!(rows[0]["labels"],"VIP");assert_eq!(rows[0]["tiers"],"Gold CSV");assert_eq!(rows[0]["subscribed_to_emails"],"true");assert_eq!(rows[0]["complimentary_plan"],"true");
+}
+
+#[tokio::test]
+async fn api_key_rotation_revokes_the_previous_content_secret(){
+    let f=Fixture::new().await;let integration=f.integration().await;let id=integration["id"].as_str().unwrap();
+    let key=&integration["api_keys"].as_array().unwrap().iter().find(|key|key["type"]=="content").unwrap();let old=key["secret"].as_str().unwrap();let key_id=key["id"].as_str().unwrap();
+    let (status,result)=f.request("POST",&format!("/admin/integrations/{id}/api_key/{key_id}/refresh/"),json!({}),None).await;assert_eq!(status,StatusCode::OK,"{result}");
+    assert_ne!(result["api_keys"][0]["secret"],old);
+    assert_eq!(f.request("GET",&format!("/content/posts/?key={old}"),Value::Null,None).await.0,StatusCode::UNAUTHORIZED);
+    assert_eq!(f.request("GET",&format!("/content/posts/?key={}",result["api_keys"][0]["secret"].as_str().unwrap()),Value::Null,None).await.0,StatusCode::OK);
+}
+
+#[tokio::test]
+async fn post_csv_import_preserves_flags_dates_tags_and_renders_source(){
+    let f=Fixture::new().await;f.state.settings.set(&f.state.db,"labs",&json!({"csvContentImporter":true})).await.unwrap();
+    let csv="title,markdown,published_at,status,featured,tags\r\nCSV post,**Imported body**,2026-10-01T12:34:56Z,published,true,Imported CSV\r\n";
+    let body=format!("--posts-boundary\r\nContent-Disposition: form-data; name=\"postsfile\"; filename=\"posts.csv\"\r\nContent-Type: text/csv\r\n\r\n{csv}\r\n--posts-boundary--\r\n");
+    let response=f.app.clone().oneshot(Request::builder().method("POST").uri("/admin/posts/upload/").header("cookie",&f.cookie).header("content-type","multipart/form-data; boundary=posts-boundary").body(Body::from(body)).unwrap()).await.unwrap();
+    let status=response.status();let body=to_bytes(response.into_body(),1_000_000).await.unwrap();assert_eq!(status,StatusCode::OK,"{}",String::from_utf8_lossy(&body));
+    let (html,date,featured):(String,String,bool)=sqlx::query_as("SELECT html,published_at,featured FROM posts WHERE title='CSV post'").fetch_one(&f.state.db).await.unwrap();
+    assert!(html.contains("<strong>Imported body</strong>"));assert_eq!(date,"2026-10-01 12:34:56");assert!(featured);
+    let count:i64=sqlx::query_scalar("SELECT COUNT(*) FROM posts_tags pt JOIN posts p ON p.id=pt.post_id JOIN tags t ON t.id=pt.tag_id WHERE p.title='CSV post' AND t.name='Imported CSV'").fetch_one(&f.state.db).await.unwrap();assert_eq!(count,1);
+}
+
+#[tokio::test]
+async fn ghost_password_put_accepts_the_standard_password_envelope(){
+    let f=Fixture::new().await;let owner=repos::users::find_owner(&f.state.db).await.unwrap().unwrap();
+    let hash=bcrypt::hash("old-password-valid",4).unwrap();sqlx::query("UPDATE users SET password=? WHERE id=?").bind(hash).bind(&owner.id).execute(&f.state.db).await.unwrap();
+    let (status,body)=f.request("PUT","/admin/users/password/",json!({"password":[{"user_id":owner.id,"oldPassword":"old-password-valid","newPassword":"new-password-valid","ne2Password":"new-password-valid"}]}),None).await;
+    assert_eq!(status,StatusCode::NO_CONTENT,"{body}");
+    let hash:String=sqlx::query_scalar("SELECT password FROM users WHERE id=?").bind(&owner.id).fetch_one(&f.state.db).await.unwrap();assert!(bcrypt::verify("new-password-valid",&hash).unwrap());
+}
+
+/// Host limits: a plan ceiling has to refuse the request, say what the
+/// ceiling was, and point at somewhere to do something about it. A
+/// self-hosted install configures none of this and is checked alongside, so
+/// that a bug in the limit plumbing cannot quietly start refusing requests
+/// on the installs that are most of them.
+#[tokio::test]
+async fn host_limits_refuse_a_create_and_say_what_the_limit_was() {
+    let f = Fixture::with_host_settings(json!({
+        "billing": {"enabled": true, "url": "https://billing.example/upgrade"},
+        "limits": {
+            // The seed creates one newsletter, so a ceiling of one is already
+            // reached and the next create is the one over the line.
+            "newsletters": {"max": 1, "error": "Your plan allows {{max}} newsletter."},
+            "staff": {"max": 1},
+            "limitSocialWeb": {"disabled": true},
+        },
+    }))
+    .await;
+
+    let (status, body) = f
+        .request("POST", "/admin/newsletters/", json!({"newsletters": [{"name": "Second"}]}), None)
+        .await;
+    assert_eq!(status, StatusCode::FORBIDDEN, "{body}");
+    assert_eq!(body["errors"][0]["errorType"], "HostLimitError", "{body}");
+    assert_eq!(body["errors"][0]["message"], "Your plan allows 1 newsletter.", "{body}");
+    assert_eq!(body["errors"][0]["errorDetails"]["limit"], 1, "{body}");
+    assert_eq!(body["errors"][0]["errorDetails"]["total"], 1, "{body}");
+    assert_eq!(body["errors"][0]["help"], "https://billing.example/upgrade", "{body}");
+    // And it did not write the row before refusing.
+    let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM newsletters WHERE name='Second'")
+        .fetch_one(&f.state.db)
+        .await
+        .unwrap();
+    assert_eq!(count, 0);
+
+    // The owner already fills a staff ceiling of one, so an invite is over it
+    // — and a pending invite counts, which is why this is refused here rather
+    // than when somebody tries to accept.
+    let (status, body) = f
+        .request("POST", "/admin/invites/", json!({"invites": [{"email": "new@example.test", "roles": [{"name": "Author"}]}]}), None)
+        .await;
+    assert_eq!(status, StatusCode::FORBIDDEN, "{body}");
+    assert_eq!(
+        body["errors"][0]["message"], "This action would exceed the staff limit on your current plan.",
+        "{body}"
+    );
+    // A Contributor is exempt from the staff limit, as in Ghost — so this one
+    // gets as far as trying to send the email, rather than being refused.
+    let (status, body) = f
+        .request("POST", "/admin/invites/", json!({"invites": [{"email": "writer@example.test", "roles": [{"name": "Contributor"}]}]}), None)
+        .await;
+    assert_ne!(status, StatusCode::FORBIDDEN, "{body}");
+
+    // A flag limit withholds a feature outright, whatever the site's own
+    // setting says.
+    f.state.settings.set(&f.state.db, "social_web_enabled", &json!(true)).await.unwrap();
+    assert!(!ghost_api::federation::enabled(&f.state), "the plan does not include the social web");
+
+    // `hostSettings` reaches the admin client, so its screens can say so.
+    let (status, body) = f.request("GET", "/admin/config/", json!({}), None).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(body["config"]["hostSettings"]["billing"]["url"], "https://billing.example/upgrade", "{body}");
+    assert_eq!(body["config"]["hostSettings"]["limits"]["limitSocialWeb"]["disabled"], true, "{body}");
+    // Analytics is this port's own, not a column store's.
+    assert_eq!(body["config"]["stats"]["provider"], "native", "{body}");
+    // And the shipped labs flags read true whatever is stored.
+    assert_eq!(body["config"]["labs"]["editorReact"], true, "{body}");
+}
+
+#[tokio::test]
+async fn a_self_hosted_install_has_no_limits_to_hit() {
+    let f = Fixture::new().await;
+    let (status, body) = f
+        .request("POST", "/admin/newsletters/", json!({"newsletters": [{"name": "Second"}]}), None)
+        .await;
+    assert_eq!(status, StatusCode::CREATED, "{body}");
+
+    f.state.settings.set(&f.state.db, "social_web_enabled", &json!(true)).await.unwrap();
+    assert!(ghost_api::federation::enabled(&f.state));
+
+    let (_, body) = f.request("GET", "/admin/config/", json!({}), None).await;
+    assert!(body["config"]["hostSettings"].is_null(), "{body}");
+}
+
+/// The announcement bar is decided per visitor, which is why it is an
+/// endpoint and not part of the rendered page. Each audience in
+/// `announcement_visibility` is a separate question, and `visitors` means a
+/// signed-out reader specifically rather than "anyone".
+#[tokio::test]
+async fn an_announcement_is_served_only_to_the_audience_it_was_set_for() {
+    let f = Fixture::new().await;
+    let state = f.state.clone();
+    sqlx::query("INSERT INTO members (id,uuid,transient_id,email,name,status,created_at) VALUES ('fm','fu','ft','free@example.test','F','free',datetime('now'))")
+        .execute(&state.db).await.unwrap();
+    sqlx::query("INSERT INTO members (id,uuid,transient_id,email,name,status,created_at) VALUES ('pm','pu','pt','paid@example.test','P','comped',datetime('now'))")
+        .execute(&state.db).await.unwrap();
+
+    // Markdown in, HTML out: this port's Settings → Site field takes
+    // Markdown, and the widget writes HTML into the bar.
+    let ask = |state: AppState, cookie: Option<&'static str>| async move {
+        let app = ghost_api::members::members_router().with_state(state.clone());
+        let mut req = Request::builder().method("GET").uri("/members/api/announcement/");
+        if let Some(transient) = cookie {
+            req = req.header("cookie", ghost_api::members::member_cookie_for_test(&state, transient));
+        }
+        let res = app.oneshot(req.body(Body::empty()).unwrap()).await.unwrap();
+        let status = res.status();
+        let body = to_bytes(res.into_body(), 100_000).await.unwrap();
+        (status, String::from_utf8_lossy(&body).to_string())
+    };
+
+    // Nothing set: nothing served, to anyone.
+    assert_eq!(ask(state.clone(), None).await.0, StatusCode::NO_CONTENT);
+
+    let with = |visibility: Value| {
+        Arc::new(state.settings.with_overrides([
+            ("announcement_content".into(), json!("We **moved**")),
+            ("announcement_background".into(), json!("accent")),
+            ("announcement_visibility".into(), visibility),
+        ]))
+    };
+
+    // Visitors only: the signed-out reader sees it and neither member does.
+    let mut visitors = state.clone();
+    visitors.settings = with(json!(["visitors"]));
+    let (status, body) = ask(visitors.clone(), None).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert!(body.contains("<strong>moved</strong>"), "Markdown is rendered for the widget: {body}");
+    assert!(body.contains(r#""announcement_background":"accent""#), "{body}");
+    assert_eq!(ask(visitors.clone(), Some("ft")).await.0, StatusCode::NO_CONTENT, "a free member is not a visitor");
+    assert_eq!(ask(visitors.clone(), Some("pt")).await.0, StatusCode::NO_CONTENT, "a paid member is not a visitor");
+
+    // Paid only — the case the old server-rendered bar could never serve.
+    let mut paid = state.clone();
+    paid.settings = with(json!(["paid_members"]));
+    assert_eq!(ask(paid.clone(), Some("pt")).await.0, StatusCode::OK);
+    assert_eq!(ask(paid.clone(), Some("ft")).await.0, StatusCode::NO_CONTENT);
+    assert_eq!(ask(paid.clone(), None).await.0, StatusCode::NO_CONTENT);
+
+    // Free only.
+    let mut free = state.clone();
+    free.settings = with(json!(["free_members"]));
+    assert_eq!(ask(free.clone(), Some("ft")).await.0, StatusCode::OK);
+    assert_eq!(ask(free.clone(), Some("pt")).await.0, StatusCode::NO_CONTENT);
+
+    // An empty audience list means nobody, however much content there is.
+    let mut nobody = state.clone();
+    nobody.settings = with(json!([]));
+    assert_eq!(ask(nobody.clone(), None).await.0, StatusCode::NO_CONTENT);
+    assert_eq!(ask(nobody, Some("ft")).await.0, StatusCode::NO_CONTENT);
 }

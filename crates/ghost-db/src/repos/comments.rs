@@ -53,10 +53,13 @@ pub struct Counts {
     pub replies: i64,
     pub direct_replies: i64,
     pub likes: i64,
+    pub dislikes: i64,
     pub reports: i64,
     /// Whether the requesting member liked this comment. Ghost models it as
     /// `count.liked` and the serializer turns it into the `liked` boolean.
     pub liked: bool,
+    /// And the same for the other direction.
+    pub disliked: bool,
 }
 
 /// A comment's author, as the API exposes it.
@@ -362,9 +365,10 @@ async fn load_counts(
          (SELECT COUNT(*) FROM comments r WHERE r.parent_id = c.id AND r.status NOT IN ({list})) AS replies, \
          (SELECT COUNT(*) FROM comments r1 WHERE r1.parent_id = c.id AND r1.in_reply_to_id IS NULL AND r1.status NOT IN ({list})) \
          + (SELECT COUNT(*) FROM comments r2 WHERE r2.in_reply_to_id = c.id AND r2.status NOT IN ({list})) AS direct_replies, \
-         (SELECT COUNT(*) FROM comment_likes cl WHERE cl.comment_id = c.id) AS likes, \
+         (SELECT COUNT(*) FROM comment_likes cl WHERE cl.comment_id = c.id AND cl.score > 0) AS likes, \
+         (SELECT COUNT(*) FROM comment_likes cld WHERE cld.comment_id = c.id AND cld.score < 0) AS dislikes, \
          (SELECT COUNT(*) FROM comment_reports cr WHERE cr.comment_id = c.id) AS reports, \
-         (SELECT COUNT(*) FROM comment_likes cl2 WHERE cl2.comment_id = c.id AND cl2.member_id = "
+         (SELECT COUNT(*) FROM comment_likes cl2 WHERE cl2.comment_id = c.id AND cl2.score > 0 AND cl2.member_id = "
     ));
     // A signed-out visitor gets a literal 0, matching Ghost's `count.liked`
     // fallback — not a NULL that would have to be interpreted downstream.
@@ -372,19 +376,35 @@ async fn load_counts(
         Some(id) => qb.push_bind(id.to_string()),
         None => qb.push_bind(String::new()),
     };
-    qb.push(") AS liked FROM comments c WHERE c.id IN (");
+    qb.push(") AS liked, (SELECT COUNT(*) FROM comment_likes cl3 WHERE cl3.comment_id = c.id AND cl3.score < 0 AND cl3.member_id = ");
+    match member_id {
+        Some(id) => qb.push_bind(id.to_string()),
+        None => qb.push_bind(String::new()),
+    };
+    qb.push(") AS disliked FROM comments c WHERE c.id IN (");
     let mut sep = qb.separated(", ");
     for id in ids {
         sep.push_bind(id.clone());
     }
     qb.push(")");
 
-    let rows: Vec<(String, i64, i64, i64, i64, i64)> =
+    let rows: Vec<(String, i64, i64, i64, i64, i64, i64, i64)> =
         qb.build_query_as().fetch_all(pool).await.map_err(dberr)?;
     Ok(rows
         .into_iter()
-        .map(|(id, replies, direct_replies, likes, reports, liked)| {
-            (id, Counts { replies, direct_replies, likes, reports, liked: liked > 0 })
+        .map(|(id, replies, direct_replies, likes, dislikes, reports, liked, disliked)| {
+            (
+                id,
+                Counts {
+                    replies,
+                    direct_replies,
+                    likes,
+                    dislikes,
+                    reports,
+                    liked: liked > 0,
+                    disliked: disliked > 0,
+                },
+            )
         })
         .collect())
 }
@@ -593,36 +613,79 @@ pub async fn hide_all_by_member(pool: &SqlitePool, member_id: &str) -> Result<u6
 // likes and reports
 // ---------------------------------------------------------------------------
 
-pub async fn has_liked(pool: &SqlitePool, comment_id: &str, member_id: &str) -> Result<bool> {
+/// Which way a reaction goes. Stored as the `score` Ghost stores: `1` for a
+/// like, `-1` for a dislike.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum Reaction {
+    Like,
+    Dislike,
+}
+
+impl Reaction {
+    pub fn score(self) -> i64 {
+        match self {
+            Reaction::Like => 1,
+            Reaction::Dislike => -1,
+        }
+    }
+}
+
+pub async fn has_reacted(
+    pool: &SqlitePool,
+    comment_id: &str,
+    member_id: &str,
+    reaction: Reaction,
+) -> Result<bool> {
     let n: i64 = sqlx::query_scalar(
-        "SELECT COUNT(*) FROM comment_likes WHERE comment_id = ? AND member_id = ?",
+        "SELECT COUNT(*) FROM comment_likes WHERE comment_id = ? AND member_id = ? AND score = ?",
     )
     .bind(comment_id)
     .bind(member_id)
+    .bind(reaction.score())
     .fetch_one(pool)
     .await
     .map_err(dberr)?;
     Ok(n > 0)
 }
 
-pub async fn like(pool: &SqlitePool, comment_id: &str, member_id: &str) -> Result<()> {
-    sqlx::query("INSERT INTO comment_likes (id, comment_id, member_id, created_at) VALUES (?, ?, ?, ?)")
-        .bind(ids::new_id())
-        .bind(comment_id)
-        .bind(member_id)
-        .bind(dates::now_db())
-        .execute(pool)
-        .await
-        .map_err(dberr)?;
+/// Record a reaction, replacing whichever one this member had before.
+///
+/// A member has one reaction per comment, so liking something they had
+/// disliked moves it rather than leaving both — the unique index on
+/// `(comment_id, member_id)` would refuse the second row anyway.
+pub async fn react(
+    pool: &SqlitePool,
+    comment_id: &str,
+    member_id: &str,
+    reaction: Reaction,
+) -> Result<()> {
+    sqlx::query(
+        "INSERT INTO comment_likes (id, comment_id, member_id, score, created_at) VALUES (?, ?, ?, ?, ?) \
+         ON CONFLICT(comment_id, member_id) DO UPDATE SET score = excluded.score",
+    )
+    .bind(ids::new_id())
+    .bind(comment_id)
+    .bind(member_id)
+    .bind(reaction.score())
+    .bind(dates::now_db())
+    .execute(pool)
+    .await
+    .map_err(dberr)?;
     Ok(())
 }
 
-/// Returns false when there was no like to remove, which the API turns into
-/// Ghost's "Unable to find like" 404.
-pub async fn unlike(pool: &SqlitePool, comment_id: &str, member_id: &str) -> Result<bool> {
-    let res = sqlx::query("DELETE FROM comment_likes WHERE comment_id = ? AND member_id = ?")
+/// Returns false when there was no such reaction to remove, which the API
+/// turns into Ghost's "Unable to find like" 404.
+pub async fn unreact(
+    pool: &SqlitePool,
+    comment_id: &str,
+    member_id: &str,
+    reaction: Reaction,
+) -> Result<bool> {
+    let res = sqlx::query("DELETE FROM comment_likes WHERE comment_id = ? AND member_id = ? AND score = ?")
         .bind(comment_id)
         .bind(member_id)
+        .bind(reaction.score())
         .execute(pool)
         .await
         .map_err(dberr)?;
@@ -676,10 +739,13 @@ pub async fn members_for(
     limit: i64,
     page: i64,
 ) -> Result<(Vec<(CommentMember, String)>, i64)> {
-    // `table` is chosen by the route, never by the request.
-    let table = match table {
-        "comment_likes" => "comment_likes",
-        "comment_reports" => "comment_reports",
+    // `table` is chosen by the route, never by the request. The two
+    // directions of a reaction share a table, so the sign is part of the
+    // relation rather than of the caller's query.
+    let (table, scored) = match table {
+        "comment_likes" => ("comment_likes", " AND x.score > 0"),
+        "comment_dislikes" => ("comment_likes", " AND x.score < 0"),
+        "comment_reports" => ("comment_reports", ""),
         other => return Err(GhostError::BadRequest(format!("unknown relation {other}"))),
     };
     let limit = if limit > 0 { limit } else { 15 };
@@ -689,7 +755,7 @@ pub async fn members_for(
             "SELECT m.id, m.uuid, m.name, m.email, m.expertise, m.status, m.commenting, \
              m.enable_comment_notifications, x.created_at \
              FROM {table} x JOIN members m ON m.id = x.member_id \
-             WHERE x.comment_id = ? ORDER BY x.created_at DESC LIMIT ? OFFSET ?"
+             WHERE x.comment_id = ?{scored} ORDER BY x.created_at DESC LIMIT ? OFFSET ?"
         ))
         .bind(comment_id)
         .bind(limit)
@@ -697,7 +763,9 @@ pub async fn members_for(
         .fetch_all(pool)
         .await
         .map_err(dberr)?;
-    let total: i64 = sqlx::query_scalar(&format!("SELECT COUNT(*) FROM {table} WHERE comment_id = ?"))
+    let total: i64 = sqlx::query_scalar(&format!(
+        "SELECT COUNT(*) FROM {table} x WHERE x.comment_id = ?{scored}"
+    ))
         .bind(comment_id)
         .fetch_one(pool)
         .await

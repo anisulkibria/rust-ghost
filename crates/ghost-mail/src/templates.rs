@@ -24,6 +24,18 @@ impl LinkType {
         }
     }
 
+    /// The subject when the email also carries a sign-in code. Ghost swaps
+    /// the whole subject for one with the code in it, so a member can read
+    /// it from a notification without opening anything.
+    pub fn subject_with_code(self, site_title: &str, code: &str) -> String {
+        match self {
+            LinkType::Signin | LinkType::Signup => {
+                format!("🔑 Sign in to {site_title} with code {code}")
+            }
+            other => other.subject(site_title),
+        }
+    }
+
     pub fn subject(self, site_title: &str) -> String {
         match self {
             LinkType::Subscribe => format!("📫 Confirm your subscription to {site_title}"),
@@ -94,11 +106,20 @@ pub fn magic_link_text(
     site_domain: &str,
     email: &str,
     url: &str,
+    code: Option<&str>,
 ) -> String {
+    // With a code, the code comes first and the link second — the code is
+    // what a member on another device can actually use.
+    let lead = match code {
+        Some(code) => format!(
+            "Your verification code for {site_title}: {code}\n\nOr use this link to securely sign in:"
+        ),
+        None => kind.lead(site_title),
+    };
     format!(
         "{heading}\n\n{lead}\n\n{url}\n\nFor your security, the link will expire in 24 hours time.\n\n{footnote}\n\n---\n\nThis message was sent from {site_domain} to {email}.",
         heading = kind.heading(site_title),
-        lead = kind.lead(site_title),
+        lead = lead,
         url = url,
         footnote = kind.footnote(),
         site_domain = site_domain,
@@ -115,8 +136,19 @@ pub fn magic_link_html(
     email: &str,
     url: &str,
     accent_color: &str,
+    code: Option<&str>,
 ) -> String {
     let accent = if accent_color.trim().is_empty() { "#15212A" } else { accent_color };
+    // Letter-spaced and large, because the point of it is to be read off one
+    // screen and typed into another.
+    let code_block = match code {
+        Some(code) => format!(
+            r#"<tr><td style="padding:0 0 8px"><p style="margin:0 0 6px;font-size:15px;color:#626d79">Your verification code:</p>
+<p style="margin:0;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:32px;font-weight:600;letter-spacing:6px;color:#15212A">{code}</p></td></tr>"#,
+            code = esc(code)
+        ),
+        None => String::new(),
+    };
     format!(
         r#"<!doctype html>
 <html>
@@ -143,6 +175,7 @@ pub fn magic_link_html(
 <table role="presentation" class="main" border="0" cellpadding="0" cellspacing="0" width="100%" style="background:#ffffff;border-radius:10px;">
 <tr><td class="wrapper" style="padding:32px;">
 <h1 style="font-size:26px;font-weight:700;margin:0 0 20px;line-height:1.2;color:#15212A;">{heading}</h1>
+<table role="presentation" border="0" cellpadding="0" cellspacing="0" width="100%" style="margin:0 0 20px">{code_block}</table>
 <p style="margin:0 0 24px;color:#15212A;">{lead}</p>
 <table role="presentation" class="btn" border="0" cellpadding="0" cellspacing="0" style="margin:0 0 24px;">
 <tr><td align="left">
@@ -157,9 +190,16 @@ pub fn magic_link_html(
 </td>
 <td>&nbsp;</td></tr></table>
 </body></html>"#,
-        subject = esc(&kind.subject(site_title)),
+        subject = esc(&match code {
+            Some(code) => kind.subject_with_code(site_title, code),
+            None => kind.subject(site_title),
+        }),
         heading = esc(&kind.heading(site_title)),
-        lead = esc(&kind.lead(site_title)),
+        lead = esc(&match code {
+            Some(_) => "Or use this link to securely sign in:".to_string(),
+            None => kind.lead(site_title),
+        }),
+        code_block = code_block,
         button = kind.button(),
         footnote = kind.footnote(),
         // the href is a server-built URL, but the visible copy is escaped
@@ -347,8 +387,8 @@ mod tests {
     #[test]
     fn both_parts_carry_the_full_url() {
         let url = "https://example.com/members/?token=abc123&action=signup";
-        let text = magic_link_text(LinkType::Signup, "Acme", "example.com", "a@b.c", url);
-        let html = magic_link_html(LinkType::Signup, "Acme", "example.com", "a@b.c", url, "#ff0000");
+        let text = magic_link_text(LinkType::Signup, "Acme", "example.com", "a@b.c", url, None);
+        let html = magic_link_html(LinkType::Signup, "Acme", "example.com", "a@b.c", url, "#ff0000", None);
         assert!(text.contains(url), "text part must carry a copy-pasteable link");
         assert!(html.contains(url), "html part must link to it");
         // the visible copy is escaped so a & in the query cannot break the markup
@@ -365,8 +405,38 @@ mod tests {
             "a@b.c",
             "https://e.com/",
             "",
+            None,
         );
         assert!(!html.contains("<script>bad"), "site title must not inject markup");
         assert!(html.contains("&lt;script&gt;"));
+    }
+
+    #[test]
+    fn a_sign_in_code_is_shown_in_the_subject_and_the_body() {
+        let url = "https://example.com/members/?token=abc";
+        let html = magic_link_html(LinkType::Signin, "Acme", "example.com", "a@b.c", url, "", Some("042137"));
+        let text = magic_link_text(LinkType::Signin, "Acme", "example.com", "a@b.c", url, Some("042137"));
+
+        // The subject carries it, so it can be read from a notification
+        // without opening anything — which is Ghost's reason for doing this.
+        assert_eq!(LinkType::Signin.subject_with_code("Acme", "042137"), "🔑 Sign in to Acme with code 042137");
+        assert!(html.contains("<title>🔑 Sign in to Acme with code 042137</title>"), "{html}");
+        assert!(html.contains("042137"), "the code is missing from the html body");
+        assert!(text.contains("Your verification code for Acme: 042137"), "{text}");
+        // The link still works, because the code is the alternative to it
+        // rather than a replacement for it.
+        assert!(text.contains(url));
+        assert!(html.contains(url));
+
+        // Without a code, nothing changes.
+        let plain = magic_link_html(LinkType::Signin, "Acme", "example.com", "a@b.c", url, "", None);
+        assert!(plain.contains("<title>🔑 Secure sign in link for Acme</title>"), "{plain}");
+        assert!(!plain.contains("verification code"), "{plain}");
+
+        // A confirmation is not a sign-in, so its subject is left alone.
+        assert_eq!(
+            LinkType::Subscribe.subject_with_code("Acme", "042137"),
+            LinkType::Subscribe.subject("Acme")
+        );
     }
 }

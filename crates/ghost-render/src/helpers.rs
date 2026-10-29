@@ -246,7 +246,8 @@ impl HelperDef for Content {
         // words=N / characters=N truncation
         let words = hash_count(h, "words").or_else(|| (h.hash_get("words").is_some()).then_some(0));
         let chars = hash_count(h, "characters").or_else(|| (h.hash_get("characters").is_some()).then_some(0));
-        let html_out = downsize(html, words, chars);
+        let html=crate::lexical::personalize_transistor(html,root_get(rc,ctx,"member.uuid").as_str(),root_get(rc,ctx,"site.site_uuid").as_str());
+        let html_out = downsize(&html, words, chars);
         write_out(rc, out, &html_out, false)
     }
 }
@@ -547,6 +548,10 @@ impl HelperDef for ImgUrl {
         let format = hash_str(h, "format");
         let sizes = root_get(rc, ctx, "config.image_sizes");
         let absolute = hash_flag(h, "absolute");
+
+        let remote=root_get(rc,ctx,"config.storage_image_prefix");
+        let local=remote.as_str().filter(|prefix|!prefix.is_empty()).and_then(|prefix|path.strip_prefix(prefix)).map(|rest|format!("/content/images/{rest}"));
+        let path=if size.is_some()||format.is_some(){local.as_deref().unwrap_or(path)}else{path};
 
         // external images are passed through untouched, except that Unsplash
         // honours the requested size and format via query parameters
@@ -2087,6 +2092,15 @@ impl HelperDef for GhostHead {
             tags.push(search_helper(&site, origin, &frontend_key));
         }
 
+        // Then the announcement bar and the webmention endpoint, in Ghost's
+        // order. Neither needs the Content API key: the bar reads
+        // `/members/api/announcement/`, and the link is just a link.
+        let announcement = announcement_bar(&site, &origin);
+        if !announcement.is_empty() {
+            tags.push(announcement);
+        }
+        tags.push(webmention_discovery(&origin));
+
         // code injection: site head, then post head
         if let Some(ci) = site.get("codeinjection_head").and_then(|c| c.as_str()).filter(|c| !c.is_empty()) {
             tags.push(ci.to_string());
@@ -2099,37 +2113,60 @@ impl HelperDef for GhostHead {
     }
 }
 
-/// The announcement bar (Ghost's Settings → Site → Announcement bar). Ghost
-/// serves it through a client-side widget that checks the visitor's member
-/// status against `announcement_visibility`; this port renders it
-/// server-side, so until member sessions exist only the `visitors` audience
-/// can see the bar — and an empty visibility list keeps it hidden, exactly
-/// like Ghost. Content is owner-authored and rendered as Markdown.
-fn announcement_bar(site: &serde_json::Value) -> String {
-    let content = match site.get("announcement_content").and_then(|c| c.as_str()).filter(|c| !c.is_empty()) {
-        Some(c) => c,
-        None => return String::new(),
-    };
-    let visible = site
-        .get("announcement_visibility")
-        .and_then(|v| v.as_array())
-        .map(|a| a.iter().any(|v| v.as_str() == Some("visitors")))
-        .unwrap_or(false);
-    if !visible {
+/// The announcement bar (Ghost's Settings → Site → Announcement bar).
+///
+/// This emits Ghost's own widget rather than the markup, because the bar is
+/// one of the few things on a page that cannot be decided on the server. The
+/// audience is per-member — `announcement_visibility` holds some mix of
+/// `visitors`, `free_members` and `paid_members` — so the answer differs by
+/// visitor on a URL that is otherwise identical and cacheable; and a visitor
+/// who dismisses the bar expects it to stay dismissed, which the script
+/// remembers in `localStorage`. The content itself comes from
+/// `/members/api/announcement/`, which applies the visibility rules against
+/// the member cookie on the request.
+///
+/// The tag goes out whenever there is something to announce *and* somebody to
+/// announce it to; an empty visibility list means nobody, so no tag.
+fn announcement_bar(site: &serde_json::Value, origin: &str) -> String {
+    let filled = site
+        .get("announcement_content")
+        .and_then(|c| c.as_str())
+        .is_some_and(|c| !c.is_empty())
+        && site
+            .get("announcement_visibility")
+            .and_then(|v| v.as_array())
+            .is_some_and(|a| !a.is_empty());
+    if !filled {
         return String::new();
     }
-    let (bg, fg) = match site.get("announcement_background").and_then(|b| b.as_str()).unwrap_or("dark") {
-        "light" => ("#ffffff".to_string(), "#111113".to_string()),
-        "accent" => ("var(--ghost-accent-color, #ff1a75)".to_string(), "#ffffff".to_string()),
-        _ => ("#111113".to_string(), "#ffffff".to_string()),
-    };
-    let html = crate::markdown::render_markdown(content).0;
+    let api = format!(
+        "{}{}/members/api/announcement/",
+        origin.trim_end_matches('/'),
+        ghost_core::url::subdir()
+    );
+    let attrs = data_attributes(&[
+        ("announcement-bar", origin.trim_end_matches('/').to_string()),
+        ("api-url", api),
+    ]);
     format!(
-        r#"<style>.ghost-announcement{{position:fixed;top:0;left:0;right:0;z-index:9000;display:flex;align-items:center;justify-content:center;gap:8px;padding:10px 44px;font-size:13.5px;font-weight:500;text-align:center;background:{bg};color:{fg}}}.ghost-announcement p{{margin:0}}.ghost-announcement a{{color:inherit;text-decoration:underline}}.ghost-announcement button{{position:absolute;right:10px;background:none;border:none;color:inherit;opacity:.7;cursor:pointer;font-size:18px;line-height:1;padding:6px}}.ghost-announcement button:hover{{opacity:1}}</style>
-<div class="ghost-announcement" role="banner"><div>{html}</div><button type="button" aria-label="Dismiss announcement" onclick="this.parentElement.remove()">&#215;</button></div>"#,
-        bg = bg,
-        fg = fg,
-        html = html,
+        r#"<script defer src="{}" {attrs} crossorigin="anonymous"></script>"#,
+        crate::apps::announcement_bar_script_url()
+    )
+}
+
+/// `<link rel="webmention">`, which is how another site finds out where to
+/// send a webmention when it links to this one.
+///
+/// Without it the receiver in `ghost_api::mentions` is unreachable by anything
+/// that follows the protocol: a sender discovers the endpoint from the target
+/// page, and a page that advertises nothing gets no mentions. Ghost emits this
+/// unconditionally, social web setting or not, since the endpoint exists
+/// either way.
+fn webmention_discovery(origin: &str) -> String {
+    format!(
+        r#"<link href="{}{}/webmentions/receive/" rel="webmention">"#,
+        html_escape(origin.trim_end_matches('/')),
+        ghost_core::url::subdir()
     )
 }
 
@@ -2152,7 +2189,6 @@ impl HelperDef for GhostFoot {
         if let Some(ci) = this.get("codeinjection_foot").and_then(|c| c.as_str()).filter(|c| !c.is_empty()) {
             parts.push(ci.to_string());
         }
-        parts.push(announcement_bar(&site));
         let parts: Vec<String> = parts.into_iter().filter(|p| !p.is_empty()).collect();
         write_out(rc, out, &parts.join("\n"), false)
     }

@@ -498,6 +498,20 @@ async fn invite(
         .pointer("/roles/0/name")
         .and_then(Value::as_str)
         .unwrap_or("Author");
+    // A pending invite counts against the staff limit the same as a user
+    // does, so this is checked before the invite exists rather than when
+    // somebody tries to accept it — a site at its ceiling should hear about
+    // it here, not leave a colleague with a dead link. Contributors are
+    // exempt, as in Ghost.
+    if role != "Contributor" {
+        if let Err(e) = state
+            .limits
+            .error_if_would_go_over(&state.db, "staff", ghost_db::limits::Check::default())
+            .await
+        {
+            return crate::error_json(&e);
+        }
+    }
     let invite = match repos::staff::create_invite(&state.db, email, role).await {
         Ok(i) => i,
         Err(e) => return failed(e),

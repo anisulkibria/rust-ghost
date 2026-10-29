@@ -734,16 +734,19 @@ be set as an environment variable with `GHOST_` and `__` for nesting —
 | Dynamic routing | ✅ `content/routes.yaml` (routes/collections/taxonomies, permalinks, `/page/N/`, RSS mounts), `content/redirects.yaml` (301/302 + regex + `$n` captures) |
 | Content API | ✅ `/ghost/api/content/{posts,pages,tags,authors,settings,tiers,newsletters}` browse + read by id/slug, `?key=` auth (required Content key), NQL `filter=`/`include=`/`order=`/`limit=`/`fields=`/`formats=`, Ghost envelope shapes |
 | Admin API | ✅ setup flow, bcrypt session login (DB-backed, `ghost-admin-api-session` cookie), posts/pages/tags/users/settings/integrations CRUD, actions audit log, image/media upload |
-| Admin UI | ✅ server-rendered: setup wizard, sign in/out, posts/pages list, markdown editor (tags, featured, status), tags, full Ghost-style settings hub — general, meta data, social accounts, analytics, site (announcement bar w/ server-rendered bar), membership (access, tiers, signup portal, newsletters), growth (recommendations, signup forms; Network & Explore deferred), advanced (integrations, Ghost-format import/export, code injection, labs), history (audit log), danger zone — plus navigation editor (primary + secondary menus) |
+| Admin UI | ✅ server-rendered: setup wizard, sign in/out, posts/pages list, Koenig/Lexical editor with Markdown cards (tags, featured, status), tags, full Ghost-style settings hub — general, meta data, social accounts, analytics, site (announcement bar w/ server-rendered bar), membership (access, tiers, signup portal, newsletters), growth (recommendations, signup forms, native social web and Explore synchronization), advanced (integrations, Ghost-format import/export, code injection, labs), history (audit log), danger zone — plus navigation editor (primary + secondary menus) |
 | Integrations | ✅ built-in apps — Zapier (Admin API key + URL), Slack (incoming webhook, test send, notify on publish), Unsplash (editor picker, own access key) — plus custom integrations with a Content and Admin API key each |
 | Markdown | ✅ comrak (GFM + raw HTML) → `html`/`plaintext`/`reading_time`; markdown source round-trips in a `markdown` column |
 | Sitemap / RSS | ✅ `/sitemap.xml` + per-resource maps, `/rss/` per collection/taxonomy, `/feed/` → 301 |
 | Errors | ✅ theme `error.hbs` hierarchy (`error-<code>` → `error-<N>xx` → `error`) with builtin fallback |
 | Database | ✅ SQLite (WAL, FK on), embedded migrations, Ghost-compatible column names (import-friendly), Ghost-style seeding (roles/permissions matrix, ~130 default settings with dynamic secrets, fixture content, builtin integrations) |
 
-Deferred (extension points exist): members/newsletters/emails, comments,
-Stripe offers, oEmbed, Koenig/Lexical editor format (admin uses markdown),
-image resizing (`/content/images/size/WxH/…` URLs serve the original).
+Current feature coverage and provider configuration are tracked in
+[the parity implementation worklog](docs/native-parity-worklog.md) and
+[the October 29 audit](docs/ghost-feature-audit-2026-10-29.md). Membership,
+newsletters, comments, Stripe offers, oEmbed, Koenig/Lexical, and native image
+resizing are implemented. AVIF support requires Rust 1.98 or newer; x86 build
+hosts also need NASM for the decoder dependency. SVG images remain vector.
 
 ## Integrations and headless
 

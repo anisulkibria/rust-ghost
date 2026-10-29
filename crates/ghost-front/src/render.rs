@@ -126,6 +126,16 @@ pub async fn render_template(
         crate::cards::version(),
     );
 
+    let mut config=config;
+    if state.config.storage["active"].as_str().is_some_and(|s|matches!(s,"s3"|"S3")) {
+        let s3=&state.config.storage["s3"];
+        let prefix=s3["assetHost"].as_str().map(str::to_owned).unwrap_or_else(||{
+            let endpoint=s3["endpoint"].as_str().map(str::to_owned).unwrap_or_else(||format!("https://s3.{}.amazonaws.com",s3["region"].as_str().unwrap_or("us-east-1")));
+            format!("{}/{}",endpoint.trim_end_matches('/'),s3["bucket"].as_str().unwrap_or(""))
+        });
+        config["storage_image_prefix"]=serde_json::json!(format!("{}/images/",prefix.trim_end_matches('/')));
+    }
+
     // `@custom`: the theme's declared settings at their defaults, with any
     // the site owner has changed applied on top
     let overrides = state
