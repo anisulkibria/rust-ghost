@@ -13,6 +13,7 @@ chrono-tz = { workspace = true }
 thiserror = { workspace = true }
 rand = { workspace = true }
 hex = { workspace = true }
+sha2 = { workspace = true }
 tracing = { workspace = true }
 unicode-segmentation = { workspace = true }
 regex = { workspace = true }

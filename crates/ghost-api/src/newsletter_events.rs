@@ -1,6 +1,6 @@
 //! Signed provider delivery events and persistent newsletter redirect links.
 use crate::{permissions::{self, Role}, AppState};
-use axum::{extract::{Path, Query, State}, http::{HeaderMap, StatusCode}, response::{IntoResponse, Redirect, Response}, routing::{get,post}, Json, Router};
+use axum::{extract::{Path, Query, State}, http::{HeaderMap, StatusCode, Method}, response::{IntoResponse, Redirect, Response}, routing::{get,post}, Json, Router};
 use ghost_core::{dates, ids, GhostError, Result};
 use serde::Serialize;
 use serde_json::{json,Value};
@@ -431,9 +431,9 @@ pub(crate) const PIXEL:&[u8]=&[
 /// The image is always returned, whatever the request turns out to be about.
 /// A broken-image icon in the middle of a newsletter would be a worse bug
 /// than a missing statistic.
-async fn open_pixel(State(state):State<AppState>,Path(email_id):Path<String>,Query(params):Query<HashMap<String,String>>)->Response {
+async fn open_pixel(State(state):State<AppState>,method:Method,Path(email_id):Path<String>,Query(params):Query<HashMap<String,String>>)->Response {
     let pixel=|| ([("content-type","image/gif"),("cache-control","no-store, private, max-age=0")],PIXEL).into_response();
-    if !state.settings.get_bool("email_track_opens") { return pixel(); }
+    if method != Method::GET || !state.settings.get_bool("email_track_opens") { return pixel(); }
     let (Some(uuid),Some(key))=(params.get("m"),params.get("k")) else { return pixel() };
     // The same uuid + HMAC pair the unsubscribe link carries, so an open
     // cannot be fabricated for a member whose uuid someone guessed.
@@ -476,10 +476,10 @@ pub async fn track_links(state:&AppState,post_id:&str,html:&str)->Result<String>
     }
     output.push_str(&html[previous..]); Ok(output)
 }
-async fn redirect(State(state):State<AppState>,Path(id):Path<String>,Query(params):Query<HashMap<String,String>>)->Response {
+async fn redirect(State(state):State<AppState>,method:Method,Path(id):Path<String>,Query(params):Query<HashMap<String,String>>)->Response {
     let url=sqlx::query_scalar::<_,String>("SELECT to_url FROM newsletter_links WHERE id=?").bind(&id).fetch_optional(&state.db).await.ok().flatten();
     let Some(url)=url.filter(|u|valid_url(u)) else{return StatusCode::NOT_FOUND.into_response()};
-    if let Some(member)=params.get("m") {
+    if let Some(member)=params.get("m").filter(|_| method == Method::GET && state.settings.get_bool("email_track_clicks")) {
         let exists:bool=sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM members WHERE uuid=?)").bind(member).fetch_one(&state.db).await.unwrap_or(false);
         if exists { let _=sqlx::query("INSERT INTO newsletter_clicks (id,link_id,member_uuid,created_at) VALUES (?,?,?,?)")
             .bind(ids::new_id()).bind(id).bind(member).bind(dates::now_db()).execute(&state.db).await; }

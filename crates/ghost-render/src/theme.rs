@@ -274,17 +274,23 @@ impl handlebars::HelperDef for BodyHelper {
 }
 
 /// gscan-lite: the minimum a directory needs to be a usable Ghost theme.
+/// Refuse a theme that cannot be activated, and say which rule refused it.
+///
+/// Delegates to [`crate::gscan`], so the check is the same one the admin's
+/// theme screen reports in full and uses Ghost's own rule codes. Only fatal
+/// findings block: a theme with warnings — an unstyled Koenig card, a missing
+/// `{{ghost_foot}}` — still runs, and refusing it would be stricter than
+/// Ghost.
 pub fn validate(theme_dir: &Path) -> Result<()> {
     let name = theme_dir
         .file_name()
         .map(|n| n.to_string_lossy().to_string())
         .unwrap_or_else(|| "theme".into());
-    for required in ["index.hbs", "post.hbs"] {
-        if !theme_dir.join(required).exists() {
-            return Err(GhostError::ThemeError(format!("theme {name} is missing {required}")));
-        }
+    let report = crate::gscan::scan(theme_dir);
+    match report.fatal_message() {
+        Some(message) => Err(GhostError::ThemeError(format!("theme {name} — {message}"))),
+        None => Ok(()),
     }
-    Ok(())
 }
 
 /// Read a theme's package.json, falling back to defaults when absent.

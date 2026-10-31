@@ -54,7 +54,7 @@ fn compile(pool: &sqlx::SqlitePool, dir: &Path) -> Result<(), String> {
         asset_hashes: Arc::new(HashMap::new()),
         global_asset_hash: String::new(),
         theme_dir: dir.to_path_buf(),
-        site_origin: "http://localhost:2368".into(),
+        site_origin: "http://localhost:1971".into(),
         content_api_key: String::new(),
     };
     // A theme is user-supplied, so a malformed one must not take the process

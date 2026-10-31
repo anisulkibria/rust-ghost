@@ -22,6 +22,19 @@ impl Fixture {
     /// on a self-hosted install no limit is configured and there is nothing
     /// to test, so the only way to exercise them is to be a host.
     async fn with_host_settings(host_settings: Value) -> Self {
+        Self::build("https://example.test", "development", host_settings).await
+    }
+
+    /// The same fixture served from `url`, in production.
+    ///
+    /// Both halves matter together: the checks that care about the scheme are
+    /// the ones that only apply in production, so a fixture that changed one
+    /// without the other could not reach them.
+    async fn with_url(url: &str, host_settings: Value) -> Self {
+        Self::build(url, "production", host_settings).await
+    }
+
+    async fn build(url: &str, env: &str, host_settings: Value) -> Self {
         let db = sqlx::sqlite::SqlitePoolOptions::new().max_connections(1).connect("sqlite::memory:").await.unwrap();
         sqlx::migrate!("../../migrations").run(&db).await.unwrap();
         ghost_db::seed::seed_if_empty(&db).await.unwrap();
@@ -29,14 +42,17 @@ impl Fixture {
         let sid = repos::sessions::create(&db, &owner.id).await.unwrap();
         let content_key = repos::integrations::internal_content_key(&db).await.unwrap().unwrap();
         let settings = Arc::new(ghost_db::SettingsCache::from_values([
-            ("site_url".into(), json!("https://example.test")),
+            ("site_url".into(), json!(url)),
             ("members_signup_access".into(), json!("all")),
         ]));
-        let config = serde_json::from_value(json!({
-            "url": "https://example.test", "server": {},
+        let mut config: ghost_core::Config = serde_json::from_value(json!({
+            "url": url, "server": {},
             "database": {"connection": {"filename": ":memory:"}}, "paths": {},
             "hostSettings": host_settings,
         })).unwrap();
+        // `env` is not a config field a file can set — it names which block of
+        // the file was loaded — so it is assigned rather than deserialized.
+        config.env = env.to_string();
         let routes = ghost_routing::routes_yaml::parse_routes_yaml(ghost_routing::routes_yaml::DEFAULT_ROUTES_YAML).unwrap();
         let router = Arc::new(ghost_routing::RouterTree::build(&routes).unwrap());
         let theme_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../content/themes/source");
@@ -44,7 +60,7 @@ impl Fixture {
             pool: Arc::new(db.clone()), runtime: tokio::runtime::Handle::current(),
             url_resolver: ghost_api::themes::url_resolver(router.clone()),
             asset_hashes: Arc::new(HashMap::new()), global_asset_hash: "test".into(),
-            theme_dir: theme_dir.clone(), site_origin: "https://example.test".into(), content_api_key: content_key.clone(),
+            theme_dir: theme_dir.clone(), site_origin: url.into(), content_api_key: content_key.clone(),
         };
         let theme = ghost_render::load_and_activate(&theme_dir, &deps, HashMap::new()).unwrap();
         let state = AppState {
@@ -55,7 +71,7 @@ impl Fixture {
             limits: Arc::new(ghost_db::limits::Limits::load(&host_settings)),
         };
         let app = Router::new().nest("/admin", ghost_api::admin::admin_router().merge(ghost_api::automations::automations_router()).merge(ghost_api::admin_comments::admin_comments_router()))
-            .nest("/content", ghost_api::content::content_router())
+            .nest("/content", ghost_api::content::content_router(state.clone()))
             .merge(ghost_api::members::members_router()).with_state(state.clone());
         Self {state, app, cookie: format!("ghost-admin-api-session={sid}"), content_key}
     }
@@ -776,6 +792,10 @@ async fn newsletter_opens_are_recorded_once_per_recipient_and_only_for_signed_re
         assert_eq!(counts(state.clone()).await.1,0,"{uri} recorded an open it should not have");
     }
     let uri=format!("/r/o/open-email/?m=open-uuid&k={signature}");
+    let response=app.clone().oneshot(Request::builder().method("HEAD").uri(&uri).body(Body::empty()).unwrap()).await.unwrap();
+    assert_eq!(response.status(),StatusCode::OK);
+    assert!(to_bytes(response.into_body(),1_000).await.unwrap().is_empty());
+    assert_eq!(counts(state.clone()).await.1,0,"HEAD must not record an open");
     for replay in [false,true] {
         let response=pixel(uri.clone()).await;
         assert_eq!(response.status(),StatusCode::OK);
@@ -1621,10 +1641,39 @@ async fn automation_opens_and_clicks_update_the_original_revision_once(){
     assert!(body.contains("/r/a/o/"));assert!(body.contains("/r/a/c/"));
     let token:String=sqlx::query_scalar("SELECT token FROM automation_tracking").fetch_one(&f.state.db).await.unwrap();
     let link:String=sqlx::query_scalar("SELECT id FROM automation_links").fetch_one(&f.state.db).await.unwrap();
+    let app=ghost_api::automation_tracking::public_router().with_state(f.state.clone());
+    for path in [format!("/r/a/o/{token}"),format!("/r/a/c/{link}/{token}")] {
+        let response=app.clone().oneshot(Request::builder().method("HEAD").uri(&path).body(Body::empty()).unwrap()).await.unwrap();
+        assert!(response.status().is_success() || response.status()==StatusCode::TEMPORARY_REDIRECT);
+        assert!(to_bytes(response.into_body(),1_000).await.unwrap().is_empty());
+    }
+    let counts:(i64,i64)=sqlx::query_as("SELECT email_opened_count,email_clicked_count FROM automation_action_revisions WHERE id=?").bind(&revision).fetch_one(&f.state.db).await.unwrap();
+    assert_eq!(counts,(0,0),"HEAD must not record automation engagement");
     assert!(ghost_api::automation_tracking::record(&f.state,&token,None).await.unwrap());assert!(!ghost_api::automation_tracking::record(&f.state,&token,None).await.unwrap());
     assert!(ghost_api::automation_tracking::record(&f.state,&token,Some(&link)).await.unwrap());assert!(!ghost_api::automation_tracking::record(&f.state,&token,Some(&link)).await.unwrap());
     assert!(!ghost_api::automation_tracking::record(&f.state,&token,Some("other-link")).await.unwrap());
     let counts:(i64,i64)=sqlx::query_as("SELECT email_opened_count,email_clicked_count FROM automation_action_revisions WHERE id=?").bind(revision).fetch_one(&f.state.db).await.unwrap();assert_eq!(counts,(1,1));
+}
+
+#[tokio::test]
+async fn newsletter_redirects_ignore_head_and_respect_click_tracking_settings(){
+    let f=Fixture::new().await;
+    f.state.settings.set(&f.state.db,"email_track_clicks",&json!(true)).await.unwrap();
+    let (_,post)=f.request("POST","/admin/posts/",json!({"posts":[{"title":"Click tracking"}]}),None).await;
+    let id=post["posts"][0]["id"].as_str().unwrap();
+    ghost_api::newsletter_events::track_links(&f.state,id,"<a href=\"https://example.org/article\">Read</a>").await.unwrap();
+    let link:String=sqlx::query_scalar("SELECT id FROM newsletter_links WHERE post_id=?").bind(id).fetch_one(&f.state.db).await.unwrap();
+    sqlx::query("INSERT INTO members(id,uuid,transient_id,email,status,created_at)VALUES('click-member','click-uuid','click-transient','click@example.test','free',datetime('now'))").execute(&f.state.db).await.unwrap();
+    let app=ghost_api::newsletter_events::public_router().with_state(f.state.clone());
+    let path=format!("/r/{link}/?m=click-uuid");
+    for (method,enabled,expected) in [("HEAD",true,0),("GET",false,0),("GET",true,1)] {
+        f.state.settings.set(&f.state.db,"email_track_clicks",&json!(enabled)).await.unwrap();
+        let response=app.clone().oneshot(Request::builder().method(method).uri(&path).body(Body::empty()).unwrap()).await.unwrap();
+        assert_eq!(response.status(),StatusCode::TEMPORARY_REDIRECT);
+        assert_eq!(response.headers()["location"],"https://example.org/article");
+        let count:i64=sqlx::query_scalar("SELECT COUNT(*) FROM newsletter_clicks").fetch_one(&f.state.db).await.unwrap();
+        assert_eq!(count,expected,"{method} with tracking={enabled}");
+    }
 }
 
 #[tokio::test]
@@ -1845,4 +1894,261 @@ async fn an_announcement_is_served_only_to_the_audience_it_was_set_for() {
     nobody.settings = with(json!([]));
     assert_eq!(ask(nobody.clone(), None).await.0, StatusCode::NO_CONTENT);
     assert_eq!(ask(nobody, Some("ft")).await.0, StatusCode::NO_CONTENT);
+}
+
+#[tokio::test]
+async fn article_gift_links_read_ensure_reset_and_revoke_preserve_history() {
+    let f = Fixture::new().await;
+    let (_, post) = f.request("POST", "/admin/posts/", json!({"posts":[{"title":"Gift lifecycle"}]}), None).await;
+    let id = post["posts"][0]["id"].as_str().unwrap();
+    let path = format!("/admin/posts/{id}/gift_links/");
+    for _ in 0..2 {
+        let (status, read) = f.request("GET", &path, Value::Null, None).await;
+        assert_eq!(status, StatusCode::OK, "{read}");
+        assert_eq!(read["gift_links"], json!([]));
+    }
+    let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM gift_links").fetch_one(&f.state.db).await.unwrap();
+    assert_eq!(count, 0, "GET must not create a token");
+    let (first, concurrent) = tokio::join!(
+        f.request("PUT", &path, Value::Null, None),
+        f.request("PUT", &path, Value::Null, None)
+    );
+    assert_eq!(first.0, StatusCode::OK, "{first:?}");
+    assert_eq!(concurrent.0, StatusCode::OK, "{concurrent:?}");
+    assert_eq!(first.1, concurrent.1, "concurrent ensures must return the same live link");
+    let token = first.1["gift_links"][0]["token"].as_str().unwrap();
+    assert_eq!(token.len(), 32);
+    assert!(token.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_'));
+    assert!(first.1["gift_links"][0]["created_at"].as_str().unwrap().ends_with('Z'));
+    assert!(first.1["gift_links"][0]["url"].as_str().unwrap().contains(token));
+    assert!(ghost_api::publishing::valid_gift(&f.state, id, token).await);
+    assert!(!ghost_api::publishing::valid_gift(&f.state, "another-post", token).await);
+    for method in ["GET", "PUT", "GET"] {
+        let (status, read) = f.request(method, &path, Value::Null, None).await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(read, first.1);
+    }
+    let (status, reset) = f.request("POST", &path, Value::Null, None).await;
+    assert_eq!(status, StatusCode::OK, "{reset}");
+    let new_token = reset["gift_links"][0]["token"].as_str().unwrap();
+    assert_ne!(token, new_token);
+    assert!(!ghost_api::publishing::valid_gift(&f.state, id, token).await);
+    assert!(ghost_api::publishing::valid_gift(&f.state, id, new_token).await);
+    let history: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM gift_links WHERE post_id=?").bind(id).fetch_one(&f.state.db).await.unwrap();
+    assert_eq!(history, 2);
+    let (_, removed) = f.request("PUT", "/admin/gift_links/remove_all/", Value::Null, None).await;
+    assert_eq!(removed["meta"]["count"], 1);
+    assert!(!ghost_api::publishing::valid_gift(&f.state, id, new_token).await);
+    let history: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM gift_links WHERE post_id=?").bind(id).fetch_one(&f.state.db).await.unwrap();
+    assert_eq!(history, 2, "revocation retains history");
+    let events: Vec<String> = sqlx::query_scalar("SELECT event FROM actions WHERE resource_type='gift_link' ORDER BY rowid")
+        .fetch_all(&f.state.db).await.unwrap();
+    assert_eq!(events, ["added", "edited", "deleted"], "reads and repeated ensures must not add audit events");
+    assert_eq!(f.request("GET", &path, Value::Null, None).await.1["gift_links"], json!([]));
+    assert_eq!(f.request("GET", "/admin/posts/missing/gift_links/", Value::Null, None).await.0, StatusCode::NOT_FOUND);
+    let (_, cookie) = f.staff("Author", "gift-author").await;
+    let response = f.app.clone().oneshot(Request::builder().uri(&path).header("cookie",cookie).body(Body::empty()).unwrap()).await.unwrap();
+    assert_eq!(response.status(), StatusCode::FORBIDDEN);
+}
+
+#[tokio::test]
+async fn legacy_article_gifts_survive_reads_until_explicit_reset() {
+    use sha2::{Digest, Sha256};
+    let f = Fixture::new().await;
+    let (_, post) = f.request("POST", "/admin/posts/", json!({"posts":[{"title":"Legacy gift"}]}), None).await;
+    let id = post["posts"][0]["id"].as_str().unwrap();
+    let legacy = "ab".repeat(32);
+    sqlx::query("INSERT INTO article_gift_links(id,post_id,token_hash,created_at)VALUES('legacy-gift',?,?,datetime('now'))")
+        .bind(id).bind(hex::encode(Sha256::digest(legacy.as_bytes()))).execute(&f.state.db).await.unwrap();
+    let path = format!("/admin/posts/{id}/gift_links/");
+    assert_eq!(f.request("GET", &path, Value::Null, None).await.1["gift_links"], json!([]));
+    assert!(ghost_api::publishing::valid_gift(&f.state, id, &legacy).await);
+    let (status, reset) = f.request("PUT", &path, Value::Null, None).await;
+    assert_eq!(status, StatusCode::OK, "{reset}");
+    assert!(!ghost_api::publishing::valid_gift(&f.state, id, &legacy).await);
+    let token = reset["gift_links"][0]["token"].as_str().unwrap();
+    assert!(ghost_api::publishing::valid_gift(&f.state, id, token).await);
+    assert_eq!(f.request("DELETE", &path, Value::Null, None).await.0, StatusCode::NO_CONTENT);
+    assert!(!ghost_api::publishing::valid_gift(&f.state, id, token).await);
+    let integration = f.integration().await;
+    let jwt = Fixture::jwt(&integration, None);
+    let (status, result) = f.request("POST", &path, Value::Null, Some(&jwt)).await;
+    assert_eq!(status, StatusCode::OK, "{result}");
+    let actor: (String, String, String) = sqlx::query_as("SELECT actor_id,actor_type,context FROM actions WHERE resource_type='gift_link' ORDER BY rowid DESC LIMIT 1")
+        .fetch_one(&f.state.db).await.unwrap();
+    assert_eq!(actor.0, integration["id"].as_str().unwrap());
+    assert_eq!(actor.1, "integration");
+    assert_eq!(serde_json::from_str::<Value>(&actor.2).unwrap()["action_name"], "reset");
+}
+
+/// `GET /members/stripe_connect` is upstream's handshake start: it validates
+/// `mode`, plants a nonce on the session and redirects to Stripe.
+#[tokio::test]
+async fn starting_stripe_connect_redirects_with_a_state_bound_to_this_session() {
+    let f = Fixture::new().await;
+    let start = |query: &str| {
+        let app = f.app.clone();
+        let uri = format!("/admin/members/stripe_connect/{query}");
+        let cookie = f.cookie.clone();
+        async move {
+            app.oneshot(Request::builder().uri(uri).header("cookie", cookie).body(Body::empty()).unwrap()).await.unwrap()
+        }
+    };
+
+    let response = start("").await;
+    assert_eq!(response.status(), StatusCode::SEE_OTHER);
+    let location = response.headers()["location"].to_str().unwrap().to_string();
+    assert!(location.starts_with("https://connect.stripe.com/oauth/authorize?"), "{location}");
+    assert!(location.contains("client_id=ca_8LBuZWhYshxF0A55KgCXu8PRTquCKC5x"), "defaults to live: {location}");
+
+    // The state in the URL is the one now stored against the session, and it
+    // is what makes the returned keys unredeemable by anybody else.
+    let state: String = sqlx::query_scalar("SELECT json_extract(session_data, '$.stripe-connect-state') FROM sessions WHERE session_id = ?")
+        .bind(f.cookie.trim_start_matches("ghost-admin-api-session="))
+        .fetch_one(&f.state.db).await.unwrap();
+    let decoded = {
+        use base64::Engine;
+        String::from_utf8(base64::engine::general_purpose::STANDARD.decode(&state).unwrap()).unwrap()
+    };
+    assert_eq!(serde_json::from_str::<Value>(&decoded).unwrap()["mode"], "live");
+    assert!(location.contains(&urlencoding(&state)), "{location} should carry {state}");
+
+    assert!(start("?mode=test").await.headers()["location"].to_str().unwrap()
+        .contains("client_id=ca_8LBum4Ctv3mmJ1oD0ZRmxjdAhNrrBUy3"));
+    // Upstream validates mode against two values and nothing else.
+    assert_eq!(start("?mode=sandbox").await.status(), StatusCode::UNPROCESSABLE_ENTITY);
+}
+
+fn urlencoding(value: &str) -> String {
+    form_urlencoded::Serializer::new(String::new()).append_pair("state", value).finish()["state=".len()..].to_string()
+}
+
+/// A production site on plain HTTP cannot start a handshake, because the keys
+/// come back through that browser.
+#[tokio::test]
+async fn stripe_connect_refuses_a_production_site_without_https() {
+    let f = Fixture::with_url("http://plain.example.test", json!(null)).await;
+    let response = f.app.clone().oneshot(Request::builder().uri("/admin/members/stripe_connect/")
+        .header("cookie", &f.cookie).body(Body::empty()).unwrap()).await.unwrap();
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    let body = to_bytes(response.into_body(), 10_000).await.unwrap();
+    let body: Value = serde_json::from_slice(&body).unwrap();
+    assert_eq!(body["errors"][0]["message"], "Cannot connect to stripe unless site is using https://");
+}
+
+/// `PUT /settings` is where Ghost's admin finishes the handshake, by sending
+/// the broker's blob as `stripe_connect_integration_token`. The token is
+/// never stored, and a blob from another session is refused.
+#[tokio::test]
+async fn a_connect_token_is_verified_against_the_session_and_never_stored() {
+    use base64::Engine;
+    let f = Fixture::new().await;
+    let sid = f.cookie.trim_start_matches("ghost-admin-api-session=").to_string();
+    let blob = |state: &str| {
+        base64::engine::general_purpose::STANDARD.encode(json!({
+            "a": "sk_test_fixture", "p": "pk_test_fixture", "s": state,
+            "l": false, "i": "acct_fixture", "n": "Fixture",
+        }).to_string())
+    };
+    let put = |token: String| f.request("PUT", "/admin/settings/",
+        json!({"settings": [{"key": "stripe_connect_integration_token", "value": token}]}), None);
+
+    // Nothing pending: there is no state for the blob to have been issued
+    // against, so it cannot be redeemed at all.
+    let (status, body) = put(blob("never-minted")).await;
+    assert_eq!(status, StatusCode::FORBIDDEN, "{body}");
+    assert_eq!(body["errors"][0]["message"], "State did not match.");
+
+    // A pending handshake does not make somebody else's blob redeemable.
+    let minted = ghost_api::stripe_connect::mint_state(&f.state.db, &sid, "test").await.unwrap();
+    let (status, body) = put(blob("some-other-session")).await;
+    assert_eq!(status, StatusCode::FORBIDDEN, "{body}");
+    assert_eq!(body["errors"][0]["message"], "State did not match.");
+
+    // A blob that is not a Connect payload reports upstream's message.
+    let (status, body) = put("not base64 at all!".into()).await;
+    assert_eq!(status, StatusCode::BAD_REQUEST, "{body}");
+    assert_eq!(body["errors"][0]["message"], "The Stripe Connect token could not be parsed.");
+
+    // The matching blob is the one that would be adopted. It is not sent
+    // here, because adopting it means a live call to Stripe to verify the
+    // key — so the gate it has to pass is checked directly instead.
+    assert!(ghost_api::stripe_connect::decode_secure_key(&blob(&minted), &minted).is_ok());
+
+    // None of the refused attempts stored the token. It carries a live secret
+    // key, and a settings row is readable back through `GET /settings`.
+    let stored: Option<String> = sqlx::query_scalar("SELECT value FROM settings WHERE key = 'stripe_connect_integration_token'")
+        .fetch_optional(&f.state.db).await.unwrap().flatten();
+    assert_eq!(stored, None, "the Connect token was stored as a setting");
+
+    // The nonce is single-use and time-boxed, which is what stops an
+    // intercepted blob being redeemed later.
+    assert_eq!(ghost_api::stripe_connect::pending_state(&f.state.db, &sid).await.as_deref(), Some(minted.as_str()));
+    assert!(ghost_api::stripe_connect::clear_state(&f.state.db, &sid).await);
+    assert_eq!(ghost_api::stripe_connect::pending_state(&f.state.db, &sid).await, None);
+    ghost_api::stripe_connect::mint_state(&f.state.db, &sid, "test").await.unwrap();
+    sqlx::query("UPDATE sessions SET session_data = json_set(session_data, '$.stripe-connect-started-at', 1) WHERE session_id = ?")
+        .bind(&sid).execute(&f.state.db).await.unwrap();
+    assert_eq!(ghost_api::stripe_connect::pending_state(&f.state.db, &sid).await, None, "an expired handshake is still pending");
+}
+
+/// The settings a Connect handshake owns cannot be assigned directly, and the
+/// redaction `GET /settings` writes must not come back as a value.
+#[tokio::test]
+async fn editing_settings_follows_upstreams_three_refusals() {
+    let f = Fixture::new().await;
+    f.state.settings.set(&f.state.db, "mailgun_api_key", &json!("key-real-secret")).await.unwrap();
+
+    // Round-tripping the whole settings document is the normal case for an
+    // admin client, and browse redacted the credential on the way out.
+    // Writing it back would destroy the key.
+    let (status, body) = f.request("PUT", "/admin/settings/", json!({"settings": [
+        {"key": "mailgun_api_key", "value": "••••••••"},
+        {"key": "title", "value": "Still saves the rest"},
+    ]}), None).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(f.state.settings.get_str("mailgun_api_key").as_deref(), Some("key-real-secret"));
+    assert_eq!(f.state.settings.get_str("title").as_deref(), Some("Still saves the rest"));
+
+    // Derived Stripe settings are dropped rather than refused, so an
+    // unrelated save in the same document still goes through.
+    let (status, body) = f.request("PUT", "/admin/settings/", json!({"settings": [
+        {"key": "stripe_connect_account_id", "value": "acct_attacker"},
+        {"key": "stripe_connect_secret_key", "value": "sk_live_attacker"},
+        {"key": "description", "value": "Saved alongside"},
+    ]}), None).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(f.state.settings.get_str("stripe_connect_account_id").unwrap_or_default(), "");
+    assert_eq!(f.state.settings.get_str("description").as_deref(), Some("Saved alongside"));
+
+    // A core setting is Ghost's machinery, not the site's preferences.
+    // Overwriting this one would invalidate every magic link in every inbox.
+    let secret = f.state.settings.get_str("members_email_auth_secret").unwrap_or_default();
+    let (status, body) = f.request("PUT", "/admin/settings/",
+        json!({"settings": [{"key": "members_email_auth_secret", "value": "chosen-by-the-caller"}]}), None).await;
+    assert_eq!(status, StatusCode::FORBIDDEN, "{body}");
+    assert_eq!(body["errors"][0]["message"], "Attempted to access core setting from external request");
+    assert_eq!(f.state.settings.get_str("members_email_auth_secret").unwrap_or_default(), secret);
+
+    // An unknown key is a client mistake, not a new setting to invent.
+    let (status, body) = f.request("PUT", "/admin/settings/",
+        json!({"settings": [{"key": "not_a_real_setting", "value": "x"}]}), None).await;
+    assert_eq!(status, StatusCode::NOT_FOUND, "{body}");
+    assert_eq!(body["errors"][0]["message"], "Problem finding setting: not_a_real_setting");
+}
+
+/// Disconnecting Stripe while members still pay through it would leave them
+/// charged for access the site can no longer confirm.
+#[tokio::test]
+async fn stripe_cannot_be_disconnected_while_a_member_still_pays() {
+    let f = Fixture::new().await;
+    sqlx::query("INSERT INTO members (id, uuid, transient_id, email, status, created_at, updated_at) VALUES (?, ?, ?, 'paying@example.test', 'paid', datetime('now'), datetime('now'))")
+        .bind(ghost_core::ids::new_id()).bind(ghost_core::ids::uuid_v4()).bind(ghost_core::ids::uuid_v4())
+        .execute(&f.state.db).await.unwrap();
+    let (status, body) = f.request("DELETE", "/admin/settings/stripe/connect/", Value::Null, None).await;
+    assert_eq!(status, StatusCode::BAD_REQUEST, "{body}");
+    assert_eq!(body["errors"][0]["message"], "Cannot disconnect Stripe whilst you have active subscriptions.");
+
+    sqlx::query("UPDATE members SET status = 'free'").execute(&f.state.db).await.unwrap();
+    assert_eq!(f.request("DELETE", "/admin/settings/stripe/connect/", Value::Null, None).await.0, StatusCode::NO_CONTENT);
 }

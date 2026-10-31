@@ -99,7 +99,7 @@ SETUP OPTIONS (all optional; omitted values are asked for interactively)
     --no-ssl         Serve plain HTTP (correct behind a TLS-terminating proxy)
     --email <addr>   Contact address for certificate expiry notices
     --port <n>       Port to listen on. Without this: 443 with HTTPS, else the
-                     first free port from 2368 upwards
+                     first free port from 1971 upwards
     --host <addr>    Address to bind (default 0.0.0.0 with HTTPS, else 127.0.0.1)
     --env <name>     Config environment: production (default) or development
     --staging        Use Let's Encrypt's staging CA while testing
@@ -150,7 +150,7 @@ pub fn setup(args: &Args) -> Result<(), String> {
         None if interactive => ask(
             "Site url",
             "Where the site will be reached, including https:// — a path is fine\n  (https://example.com, or https://example.com/blog for a subdirectory)",
-            Some("http://localhost:2368"),
+            Some(&format!("http://localhost:{}", ghost_core::config::DEFAULT_PORT)),
         )?,
         None => return Err("--url is required when stdin is not a terminal".into()),
     };
@@ -333,8 +333,8 @@ const PORT_SEARCH_WINDOW: u16 = 64;
 ///   something else owns HTTPS on this machine, which is a decision to make,
 ///   not a number to step past.
 /// - Otherwise — a local install, or one behind a reverse proxy — walk upwards
-///   from the intended port until something is free. 2368 is Ghost's
-///   traditional port and is often already serving another site.
+///   from the intended port until something is free. A developer machine
+///   commonly has more than one site on it, so the first choice is often taken.
 fn choose_port(
     host: &str,
     url: &str,
@@ -369,7 +369,7 @@ fn choose_port(
         return Ok((None, url.to_string()));
     }
 
-    let start = from_url.unwrap_or(2368);
+    let start = from_url.unwrap_or(ghost_core::config::DEFAULT_PORT);
     let port = find_free_port(host, start)?;
     if port != start {
         println!("  note: port {start} is in use, so this install will use {port} instead.");
@@ -378,7 +378,7 @@ fn choose_port(
 
     // Writing the port only when it differs from the default keeps the common
     // config file short, which is the one people read.
-    let needs_stating = port != 2368 || from_url.is_some();
+    let needs_stating = port != ghost_core::config::DEFAULT_PORT || from_url.is_some();
     Ok((needs_stating.then_some(port), set_url_port(url, port)))
 }
 
@@ -958,25 +958,25 @@ mod tests {
 
     #[test]
     fn reads_the_port_out_of_a_url() {
-        assert_eq!(url_port("http://localhost:2368"), Some(2368));
-        assert_eq!(url_port("http://localhost:2368/blog"), Some(2368));
+        assert_eq!(url_port("http://localhost:1971"), Some(1971));
+        assert_eq!(url_port("http://localhost:1971/blog"), Some(1971));
         assert_eq!(url_port("https://example.com"), None);
         assert_eq!(url_port("https://example.com/blog"), None);
         // an IPv6 literal's colons are not a port
         assert_eq!(url_port("http://[::1]/"), None);
-        assert_eq!(url_port("http://[::1]:2368/"), Some(2368));
+        assert_eq!(url_port("http://[::1]:1971/"), Some(1971));
     }
 
     /// The url and the listening port have to agree: a mismatch means every
     /// link the site writes names a port nothing is listening on.
     #[test]
     fn rewrites_the_url_port_in_step() {
-        assert_eq!(set_url_port("http://localhost:2368", 2371), "http://localhost:2371");
+        assert_eq!(set_url_port("http://localhost:1971", 2371), "http://localhost:2371");
         assert_eq!(
-            set_url_port("http://localhost:2368/blog", 2371),
+            set_url_port("http://localhost:1971/blog", 2371),
             "http://localhost:2371/blog"
         );
-        assert_eq!(set_url_port("http://[::1]:2368/", 2371), "http://[::1]:2371/");
+        assert_eq!(set_url_port("http://[::1]:1971/", 2371), "http://[::1]:2371/");
     }
 
     /// A public url carries no port — the scheme implies it — so there is
@@ -992,7 +992,7 @@ mod tests {
     /// path must not be mistaken for the authority.
     #[test]
     fn only_the_authority_is_considered() {
-        assert_eq!(authority("http://localhost:2368/a:1"), Some("localhost:2368"));
+        assert_eq!(authority("http://localhost:1971/a:1"), Some("localhost:1971"));
         assert_eq!(url_port("http://localhost/a:1"), None);
         assert_eq!(set_url_port("http://localhost/a:1", 2371), "http://localhost/a:1");
     }
@@ -1008,22 +1008,27 @@ mod tests {
     #[test]
     fn an_explicit_port_is_honoured_and_synced_into_the_url() {
         let (port, url) =
-            choose_port("127.0.0.1", "http://localhost:2368", Some(9000), false).unwrap();
+            choose_port("127.0.0.1", "http://localhost:1971", Some(9000), false).unwrap();
         assert_eq!(port, Some(9000));
         assert_eq!(url, "http://localhost:9000");
     }
 
     /// With the default port free, nothing needs saying in the config file.
+    ///
+    /// Named through the constant rather than written out, so moving the
+    /// default again cannot leave this test asserting the old one.
     #[test]
     fn leaves_the_default_port_unstated() {
-        let free = find_free_port("127.0.0.1", 2368).unwrap();
-        if free != 2368 {
-            return; // something on this machine holds 2368; covered below
+        let default = ghost_core::config::DEFAULT_PORT;
+        let free = find_free_port("127.0.0.1", default).unwrap();
+        if free != default {
+            return; // something on this machine holds it; covered below
         }
-        let (port, url) = choose_port("127.0.0.1", "http://localhost:2368", None, false).unwrap();
-        assert_eq!(url, "http://localhost:2368");
-        // 2368 is the default, but the url states it, so the file does too
-        assert_eq!(port, Some(2368));
+        let url = format!("http://localhost:{default}");
+        let (port, chosen) = choose_port("127.0.0.1", &url, None, false).unwrap();
+        assert_eq!(chosen, url);
+        // It is the default, but the url states it, so the file does too.
+        assert_eq!(port, Some(default));
     }
 
     /// The behaviour this feature exists for: step past an occupied port and
@@ -1048,7 +1053,7 @@ mod tests {
     #[test]
     fn reports_when_the_whole_window_is_unusable() {
         // an address this machine does not hold cannot be bound at any port
-        let err = find_free_port("203.0.113.1", 2368).unwrap_err();
+        let err = find_free_port("203.0.113.1", 1971).unwrap_err();
         assert!(err.contains("--port"), "{err}");
     }
 }

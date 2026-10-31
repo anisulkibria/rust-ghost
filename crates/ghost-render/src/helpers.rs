@@ -3257,9 +3257,25 @@ impl HelperDef for CancelLink {
     }
 }
 
-/// `{{recommendations}}` — renders the recommendations partial over whatever
-/// the route put on the scope.
-pub struct Recommendations;
+/// `{{recommendations}}` — renders the recommendations partial.
+///
+/// Ported from `core/frontend/helpers/recommendations.js`, including its
+/// options: `limit` (default 5), `order` (default `created_at desc`), `filter`
+/// and `page`. The helper runs its own browse rather than reading a fixed list
+/// off the scope, which is what makes those options mean anything — before,
+/// `{{recommendations limit=10}}` still rendered the route's five. The
+/// prepared scope is still honoured when no option narrows the query, so a
+/// route that already loaded the list does not pay for a second one.
+pub struct Recommendations {
+    deps: HelperDeps,
+}
+
+impl Recommendations {
+    pub fn new(deps: HelperDeps) -> Self {
+        Self { deps }
+    }
+}
+
 impl HelperDef for Recommendations {
     fn call<'reg: 'rc, 'rc>(
         &self,
@@ -3270,18 +3286,70 @@ impl HelperDef for Recommendations {
         out: &mut dyn Output,
     ) -> HelperResult {
         let this = current_value(rc, ctx);
-        let items = this
-            .get("recommendations")
-            .cloned()
-            .or_else(|| Some(root_get(rc, ctx, "recommendations")))
-            .filter(|v| v.is_array())
-            .unwrap_or(Value::Array(vec![]));
+        let hash_opt = |name: &str| h.hash_get(name).map(|v| v.value().clone());
+        let queried = ["limit", "order", "filter", "page"].iter().any(|k| hash_opt(k).is_some());
+
+        let (items, pagination) = if queried {
+            let q = ghost_db::repos::recommendations::BrowseRecommendations {
+                filter: hash_opt("filter")
+                    .as_ref()
+                    .and_then(Value::as_str)
+                    .filter(|f| !f.trim().is_empty())
+                    .and_then(|f| ghost_nql::parse(f).ok()),
+                order: hash_opt("order").as_ref().and_then(Value::as_str).map(str::to_string),
+                limit: hash_opt("limit")
+                    .as_ref()
+                    .map(|v| match v {
+                        Value::String(s) if s.eq_ignore_ascii_case("all") => -1,
+                        Value::String(s) => s.parse().unwrap_or(5),
+                        Value::Number(n) => n.as_i64().unwrap_or(5),
+                        _ => 5,
+                    })
+                    .unwrap_or(5),
+                page: hash_opt("page")
+                    .as_ref()
+                    .map(|v| match v {
+                        Value::String(s) => s.parse().unwrap_or(1),
+                        Value::Number(n) => n.as_i64().unwrap_or(1),
+                        _ => 1,
+                    })
+                    .unwrap_or(1),
+            };
+            let deps = self.deps.clone();
+            let runtime = deps.runtime.clone();
+            let query = q.clone();
+            let result = runtime.block_on(async move {
+                ghost_db::repos::recommendations::browse(&deps.pool, &query).await
+            });
+            match result {
+                Ok((items, total)) => {
+                    let limit = if q.limit > 0 { q.limit } else { total.max(1) };
+                    (
+                        Value::Array(items),
+                        ghost_core::models::pagination_json(q.page, limit, total),
+                    )
+                }
+                // Upstream logs and renders nothing when the browse fails.
+                Err(_) => return Ok(()),
+            }
+        } else {
+            let items = this
+                .get("recommendations")
+                .cloned()
+                .or_else(|| Some(root_get(rc, ctx, "recommendations")))
+                .filter(|v| v.is_array())
+                .unwrap_or(Value::Array(vec![]));
+            let total = items.as_array().map(|a| a.len() as i64).unwrap_or(0);
+            (items, ghost_core::models::pagination_json(1, total.max(1), total))
+        };
+
         if items.as_array().is_some_and(|a| a.is_empty()) {
             return Ok(());
         }
 
         let mut data = Map::new();
         data.insert("recommendations".into(), items);
+        data.insert("pagination".into(), pagination);
         for (k, v) in h.hash() {
             data.insert((*k).to_string(), v.value().clone());
         }
@@ -3544,7 +3612,7 @@ pub fn register_all(
     hb.register_helper("total_members", Box::new(TotalMembers { paid: false }));
     hb.register_helper("total_paid_members", Box::new(TotalMembers { paid: true }));
     hb.register_helper("cancel_link", Box::new(CancelLink));
-    hb.register_helper("recommendations", Box::new(Recommendations));
+    hb.register_helper("recommendations", Box::new(Recommendations::new(deps.clone())));
     hb.register_helper("content_api_url", Box::new(ContentApi { is_url: true, key: String::new() }));
     hb.register_helper(
         "content_api_key",
@@ -3566,8 +3634,7 @@ pub fn register_all(
     hb.register_helper("prev_post", Box::new(crate::get_helper::PrevNextPost::new(deps.clone(), true)));
     hb.register_helper("next_post", Box::new(crate::get_helper::PrevNextPost::new(deps.clone(), false)));
 
-    // not yet backed by data: render nothing rather than the helper name
-    hb.register_helper("collection", Box::new(Noop));
+    hb.register_helper("collection", Box::new(crate::get_helper::CollectionHelper::new(deps.clone())));
 }
 
 pub struct Noop;

@@ -16,6 +16,16 @@ use ghost_api::AppState;
 
 pub use ghost_api::themes::url_resolver;
 
+/// Render an authorized editor snapshot through the same theme/context as /p/.
+/// Authentication belongs to the caller; this function does not register a route.
+pub async fn preview_snapshot(
+    state: &AppState,
+    post: &ghost_core::models::Post,
+    value: serde_json::Value,
+) -> ghost_core::Result<String> {
+    routes::render_preview_snapshot(state,post,value,serde_json::json!({"status":"paid","tiers":post.tier_ids}),"/p/preview/").await
+}
+
 pub fn site_router(state: AppState) -> Router {
     Router::new()
         .merge(ghost_api::newsletter_events::public_router())

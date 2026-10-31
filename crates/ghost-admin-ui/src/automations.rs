@@ -261,7 +261,7 @@ pub async fn automation_page(
         .and_then(TriggerScope::parse)
         .unwrap_or(TriggerScope::Free);
 
-    let chain = format!(r#"{}<script src="{}/react.js" defer></script><script src="{}/react-jsx.js" defer></script><script src="{}/react-dom.js" defer></script><script src="{}/koenig-lexical.js" defer></script><script src="{}/automation-editor.js" defer></script>"#,chain_markup(&id,&ordered,&automation),crate::ASSETS,crate::ASSETS,crate::ASSETS,crate::ASSETS,crate::ASSETS);
+    let chain = format!(r#"{}{}<script src="{}/react.js" defer></script><script src="{}/react-jsx.js" defer></script><script src="{}/react-dom.js" defer></script><script src="{}/koenig-lexical.js" defer></script><script src="{}/koenig-integrations.js" defer></script><script src="{}/automation-editor.js" defer></script>"#,chain_markup(&id,&ordered,&automation),crate::pintura_asset_tags(&crate::pintura_config(&state.settings)),crate::ASSETS,crate::ASSETS,crate::ASSETS,crate::ASSETS,crate::ASSETS,crate::ASSETS);
     let runs = runs_panel(&state, &id).await;
     let tiers = tier_checkboxes(&state, &automation).await;
 
@@ -329,7 +329,7 @@ pub async fn automation_page(
 {archive_form}
 <button class="btn" type="submit" form="automation-form">{check} Save</button>{del_form}</div></header>
 {banner}
-<form method="post" action="/ghost/automations/{id}/" id="automation-form"></form>
+<form method="post" action="/ghost/automations/{id}/" id="automation-form" data-editor-config="{editor_config}"></form>
 
 <div class="section">Details</div>
 <div class="card padded rise" style="--i:1">
@@ -382,6 +382,15 @@ pub async fn automation_page(
                 scope.as_str(),
             ),
             tiers = tiers,
+            editor_config = esc(&serde_json::json!({
+                "siteUrl": state.site_url(),
+                "siteTitle": state.settings.site_name(),
+                "siteDescription": state.settings.get_str("description").unwrap_or_default(),
+                "membersEnabled": state.settings.get_str("members_signup_access").as_deref()!=Some("none"),
+                "stripeEnabled": state.settings.get_bool("paid_members_enabled"),
+                "unsplash": crate::unsplash_headers(&state),
+                "pinturaConfig": crate::pintura_config(&state.settings),
+            }).to_string()),
             chain = chain,
             runs = runs,
         ),

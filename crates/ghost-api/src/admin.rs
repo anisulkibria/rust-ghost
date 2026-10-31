@@ -97,6 +97,28 @@ fn err(status: StatusCode, message: &str, error_type: &str) -> Response {
     (status, Json(json!({ "errors": [{ "message": message, "errorType": error_type }] }))).into_response()
 }
 
+/// Ghost's 429, with the `Retry-After` a client needs to back off politely.
+fn too_many_requests(blocked: &crate::brute::Blocked) -> Response {
+    let mut response = err(StatusCode::TOO_MANY_REQUESTS, &blocked.message(), "TooManyRequestsError");
+    if let Ok(value) = blocked.retry_after_secs().to_string().parse() {
+        response.headers_mut().insert(axum::http::header::RETRY_AFTER, value);
+    }
+    response
+}
+
+/// Ghost's error envelope with its machine-readable `code`.
+///
+/// Clients branch on `code` rather than the message — the editor's
+/// "someone else is editing this" recovery dialog is keyed off
+/// `UPDATE_COLLISION` — so an error that carries one has to send it.
+fn err_coded(status: StatusCode, message: &str, error_type: &str, code: &str) -> Response {
+    (
+        status,
+        Json(json!({ "errors": [{ "message": message, "errorType": error_type, "code": code }] })),
+    )
+        .into_response()
+}
+
 fn from_ghost(e: ghost_core::GhostError) -> Response {
     err(
         StatusCode::from_u16(e.status_code()).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR),
@@ -438,7 +460,7 @@ pub fn session_id_from(headers: &HeaderMap) -> Option<String> {
 /// checked first because a request carrying `Authorization: Ghost …` is
 /// stating which identity it wants, and silently preferring a cookie that
 /// happened to ride along would be the wrong one.
-pub(crate) async fn current_user(state: &AppState, headers: &HeaderMap) -> Option<ghost_core::models::User> {
+pub async fn current_user(state: &AppState, headers: &HeaderMap) -> Option<ghost_core::models::User> {
     if headers.contains_key(header::AUTHORIZATION) {
         return user_from_api_key(state, headers).await;
     }
@@ -563,12 +585,33 @@ async fn complete_setup(
 // session login / logout
 // ---------------------------------------------------------------------------
 
-async fn login(State(state): State<AppState>, headers: HeaderMap, Json(body): Json<Value>) -> Response {
+async fn login(
+    State(state): State<AppState>,
+    crate::brute::ClientAddr(peer): crate::brute::ClientAddr,
+    headers: HeaderMap,
+    Json(body): Json<Value>,
+) -> Response {
     // origin check (CSRF defense like Ghost's session-service)
     if let Some(origin) = headers.get(header::ORIGIN).and_then(|o| o.to_str().ok()) {
         let host = headers.get(header::HOST).and_then(|h| h.to_str().ok()).unwrap_or("");
         if !origin.contains(host) {
             return err(StatusCode::FORBIDDEN, "Invalid origin", "NoPermissionError");
+        }
+    }
+
+    // Password guessing is rate-limited the way Ghost rate-limits it: a
+    // per-IP budget across every account, plus the generous per-route block
+    // that catches a distributed run at this one endpoint. Counted before the
+    // password is checked and cleared below once it turns out to be right, so
+    // only failures accumulate.
+    let ip = crate::brute::client_ip(&headers, peer);
+    let login_key = format!("user_login:{ip}");
+    let route_key = format!("/session:{ip}");
+    for (key, budget) in
+        [(&login_key, &crate::brute::USER_LOGIN), (&route_key, &crate::brute::GLOBAL_BLOCK)]
+    {
+        if let Err(blocked) = crate::brute::check(&state.db, key, budget).await {
+            return too_many_requests(&blocked);
         }
     }
 
@@ -579,6 +622,11 @@ async fn login(State(state): State<AppState>, headers: HeaderMap, Json(body): Js
         Ok(Some(u)) => u,
         _ => return err(StatusCode::UNAUTHORIZED, "Invalid email or password", "UnauthorizedError"),
     };
+    // The password was right, so this attempt was not an attack: clear the
+    // count rather than leaving the next person on this address closer to a
+    // lockout. The 2FA step below has its own budget.
+    crate::brute::reset(&state.db, &login_key).await;
+    crate::brute::reset(&state.db, &route_key).await;
 
     // When email 2FA is required the password alone cannot mint a session.
     // A caller that already holds an unverified session sends the code back
@@ -805,6 +853,38 @@ fn post_tiers(input: &Value) -> Result<Option<Vec<String>>, Response> {
     Ok(Some(ids))
 }
 
+/// Whether a `mobiledoc` value holds content, rather than being the empty
+/// placeholder this port writes or an empty Ghost document.
+pub(crate) fn mobiledoc_has_content(raw: &str) -> bool {
+    let raw = raw.trim();
+    if raw.is_empty() || raw == "{}" {
+        return false;
+    }
+    serde_json::from_str::<Value>(raw)
+        .ok()
+        .and_then(|doc| doc.get("sections").and_then(Value::as_array).map(|s| !s.is_empty()))
+        .unwrap_or(false)
+}
+
+/// The Lexical a request supplies, converting Mobiledoc when that is the
+/// source given.
+///
+/// Ghost stores one format or the other, never both, and resolves a request
+/// carrying both in favour of the Lexical (`Post.onSaving`): a client that
+/// sends Lexical has written it deliberately, while Mobiledoc alongside it is
+/// usually the stored legacy copy coming back on a round trip. Mobiledoc on
+/// its own — a migration, an old export, an integration written against
+/// Ghost 4 — is converted so the post is renderable and editable.
+fn incoming_lexical(posts: &Value) -> Option<String> {
+    let field = |key: &str| posts.get(key).and_then(Value::as_str).filter(|v| !v.trim().is_empty());
+    if let Some(lexical) = field("lexical") {
+        return Some(lexical.to_string());
+    }
+    field("mobiledoc")
+        .filter(|m| mobiledoc_has_content(m))
+        .map(|m| ghost_render::mobiledoc::to_lexical(Some(m)))
+}
+
 fn post_input_to_new(body: &Value, post_type: &str) -> repos::posts::NewPost {
     let posts = body.get(if post_type == "page" { "pages" } else { "posts" })
         .and_then(|p| p.as_array())
@@ -814,7 +894,7 @@ fn post_input_to_new(body: &Value, post_type: &str) -> repos::posts::NewPost {
 
     let str_field = |key: &str| posts.get(key).and_then(|v| v.as_str()).map(str::to_string);
     let markdown = str_field("markdown");
-    let lexical = str_field("lexical").filter(|l| !l.trim().is_empty());
+    let lexical = incoming_lexical(&posts);
     let html_in = str_field("html");
     // Markdown is this server's own editor format and html is what a client
     // sends ready-made; lexical is Ghost's, and is rendered the same way the
@@ -970,13 +1050,39 @@ async fn admin_edit_post(State(state): State<AppState>, Path(id): Path<String>, 
 
     if let Err(r) = crate::permissions::post_input(&state, &user, &posts, Some(&before)).await { return r; }
     if let Err(response) = validate_post_input(&posts, Some(&before)) { return response; }
+
+    // Refuse to overwrite a newer edit from another session. This runs before
+    // anything is written — including the relation tables — which is the part
+    // upstream has to roll back after the fact.
+    let stored = ghost_core::models::post_to_json(
+        &before,
+        &before_rel.authors_for(&before.id),
+        &before_rel.tags_for(&before.id),
+        "",
+    );
+    if crate::collision::collides(&posts, &stored) {
+        return err_coded(
+            StatusCode::CONFLICT,
+            crate::collision::MESSAGE,
+            "UpdateCollisionError",
+            crate::collision::CODE,
+        );
+    }
     let tag_ids = match posts.get("tags").and_then(Value::as_array) {
         Some(values) => match resolve_tags(&state, values, crate::permissions::role(&state, &user).await.unwrap_or(crate::permissions::Role::Contributor) >= crate::permissions::Role::Author).await { Ok(ids) => Some(ids), Err(error) => return from_ghost(error) },
         None => None,
     };
     let str_field = |key: &str| posts.get(key).and_then(|v| v.as_str()).map(str::to_string);
     let markdown = str_field("markdown");
-    let lexical = str_field("lexical").filter(|l| !l.trim().is_empty());
+    // A post still stored as Mobiledoc migrates on this save, as it does in
+    // Ghost: converting it to Lexical here is what permanently moves it to a
+    // format the renderer and the editor both read. Only when the request
+    // brings no content of its own — otherwise that content wins.
+    let lexical = incoming_lexical(&posts).or_else(|| {
+        let stored = before.mobiledoc.as_deref().filter(|m| mobiledoc_has_content(m))?;
+        (before.lexical.as_deref().unwrap_or("").trim().is_empty())
+            .then(|| ghost_render::mobiledoc::to_lexical(Some(stored)))
+    });
     // Only recompute the rendered columns when the request actually carries
     // content; a PUT that just flips `featured` leaves the body alone.
     let (html, plaintext, reading_time) = if let Some(md) = &markdown {
@@ -1399,7 +1505,7 @@ async fn admin_browse_settings(State(state): State<AppState>, headers: HeaderMap
                     // back the SMTP password or Mailgun key it was given.
                     let value = if is_secret_setting(&s.key) {
                         match s.typed_value() {
-                            Value::String(v) if !v.is_empty() => json!("••••••••"),
+                            Value::String(v) if !v.is_empty() => json!(OBFUSCATED),
                             other => other,
                         }
                     } else {
@@ -1421,6 +1527,12 @@ async fn admin_browse_settings(State(state): State<AppState>, headers: HeaderMap
     }
 }
 
+/// The value [`admin_browse_settings`] substitutes for a stored credential.
+///
+/// It has to be a constant rather than two matching literals, because the
+/// edit path's job is to recognise its own redaction coming back.
+pub const OBFUSCATED: &str = "••••••••";
+
 async fn admin_edit_settings(State(state): State<AppState>, headers: HeaderMap, Json(body): Json<Value>) -> Response {
     if let Err(r) = crate::permissions::require(&state, &headers, crate::permissions::Role::Administrator).await {
         return r;
@@ -1428,16 +1540,156 @@ async fn admin_edit_settings(State(state): State<AppState>, headers: HeaderMap, 
     let Some(list) = body.get("settings").and_then(|s| s.as_array()).cloned() else {
         return err(StatusCode::UNPROCESSABLE_ENTITY, "settings[] required", "ValidationError");
     };
-    let mut updated = Vec::new();
-    for item in list {
-        let Some(key) = item.get("key").and_then(|k| k.as_str()) else { continue };
+
+    // What the site already knows about, by key. Needed before anything is
+    // written, because two of upstream's three refusals below are decided by
+    // a setting's group and existence rather than by its new value.
+    let known: std::collections::HashMap<String, String> = match repos::settings::all(&state.db).await {
+        Ok(all) => all.into_iter().map(|s| (s.key, s.group)).collect(),
+        Err(e) => return from_ghost(e),
+    };
+
+    // The Connect handshake's second half. Upstream reads this pseudo-setting,
+    // derives the `stripe_connect_*` keys from it, and never stores the token
+    // itself — it is a one-time bearer of a live secret key, and a settings
+    // row is the last place it should end up.
+    //
+    // Verified here, before any write, because upstream decodes it before it
+    // calls `edit` at all: a token that fails its state check means the whole
+    // request is refused, not that the rest of the document was saved and the
+    // Stripe half silently was not.
+    let connect_token = list
+        .iter()
+        .find(|item| item.get("key").and_then(Value::as_str) == Some("stripe_connect_integration_token"))
+        .and_then(|item| item.get("value"))
+        .and_then(Value::as_str)
+        .filter(|token| !token.is_empty());
+    let connect_key = match connect_token {
+        Some(token) => match verified_connect_key(&state, &headers, token).await {
+            Ok(key) => Some(key),
+            Err(response) => return response,
+        },
+        None => None,
+    };
+
+    let mut writes = Vec::new();
+    for item in &list {
+        let Some(key) = item.get("key").and_then(Value::as_str) else { continue };
         let Some(value) = item.get("value") else { continue };
-        if state.settings.set(&state.db, key, value).await.is_ok() {
+
+        // Settings this flow owns are derived, never assigned. Dropping them
+        // silently is upstream's behaviour and the right one: Ghost's admin
+        // sends the whole settings document back, so refusing the request
+        // would make an unrelated save fail.
+        if crate::stripe_connect::DERIVED_SETTINGS.contains(&key) {
+            continue;
+        }
+
+        // A client that read the settings, changed one field and sent them all
+        // back is the normal case, and browse redacted every credential on the
+        // way out. Writing the redaction back would destroy the Mailgun key,
+        // the SMTP password and the session secrets in one request — so the
+        // placeholder means "unchanged", exactly as upstream has it.
+        if is_secret_setting(key) && value.as_str() == Some(OBFUSCATED) {
+            continue;
+        }
+
+        let Some(group) = known.get(key) else {
+            return err(
+                StatusCode::NOT_FOUND,
+                &format!("Problem finding setting: {key}"),
+                "NotFoundError",
+            );
+        };
+
+        // Core settings are Ghost's own machinery, not the site's preferences:
+        // `db_hash`, the session secrets, the members' email-auth secret. An
+        // external request may not touch them — overwriting
+        // `members_email_auth_secret` would invalidate every magic link in
+        // every inbox at once.
+        if group == "core" {
+            return err(
+                StatusCode::FORBIDDEN,
+                "Attempted to access core setting from external request",
+                "NoPermissionError",
+            );
+        }
+
+        // A host may hold a site's public access closed; while it does,
+        // neither the private flag nor its password can be moved.
+        if state.limits.is_disabled("publicSiteAccess")
+            && (key == "password" || (key == "is_private" && value != &json!(true)))
+        {
+            return err(
+                StatusCode::FORBIDDEN,
+                "Site visibility and access code cannot be changed.",
+                "NoPermissionError",
+            );
+        }
+
+        writes.push((key.to_string(), value.clone()));
+    }
+
+    let mut updated = Vec::new();
+    for (key, value) in writes {
+        if state.settings.set(&state.db, &key, &value).await.is_ok() {
             updated.push(json!({ "key": { "key": key, "value": value } }));
         }
     }
+
+    if let Some(key) = connect_key {
+        if let Err(message) =
+            crate::stripe_connect::adopt_keys(&state, &key.secret_key, &key.publishable_key).await
+        {
+            return err(StatusCode::BAD_REQUEST, &message, "BadRequestError");
+        }
+        for key in ["stripe_connect_account_id", "stripe_connect_display_name", "stripe_connect_livemode"] {
+            updated.push(json!({ "key": { "key": key, "value": state.settings.get_str(key) } }));
+        }
+    }
+
     crate::webhooks::fire(&state, "site.changed", json!({}));
     ok_json(json!({ "settings": updated }))
+}
+
+/// Check a Connect token against the handshake this session started, and
+/// spend the nonce.
+///
+/// Everything here is local and cheap, which is why it runs before the
+/// request writes anything. Adopting the key it returns is the part that
+/// talks to Stripe, and that is left to the caller.
+///
+/// `Err` carries the response to send, so the caller can abandon the request
+/// without having to know how any of this failed.
+async fn verified_connect_key(
+    state: &AppState,
+    headers: &HeaderMap,
+    token: &str,
+) -> Result<crate::stripe_connect::SecureKey, Response> {
+    let check = ghost_db::limits::Check::default();
+    if let Err(e) = state.limits.error_if_would_go_over(&state.db, "limitStripeConnect", check).await {
+        return Err(from_ghost(e));
+    }
+    // The nonce is on a session row, so a key-authenticated caller has no
+    // handshake to finish. That is not a gap: the state binding is what stops
+    // a pasted blob being redeemed by anyone who intercepts it, and a request
+    // with no session has nothing to bind to.
+    let Some(sid) = session_id_from(headers) else {
+        return Err(err(StatusCode::FORBIDDEN, crate::stripe_connect::INCORRECT_STATE, "NoPermissionError"));
+    };
+    let pending = crate::stripe_connect::pending_state(&state.db, &sid).await.unwrap_or_default();
+    let key = crate::stripe_connect::decode_secure_key(token, &pending).map_err(|message| {
+        if message == crate::stripe_connect::INCORRECT_STATE {
+            err(StatusCode::FORBIDDEN, message, "NoPermissionError")
+        } else {
+            err(StatusCode::BAD_REQUEST, message, "BadRequestError")
+        }
+    })?;
+    // Single-use, and spent here rather than after the keys are adopted: a
+    // blob that got as far as a Stripe call must not stay replayable because
+    // that call failed.
+    crate::stripe_connect::clear_state(&state.db, &sid).await;
+    Ok(key)
 }
 
 // ---------------------------------------------------------------------------

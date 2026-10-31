@@ -2217,6 +2217,8 @@ struct MagicLinkRequest {
 /// member row is only created when the link is *used*, not when it is sent.
 async fn send_magic_link(
     State(state): State<AppState>,
+    crate::brute::ClientAddr(peer): crate::brute::ClientAddr,
+    headers: axum::http::HeaderMap,
     axum::Json(req): axum::Json<MagicLinkRequest>,
 ) -> Response {
     if req.honeypot.as_deref().is_some_and(|h| !h.is_empty()) {
@@ -2237,6 +2239,30 @@ async fn send_magic_link(
     let email = req.email.trim().to_lowercase();
     if email.is_empty() || !email.contains('@') {
         return api_error(StatusCode::BAD_REQUEST, "Please enter a valid email address.", "BadRequestError");
+    }
+
+    // Ghost's `membersAuth` budget, keyed on the address and ignoring IP: this
+    // endpoint sends mail to whoever is named, so the thing to limit is how
+    // much mail one address can be made to receive, however many addresses the
+    // sender comes from. The integrity token above stops casual abuse; this
+    // stops a determined run. Only reached once the address parses, so a
+    // malformed request cannot consume somebody else's budget.
+    let ip = crate::brute::client_ip(&headers, peer);
+    for (key, budget) in [
+        (format!("{email}login"), &crate::brute::MEMBER_LOGIN),
+        (format!("/members/api/send-magic-link:{ip}"), &crate::brute::GLOBAL_BLOCK),
+    ] {
+        if let Err(blocked) = crate::brute::check(&state.db, &key, budget).await {
+            let mut response = api_error(
+                StatusCode::TOO_MANY_REQUESTS,
+                &blocked.message(),
+                "TooManyRequestsError",
+            );
+            if let Ok(value) = blocked.retry_after_secs().to_string().parse() {
+                response.headers_mut().insert(axum::http::header::RETRY_AFTER, value);
+            }
+            return response;
+        }
     }
 
     let existing = member_by_email(&state, &email).await;

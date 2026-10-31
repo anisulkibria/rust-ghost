@@ -5,7 +5,7 @@ use ghost_core::{ids,dates,models::{Post,User}};
 use ghost_db::repos;
 use serde_json::{json,Value};
 use std::collections::HashMap;
-use sha2::{Digest,Sha256};
+use base64::Engine;
 
 pub fn router()->Router<AppState>{
     let mut router=Router::new().route("/views/",get(views).post(save_view))
@@ -20,7 +20,7 @@ pub fn router()->Router<AppState>{
         for suffix in ["","/"] {
             router=router
                 // `gift_links` is what Ghost calls an article gift link.
-                .route(&format!("/{resource}/{{id}}/gift_links{suffix}"),get(gift).post(gift).put(gift).delete(revoke_gift))
+                .route(&format!("/{resource}/{{id}}/gift_links{suffix}"),get(read_gift).post(gift).put(ensure_gift).delete(revoke_gift))
                 .route(&format!("/email_previews/{resource}/{{id}}{suffix}"),get(ghost_preview).post(test_email));
         }
         // Ghost bulk-edits with PUT rather than POSTing to `/bulk/`. The
@@ -180,28 +180,80 @@ async fn search_links(State(state):State<AppState>,headers:HeaderMap,Query(q):Qu
     Json(json!({"links":links})).into_response()
 }
 async fn gift(State(state):State<AppState>,headers:HeaderMap,Path(id):Path<String>)->Response {
-    if let Err(r)=permissions::require(&state,&headers,Role::Editor).await{return r}
-    let Some(post)=repos::posts::find_by_id(&state.db,&id).await.ok().flatten()else{return StatusCode::NOT_FOUND.into_response()};
-    if post.status!="published"{return error(StatusCode::UNPROCESSABLE_ENTITY,"Publish the post before creating a gift link")}
-    let token=ids::random_hex(32);let hash=hex::encode(Sha256::digest(token.as_bytes()));
-    if sqlx::query("INSERT INTO article_gift_links (id,post_id,token_hash,created_at) VALUES (?,?,?,?) ON CONFLICT(post_id) DO UPDATE SET token_hash=excluded.token_hash, created_at=excluded.created_at")
-        .bind(ids::new_id()).bind(id).bind(hash).bind(dates::now_db()).execute(&state.db).await.is_err(){return error(StatusCode::INTERNAL_SERVER_ERROR,"Could not create gift link")}
-    let value=serialized(&state,&post).await;
-    Json(json!({"gift_links":[{"url":format!("{}?gift={token}",value["url"].as_str().unwrap_or(""))}]})).into_response()
+    mint_gift(state,headers,id,false).await
+}
+async fn ensure_gift(State(state):State<AppState>,headers:HeaderMap,Path(id):Path<String>)->Response {
+    mint_gift(state,headers,id,true).await
+}
+async fn gift_post(state:&AppState,headers:&HeaderMap,id:&str)->std::result::Result<Post,Response> {
+    permissions::require(state,headers,Role::Editor).await?;
+    repos::posts::find_by_id(&state.db,id).await.map_err(failed)?
+        .ok_or_else(||error(StatusCode::NOT_FOUND,"Post not found"))
+}
+async fn gift_response(state:&AppState,post:&Post,link:Option<repos::gift_links::GiftLink>)->Response {
+    let links=if let Some(link)=link {
+        let value=serialized(state,post).await;
+        let mut url=value["url"].as_str().unwrap_or("").to_owned();
+        let separator=if url.contains('?') {'&'} else {'?'};
+        url.push_str(&format!("{separator}gift={}",link.token));
+        vec![json!({"token":link.token,"created_at":dates::db_to_api(Some(&link.created_at)),"url":url})]
+    } else {Vec::new()};
+    ([("cache-control","private, no-store")],Json(json!({"gift_links":links}))).into_response()
+}
+async fn read_gift(State(state):State<AppState>,headers:HeaderMap,Path(id):Path<String>)->Response {
+    let post=match gift_post(&state,&headers,&id).await {Ok(post)=>post,Err(r)=>return r};
+    match repos::gift_links::read(&state.db,&id).await {
+        Ok(link)=>gift_response(&state,&post,link).await,Err(e)=>failed(e)
+    }
+}
+async fn mint_gift(state:AppState,headers:HeaderMap,id:String,ensure:bool)->Response {
+    let post=match gift_post(&state,&headers,&id).await {Ok(post)=>post,Err(r)=>return r};
+    let token=base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(rand::random::<[u8;24]>());
+    match repos::gift_links::mint(&state.db,&id,&token,ensure).await {
+        Ok((link,changed))=>{
+            if changed {record_gift_action(&state,&headers,Some(&id),if ensure {"added"} else {"edited"}).await;}
+            gift_response(&state,&post,Some(link)).await
+        },Err(e)=>failed(e)
+    }
 }
 async fn revoke_gift(State(state):State<AppState>,headers:HeaderMap,Path(id):Path<String>)->Response {
-    if let Err(r)=permissions::require(&state,&headers,Role::Editor).await{return r}
-    match sqlx::query("DELETE FROM article_gift_links WHERE post_id=?").bind(id).execute(&state.db).await{Ok(_)=>StatusCode::NO_CONTENT.into_response(),Err(_)=>error(StatusCode::INTERNAL_SERVER_ERROR,"Could not revoke gift link")}
+    if let Err(r)=gift_post(&state,&headers,&id).await{return r}
+    match repos::gift_links::revoke(&state.db,Some(&id)).await{
+        Ok(count)=>{
+            if count>0 {record_gift_action(&state,&headers,Some(&id),"deleted").await;}
+            StatusCode::NO_CONTENT.into_response()
+        },Err(e)=>failed(e)
+    }
+}
+pub(crate) async fn record_gift_action(state:&AppState,headers:&HeaderMap,subject:Option<&str>,event:&str) {
+    let integration=if let Some(header)=headers.get("authorization").and_then(|h|h.to_str().ok()) {
+        if let Some(token)=crate::apikey_auth::token_from_header(header) {
+            crate::apikey_auth::verify(state,token,"admin").await.and_then(|key|key.integration_id)
+        } else {None}
+    } else {None};
+    let actor=if let Some(id)=integration {Some((id,"integration"))}
+        else {crate::admin::current_user(state,headers).await.map(|user|(user.id,"user"))};
+    if let Some((id,kind))=actor {
+        let context=if event=="edited" {json!({"action_name":"reset"})} else {json!({})};
+        let _=sqlx::query("INSERT INTO actions(id,resource_id,resource_type,actor_id,actor_type,event,context,created_at) VALUES(?,?,'gift_link',?,?,?,?,?)")
+            .bind(ids::new_id()).bind(subject).bind(id).bind(kind).bind(event).bind(context.to_string()).bind(dates::now_db()).execute(&state.db).await;
+    }
 }
 pub async fn valid_gift(state:&AppState,post_id:&str,token:&str)->bool {
-    if token.len()!=64{return false}
-    let hash=hex::encode(Sha256::digest(token.as_bytes()));
-    sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM article_gift_links WHERE post_id=? AND token_hash=?)").bind(post_id).bind(hash).fetch_one(&state.db).await.unwrap_or(false)
+    repos::gift_links::valid(&state.db,post_id,token).await.unwrap_or(false)
 }
 
 async fn email_preview(state:&AppState,post:&Post)->ghost_core::Result<String>{
-    let newsletter=repos::newsletters::default_newsletter(&state.db).await?.ok_or_else(||ghost_core::GhostError::BadRequest("Create a newsletter first".into()))?;
-    let value=serialized(state,post).await;let site_url=state.site_url();let meta=post.meta.clone().unwrap_or_default();
+    let value=serialized(state,post).await;
+    email_preview_with_value(state,post,&value).await
+}
+/// Render a newsletter from an in-memory editor snapshot without saving it.
+pub async fn email_preview_with_value(state:&AppState,post:&Post,value:&Value)->ghost_core::Result<String>{
+    let newsletter=if let Some(id)=post.newsletter_id.as_deref() {
+        repos::newsletters::find_by_id(&state.db,id).await?
+    } else {repos::newsletters::default_newsletter(&state.db).await?}
+        .ok_or_else(||ghost_core::GhostError::BadRequest("Create or select a newsletter first".into()))?;
+    let site_url=state.site_url();let meta=post.meta.clone().unwrap_or_default();
     let site=ghost_mail::newsletter::SiteContext{title:state.settings.get_str("title").unwrap_or_default(),url:site_url.clone(),icon_url:state.settings.get_str("icon"),locale:state.settings.get_str("locale").unwrap_or_else(||"en".into()),direction:"ltr".into(),accent_color:state.settings.get_str("accent_color").unwrap_or_default()};
     let content=ghost_mail::newsletter::PostContext{id:post.id.clone(),title:post.title.clone().unwrap_or_default(),url:value["url"].as_str().unwrap_or("").into(),
         html:ghost_core::url::absolutize_html(&site_url,post.html.as_deref().unwrap_or("")),plaintext:post.plaintext.clone().unwrap_or_default(),custom_excerpt:post.custom_excerpt.clone(),
@@ -212,14 +264,133 @@ async fn email_preview(state:&AppState,post:&Post)->ghost_core::Result<String>{
 }
 async fn preview(State(state):State<AppState>,headers:HeaderMap,Path(id):Path<String>)->Response{
     let (_,post)=match authorize(&state,&headers,&id).await{Ok(v)=>v,Err(r)=>return r};
-    let email=match email_preview(&state,&post).await{Ok(html)=>html,Err(e)=>return failed(e)};
     let value=serialized(&state,&post).await;
-    let esc=|s:&str|s.replace('&',"&amp;").replace('<',"&lt;").replace('>',"&gt;").replace('"',"&quot;");
-    let title=esc(post.title.as_deref().unwrap_or("Untitled"));let excerpt=esc(post.custom_excerpt.as_deref().or(post.plaintext.as_deref()).unwrap_or(""));
-    let image=post.meta.as_ref().and_then(|m|m.og_image.as_deref()).or(post.feature_image.as_deref()).unwrap_or("");
-    let social=format!("<!doctype html><meta charset=utf-8><style>body{{font:16px system-ui;padding:24px}}article{{max-width:600px;border:1px solid #ddd;border-radius:18px;overflow:hidden}}img{{width:100%;max-height:320px;object-fit:cover}}section{{padding:24px}}p{{max-height:5em;overflow:hidden}}</style><article><img alt=\"\" src=\"{}\"><section><small>{}</small><h1>{title}</h1><p>{excerpt}</p></section></article>",esc(&ghost_core::url::absolute(&state.site_url(),image)),esc(&state.settings.site_name()));
-    ([("cache-control","private, no-store")],Json(json!({"preview":{"web_url":format!("{}/p/{}/",state.site_url(),post.uuid.as_deref().unwrap_or("")),"url":value["url"],"email_html":email,"social_html":social}}))).into_response()
+    ([("cache-control","private, no-store")],Json(json!({"preview":preview_data(&state,&post,&value).await}))).into_response()
 }
+
+/// Web/email/social previews share the same transient post and relation values.
+pub async fn preview_data(state:&AppState,post:&Post,value:&Value)->Value {
+    let (email,email_error)=match email_preview_with_value(state,post,value).await {
+        Ok(html)=>(html,None),Err(e)=>(String::new(),Some(e.message()))
+    };
+    let social=social_previews(state,post);
+    json!({
+        "web_url":format!("{}/p/{}/",state.site_url(),post.uuid.as_deref().unwrap_or("")),
+        "url":value["url"],
+        "email_html":email,
+        "email_error":email_error,
+        // Both spellings: `social_html` is the Facebook/Open Graph card, kept
+        // under its original key, and `twitter_html` is the X card beside it.
+        "social_html":social.0,
+        "twitter_html":social.1,
+        "newsletter_name":newsletter_name_for(state,post).await,
+    })
+}
+
+/// Which newsletter the email preview was rendered as.
+///
+/// Shown next to the email tab because the rendered design, sender name and
+/// footer all come from the newsletter — a publisher looking at an email
+/// preview needs to know which one they are looking at, especially on a site
+/// with several.
+async fn newsletter_name_for(state:&AppState,post:&Post)->Value{
+    let found=match post.newsletter_id.as_deref().filter(|id|!id.is_empty()) {
+        Some(id)=>ghost_db::repos::newsletters::find_by_id(&state.db,id).await.ok().flatten(),
+        None=>ghost_db::repos::newsletters::default_newsletter(&state.db).await.ok().flatten(),
+    };
+    found.map(|n|json!(n.name)).unwrap_or(Value::Null)
+}
+
+/// The two social cards Ghost previews: Facebook, then X.
+///
+/// Ghost shows these separately rather than as one generic card because they
+/// are not the same preview. Each reads its **own** meta fields — `og_*` for
+/// Facebook, `twitter_*` for X — falling back through the post's own title
+/// and excerpt, so a publisher who set a different headline for one network
+/// can see that it took. They also crop differently and truncate at
+/// different lengths, which is the thing a preview is for: checking the
+/// headline does not get cut in half.
+fn social_previews(state:&AppState,post:&Post)->(String,String){
+    let esc=|s:&str|s.replace('&',"&amp;").replace('<',"&lt;").replace('>',"&gt;").replace('"',"&quot;");
+    let meta=post.meta.as_ref();
+    let domain=state.site_url().replace("https://","").replace("http://","").trim_end_matches('/').to_string();
+    let absolute=|path:&str|ghost_core::url::absolute(&state.site_url(),path);
+
+    let fallback_title=post.title.as_deref().unwrap_or("(Untitled)");
+    let fallback_excerpt=post.custom_excerpt.as_deref()
+        .or(post.plaintext.as_deref())
+        .map(|text|text.chars().take(300).collect::<String>())
+        .unwrap_or_default();
+    let fallback_image=post.feature_image.as_deref().unwrap_or("");
+
+    let card=|title:&str,description:&str,image:&str,network:&str|->String{
+        let image_block=if image.is_empty() {
+            // Ghost shows a neutral placeholder rather than a broken image, so
+            // the absence of a social image is itself visible.
+            r#"<div class="ph"></div>"#.to_string()
+        } else {
+            format!(r#"<img alt="" src="{}">"#,esc(&absolute(image)))
+        };
+        let frame=if network=="x" {"x"} else {"fb"};
+        format!(
+            concat!(
+                "<!doctype html><meta charset=utf-8><style>",
+                "body{{margin:0;padding:24px;background:#fff;",
+                "font:15px -apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;",
+                "-webkit-font-smoothing:antialiased}}",
+                "h1{{font-size:13px;font-weight:600;letter-spacing:.02em;text-transform:uppercase;",
+                "color:#626d79;margin:0 0 12px}}",
+                "article{{max-width:540px}}",
+                "img,.ph{{display:block;width:100%;aspect-ratio:1.91/1;object-fit:cover;background:#e4e6eb}}",
+                ".ph{{background:repeating-linear-gradient(45deg,#e4e6eb,#e4e6eb 10px,#dadde1 10px,#dadde1 20px)}}",
+                // Facebook: square corners, grey caption strip, domain above the headline.
+                ".fb article{{border:1px solid #dadde1;border-radius:8px;overflow:hidden}}",
+                ".fb section{{background:#f2f3f5;padding:10px 12px}}",
+                ".fb small{{display:block;font-size:12px;color:#606770;text-transform:uppercase;",
+                "letter-spacing:.02em;margin-bottom:3px}}",
+                ".fb h2{{font-size:16px;font-weight:600;color:#1d2129;margin:0;line-height:20px;",
+                "display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}}",
+                ".fb p{{font-size:14px;color:#606770;margin:3px 0 0;line-height:18px;",
+                "display:-webkit-box;-webkit-line-clamp:1;-webkit-box-orient:vertical;overflow:hidden}}",
+                // X: rounded card, headline inside the border, domain last.
+                ".x article{{border:1px solid #e1e8ed;border-radius:16px;overflow:hidden}}",
+                ".x section{{padding:12px}}",
+                ".x h2{{font-size:15px;font-weight:700;color:#0f1419;margin:0;line-height:20px;",
+                "display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}}",
+                ".x p{{font-size:15px;color:#536471;margin:2px 0 0;line-height:20px;",
+                "display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}}",
+                ".x small{{display:block;font-size:15px;color:#536471;margin-top:2px}}",
+                "@media (prefers-color-scheme:dark){{body{{background:#15171a}}}}",
+                "</style><div class=\"{frame}\"><h1>{label}</h1><article>{image}",
+                "<section>{caption_before}<h2>{title}</h2><p>{description}</p>{caption_after}</section>",
+                "</article></div>",
+            ),
+            frame=frame,
+            label=if network=="x" {"X (Twitter) card"} else {"Facebook card"},
+            image=image_block,
+            // Facebook puts the domain above the headline; X puts it below.
+            caption_before=if network=="x" {String::new()} else {format!("<small>{}</small>",esc(&domain))},
+            caption_after=if network=="x" {format!("<small>{}</small>",esc(&domain))} else {String::new()},
+            title=esc(title),
+            description=esc(description),
+        )
+    };
+
+    let facebook=card(
+        meta.and_then(|m|m.og_title.as_deref()).filter(|t|!t.is_empty()).unwrap_or(fallback_title),
+        meta.and_then(|m|m.og_description.as_deref()).filter(|d|!d.is_empty()).unwrap_or(&fallback_excerpt),
+        meta.and_then(|m|m.og_image.as_deref()).filter(|i|!i.is_empty()).unwrap_or(fallback_image),
+        "facebook",
+    );
+    let x=card(
+        meta.and_then(|m|m.twitter_title.as_deref()).filter(|t|!t.is_empty()).unwrap_or(fallback_title),
+        meta.and_then(|m|m.twitter_description.as_deref()).filter(|d|!d.is_empty()).unwrap_or(&fallback_excerpt),
+        meta.and_then(|m|m.twitter_image.as_deref()).filter(|i|!i.is_empty()).unwrap_or(fallback_image),
+        "x",
+    );
+    (facebook,x)
+}
+
 async fn test_email(State(state):State<AppState>,headers:HeaderMap,Path(id):Path<String>,Json(body):Json<Value>)->Response{
     let (user,post)=match authorize(&state,&headers,&id).await{Ok(v)=>v,Err(r)=>return r};
     if permissions::role(&state,&user).await.unwrap_or(Role::Contributor)<Role::Author{return permissions::denied()}
@@ -264,6 +435,16 @@ pub fn prepare_content_import(data:&Value)->Value{
     let mut data=data.clone();
     if let Some(posts)=data.get_mut("posts").and_then(Value::as_array_mut){
         for post in posts{
+            // An export from Ghost 4 or earlier carries its content as
+            // Mobiledoc and nothing else. Converting it to Lexical here is
+            // what makes the imported post renderable and editable; without
+            // it the source arrives intact and unreadable.
+            let has_lexical=post["lexical"].as_str().is_some_and(|l|!l.trim().is_empty());
+            if !has_lexical{
+                if let Some(mobiledoc)=post["mobiledoc"].as_str().filter(|m|crate::admin::mobiledoc_has_content(m)){
+                    post["lexical"]=json!(ghost_render::mobiledoc::to_lexical(Some(mobiledoc)));
+                }
+            }
             if post["html"].as_str().is_none_or(|html|html.is_empty()){
                 let rendered=if let Some(source)=post["markdown"].as_str().filter(|s|!s.is_empty()){
                     Some(ghost_render::markdown::render_markdown(source))
@@ -282,5 +463,75 @@ async fn ghost_preview(State(state):State<AppState>,headers:HeaderMap,Path(id):P
     match email_preview(&state,&post).await{
         Ok(html)=>{let subject=post.meta.as_ref().and_then(|m|m.email_subject.as_deref()).or(post.title.as_deref()).unwrap_or("");let plaintext=ghost_mail::newsletter::plaintext(&html);([( "cache-control","private,no-store")],Json(json!({"email_previews":[{"html":html,"plaintext":plaintext,"subject":subject}]}))).into_response()},
         Err(e)=>failed(e)
+    }
+}
+
+#[cfg(test)]
+mod import_tests {
+    use super::*;
+
+    const LEGACY: &str = r#"{"version":"0.3.1","markups":[["strong"]],"atoms":[],"cards":[],
+        "sections":[[1,"h2",[[0,[],0,"Old heading"]]],[1,"p",[[0,[0],1,"Bold words"]]]]}"#;
+
+    #[test]
+    fn a_mobiledoc_only_post_gains_lexical_and_html() {
+        // A Ghost 4 export: the source is there, and before this nothing could
+        // read it.
+        let prepared = prepare_content_import(&json!({
+            "posts": [{ "title": "Legacy", "mobiledoc": LEGACY }]
+        }));
+        let post = &prepared["posts"][0];
+        let lexical: Value = serde_json::from_str(post["lexical"].as_str().unwrap()).unwrap();
+        assert_eq!(lexical["root"]["children"][0]["type"], json!("heading"));
+        let html = post["html"].as_str().unwrap();
+        assert!(html.contains("Old heading"), "rendered html: {html}");
+        assert!(html.contains("Bold words"), "rendered html: {html}");
+        assert!(post["plaintext"].as_str().is_some_and(|p| p.contains("Old heading")));
+        assert!(post["reading_time"].as_i64().is_some());
+    }
+
+    #[test]
+    fn an_incoming_lexical_is_not_replaced_by_a_legacy_mobiledoc() {
+        // Exports can carry both; the Lexical is the newer source of truth.
+        let lexical = r#"{"root":{"children":[{"type":"paragraph","version":1,"children":[{"text":"current","type":"text","format":0,"version":1}]}],"type":"root","version":1,"direction":null,"format":"","indent":0}}"#;
+        let prepared = prepare_content_import(&json!({
+            "posts": [{ "title": "Both", "mobiledoc": LEGACY, "lexical": lexical }]
+        }));
+        assert_eq!(prepared["posts"][0]["lexical"].as_str().unwrap(), lexical);
+        assert!(prepared["posts"][0]["html"].as_str().unwrap().contains("current"));
+    }
+
+    #[test]
+    fn supplied_html_is_left_alone() {
+        let prepared = prepare_content_import(&json!({
+            "posts": [{ "title": "Rendered", "mobiledoc": LEGACY, "html": "<p>as exported</p>" }]
+        }));
+        let post = &prepared["posts"][0];
+        assert_eq!(post["html"], json!("<p>as exported</p>"), "an export's own html wins");
+        // the editable source is still migrated, so the post can be opened
+        assert!(post["lexical"].as_str().is_some_and(|l| l.contains("heading")));
+    }
+
+    #[test]
+    fn an_empty_mobiledoc_placeholder_is_not_treated_as_content() {
+        for placeholder in ["{}", "", r#"{"version":"0.3.1","sections":[]}"#] {
+            let prepared = prepare_content_import(&json!({
+                "posts": [{ "title": "Empty", "mobiledoc": placeholder, "markdown": "# From markdown" }]
+            }));
+            let post = &prepared["posts"][0];
+            assert!(post["lexical"].as_str().is_none(), "{placeholder:?} has no content to convert");
+            assert!(
+                post["html"].as_str().unwrap().contains("From markdown"),
+                "{placeholder:?} must not shadow the markdown source"
+            );
+        }
+    }
+
+    #[test]
+    fn a_post_with_no_content_at_all_is_passed_through() {
+        let prepared = prepare_content_import(&json!({ "posts": [{ "title": "Bare" }] }));
+        let post = &prepared["posts"][0];
+        assert_eq!(post["title"], json!("Bare"));
+        assert!(post["html"].as_str().is_none());
     }
 }

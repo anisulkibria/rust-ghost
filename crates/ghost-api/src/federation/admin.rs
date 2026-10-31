@@ -116,54 +116,20 @@ async fn add_note(
     if let Err(r) = authorize(&state, &headers).await {
         return r;
     }
-    if !enabled(&state) {
-        return failure(bad("Enable the social web first"));
-    }
-    let markdown = body["text"].as_str().unwrap_or("").trim();
-    if markdown.is_empty() || markdown.chars().count() > 10000 {
-        return failure(bad("Write a note of 1–10000 characters"));
-    }
-    let reply = body["in_reply_to"].as_str();
-    if reply.is_some_and(|url| {
-        url.len() > 2000 || !reqwest::Url::parse(url).is_ok_and(|u| u.scheme() == "https")
-    }) {
-        return failure(bad("Invalid reply target"));
-    }
-    let content = ghost_render::markdown::to_html(markdown);
-    let uuid = ids::uuid_v4();
-    let id = endpoint(&state, &format!("objects/{uuid}"));
-    let url = endpoint(&state, &format!("notes/{uuid}"));
-    let now = dates::now_db();
-    let mut inboxes = follower_inboxes(&state).await;
-    let mut mentions = Vec::new();
-    if let Some(actor) = body["reply_actor"].as_str() {
-        match network::actor(actor).await {
-            Ok(actor) => {
-                inboxes.push(actor.inbox);
-                mentions.push(actor.id)
-            }
-            Err(e) => return failure(e),
-        }
-    }
-    let object = json!({"id":id,"type":"Note","attributedTo":actor_id(&state),"content":content,"inReplyTo":reply,"url":url,"published":chrono::Utc::now().to_rfc3339(),"to":[PUBLIC],"cc":mentions});
-    let mut activity = activity_body(&state, "Create", object);
-    activity["cc"] = json!(mentions);
-    let mut tx = match state.db.begin().await {
-        Ok(tx) => tx,
-        Err(e) => return failure(db_error(e)),
-    };
-    if let Err(e)=sqlx::query("INSERT INTO federation_objects (id,actor,object_type,content,url,in_reply_to,published_at,updated_at,local) VALUES (?,?,'Note',?,?,?,?,?,1)").bind(&id).bind(actor_id(&state)).bind(content).bind(&url).bind(reply).bind(&now).bind(&now).execute(&mut *tx).await{return failure(db_error(e))}
-    if let Err(e) = enqueue_tx(&mut tx, &activity, &inboxes).await {
-        return failure(e);
-    }
-    if let Err(e) = tx.commit().await {
-        return failure(db_error(e));
-    }
-    (
-        StatusCode::CREATED,
-        Json(json!({"notes":[{"id":id,"url":url}]})),
+    match ops::publish_note(
+        &state,
+        body["text"].as_str().unwrap_or(""),
+        body["in_reply_to"].as_str(),
+        body["reply_actor"].as_str(),
     )
-        .into_response()
+    .await
+    {
+        Ok(id) => {
+            let url = id.replace("/objects/", "/notes/");
+            (StatusCode::CREATED, Json(json!({"notes":[{"id":id,"url":url}]}))).into_response()
+        }
+        Err(e) => failure(e),
+    }
 }
 async fn delete_note(
     State(state): State<AppState>,
@@ -173,31 +139,10 @@ async fn delete_note(
     if let Err(r) = authorize(&state, &headers).await {
         return r;
     }
-    let object = endpoint(&state, &format!("objects/{id}"));
-    let mut tx = match state.db.begin().await {
-        Ok(tx) => tx,
-        Err(e) => return failure(db_error(e)),
-    };
-    let changed=sqlx::query("UPDATE federation_objects SET deleted=1,content='',updated_at=? WHERE id=? AND local=1 AND deleted=0").bind(dates::now_db()).bind(&object).execute(&mut *tx).await;
-    match changed {
-        Ok(changed) if changed.rows_affected() == 1 => {}
-        Ok(_) => return StatusCode::NOT_FOUND.into_response(),
-        Err(e) => return failure(db_error(e)),
+    match ops::delete_note(&state, &id).await {
+        Ok(()) => StatusCode::NO_CONTENT.into_response(),
+        Err(_) => StatusCode::NOT_FOUND.into_response(),
     }
-    let activity = activity_body(&state, "Delete", json!({"id":object,"type":"Tombstone"}));
-    // Read recipients on this transaction so single-connection installations work too.
-    let inboxes =
-        sqlx::query_scalar::<_, String>("SELECT DISTINCT inbox FROM federation_followers")
-            .fetch_all(&mut *tx)
-            .await
-            .unwrap_or_default();
-    if let Err(e) = enqueue_tx(&mut tx, &activity, &inboxes).await {
-        return failure(e);
-    }
-    if let Err(e) = tx.commit().await {
-        return failure(db_error(e));
-    }
-    StatusCode::NO_CONTENT.into_response()
 }
 async fn following_list(State(state): State<AppState>, headers: HeaderMap) -> Response {
     if let Err(r) = authorize(&state, &headers).await {
@@ -219,103 +164,16 @@ async fn follow(
     if let Err(r) = authorize(&state, &headers).await {
         return r;
     }
-    if !enabled(&state) {
-        return failure(bad("Enable the social web first"));
-    }
     let handle = body["actor"].as_str().unwrap_or("");
-    if handle.len() > 2000 {
-        return failure(bad("Invalid actor"));
-    }
-    let unfollow = body["unfollow"].as_bool().unwrap_or(false);
-    if unfollow {
-        let existing = sqlx::query_as::<_, (String, String)>(
-            "SELECT inbox,follow_id FROM federation_following WHERE actor=?",
-        )
-        .bind(handle)
-        .fetch_optional(&state.db)
-        .await
-        .ok()
-        .flatten();
-        let Some((inbox, id)) = existing else {
-            return StatusCode::NOT_FOUND.into_response();
-        };
-        let mut activity = activity_body(
-            &state,
-            "Undo",
-            json!({"id":id,"type":"Follow","actor":actor_id(&state),"object":handle}),
-        );
-        activity["to"] = json!([handle]);
-        activity["cc"] = json!([]);
-        let mut tx = match state.db.begin().await {
-            Ok(tx) => tx,
-            Err(e) => return failure(db_error(e)),
-        };
-        if let Err(e) = enqueue_tx(&mut tx, &activity, &[inbox]).await {
-            return failure(e);
-        }
-        if let Err(e) = sqlx::query("DELETE FROM federation_following WHERE actor=?")
-            .bind(handle)
-            .execute(&mut *tx)
-            .await
-        {
-            return failure(db_error(e));
-        }
-        if let Err(e) = tx.commit().await {
-            return failure(db_error(e));
-        }
-        return StatusCode::NO_CONTENT.into_response();
-    }
-    let actor = match network::discover(handle).await {
-        Ok(actor) => actor,
-        Err(e) => return failure(e),
+    let result = if body["unfollow"].as_bool().unwrap_or(false) {
+        ops::unfollow(&state, handle).await.map(|()| StatusCode::NO_CONTENT)
+    } else {
+        ops::follow(&state, handle).await.map(|_| StatusCode::CREATED)
     };
-    if actor.id == actor_id(&state) {
-        return failure(bad("Cannot follow the publication itself"));
+    match result {
+        Ok(status) => status.into_response(),
+        Err(e) => failure(e),
     }
-    let blocked: bool =
-        sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM federation_blocks WHERE actor=?)")
-            .bind(&actor.id)
-            .fetch_one(&state.db)
-            .await
-            .unwrap_or(true);
-    if blocked {
-        return failure(bad("Unblock this account before following it"));
-    }
-    let exists: bool =
-        sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM federation_following WHERE actor=?)")
-            .bind(&actor.id)
-            .fetch_one(&state.db)
-            .await
-            .unwrap_or(false);
-    if exists {
-        return StatusCode::NO_CONTENT.into_response();
-    }
-    let mut activity = activity_body(&state, "Follow", json!(actor.id));
-    activity["to"] = json!([actor.id]);
-    activity["cc"] = json!([]);
-    let mut tx = match state.db.begin().await {
-        Ok(tx) => tx,
-        Err(e) => return failure(db_error(e)),
-    };
-    if let Err(e) = sqlx::query(
-        "INSERT INTO federation_following (actor,inbox,follow_id,created_at) VALUES (?,?,?,?)",
-    )
-    .bind(&actor.id)
-    .bind(&actor.inbox)
-    .bind(activity["id"].as_str().unwrap())
-    .bind(dates::now_db())
-    .execute(&mut *tx)
-    .await
-    {
-        return failure(db_error(e));
-    }
-    if let Err(e) = enqueue_tx(&mut tx, &activity, &[actor.inbox]).await {
-        return failure(e);
-    }
-    if let Err(e) = tx.commit().await {
-        return failure(db_error(e));
-    }
-    StatusCode::CREATED.into_response()
 }
 async fn interact(
     State(state): State<AppState>,
@@ -325,61 +183,17 @@ async fn interact(
     if let Err(r) = authorize(&state, &headers).await {
         return r;
     }
-    if !enabled(&state) {
-        return failure(bad("Enable the social web first"));
-    }
-    let kind = body["type"].as_str().unwrap_or("");
-    if !matches!(kind, "Like" | "Announce" | "Undo") {
-        return failure(bad("Choose Like, Announce or Undo"));
-    }
-    let target = body["object"].as_str().unwrap_or("");
-    if target.len() > 2000 || !reqwest::Url::parse(target).is_ok_and(|url| url.scheme() == "https")
-    {
-        return failure(bad("Invalid interaction target"));
-    }
-    let actor = match network::actor(body["actor"].as_str().unwrap_or("")).await {
-        Ok(actor) => actor,
-        Err(e) => return failure(e),
-    };
-    let object = if kind == "Undo" {
-        let original=sqlx::query_scalar::<_,String>("SELECT body FROM federation_activities WHERE id=? AND activity_type IN ('Like','Announce') AND undone=0").bind(target).fetch_optional(&state.db).await.ok().flatten();
-        let Some(original) = original.and_then(|s| serde_json::from_str::<Value>(&s).ok()) else {
-            return StatusCode::NOT_FOUND.into_response();
-        };
-        original
-    } else {
-        json!(target)
-    };
-    let mut activity = activity_body(&state, kind, object);
-    activity["cc"] = json!([actor.id]);
-    let mut inboxes = vec![actor.inbox];
-    if kind == "Announce" || kind == "Undo" {
-        inboxes.extend(follower_inboxes(&state).await)
-    }
-    let mut tx = match state.db.begin().await {
-        Ok(tx) => tx,
-        Err(e) => return failure(db_error(e)),
-    };
-    if kind == "Undo" {
-        if let Err(e) = sqlx::query("UPDATE federation_activities SET undone=1 WHERE id=?")
-            .bind(target)
-            .execute(&mut *tx)
-            .await
-        {
-            return failure(db_error(e));
-        }
-    }
-    if let Err(e) = enqueue_tx(&mut tx, &activity, &inboxes).await {
-        return failure(e);
-    }
-    if let Err(e) = tx.commit().await {
-        return failure(db_error(e));
-    }
-    (
-        StatusCode::CREATED,
-        Json(json!({"activities":[{"id":activity["id"]}]})),
+    match ops::interact(
+        &state,
+        body["type"].as_str().unwrap_or(""),
+        body["actor"].as_str().unwrap_or(""),
+        body["object"].as_str().unwrap_or(""),
     )
-        .into_response()
+    .await
+    {
+        Ok(id) => (StatusCode::CREATED, Json(json!({"activities":[{"id":id}]}))).into_response(),
+        Err(e) => failure(e),
+    }
 }
 async fn notifications(State(state): State<AppState>, headers: HeaderMap) -> Response {
     if let Err(r) = authorize(&state, &headers).await {
@@ -392,13 +206,9 @@ async fn read_notifications(State(state): State<AppState>, headers: HeaderMap) -
     if let Err(r) = authorize(&state, &headers).await {
         return r;
     }
-    match sqlx::query("UPDATE federation_received SET read_at=? WHERE read_at IS NULL")
-        .bind(dates::now_db())
-        .execute(&state.db)
-        .await
-    {
-        Ok(_) => StatusCode::NO_CONTENT.into_response(),
-        Err(e) => failure(db_error(e)),
+    match ops::mark_read(&state).await {
+        Ok(()) => StatusCode::NO_CONTENT.into_response(),
+        Err(e) => failure(e),
     }
 }
 async fn blocks(State(state): State<AppState>, headers: HeaderMap) -> Response {
@@ -421,42 +231,9 @@ async fn block(
     if let Err(r) = authorize(&state, &headers).await {
         return r;
     }
-    let actor = body["actor"].as_str().unwrap_or("");
-    if !reqwest::Url::parse(actor).is_ok_and(|url| url.scheme() == "https") {
-        return failure(bad("Invalid actor URL"));
+    let blocked = body["unblock"].as_bool() != Some(true);
+    match ops::set_block(&state, body["actor"].as_str().unwrap_or(""), blocked).await {
+        Ok(()) => StatusCode::NO_CONTENT.into_response(),
+        Err(e) => failure(e),
     }
-    let mut tx = match state.db.begin().await {
-        Ok(tx) => tx,
-        Err(e) => return failure(db_error(e)),
-    };
-    let result = if body["unblock"].as_bool() == Some(true) {
-        sqlx::query("DELETE FROM federation_blocks WHERE actor=?")
-            .bind(actor)
-            .execute(&mut *tx)
-            .await
-    } else {
-        sqlx::query("INSERT OR IGNORE INTO federation_blocks (actor,created_at) VALUES (?,?)")
-            .bind(actor)
-            .bind(dates::now_db())
-            .execute(&mut *tx)
-            .await
-    };
-    if let Err(e) = result {
-        return failure(db_error(e));
-    }
-    if body["unblock"].as_bool() != Some(true) {
-        for table in ["federation_followers", "federation_following"] {
-            if let Err(e) = sqlx::query(&format!("DELETE FROM {table} WHERE actor=?"))
-                .bind(actor)
-                .execute(&mut *tx)
-                .await
-            {
-                return failure(db_error(e));
-            }
-        }
-    }
-    if let Err(e) = tx.commit().await {
-        return failure(db_error(e));
-    }
-    StatusCode::NO_CONTENT.into_response()
 }

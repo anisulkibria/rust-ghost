@@ -100,6 +100,52 @@ fn hmac_hex(secret: &str, message: &str) -> String {
     hex::encode(Sha256::digest([&opad[..], &inner[..]].concat()))
 }
 
+/// HMAC-SHA256, base64 encoded — the host-webhook signature encoding.
+fn hmac_base64(secret: &str, message: &str) -> String {
+    use base64::Engine;
+    let hex = hmac_hex(secret, message);
+    let bytes = hex::decode(hex).unwrap_or_default();
+    base64::engine::general_purpose::STANDARD.encode(bytes)
+}
+
+/// Deliver a host webhook — the channel Ghost posts support requests, export
+/// requests and email verification over.
+///
+/// A different wire format from the integration webhooks above, and it has to
+/// be: the receiver is Ghost's own host service, which verifies
+/// `X-Ghost-Signature: base64(HMAC-SHA256(secret, "{timestamp}:{body}"))`
+/// against the raw body (`core/server/lib/signed-webhook.js`). So the body
+/// must go out byte-for-byte as signed.
+///
+/// Not retried, deliberately: these requests are not idempotent, and a
+/// repeated delivery would file a second support request.
+pub async fn deliver_signed(url: &str, secret: &str, payload: &Value) -> Result<(), String> {
+    let body = serde_json::to_string(payload).map_err(|e| e.to_string())?;
+    let timestamp = chrono::Utc::now().timestamp_millis();
+    let signature = hmac_base64(secret, &format!("{timestamp}:{body}"));
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(30))
+        .build()
+        .map_err(|e| e.to_string())?;
+    let response = client
+        .post(url)
+        .header("Content-Type", "application/json")
+        .header("X-Ghost-Signature", signature)
+        .header("X-Ghost-Signature-Timestamp", timestamp.to_string())
+        .header("Content-Version", format!("v{}", ghost_core::GHOST_VERSION_SAFE))
+        .body(body)
+        .send()
+        .await
+        .map_err(|e| e.to_string())?;
+    if response.status().is_success() {
+        Ok(())
+    } else {
+        // Only the status, never the body or the URL: both can carry the
+        // credentials this request was sent with.
+        Err(format!("HTTP {}", response.status().as_u16()))
+    }
+}
+
 /// Ghost retries a failed delivery five times before giving up.
 const MAX_DELIVERY_RETRIES: u32 = 5;
 /// First backoff step; doubled on each further attempt.

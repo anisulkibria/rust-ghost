@@ -42,12 +42,23 @@ pub struct Config {
     pub base_dir: PathBuf,
 }
 
+/// The port this server binds when nothing says otherwise.
+///
+/// Deliberately **not** 2368. That is stock Ghost's port, and a machine
+/// running this port is very often running a Ghost install to compare
+/// against — on 2368, with Ghost CLI handing 2369, 2370 and upwards to any
+/// further instances. Defaulting into that range meant one of the two simply
+/// failed to start. 1971 sits clear of the whole range, and is above 1024 so
+/// binding it needs no privileges.
+pub const DEFAULT_PORT: u16 = 1971;
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ServerConfig {
     #[serde(default = "default_host")]
     pub host: String,
-    /// Left unset so the default can depend on HTTPS: 443 with TLS, 2368
-    /// without. Read it through [`Config::port`] rather than directly.
+    /// Left unset so the default can depend on HTTPS: 443 with TLS,
+    /// [`DEFAULT_PORT`] without. Read it through [`Config::port`] rather
+    /// than directly.
     #[serde(default)]
     pub port: Option<u16>,
 }
@@ -286,8 +297,8 @@ impl Config {
     }
 
     /// The configured url in canonical form: origin + base path, no trailing
-    /// slash. `http://localhost:2368/blog/` normalizes to
-    /// `http://localhost:2368/blog`, which is what every absolute URL the site
+    /// slash. `http://localhost:1971/blog/` normalizes to
+    /// `http://localhost:1971/blog`, which is what every absolute URL the site
     /// emits is built from.
     pub fn canonical_url(&self) -> String {
         format!("{}{}", self.site_origin(), self.subdir())
@@ -322,7 +333,7 @@ impl Config {
     }
 
     pub fn port(&self) -> u16 {
-        self.serve_plan().map(|p| p.port).unwrap_or(2368)
+        self.serve_plan().map(|p| p.port).unwrap_or(DEFAULT_PORT)
     }
 
     /// Resolve `server` + `ssl` into one listening plan.
@@ -398,7 +409,17 @@ impl Config {
             )));
         }
 
-        let port = self.server.port.unwrap_or(if is_tls { 443 } else { 2368 });
+        // Precedence: an explicit `server.port`, then whatever the url says,
+        // then the scheme's default. Reading the url matters more than it
+        // looks: this never did, and it went unnoticed only because the
+        // default happened to equal the port everyone wrote in their url. The
+        // moment the two differ, a config with `url: http://host:8080` and no
+        // `server.port` would bind one port and write links to another.
+        let port = self
+            .server
+            .port
+            .or_else(|| port_in_url(&self.url))
+            .unwrap_or(if is_tls { 443 } else { DEFAULT_PORT });
         let redirect_http = match (is_tls, opts.as_ref().and_then(|o| o.redirect_http)) {
             (false, _) => None,
             (true, Some(0)) => None,
@@ -420,10 +441,26 @@ impl Config {
     }
 }
 
+/// The explicit port in a url, if it carries one.
+///
+/// `http://host:1971/blog` → `Some(1971)`; `https://example.com` → `None`,
+/// because the scheme's own default is not an explicit choice.
+fn port_in_url(url: &str) -> Option<u16> {
+    let after_scheme = url.split("://").nth(1)?;
+    let authority = after_scheme.split('/').next()?;
+    // IPv6 literals put colons inside brackets, so the port is whatever
+    // follows the last bracket.
+    let candidate = match authority.rsplit_once(']') {
+        Some((_, rest)) => rest.strip_prefix(':')?,
+        None => authority.rsplit_once(':').map(|(_, port)| port)?,
+    };
+    candidate.parse().ok()
+}
+
 fn default_config(env: &str) -> serde_json::Value {
     let db_file = if env == "production" { "content/data/ghost.db" } else { "content/data/ghost-dev.db" };
     serde_json::json!({
-        "url": "http://localhost:2368",
+        "url": format!("http://localhost:{DEFAULT_PORT}"),
         // port is left out on purpose: its default depends on whether TLS is
         // on, which `serve_plan` decides
         "server": { "host": default_host() },
@@ -547,8 +584,8 @@ mod tests {
         assert_eq!(with_url("https://site.com/blog/").subdir(), "/blog");
         assert_eq!(with_url("https://site.com/a/b/").subdir(), "/a/b");
         // a port must not be mistaken for part of the path
-        assert_eq!(with_url("http://localhost:2368").subdir(), "");
-        assert_eq!(with_url("http://localhost:2368/blog").subdir(), "/blog");
+        assert_eq!(with_url("http://localhost:1971").subdir(), "");
+        assert_eq!(with_url("http://localhost:1971/blog").subdir(), "/blog");
     }
 
     #[test]
@@ -556,15 +593,15 @@ mod tests {
         assert_eq!(with_url("https://site.com/blog/").canonical_url(), "https://site.com/blog");
         assert_eq!(with_url("https://site.com/").canonical_url(), "https://site.com");
         assert_eq!(
-            with_url("http://localhost:2368/blog").canonical_url(),
-            "http://localhost:2368/blog"
+            with_url("http://localhost:1971/blog").canonical_url(),
+            "http://localhost:1971/blog"
         );
     }
 
     #[test]
     fn site_origin_drops_the_base_path() {
         assert_eq!(with_url("https://site.com/blog").site_origin(), "https://site.com");
-        assert_eq!(with_url("http://localhost:2368/a/b").site_origin(), "http://localhost:2368");
+        assert_eq!(with_url("http://localhost:1971/a/b").site_origin(), "http://localhost:1971");
     }
 }
 
@@ -575,10 +612,72 @@ mod serve_plan_tests {
 
     #[test]
     fn plain_http_is_the_default() {
-        let plan = with_url("http://localhost:2368").serve_plan().unwrap();
+        // A port in the url is bound, whatever the built-in default is.
+        let plan = with_url("http://localhost:9000").serve_plan().unwrap();
         assert!(matches!(plan.tls, TlsPlan::Off));
-        assert_eq!(plan.port, 2368);
+        assert_eq!(plan.port, 9000);
         assert_eq!(plan.redirect_http, None);
+    }
+
+    #[test]
+    fn the_url_decides_the_port_so_links_and_the_listener_agree() {
+        // The failure this prevents: binding the default while every
+        // absolute link the site writes points at the port in the url.
+        for (url, expected) in [
+            ("http://localhost:9000", 9000),
+            ("http://localhost:8080/blog", 8080),
+            ("http://[::1]:3000", 3000),
+            ("http://localhost", DEFAULT_PORT),
+        ] {
+            assert_eq!(with_url(url).serve_plan().unwrap().port, expected, "{url}");
+        }
+    }
+
+    #[test]
+    fn a_url_with_no_port_falls_back_to_the_default() {
+        // And the default is not Ghost's 2368, so this port and a stock
+        // Ghost install can run on one machine at the same time. Pinned
+        // because the whole point of the number is that it does not collide.
+        assert_eq!(DEFAULT_PORT, 1971);
+        assert_ne!(DEFAULT_PORT, 2368, "stock Ghost holds 2368");
+        // Nor anywhere in the range Ghost CLI walks for further instances.
+        assert!(!(2368..=2400).contains(&DEFAULT_PORT));
+        // Above the privileged range, so binding it needs no root.
+        assert!(DEFAULT_PORT > 1024);
+
+        let plan = with_url("http://localhost").serve_plan().unwrap();
+        assert_eq!(plan.port, DEFAULT_PORT);
+    }
+
+    #[test]
+    fn an_explicit_server_port_still_wins_over_the_url() {
+        // Behind a proxy the two legitimately differ: the url is public,
+        // `server.port` is what to bind locally.
+        let mut config = with_url("http://example.com");
+        config.server.port = Some(9999);
+        assert_eq!(config.serve_plan().unwrap().port, 9999);
+    }
+
+    #[test]
+    fn a_port_is_only_read_when_the_url_states_one() {
+        assert_eq!(port_in_url("http://localhost:1971"), Some(1971));
+        assert_eq!(port_in_url("http://localhost:8080/blog"), Some(8080));
+        assert_eq!(port_in_url("http://[::1]:3000/x"), Some(3000));
+        // A scheme's own default is not an explicit choice.
+        assert_eq!(port_in_url("https://example.com"), None);
+        assert_eq!(port_in_url("http://example.com/blog"), None);
+        // An IPv6 host with no port must not read part of the address as one.
+        assert_eq!(port_in_url("http://[::1]/x"), None);
+        assert_eq!(port_in_url("not a url"), None);
+    }
+
+    #[test]
+    fn the_generated_config_names_the_default_port_in_its_url() {
+        // Setup writes this file; a url pointing at a port the server does
+        // not bind would send every absolute link to the wrong place.
+        let generated = default_config("development");
+        let url = generated["url"].as_str().unwrap();
+        assert_eq!(url, format!("http://localhost:{DEFAULT_PORT}"));
     }
 
     /// `"ssl": true` has to be a complete HTTPS configuration on its own — the
@@ -669,16 +768,16 @@ mod serve_plan_tests {
     fn host_parsing_handles_ports_and_paths() {
         assert_eq!(with_url("https://example.com").host(), "example.com");
         assert_eq!(with_url("https://example.com/blog").host(), "example.com");
-        assert_eq!(with_url("http://localhost:2368").host(), "localhost");
-        assert_eq!(with_url("http://127.0.0.1:2368/blog").host(), "127.0.0.1");
+        assert_eq!(with_url("http://localhost:1971").host(), "localhost");
+        assert_eq!(with_url("http://127.0.0.1:1971/blog").host(), "127.0.0.1");
     }
 
     #[test]
     fn only_real_domains_can_get_automatic_certificates() {
         assert!(with_url("https://example.com").host_is_public());
         assert!(with_url("https://blog.example.co.uk/x").host_is_public());
-        assert!(!with_url("http://localhost:2368").host_is_public());
-        assert!(!with_url("http://127.0.0.1:2368").host_is_public());
+        assert!(!with_url("http://localhost:1971").host_is_public());
+        assert!(!with_url("http://127.0.0.1:1971").host_is_public());
         assert!(!with_url("https://mymac.local").host_is_public());
         assert!(!with_url("https://intranet").host_is_public());
     }

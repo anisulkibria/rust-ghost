@@ -23,9 +23,42 @@ fn error(message: &str) -> Response {
     )
         .into_response()
 }
-async fn request(State(state): State<AppState>, Json(body): Json<Value>) -> Response {
+/// Ghost's 429 for a throttled reset request.
+fn too_many(blocked: &crate::brute::Blocked) -> Response {
+    let mut response = (
+        StatusCode::TOO_MANY_REQUESTS,
+        Json(json!({"errors":[{"message":blocked.message(),"errorType":"TooManyRequestsError"}]})),
+    )
+        .into_response();
+    if let Ok(value) = blocked.retry_after_secs().to_string().parse() {
+        response.headers_mut().insert(header::RETRY_AFTER, value);
+    }
+    response
+}
+
+async fn request(
+    State(state): State<AppState>,
+    crate::brute::ClientAddr(peer): crate::brute::ClientAddr,
+    headers: axum::http::HeaderMap,
+    Json(body): Json<Value>,
+) -> Response {
     let data = body.pointer("/password_reset/0").unwrap_or(&body);
     let email = data["email"].as_str().unwrap_or("").trim().to_lowercase();
+
+    // Two budgets, because the two attacks are different. Per IP stops one
+    // caller walking a list of staff addresses; per address stops a rotating
+    // set of IPs flooding one person's inbox with reset mail. Ghost applies
+    // both to this route (`globalReset` and `userReset`).
+    let ip = crate::brute::client_ip(&headers, peer);
+    for (key, budget) in [
+        (format!("/authentication/password_reset:{ip}"), &crate::brute::GLOBAL_RESET),
+        (format!("{email}reset"), &crate::brute::USER_RESET),
+    ] {
+        if let Err(blocked) = crate::brute::check(&state.db, &key, budget).await {
+            return too_many(&blocked);
+        }
+    }
+
     let user = repos::users::find_by_email(&state.db, &email)
         .await
         .ok()

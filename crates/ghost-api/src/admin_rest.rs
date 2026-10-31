@@ -43,10 +43,25 @@ pub fn admin_router() -> Router<AppState> {
             .route(&format!("/users/email/{{email}}{suffix}"), get(user_by_email))
             .route(&format!("/users/slug/{{slug}}{suffix}"), get(user_by_slug))
             .route(&format!("/users/{{id}}/token{suffix}"), get(read_staff_token).put(regenerate_staff_token))
+            // --- authentication -------------------------------------------
+            .route(&format!("/authentication/setup{suffix}"), axum::routing::put(update_setup))
+            .route(&format!("/authentication/reset{suffix}"), post(reset_authentication))
             // --- members --------------------------------------------------
             .route(&format!("/labels/slug/{{slug}}{suffix}"), get(label_by_slug))
             .route(&format!("/members/stripe_connect{suffix}"), get(stripe_connect))
             .route(&format!("/members/{{id}}/sessions{suffix}"), axum::routing::delete(end_member_sessions))
+            .route(
+                &format!("/members/{{id}}/suppression{suffix}"),
+                axum::routing::delete(remove_member_suppression),
+            )
+            .route(
+                &format!("/settings/stripe/connect{suffix}"),
+                axum::routing::delete(disconnect_stripe),
+            )
+            // --- support and feedback --------------------------------------
+            .route(&format!("/support_requests{suffix}"), post(support_request))
+            .route(&format!("/config/featurebase{suffix}"), get(featurebase_config))
+            .route(&format!("/featurebase/token{suffix}"), get(featurebase_token))
             .route(&format!("/feedback/{{id}}{suffix}"), get(post_feedback))
             // --- newsletters ----------------------------------------------
             .route(&format!("/links/bulk{suffix}"), axum::routing::put(links_bulk))
@@ -500,29 +515,50 @@ async fn label_by_slug(State(state): State<AppState>, headers: HeaderMap, Path(s
     }
 }
 
-/// `GET /members/stripe_connect` — whether paid membership is wired up.
+/// `GET /members/stripe_connect?mode=live|test` — begin the Connect handshake.
 ///
-/// Ghost's endpoint returns the Connect onboarding URL. Connect itself is
-/// deferred in this port, so this reports what is actually true: whether
-/// direct keys are configured, and in which mode.
-async fn stripe_connect(State(state): State<AppState>, headers: HeaderMap) -> Response {
+/// Upstream mints a `state` onto the caller's session and answers `302` to
+/// Stripe's OAuth URL, and this does the same, through the shared
+/// [`crate::stripe_connect`] module the native admin's form also uses.
+///
+/// It is a redirect rather than a JSON document because the client's job here
+/// is to put a browser in front of Stripe, and a body describing where to go
+/// would have every client re-implement the hop. The earlier version of this
+/// endpoint reported connection status instead — honest about what the port
+/// did at the time, but it meant Ghost's own admin, pointed at this backend,
+/// had no way to start a connection at all.
+///
+/// Session-only by construction: the `state` lives on a session row, so there
+/// is nothing to write for a key-authenticated caller. That matches the
+/// permission matrix, which withholds `members_stripe_connect` from every
+/// integration role.
+async fn stripe_connect(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Query(query): Query<HashMap<String, String>>,
+) -> Response {
     if let Err(r) = permissions::require(&state, &headers, Role::Administrator).await {
         return r;
     }
-    let secret = state.settings.get_str("stripe_secret_key").unwrap_or_default();
-    private(json!({"stripe_connect": {
-        "connected": !secret.is_empty(),
-        "mode": if secret.is_empty() {
-            Value::Null
-        } else if secret.starts_with("sk_live") {
-            json!("live")
-        } else {
-            json!("test")
-        },
-        // Ghost's hosted Connect flow is not offered here, and saying so is
-        // more use to a client than an onboarding URL that goes nowhere.
-        "onboarding_url": Value::Null,
-    }}))
+    let mode = match crate::stripe_connect::mode_from(query.get("mode").map(String::as_str)) {
+        Ok(mode) => mode,
+        Err(message) => return error(StatusCode::UNPROCESSABLE_ENTITY, message),
+    };
+    if let Err(message) = crate::stripe_connect::can_connect(&state.config.env, &state.site_url()) {
+        return error(StatusCode::BAD_REQUEST, message);
+    }
+    let Some(sid) = crate::admin::session_id_from(&headers) else {
+        return error(StatusCode::FORBIDDEN, "Stripe Connect must be started from a signed-in admin session.");
+    };
+    match crate::stripe_connect::mint_state(&state.db, &sid, mode).await {
+        Some(minted) => {
+            axum::response::Redirect::to(&crate::stripe_connect::oauth_url(mode, &minted)).into_response()
+        }
+        None => error(
+            StatusCode::FORBIDDEN,
+            "Stripe Connect must be started from a signed-in admin session.",
+        ),
+    }
 }
 
 /// `DELETE /members/{id}/sessions` — sign a member out everywhere.
@@ -589,21 +625,14 @@ async fn links_bulk(State(state): State<AppState>, headers: HeaderMap, Query(q):
 // ---------------------------------------------------------------------------
 
 async fn recommendation_rows(state: &AppState, id: Option<&str>) -> Vec<Value> {
-    sqlx::query_as::<_, (String, String, Option<String>, Option<String>, bool, bool, String)>(
-        "SELECT id, url, title, description, one_click_subscribe, featured, created_at \
-         FROM recommendations WHERE (? IS NULL OR id = ?) ORDER BY created_at DESC LIMIT 200",
-    )
-    .bind(id)
-    .bind(id)
-    .fetch_all(&state.db)
-    .await
-    .unwrap_or_default()
-    .into_iter()
-    .map(|(id, url, title, description, one_click, featured, created_at)| {
-        json!({"id": id, "url": url, "title": title, "description": description,
-               "one_click_subscribe": one_click, "featured": featured, "created_at": created_at})
-    })
-    .collect()
+    use ghost_db::repos::recommendations as recs;
+    match id {
+        Some(id) => recs::find_by_id(&state.db, id).await.ok().flatten().into_iter().collect(),
+        None => {
+            let q = recs::BrowseRecommendations { limit: 200, ..Default::default() };
+            recs::browse(&state.db, &q).await.map(|(items, _)| items).unwrap_or_default()
+        }
+    }
 }
 
 async fn browse_recommendations(State(state): State<AppState>, headers: HeaderMap) -> Response {
@@ -649,13 +678,19 @@ async fn add_recommendation(State(state): State<AppState>, headers: HeaderMap, J
     let id = ids::new_id();
     let now = dates::now_db();
     let result = sqlx::query(
-        "INSERT INTO recommendations (id, url, title, description, one_click_subscribe, featured, created_at, updated_at) \
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+        "INSERT INTO recommendations (id, url, title, description, excerpt, featured_image, favicon, \
+           one_click_subscribe, featured, created_at, updated_at) \
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
     )
     .bind(&id)
     .bind(url)
     .bind(incoming.get("title").and_then(Value::as_str).unwrap_or(parsed.host_str().unwrap_or(url)))
     .bind(incoming.get("description").and_then(Value::as_str).unwrap_or(""))
+    // `/recommendations/check` hands these back from the candidate site's own
+    // markup; storing them is what makes the badge render later.
+    .bind(incoming.get("excerpt").and_then(Value::as_str))
+    .bind(incoming.get("featured_image").and_then(Value::as_str))
+    .bind(incoming.get("favicon").and_then(Value::as_str))
     .bind(incoming.get("one_click_subscribe").and_then(Value::as_bool).unwrap_or(false))
     .bind(incoming.get("featured").and_then(Value::as_bool).unwrap_or(false))
     .bind(&now)
@@ -678,11 +713,16 @@ async fn edit_recommendation(State(state): State<AppState>, headers: HeaderMap, 
     let result = sqlx::query(
         "UPDATE recommendations SET \
            title = COALESCE(?, title), description = COALESCE(?, description), \
+           excerpt = COALESCE(?, excerpt), featured_image = COALESCE(?, featured_image), \
+           favicon = COALESCE(?, favicon), \
            one_click_subscribe = COALESCE(?, one_click_subscribe), featured = COALESCE(?, featured), \
            updated_at = ? WHERE id = ?",
     )
     .bind(incoming.get("title").and_then(Value::as_str))
     .bind(incoming.get("description").and_then(Value::as_str))
+    .bind(incoming.get("excerpt").and_then(Value::as_str))
+    .bind(incoming.get("featured_image").and_then(Value::as_str))
+    .bind(incoming.get("favicon").and_then(Value::as_str))
     .bind(incoming.get("one_click_subscribe").and_then(Value::as_bool))
     .bind(incoming.get("featured").and_then(Value::as_bool))
     .bind(dates::now_db())
@@ -759,8 +799,11 @@ async fn remove_all_gift_links(State(state): State<AppState>, headers: HeaderMap
     if let Err(r) = permissions::require(&state, &headers, Role::Administrator).await {
         return r;
     }
-    match sqlx::query("DELETE FROM article_gift_links").execute(&state.db).await {
-        Ok(result) => private(json!({"gift_links": {"removed": result.rows_affected()}})),
+    match ghost_db::repos::gift_links::revoke(&state.db,None).await {
+        Ok(count) => {
+            if count>0 {crate::publishing::record_gift_action(&state,&headers,None,"deleted").await;}
+            private(json!({"meta":{"count":count},"gift_links": {"removed": count}}))
+        },
         Err(_) => error(StatusCode::INTERNAL_SERVER_ERROR, "The gift links could not be removed."),
     }
 }
@@ -837,4 +880,391 @@ async fn publish_scheduled(
         .execute(&state.db)
         .await;
     private(json!({"schedules": [{"id": id, "status": "due"}]}))
+}
+
+// ---------------------------------------------------------------------------
+// authentication: setup update and the authentication reset
+// ---------------------------------------------------------------------------
+
+/// `PUT /authentication/setup` — the owner edits their own account and the
+/// site title after setup.
+///
+/// Upstream's `updateSetup`: the same payload `POST /authentication/setup`
+/// takes, applied to an install that is already set up, and restricted to the
+/// owner. The restriction is the whole point of the separate method — an
+/// administrator can edit users through `/users`, but rewriting the owner's
+/// own credentials is only ever the owner's to do.
+async fn update_setup(State(state): State<AppState>, headers: HeaderMap, Json(body): Json<Value>) -> Response {
+    let Some(user) = crate::admin::current_user(&state, &headers).await else {
+        return error(StatusCode::UNAUTHORIZED, "Authentication is required.");
+    };
+    // Upstream asserts setup is complete first: before that, `POST` is the
+    // method to use and this one has no account to update.
+    if !ghost_db::repos::users::is_setup(&state.db).await.unwrap_or(false) {
+        return error(StatusCode::FORBIDDEN, "Setup has not been completed yet.");
+    }
+    let owner = permissions::role(&state, &user).await.ok() == Some(Role::Owner);
+    if !owner {
+        return (
+            StatusCode::FORBIDDEN,
+            Json(json!({"errors":[{
+                "message": "You are not the site owner.",
+                "errorType": "NoPermissionError",
+            }]})),
+        )
+            .into_response();
+    }
+
+    let Some(setup) = body.pointer("/setup/0").filter(|s| s.is_object()) else {
+        return error(StatusCode::UNPROCESSABLE_ENTITY, "A setup[0] payload is required.");
+    };
+    let text = |key: &str| setup.get(key).and_then(Value::as_str).map(str::trim).filter(|v| !v.is_empty());
+
+    // Each field is optional, so this doubles as "change only my password" or
+    // "rename the site". An absent field keeps what is stored.
+    if let Some(email) = text("email") {
+        if !email.contains('@') {
+            return error(StatusCode::UNPROCESSABLE_ENTITY, "That is not a valid email address.");
+        }
+        let taken: bool = sqlx::query_scalar(
+            "SELECT EXISTS(SELECT 1 FROM users WHERE lower(email) = lower(?) AND id != ?)",
+        )
+        .bind(email)
+        .bind(&user.id)
+        .fetch_one(&state.db)
+        .await
+        .unwrap_or(false);
+        if taken {
+            return error(StatusCode::UNPROCESSABLE_ENTITY, "Another staff account already uses that address.");
+        }
+    }
+    if let Some(password) = text("password") {
+        if password.len() < 10 {
+            return error(StatusCode::UNPROCESSABLE_ENTITY, "Password must be at least 10 characters.");
+        }
+        let password = password.to_string();
+        let Ok(Ok(hash)) = tokio::task::spawn_blocking(move || bcrypt::hash(&password, 12)).await else {
+            return error(StatusCode::INTERNAL_SERVER_ERROR, "The password could not be saved.");
+        };
+        if sqlx::query("UPDATE users SET password = ?, updated_at = ? WHERE id = ?")
+            .bind(&hash)
+            .bind(dates::now_db())
+            .bind(&user.id)
+            .execute(&state.db)
+            .await
+            .is_err()
+        {
+            return error(StatusCode::INTERNAL_SERVER_ERROR, "The password could not be saved.");
+        }
+    }
+    for (key, column) in [("name", "name"), ("email", "email")] {
+        if let Some(value) = text(key) {
+            let _ = sqlx::query(&format!("UPDATE users SET {column} = ?, updated_at = ? WHERE id = ?"))
+                .bind(value)
+                .bind(dates::now_db())
+                .bind(&user.id)
+                .execute(&state.db)
+                .await;
+        }
+    }
+    if let Some(title) = text("blogTitle") {
+        let _ = state.settings.set(&state.db, "title", &json!(title)).await;
+    }
+    if let Some(description) = setup.get("description").and_then(Value::as_str) {
+        let _ = state.settings.set(&state.db, "description", &json!(description)).await;
+    }
+
+    let refreshed = ghost_db::repos::users::find_by_id(&state.db, &user.id).await.ok().flatten();
+    let user = refreshed.unwrap_or(user);
+    private(json!({ "setup": [{
+        "status": true,
+        "name": user.name,
+        "email": user.email,
+        "blogTitle": state.settings.get_str("title").unwrap_or_default(),
+    }]}))
+}
+
+/// `POST /authentication/reset` — revoke every credential on the site.
+///
+/// The break-glass action: it rotates every API key, locks every staff
+/// account and destroys every session and outstanding token. The caller is
+/// locked out too, which is intended — see [`crate::reset_auth`].
+async fn reset_authentication(State(state): State<AppState>, headers: HeaderMap) -> Response {
+    let user = match permissions::require(&state, &headers, Role::Administrator).await {
+        Ok(user) => user,
+        Err(r) => return r,
+    };
+    match crate::reset_auth::reset_authentication(&state.db, Some(&user.id)).await {
+        Ok(outcome) => private(json!({ "authentication": [{
+            "message": crate::reset_auth::summary(&outcome),
+            "api_keys_rotated": outcome.api_keys_rotated,
+            "users_locked": outcome.users_locked,
+        }]})),
+        Err(e) => error(StatusCode::INTERNAL_SERVER_ERROR, &e.message()),
+    }
+}
+
+// ---------------------------------------------------------------------------
+// member suppression and Stripe disconnect
+// ---------------------------------------------------------------------------
+
+/// `DELETE /members/:id/suppression` — let a member receive email again.
+///
+/// Ghost scopes this to the member rather than to the address, which is the
+/// difference from `DELETE /email-suppressions/:email`: a caller holding a
+/// member id does not have to know, or guess, the address behind it.
+async fn remove_member_suppression(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+) -> Response {
+    if let Err(r) = permissions::require(&state, &headers, Role::Author).await {
+        return r;
+    }
+    let email: Option<String> = sqlx::query_scalar("SELECT email FROM members WHERE id = ?")
+        .bind(&id)
+        .fetch_optional(&state.db)
+        .await
+        .ok()
+        .flatten();
+    let Some(email) = email else {
+        return error(StatusCode::NOT_FOUND, "Member not found.");
+    };
+    match crate::newsletter_events::remove_suppression(&state, &email).await {
+        Ok(()) => StatusCode::NO_CONTENT.into_response(),
+        Err(e) => error(StatusCode::INTERNAL_SERVER_ERROR, &e.message()),
+    }
+}
+
+/// `DELETE /settings/stripe/connect` — disconnect the Stripe account.
+///
+/// Removes the registered webhook while the key still works, then clears the
+/// keys and turns paid memberships off. Subscriptions themselves are left
+/// alone on Stripe's side: disconnecting is not cancelling, and cancelling
+/// everybody's subscription is not a thing a disconnect should do silently.
+///
+/// Which is exactly why upstream refuses while any paid member remains, and
+/// why that refusal is here too. Without it the two halves combine badly: the
+/// subscriptions keep billing on Stripe, and this site loses the key it needs
+/// to see them — so members pay for access it can no longer grant, and no
+/// screen in the admin can show what happened.
+async fn disconnect_stripe(State(state): State<AppState>, headers: HeaderMap) -> Response {
+    if let Err(r) = permissions::require(&state, &headers, Role::Administrator).await {
+        return r;
+    }
+    if crate::stripe_connect::has_paid_members(&state.db).await {
+        return error(StatusCode::BAD_REQUEST, crate::stripe_connect::HAS_SUBSCRIPTIONS);
+    }
+    if let Some(cfg) = ghost_stripe::StripeConfig::from_settings(&state.settings) {
+        if let Some(id) =
+            state.settings.get_str("members_stripe_webhook_id").filter(|i| !i.is_empty())
+        {
+            let _ = ghost_stripe::delete_webhook(&cfg, &id).await;
+        }
+    }
+    for key in [
+        "stripe_secret_key",
+        "stripe_publishable_key",
+        "stripe_connect_account_id",
+        "stripe_connect_display_name",
+        "stripe_connect_livemode",
+        "members_stripe_webhook_id",
+        "members_stripe_webhook_secret",
+    ] {
+        let _ = state.settings.set(&state.db, key, &json!("")).await;
+    }
+    let _ = state.settings.set(&state.db, "paid_members_enabled", &json!(false)).await;
+    StatusCode::NO_CONTENT.into_response()
+}
+
+// ---------------------------------------------------------------------------
+// support requests
+// ---------------------------------------------------------------------------
+
+/// `POST /support_requests` — a staff user asks their host for help.
+///
+/// Upstream forwards this to a Ghost(Pro) host webhook and 404s when no such
+/// host is configured. A self-hosted install has no host to ask, so this also
+/// accepts the next most useful destination: the site owner's inbox. Order is
+/// upstream's first — a configured webhook wins — then email, then upstream's
+/// 404 when there is nowhere to send it.
+///
+/// `202` either way, because delivery is asynchronous and a 2xx from the
+/// receiver means "delivered", not "answered".
+async fn support_request(State(state): State<AppState>, headers: HeaderMap, Json(body): Json<Value>) -> Response {
+    let user = match permissions::require(&state, &headers, Role::Author).await {
+        Ok(user) => user,
+        Err(_) => {
+            return (
+                StatusCode::FORBIDDEN,
+                Json(json!({"errors":[{
+                    "message": "Support requests can only be sent by a staff user",
+                    "errorType": "NoPermissionError",
+                }]})),
+            )
+                .into_response()
+        }
+    };
+    let Some(input) = body.pointer("/support_requests/0").filter(|v| v.is_object()) else {
+        return error(StatusCode::UNPROCESSABLE_ENTITY, "Invalid support request");
+    };
+    let required = |key: &str, max: usize| -> Result<String, Response> {
+        match input.get(key).and_then(Value::as_str).map(str::trim).filter(|v| !v.is_empty()) {
+            Some(value) if value.chars().count() <= max => Ok(value.to_string()),
+            Some(_) => Err(error(StatusCode::UNPROCESSABLE_ENTITY, &format!("Invalid {key}: too long"))),
+            None => Err(error(StatusCode::UNPROCESSABLE_ENTITY, &format!("Invalid {key}: required"))),
+        }
+    };
+    let subject = match required("subject", 255) { Ok(v) => v, Err(r) => return r };
+    let message = match required("message", 10_000) { Ok(v) => v, Err(r) => return r };
+    let page_url = input.get("page_url").and_then(Value::as_str).unwrap_or("");
+    if !page_url.is_empty() && !(page_url.starts_with("http://") || page_url.starts_with("https://")) {
+        return error(StatusCode::UNPROCESSABLE_ENTITY, "Invalid page_url: must be an HTTP or HTTPS URL");
+    }
+
+    let payload = json!({
+        "type": "support_request",
+        "siteId": state.settings.get_str("site_uuid").unwrap_or_default(),
+        "requestedBy": { "id": user.id, "name": user.name, "email": user.email },
+        "subject": subject,
+        "message": message,
+        "source": input.get("source").cloned().unwrap_or(Value::Null),
+        "pageUrl": if page_url.is_empty() { Value::Null } else { json!(page_url) },
+        "context": input.get("context").cloned().unwrap_or_else(|| json!({})),
+    });
+
+    let webhook = state.settings.get_str("support_request_webhook_url").filter(|u| !u.trim().is_empty());
+    if let Some(url) = webhook {
+        let secret = state.settings.get_str("support_request_webhook_secret").unwrap_or_default();
+        if secret.trim().is_empty() {
+            return error(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "Support requests are not configured correctly on this site",
+            );
+        }
+        return match crate::webhooks::deliver_signed(&url, &secret, &payload).await {
+            Ok(()) => (StatusCode::ACCEPTED, Json(json!({}))).into_response(),
+            // 502: the request was well formed, the receiver was not reachable.
+            Err(_) => error(
+                StatusCode::BAD_GATEWAY,
+                "Failed to send the support request. Please try again later.",
+            ),
+        };
+    }
+
+    // No host webhook: mail the owner, which is who answers on a self-hosted
+    // install. A support request that silently goes nowhere is worse than one
+    // that is refused, so an unconfigured mailer still 404s.
+    let owner: Option<(String, String)> = sqlx::query_as(
+        "SELECT u.name, u.email FROM users u JOIN roles_users ru ON ru.user_id = u.id \
+         JOIN roles r ON r.id = ru.role_id WHERE r.name = 'Owner' LIMIT 1",
+    )
+    .fetch_optional(&state.db)
+    .await
+    .ok()
+    .flatten();
+    let Some((_, owner_email)) = owner else {
+        return error(StatusCode::NOT_FOUND, "Support requests are not enabled on this site");
+    };
+    let title = state.settings.site_name();
+    let site = state.site_url();
+    let escape = |s: &str| s.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;");
+    let html = format!(
+        "<p><strong>{}</strong> ({}) asked for help on {}.</p><p>{}</p>{}",
+        escape(user.name.as_deref().unwrap_or("A staff user")),
+        escape(user.email.as_deref().unwrap_or("")),
+        escape(&title),
+        escape(&message).replace('\n', "<br>"),
+        if page_url.is_empty() {
+            String::new()
+        } else {
+            format!("<p>From: <a href=\"{}\">{}</a></p>", escape(page_url), escape(page_url))
+        },
+    );
+    let cfg = ghost_mail::MailConfig::from_settings(&state.settings, &title, &site);
+    let msg = ghost_mail::Message {
+        to: owner_email,
+        subject: format!("[{title}] {subject}"),
+        html,
+        text: format!(
+            "{} ({}) asked for help on {}.\n\n{}\n{}",
+            user.name.as_deref().unwrap_or("A staff user"),
+            user.email.as_deref().unwrap_or(""),
+            title,
+            message,
+            if page_url.is_empty() { String::new() } else { format!("\nFrom: {page_url}") },
+        ),
+    };
+    match ghost_mail::send(&cfg, &msg).await {
+        Ok(_) => (StatusCode::ACCEPTED, Json(json!({}))).into_response(),
+        Err(e) => {
+            tracing::warn!("support request email failed: {}", e.message());
+            error(StatusCode::BAD_GATEWAY, "Failed to send the support request. Please try again later.")
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Featurebase — the admin's feedback widget
+// ---------------------------------------------------------------------------
+
+/// `GET /config/featurebase` — the public half of the widget's configuration.
+///
+/// Ghost only includes this key when a `featurebase` config block exists, and
+/// exposes just `enabled` and `organization` from it; the signing secret stays
+/// server-side. Off unless the publisher has configured it, which for a
+/// self-hosted install is the normal state — the admin reads `enabled: false`
+/// and never loads the third-party SDK.
+async fn featurebase_config(State(state): State<AppState>, headers: HeaderMap) -> Response {
+    if let Err(r) = permissions::require(&state, &headers, Role::Contributor).await {
+        return r;
+    }
+    private(json!({ "featurebase": {
+        "enabled": featurebase_enabled(&state),
+        "organization": state.settings.get_str("featurebase_organization").unwrap_or_default(),
+    }}))
+}
+
+/// Whether the feedback widget is both switched on and able to sign a token.
+///
+/// Both halves are required: `enabled` without a secret would load the widget
+/// and then fail to authenticate it, which is worse than leaving it off.
+fn featurebase_enabled(state: &AppState) -> bool {
+    state.settings.get_bool("featurebase_enabled")
+        && state
+            .settings
+            .get_str("featurebase_jwt_secret")
+            .is_some_and(|secret| !secret.trim().is_empty())
+}
+
+/// `GET /featurebase/token` — a signed identity for the feedback widget.
+///
+/// An HS256 JWT over the staff user's name, email, avatar and this
+/// publication, valid for seven days, exactly as upstream signs it. Hand-built
+/// rather than pulling in a JWT crate: the payload is fixed and the signature
+/// is the same HMAC the webhooks use.
+async fn featurebase_token(State(state): State<AppState>, headers: HeaderMap) -> Response {
+    let user = match permissions::require(&state, &headers, Role::Contributor).await {
+        Ok(user) => user,
+        Err(r) => return r,
+    };
+    if !featurebase_enabled(&state) {
+        return error(StatusCode::UNPROCESSABLE_ENTITY, "Featurebase is not configured");
+    }
+    let secret = state.settings.get_str("featurebase_jwt_secret").unwrap_or_default();
+    let now = chrono::Utc::now().timestamp();
+    let claims = json!({
+        "name": user.name,
+        "email": user.email,
+        "profilePicture": user.profile_image,
+        "companies": [{
+            "id": state.settings.get_str("site_uuid").unwrap_or_default(),
+            "name": state.settings.site_name(),
+            "website": state.site_url(),
+        }],
+        "iat": now,
+        // Upstream's `expiresIn: '7d'`.
+        "exp": now + 7 * 24 * 60 * 60,
+    });
+    private(json!({ "featurebase": { "token": crate::jwt::sign_hs256(&claims, &secret) } }))
 }

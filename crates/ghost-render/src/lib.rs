@@ -3,9 +3,12 @@ pub mod apps;
 pub mod color;
 pub mod context;
 pub mod get_helper;
+pub mod gscan;
+pub mod gscan_rules;
 pub mod helpers;
 pub mod lexical;
 pub mod markdown;
+pub mod mobiledoc;
 pub mod preprocess;
 pub mod social;
 pub mod theme;
@@ -94,7 +97,7 @@ mod probe {
     #[test]
     fn probe_partials_and_root() {
         let mut hb = Handlebars::new();
-        hb.register_partial("nav", "<nav>{{site.title}}</nav>");
+        hb.register_partial("nav", "<nav>{{site.title}}</nav>").unwrap();
         hb.register_template_string("t", "{{>nav}} {{@root.site.url}}").unwrap();
         let data = serde_json::json!({ "site": {"title": "T", "url": "http://x"} });
         let out = hb.render("t", &data).unwrap();

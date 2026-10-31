@@ -171,8 +171,21 @@ pub async fn render_template(
         _ => serde_json::json!({}),
     };
 
+    // Portal fetches recommendations from the API when "See all" is opened.
+    // Theme helpers render synchronously, so the sidebar needs the same
+    // publications in its template context before rendering the first page.
+    // The helper's own defaults — five, newest first — so a theme that renders
+    // `{{recommendations}}` with no options gets this list without a second
+    // query, and one that passes options re-queries with them.
+    let recommendations = if state.settings.get_bool("recommendations_enabled") {
+        let q = ghost_db::repos::recommendations::BrowseRecommendations::default();
+        let (items, _) = ghost_db::repos::recommendations::browse(&state.db, &q).await?;
+        Value::Array(items)
+    } else { Value::Array(vec![]) };
+
     let root = match &mut data {
         Value::Object(m) => {
+            m.entry("recommendations").or_insert(recommendations);
             m.insert("site".into(), site);
             m.insert("config".into(), config);
             m.insert("member".into(), rctx.member.clone());
@@ -186,6 +199,7 @@ pub async fn render_template(
         }
         other => {
             let mut m = Map::new();
+            m.insert("recommendations".into(), recommendations);
             m.insert("this".into(), other.clone());
             m.insert("site".into(), site);
             m.insert("config".into(), config);

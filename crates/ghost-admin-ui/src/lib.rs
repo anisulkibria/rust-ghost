@@ -13,11 +13,14 @@ use std::sync::Arc;
 
 use ghost_api::AppState;
 
+pub mod analytics;
 pub mod automations;
 pub mod comments;
 pub mod posts;
+pub mod social;
 pub mod rest;
 pub mod schedule;
+mod preview;
 
 /// Upload ceiling for theme zips and content imports. Ghost's own limit is
 /// also in this range; it exists to bound memory, since multipart bodies are
@@ -86,6 +89,15 @@ pub fn admin_ui_router(state: AppState) -> Router<AppState> {
         .route("/analytics/", get(analytics_page))
         .route("/modules/", get(modules_page))
         .route("/social/", get(social_page))
+        .route("/social/thread/", get(social_thread_page))
+        .route("/social/account/", get(social_account_page))
+        .route("/social/notes/", post(social_note_create))
+        .route("/social/notes/delete/", post(social_note_delete))
+        .route("/social/follow/", post(social_follow))
+        .route("/social/interact/", post(social_interact))
+        .route("/social/block/", post(social_block))
+        .route("/social/enabled/", post(social_set_enabled))
+        .route("/social/read/", post(social_mark_read))
         // Machine payments was a module card before it moved in with the other
         // payment settings; the old path keeps any bookmark working.
         .route("/machine-payments/", get(|| async { Redirect::to("/ghost/settings/machine-payments/") }))
@@ -95,6 +107,9 @@ pub fn admin_ui_router(state: AppState) -> Router<AppState> {
         .route("/members/export/", get(members_export))
         .route("/members/import/", post(members_import).layer(axum::extract::DefaultBodyLimit::max(MAX_UPLOAD_BYTES)))
         .route("/members/import/run/", post(members_import_run))
+        // Static `new` ahead of `{id}`, as the posts list's `bulk` is, so the
+        // new-member page is never read as a member whose id is "new".
+        .route("/members/new/", get(member_new_page).post(member_create))
         .route("/members/{id}/", get(member_edit_page).post(member_edit_save))
         .route("/members/{id}/delete/", post(member_delete))
         .route("/members/{id}/commenting/disable/", post(comments::member_commenting_disable))
@@ -122,12 +137,16 @@ pub fn admin_ui_router(state: AppState) -> Router<AppState> {
         // fixed segment in these lists relies on.
         .route("/posts/bulk/", post(posts_bulk))
         .route("/posts/{id}/", get(editor_page).post(editor_save))
+        .route("/posts/{id}/preview/", post(preview::render))
+        .route("/posts/{id}/preview/test/", post(preview::send_test))
         .route("/posts/{id}/delete/", post(post_delete))
         .route("/posts/{id}/analytics/", get(post_analytics_page))
         .route("/pages/", get(pages_list))
         .route("/pages/new/", get(page_new).post(page_create))
         .route("/pages/bulk/", post(pages_bulk))
         .route("/pages/{id}/", get(editor_page).post(editor_save))
+        .route("/pages/{id}/preview/", post(preview::render))
+        .route("/pages/{id}/preview/test/", post(preview::send_test))
         .route("/pages/{id}/delete/", post(page_delete))
         .route("/tags/", get(tags_list).post(tag_create))
         .route("/tags/{id}/", get(tag_edit_page).post(tag_edit_save))
@@ -378,7 +397,7 @@ async fn apply_base_path(req: axum::extract::Request, next: axum::middleware::Ne
 // layout — Material You (Android Settings / ChromeOS style) shell
 // ---------------------------------------------------------------------------
 
-fn esc(s: &str) -> String {
+pub(crate) fn esc(s: &str) -> String {
     s.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;").replace('"', "&quot;")
 }
 
@@ -419,6 +438,10 @@ fn icon(name: &str) -> &'static str {
         "ghost" => r#"<path d="M12 2a8 8 0 0 0-8 8v10.6c0 .7.85 1.05 1.35.55l1.9-1.9 2.2 2.2c.3.3.78.3 1.08 0L12 20l1.47 1.45c.3.3.78.3 1.08 0l2.2-2.2 1.9 1.9c.5.5 1.35.15 1.35-.55V10a8 8 0 0 0-8-8zm-3 8.5A1.5 1.5 0 1 1 10.5 9 1.5 1.5 0 0 1 9 10.5zm6 0A1.5 1.5 0 1 1 16.5 9 1.5 1.5 0 0 1 15 10.5z"/>"#,
         "menu" => r#"<path d="M3 18h18v-2H3v2zm0-5h18v-2H3v2zm0-7v2h18V6H3z"/>"#,
         "comment" => r#"<path d="M20 2H4c-1.1 0-2 .9-2 2v18l4-4h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zM6 9h12v2H6V9zm8 5H6v-2h8v2zm4-6H6V6h12v2z"/>"#,
+        // The two fediverse verbs. A heart for a like, and the boost arrows
+        // Mastodon made the universal sign for a repost.
+        "heart" => r#"<path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"/>"#,
+        "repeat" => r#"<path d="M7 7h10v3l4-4-4-4v3H5v6h2V7zm10 10H7v-3l-4 4 4 4v-3h12v-6h-2v4z"/>"#,
         // a node wired to two others: the shape of an automation flow
         // an eye, for page views
         "eye" => r#"<path d="M12 4.5C7 4.5 2.73 7.61 1 12c1.73 4.39 6 7.5 11 7.5s9.27-3.11 11-7.5c-1.73-4.39-6-7.5-11-7.5zm0 12.5a5 5 0 1 1 0-10 5 5 0 0 1 0 10zm0-8a3 3 0 1 0 0 6 3 3 0 0 0 0-6z"/>"#,
@@ -444,7 +467,7 @@ fn icon(name: &str) -> &'static str {
     }
 }
 
-fn svg(name: &str) -> String {
+pub(crate) fn svg(name: &str) -> String {
     format!(r#"<svg class="i" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">{}</svg>"#, icon(name))
 }
 
@@ -1018,6 +1041,198 @@ code { font-family: var(--mono); }
 .range-tabs a.active { background: var(--secondary-container); color: var(--on-secondary-container); }
 @media (max-width: 919px) { .tiles { grid-template-columns: 1fr 1fr; } }
 
+/* Period-over-period change on a tile. The direction is carried by the arrow
+   and by the words beside it; the colour only agrees with them. Green on a
+   rise would be a judgement, not a reading, on any metric where up is bad —
+   these are visitors and members, where it is not. */
+.tile .delta-move { font-weight: 600; display: inline-flex; align-items: center; gap: 3px; }
+.tile .delta-move .arrow { font-size: 13px; line-height: 1; }
+.tile .delta-move.up { color: var(--green-fg); }
+.tile .delta-move.down { color: var(--error); }
+.tile .delta-vs, .tile .delta-flat { color: var(--on-surface-variant); }
+/* The live counter and the membership line, under the tiles rather than
+   inside one: they belong to the page, not to any single figure. */
+.live-note { margin: -4px 0 4px; font-size: 13px; color: var(--on-surface-variant); }
+
+/* ---- analytics: breakdown tables ----
+   The readable twin of every chart on the page. A bar sits behind the name as
+   a magnitude cue and the figures stay exact beside it, so a row is scannable
+   at a glance and precise on inspection. */
+.breakdown { width: 100%; border-collapse: collapse; font-size: 13.5px; }
+.breakdown caption { text-align: left; }
+.breakdown thead th { font-size: 11px; font-weight: 600; letter-spacing: .06em;
+  text-transform: uppercase; color: var(--on-surface-variant); opacity: .75;
+  padding: 0 0 10px; text-align: right; white-space: nowrap; }
+.breakdown thead th:first-child { text-align: left; }
+.breakdown tbody th { font-weight: 500; text-align: left; position: relative;
+  padding: 9px 12px 9px 0; display: flex; align-items: center; gap: 10px; }
+.breakdown tbody td { text-align: right; padding: 9px 0 9px 18px; white-space: nowrap;
+  font-variant-numeric: tabular-nums; color: var(--on-surface-variant); }
+.breakdown tbody td:last-child { color: var(--on-surface-variant); opacity: .75; }
+.breakdown tbody tr { border-top: 1px solid var(--outline-variant); }
+.breakdown tbody tr:first-child { border-top: 0; }
+.bd-lead { flex: none; font-size: 17px; line-height: 1; display: inline-flex;
+  align-items: center; gap: 8px; }
+.bd-lead:empty { display: none; }
+/* The row's own colour class, the same one the map paints that country, so a
+   row and a shape can be matched up in either direction. */
+.bd-lead .sw { width: 10px; height: 10px; border-radius: 3px; flex: none; }
+.bd-name { min-width: 0; display: flex; flex-direction: column; }
+.bd-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.bd-detail { font-size: 12px; color: var(--on-surface-variant); }
+/* The bar is behind the row's own name, filling from the left to the row's
+   share of the busiest row. Absolute so it never pushes the text around. */
+.bd-bar { position: absolute; left: -8px; top: 3px; bottom: 3px; z-index: 0;
+  width: calc((100% + 8px) * var(--share)); border-radius: 6px;
+  background: color-mix(in srgb, var(--primary) 10%, transparent); pointer-events: none; }
+.breakdown tbody th > :not(.bd-bar) { position: relative; z-index: 1; }
+.bd-scroll { overflow-x: auto; }
+.bd-empty { margin: 4px 0 0; font-size: 13px; color: var(--on-surface-variant); }
+.bd-hint { margin: 0 0 14px; font-size: 13px; color: var(--on-surface-variant); }
+.sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
+  overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
+
+/* ---- analytics: the locations choropleth ----
+   One hue, light to dark, mixed from the admin's own accent into the card it
+   sits on. Written as a mix rather than five hexes so it follows the theme and
+   inverts correctly in dark mode, where "near zero" recedes toward a dark
+   surface instead of a light one. The five steps were validated against both
+   surfaces: monotone lightness, visible gaps, and a light end that still
+   clears 2:1 against the card. Five classes, because past about seven the
+   adjacent ones stop being tellable apart. */
+/* The ramp is declared on the whole card, not just the figure: the table's
+   row swatches are the same five classes and have to resolve them too. */
+.locations { --b0: color-mix(in srgb, var(--primary) 45%, var(--sc-lowest));
+  --b1: color-mix(in srgb, var(--primary) 59%, var(--sc-lowest));
+  --b2: color-mix(in srgb, var(--primary) 73%, var(--sc-lowest));
+  --b3: color-mix(in srgb, var(--primary) 86%, var(--sc-lowest));
+  --b4: var(--primary);
+  /* A country nobody visited is a different statement from a quiet one, so it
+     is a neutral off the surface rather than a sixth step of the ramp. */
+  --b-none: color-mix(in srgb, var(--on-surface) 7%, var(--sc-lowest)); }
+.locations .sw.b0 { background: var(--b0); } .locations .sw.b1 { background: var(--b1); }
+.locations .sw.b2 { background: var(--b2); } .locations .sw.b3 { background: var(--b3); }
+.locations .sw.b4 { background: var(--b4); } .locations .sw.none { background: var(--b-none); }
+.worldmap { margin: 0 0 18px; }
+.map-frame { min-height: 180px; display: flex; align-items: center; justify-content: center; }
+.map-pending { margin: 0; font-size: 13px; color: var(--on-surface-variant); }
+.worldmap.failed { display: none; }
+.map-svg { width: 100%; height: auto; display: block; }
+/* A hairline of the card's own surface between neighbours — the gap does the
+   separating, never a drawn border. */
+.map-svg .c { fill: var(--b-none); stroke: var(--sc-lowest); stroke-width: .2;
+  transition: fill .12s var(--ease); }
+.map-svg .c.b0 { fill: var(--b0); } .map-svg .c.b1 { fill: var(--b1); }
+.map-svg .c.b2 { fill: var(--b2); } .map-svg .c.b3 { fill: var(--b3); }
+.map-svg .c.b4 { fill: var(--b4); }
+.map-svg .c:not(.none):hover { stroke: var(--on-surface); stroke-width: .4; }
+.map-legend { display: flex; align-items: center; gap: 6px; flex-wrap: wrap;
+  margin-top: 12px; font-size: 11.5px; color: var(--on-surface-variant); }
+.map-legend .sw { width: 22px; height: 10px; border-radius: 2px; flex: none; }
+.map-legend .lg-gap { width: 14px; }
+@media (max-width: 599px) { .map-legend .lg-label { font-size: 11px; } }
+
+/* ---- the social web ----
+   The fediverse screens. A feed is a column of cards rather than the dense
+   rows the rest of the admin uses: a note is something to read, not a record
+   to scan, and it needs the room its own text asks for. */
+.sw-profile { display: flex; align-items: flex-start; gap: 18px; flex-wrap: wrap; }
+.sw-profile-main { flex: 1; min-width: 200px; }
+.sw-profile-main > b { font-size: 19px; display: block; line-height: 1.3; }
+.sw-profile-end { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.sw-stats { display: flex; gap: 16px; margin-top: 6px; font-size: 13px;
+  color: var(--on-surface-variant); flex-wrap: wrap; }
+.sw-stats b { color: var(--on-surface); font-variant-numeric: tabular-nums; }
+.sw-bio { margin: 10px 0 0; font-size: 13.5px; color: var(--on-surface-variant);
+  max-width: 60ch; white-space: pre-wrap; }
+.sw-handle { font-size: 13px; color: var(--on-surface-variant); display: block; }
+
+/* a note */
+.sw-note { margin-bottom: 12px; }
+.sw-note-head { display: flex; align-items: center; gap: 12px; }
+.sw-who { display: flex; align-items: center; gap: 10px; text-decoration: none;
+  color: inherit; min-width: 0; flex: 1; border-radius: 12px; }
+.sw-who:hover .sw-names b { text-decoration: underline; }
+.sw-names { min-width: 0; }
+.sw-names b { font-size: 14.5px; font-weight: 600; display: block; line-height: 1.25;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sw-names .sw-handle { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sw-time, .sw-since { font-size: 12.5px; color: var(--on-surface-variant); white-space: nowrap; }
+.sw-replyto { display: inline-flex; align-items: center; gap: 4px; margin-top: 10px;
+  font-size: 12.5px; color: var(--on-surface-variant); text-decoration: none; }
+.sw-replyto svg.i { width: 14px; height: 14px; transform: rotate(180deg); }
+.sw-replyto:hover { text-decoration: underline; }
+/* The body is the point of the card, so it gets reading measure and keeps the
+   line breaks the author wrote. */
+.sw-text { margin: 12px 0 0; font-size: 15px; line-height: 1.55; white-space: pre-wrap;
+  overflow-wrap: anywhere; max-width: 68ch; }
+.sw-note-foot { display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+  margin-top: 16px; padding-top: 14px;
+  border-top: 1px solid color-mix(in srgb, var(--outline-variant) 60%, transparent); }
+.sw-counts { display: flex; gap: 16px; }
+.sw-count { display: inline-flex; align-items: center; gap: 5px; font-size: 12.5px;
+  color: var(--on-surface-variant); text-decoration: none;
+  font-variant-numeric: tabular-nums; }
+.sw-count svg.i { width: 15px; height: 15px; }
+a.sw-count:hover { color: var(--on-surface); }
+.sw-actions { margin-left: auto; display: flex; gap: 4px; flex-wrap: wrap; align-items: center; }
+.sw-act { display: inline-flex; }
+.sw-btn { display: inline-flex; align-items: center; gap: 6px; height: 34px; padding: 0 12px;
+  border: none; border-radius: 999px; background: transparent; color: var(--on-surface-variant);
+  font-family: inherit; font-size: 13px; font-weight: 500; cursor: pointer; white-space: nowrap;
+  text-decoration: none; transition: background .15s var(--ease), color .15s var(--ease); }
+.sw-btn:hover { background: color-mix(in srgb, var(--on-surface) 8%, transparent);
+  color: var(--on-surface); }
+.sw-btn svg.i { width: 16px; height: 16px; }
+/* An interaction that is already standing reads as done rather than offered. */
+.sw-btn.on { background: var(--secondary-container); color: var(--on-secondary-container); }
+.sw-btn.danger { color: var(--error); }
+.sw-btn.danger:hover { background: var(--error-container); color: var(--on-error-container); }
+
+/* composing */
+.sw-composer { margin-bottom: 16px; }
+.sw-composer-foot { display: flex; align-items: center; gap: 16px; margin-top: 14px; flex-wrap: wrap; }
+.sw-composer-foot .muted { margin: 0; font-size: 12.5px; }
+.sw-composer-foot .btn { margin-left: auto; }
+
+/* lists of people */
+.sw-row { gap: 14px; }
+.sw-row-end { display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+  justify-content: flex-end; }
+.sw-notification.unread { background: color-mix(in srgb, var(--primary) 5%, transparent); }
+.sw-said { font-weight: 400; color: var(--on-surface-variant); }
+.sw-quote { white-space: pre-wrap; overflow-wrap: anywhere; }
+.sw-markread { display: flex; justify-content: flex-end; margin-bottom: 10px; }
+
+/* finding somebody */
+.sw-search { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; margin-bottom: 12px; }
+.sw-search .field { flex: 1; min-width: 220px; }
+.sw-found { background: var(--sc-low); border-radius: 20px; padding: 18px 20px; margin-bottom: 16px;
+  display: flex; gap: 16px; align-items: center; flex-wrap: wrap; }
+.sw-found-end { margin-left: auto; display: flex; align-items: center; gap: 16px; flex-wrap: wrap; }
+.sw-found .sw-bio { flex-basis: 100%; margin: 0; }
+.sw-search-miss { margin: 0 0 16px; font-size: 13.5px; color: var(--error); }
+
+/* explore: suggestion cards, two or three across depending on the room */
+.sw-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 12px; }
+.sw-suggest { margin: 0; display: flex; flex-direction: column; gap: 8px; }
+.sw-reason { margin: 0; font-size: 12.5px; color: var(--on-surface-variant); }
+.sw-suggest .sw-bio { margin: 0; font-size: 13px; }
+.sw-suggest-end { margin-top: auto; padding-top: 8px; display: flex; gap: 8px; align-items: center; }
+.sw-section-note { margin: -6px 0 12px; padding: 0 16px; font-size: 12.5px;
+  color: var(--on-surface-variant); }
+.sw-pager { display: flex; gap: 8px; justify-content: center; margin: 18px 0 4px; }
+.sw-back { margin: 0 0 14px; font-size: 13px; }
+.sw-back a { display: inline-flex; align-items: center; gap: 4px; color: var(--on-surface-variant);
+  text-decoration: none; }
+.sw-back svg.i { width: 15px; height: 15px; transform: rotate(180deg); }
+.sw-back a:hover { text-decoration: underline; }
+.seg-bar.sub { margin-top: -4px; }
+@media (max-width: 599px) {
+  .sw-actions { margin-left: 0; width: 100%; }
+  .sw-note-foot { gap: 8px; }
+}
+
 /* ---- meta data: search and social card previews ----
    Mirrors what Ghost shows above each group of fields: a mock search result,
    and a mock post carrying the card. The shapes are Ghost's; the surfaces and
@@ -1107,7 +1322,16 @@ code { font-family: var(--mono); }
   -webkit-backdrop-filter: blur(8px); color: var(--on-surface-variant); font-size: 12.5px;
   font-weight: 500; pointer-events: none; box-shadow: var(--shadow-1); }
 .wc-pill:empty { display: none; }
-#editor-view[hidden] { display: none; }
+
+/* The `hidden` attribute has to actually hide things.
+   Its UA rule is `[hidden] { display: none }`, which any class setting
+   `display` outranks — and this admin sets `display` on nearly every
+   component class, so `node.hidden = true` silently did nothing wherever one
+   applied. That has been patched narrowly twice before (`#editor-view` here,
+   `dialog.unsplash [hidden]` by the picker) and was still leaving the
+   automation editor's Markdown fallback visible underneath the rich editor
+   that had replaced it. One rule, once, instead of a fourth patch. */
+[hidden] { display: none !important; }
 
 /* The save state beside the header's Save button: "Saving…", "Saved", "*
    Unsaved changes" while the autosave is beaten only by the typing. */
@@ -1273,7 +1497,6 @@ dialog.unsplash { width: min(1920px, calc(100vw - 24px)); height: calc(100vh - 2
   background: var(--sc-lowest); color: var(--on-surface); box-shadow: var(--shadow-2);
   overflow: hidden; }
 dialog.unsplash[open] { display: grid; grid-template-rows: auto minmax(0, 1fr); }
-dialog.unsplash [hidden] { display: none !important; }
 dialog.unsplash::backdrop { background: rgba(0,0,0,.6); }
 .u-close { display: grid; place-items: center; width: 40px; height: 40px; border: none; background: transparent;
   color: var(--on-surface-variant); cursor: pointer; padding: 0; border-radius: 50%; }
@@ -1506,6 +1729,8 @@ dialog.unsplash button:focus-visible, .u-chip:focus-visible { outline: 2px solid
 /* status column */
 .post-row-status { width: 192px; flex: none; display: flex; flex-direction: column;
   align-items: flex-start; gap: 3px; }
+.tag-menu .pop { max-height: 320px; overflow-y: auto; }
+.tag-menu > summary { max-width: 220px; overflow: hidden; text-overflow: ellipsis; }
 .post-row-chip { display: inline-flex; align-items: center; gap: 5px; font-size: 12.5px;
   font-weight: 600; color: var(--on-surface-variant); }
 .post-row-chip::before { content: ""; width: 7px; height: 7px; border-radius: 50%;
@@ -1778,6 +2003,9 @@ body:has(.row-check input[name="ids"]:checked) .batch-bar {
 @media (max-width: 900px) {
   .post-row-stats { display: none; }
   .post-row-status { width: 150px; }
+  .list-tools { flex-wrap: wrap; }
+  .list-tools .tool-form { flex-basis: 100%; }
+  .list-tools .search { flex-basis: 100%; }
 }
 @media (max-width: 680px) {
   .post-row-status { display: none; }
@@ -1801,6 +2029,29 @@ body:has(.row-check input[name="ids"]:checked) .batch-bar {
 dialog { border: none; border-radius: 28px; background: var(--sc-lowest); color: var(--on-surface);
   padding: 24px; min-width: 320px; max-width: min(420px, 90vw); box-shadow: var(--shadow-2); }
 dialog::backdrop { background: rgba(0,0,0,.4); }
+
+/* ---- the publishing preview ----.
+   The shared `dialog` rule above clamps confirm dialogs to 420px, which is
+   narrower than a phone: a preview left under it rendered every device at
+   mobile width, because the iframe inherited the clamp and the page inside
+   sized itself to that. Like the Unsplash picker, this restates every clamp
+   the shared rule sets rather than only widening `width`. */
+dialog.preview { width: min(1680px, calc(100vw - 16px)); height: calc(100vh - 16px);
+  height: calc(100dvh - 16px); min-width: 0; max-width: none; max-height: none;
+  overflow: hidden; }
+/* Three rows — heading, viewport, footer — and the viewport takes every pixel
+   the other two do not, so the frame is as tall as the screen allows rather
+   than a fixed fraction of it. */
+dialog.preview[open] { display: grid; grid-template-rows: auto minmax(0, 1fr) auto; }
+/* The heading row carries the tabs and device toggles as well as the title,
+   so it is chrome: it does not need the 20px the shared dialog rule gives
+   every heading, and its own title does not need to be page-sized. */
+dialog.preview > div:first-child { margin-bottom: 8px; }
+dialog.preview > div:first-child h2 { font-size: 15px; font-weight: 600; margin: 0;
+  white-space: nowrap; color: var(--on-surface-variant); }
+/* Pressed state on the segmented controls, so the current tab and device are
+   visible at a glance rather than only to a screen reader. */
+dialog.preview .btn[aria-pressed="true"] { background: var(--primary); color: var(--on-primary); }
 dialog h3 { margin: 0 0 8px; font-size: 20px; font-weight: 600; }
 dialog p { margin: 0 0 22px; font-size: 14px; color: var(--on-surface-variant); }
 dialog .d-actions { display: flex; justify-content: flex-end; gap: 8px; }
@@ -2588,12 +2839,13 @@ fn page_for(title: &str, active: &str, user: Option<&ghost_core::models::User>, 
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='%23984059'%3E%3Cpath d='M12 2a8 8 0 0 0-8 8v10.6c0 .7.85 1.05 1.35.55l1.9-1.9 2.2 2.2c.3.3.78.3 1.08 0L12 20l1.47 1.45c.3.3.78.3 1.08 0l2.2-2.2 1.9 1.9c.5.5 1.35.15 1.35-.55V10a8 8 0 0 0-8-8z'/%3E%3C/svg%3E">
 <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700&family=Fraunces:opsz,wght@9..144,500..700&family=Roboto+Mono:wght@400;500&display=swap">
-<style>{css}</style></head><body>{shell}<script>{js}</script><script src="/ghost/assets/1.8.15/publishing-workflows.js" defer></script></body></html>"#,
+<style>{css}</style></head><body>{shell}<script>{js}</script><script src="{assets}/publishing-workflows.js" defer></script></body></html>"#,
         title = esc(title),
         site_name = esc(&admin_site_name()),
         css = CSS,
         shell = shell,
         js = JS,
+        assets = ASSETS,
     ))
 }
 
@@ -2782,6 +3034,14 @@ async fn require_session(state: &AppState, headers: &HeaderMap) -> Result<ghost_
 }
 
 async fn current_user(state: &AppState, headers: &HeaderMap) -> Option<ghost_core::models::User> {
+    // An Admin API key, when one is presented. These handlers also back the
+    // REST routes merged into `/ghost/api/admin` — the content export, the
+    // theme endpoints, the routing files — and reading only the session
+    // cookie made every one of them unreachable to an integration. Ghost's
+    // DB Backup integration exists precisely to call the export with a key.
+    if headers.contains_key(axum::http::header::AUTHORIZATION) {
+        return ghost_api::admin::current_user(state, headers).await;
+    }
     let cookie = headers.get(header::COOKIE)?.to_str().ok()?;
     let sid = cookie
         .split(';')
@@ -2894,7 +3154,12 @@ async fn login_page(State(state): State<AppState>, headers: HeaderMap, Query(q):
     if current_user(&state, &headers).await.is_some() {
         return Redirect::to("/ghost/posts/").into_response();
     }
-    let err = if q.contains_key("invalid") {
+    let err = if q.contains_key("throttled") {
+        // Deliberately does not say how long: naming the wait tells an
+        // attacker exactly when to resume, and a person who is locked out
+        // needs to know to stop rather than to schedule.
+        r#"<div class="banner error"><svg class="i" viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="12" r="10"/></svg>Too many sign-in attempts. Wait a while before trying again, or reset your password.</div>"#
+    } else if q.contains_key("invalid") {
         r#"<div class="banner error"><svg class="i" viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="12" r="10"/></svg>Invalid email or password</div>"#
     } else {
         ""
@@ -2945,11 +3210,27 @@ fn set_session_cookie(resp: &mut Response, sid: &str) {
     );
 }
 
-async fn login_submit(State(state): State<AppState>, Form(form): Form<LoginForm>) -> Response {
+async fn login_submit(
+    State(state): State<AppState>,
+    ghost_api::brute::ClientAddr(peer): ghost_api::brute::ClientAddr,
+    headers: HeaderMap,
+    Form(form): Form<LoginForm>,
+) -> Response {
+    // The HTML sign-in form is a second door onto the same password check as
+    // `POST /session`, so it needs the same budget — otherwise rate-limiting
+    // the API endpoint just moves the guessing here. The key is shared with
+    // that endpoint deliberately: it is one allowance per address, not one
+    // per door.
+    let ip = ghost_api::brute::client_ip(&headers, peer);
+    let login_key = format!("user_login:{ip}");
+    if ghost_api::brute::check(&state.db, &login_key, &ghost_api::brute::USER_LOGIN).await.is_err() {
+        return Redirect::to("/ghost/signin/?throttled=1").into_response();
+    }
     let Ok(Some(user)) = repos::users::verify_password(&state.db, &form.email, &form.password).await
     else {
         return Redirect::to("/ghost/signin/?invalid=1").into_response();
     };
+    ghost_api::brute::reset(&state.db, &login_key).await;
 
     // With 2FA off the password is the whole login, as before. A first-ever
     // sign-in also goes straight through: the person only has a password
@@ -3185,7 +3466,7 @@ struct DayViews {
 }
 
 /// Compact number for tile values and ticks (1,284 → 1.3K).
-fn compact(n: i64) -> String {
+pub(crate) fn compact(n: i64) -> String {
     match n {
         0..=999 => n.to_string(),
         1_000..=999_999 => format!("{:.1}K", n as f64 / 1000.0),
@@ -3360,6 +3641,27 @@ impl AnalyticsRange {
             None => "-100 years".to_string(),
         };
         Self { slug: slug.to_string(), days, cutoff, label: label.to_string() }
+    }
+
+    /// This window and the equal-length one before it, as explicit bounds.
+    ///
+    /// The older `cutoff` is open-ended (`created_at >= …`), which cannot
+    /// express "the 30 days before the last 30". Both windows come from one
+    /// `now`, so the pair can never drift apart across a tick of the clock
+    /// mid-request.
+    fn windows(&self) -> (analytics::Window, Option<analytics::Window>) {
+        analytics::Window::pair(chrono::Utc::now(), self.days)
+    }
+
+    /// How the previous window is named in a comparison: "vs previous 30
+    /// days". All time has no previous window, and nothing says so.
+    fn previous_label(&self) -> String {
+        match self.days {
+            Some(0) => "yesterday".to_string(),
+            Some(1) => "previous day".to_string(),
+            Some(n) => format!("previous {n} days"),
+            None => "previous period".to_string(),
+        }
     }
 
     /// How many daily buckets the chart should show.
@@ -3543,7 +3845,7 @@ fn money_minor(minor: i64) -> String {
 }
 
 /// `3 visitors` / `1 visitor` — a count with its noun agreeing.
-fn countable(n: i64, singular: &str) -> String {
+pub(crate) fn countable(n: i64, singular: &str) -> String {
     if n == 1 {
         format!("1 {singular}")
     } else {
@@ -3600,6 +3902,15 @@ async fn analytics_page(State(state): State<AppState>, headers: HeaderMap, Query
     let audience = ANALYTICS_AUDIENCES.iter().find(|(s, _)| *s == audience).map(|(s, _)| *s).unwrap_or("all");
     let content = q.get("content").map(String::as_str).unwrap_or("all");
     let content = ANALYTICS_CONTENT_KINDS.iter().find(|(s, _)| *s == content).map(|(s, _)| *s).unwrap_or("all");
+    // Which UTM dimension the Campaigns table is broken down by. Resolved
+    // against the fixed list here, so the column name the query interpolates
+    // can only ever be one of the five.
+    let campaign = q.get("campaign").map(String::as_str).unwrap_or("source");
+    let campaign = analytics::CAMPAIGN_DIMENSIONS
+        .iter()
+        .find(|(slug, ..)| *slug == campaign)
+        .map(|(slug, ..)| *slug)
+        .unwrap_or("source");
 
     // Collection is a setting, and a page of zeroes is confusing without
     // saying why — Ghost surfaces the same thing on its traffic tab.
@@ -3669,7 +3980,24 @@ async fn analytics_page(State(state): State<AppState>, headers: HeaderMap, Query
                     )
                 })
                 .collect();
-            analytics_web_tab(&state, &range, audience, content, segs, kind_segs).await
+            let campaign_segs: String = analytics::CAMPAIGN_DIMENSIONS
+                .iter()
+                .map(|(slug, _, label, _)| {
+                    format!(
+                        r#"<a class="seg{on}" href="{href}">{label}</a>"#,
+                        on = if *slug == campaign { " on" } else { "" },
+                        href = esc(&format!(
+                            "{}&content={content}&campaign={slug}",
+                            link("web", &range.slug, audience)
+                        )),
+                        label = esc(label),
+                    )
+                })
+                .collect();
+            analytics_web_tab(
+                &state, &range, audience, content, campaign, segs, kind_segs, campaign_segs,
+            )
+            .await
         }
         "growth" => analytics_growth_tab(&state, &range).await,
         "newsletters" => analytics_newsletters_tab(&state, &range).await,
@@ -3684,12 +4012,14 @@ async fn analytics_page(State(state): State<AppState>, headers: HeaderMap, Query
             r#"<header class="page-head rise"><div><h1>Analytics</h1><p class="sub">{sub}</p></div>
 <div class="actions"><div class="range-tabs">{ranges}</div></div></header>
 <div class="seg-bar">{tabs}</div>
-{notice}{body}"#,
+{notice}{body}
+<script src="{assets}/analytics-map.js" defer></script>"#,
             sub = esc(&range.label),
             ranges = ranges,
             tabs = tabs,
             notice = notice,
             body = body,
+            assets = ASSETS,
         ),
         true,
     )
@@ -3709,6 +4039,27 @@ async fn analytics_overview_tab(state: &AppState, range: &AnalyticsRange) -> Str
     .fetch_one(&state.db)
     .await
     .unwrap_or(0);
+
+    // What the same window before this one looked like, so the headline
+    // figures can be read as a movement rather than as four bare numbers.
+    let (window, previous) = range.windows();
+    let previous_label = range.previous_label();
+    let (before_traffic, before_members) = match &previous {
+        Some(w) => (
+            Some(analytics::traffic(&state.db, w, "all").await),
+            // Members joined before this window started — the total the site
+            // was on when the window opened, which is what the current total
+            // has to be compared against.
+            sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM members WHERE created_at < ?")
+                .bind(&window.from)
+                .fetch_one(&state.db)
+                .await
+                .ok(),
+        ),
+        None => (None, None),
+    };
+    let overview_locations = analytics::locations(&state.db, &window, "all", 10).await;
+    let placed = overview_locations.iter().any(|(code, _, _)| code.is_some());
 
     let top: String = analytics_top_content(&state.db, range, "all", "all", 5)
         .await
@@ -3742,23 +4093,41 @@ async fn analytics_overview_tab(state: &AppState, range: &AnalyticsRange) -> Str
 
     format!(
         r#"<div class="tiles rise" style="--i:1">
-<div class="tile"><div class="label">Unique visitors</div><div class="value">{visitors}</div><div class="delta">{live} in the last 5 minutes</div></div>
-<div class="tile"><div class="label">Total views</div><div class="value">{views}</div><div class="delta">page views, repeats included</div></div>
-<div class="tile"><div class="label">Members</div><div class="value">{members}</div><div class="delta">{paid} paid · <a href="/ghost/members/">manage</a></div></div>
+{visitors_tile}{views_tile}{members_tile}
 <div class="tile"><div class="label">MRR</div><div class="value">{mrr}</div><div class="delta">from active subscriptions</div></div>
 </div>
+<p class="live-note rise" style="--i:1">{live} reading in the last 5 minutes · {paid} paid {paid_word} · <a href="/ghost/members/">Manage members</a></p>
 <div class="section">Unique visitors per day</div>
 <div class="card padded rise" style="--i:2">{chart}</div>
 <div class="section">Top content</div>
 <div class="card rows rise" style="--i:3">{top}</div>
 <div class="section">Top sources</div>
-<div class="card rows rise" style="--i:4">{sources}</div>"#,
-        visitors = compact(visitors),
+<div class="card rows rise" style="--i:4">{sources}</div>
+<div class="section">Locations</div>
+{locations}"#,
+        visitors_tile = analytics::tile(
+            "Unique visitors",
+            &compact(visitors),
+            analytics::Change { now: visitors, before: before_traffic.map(|(v, _)| v) },
+            &previous_label,
+        ),
+        views_tile = analytics::tile(
+            "Total views",
+            &compact(views),
+            analytics::Change { now: views, before: before_traffic.map(|(_, v)| v) },
+            &previous_label,
+        ),
+        members_tile = analytics::tile(
+            "Members",
+            &compact(members),
+            analytics::Change { now: members, before: before_members },
+            &previous_label,
+        ),
         live = live,
-        views = compact(views),
-        members = compact(members),
         paid = paid,
+        paid_word = if paid == 1 { "member" } else { "members" },
         mrr = money_minor(mrr),
+        locations = analytics::locations_card(&overview_locations, ASSETS, !placed),
         chart = views_chart(&days),
         top = analytics_rows(top, "No content views in this range yet."),
         sources = analytics_rows(sources, "No traffic recorded in this range yet."),
@@ -3772,11 +4141,29 @@ async fn analytics_web_tab(
     range: &AnalyticsRange,
     audience: &str,
     kind: &str,
+    campaign: &str,
     segs: String,
     kind_segs: String,
+    campaign_segs: String,
 ) -> String {
     let (visitors, views) = analytics_traffic(&state.db, range, audience).await;
     let days = analytics_daily_views(&state.db, range, audience).await;
+
+    // The same window again as explicit bounds, plus the one before it, for
+    // the comparisons on the tiles and the two new breakdowns.
+    let (window, previous) = range.windows();
+    let before = match &previous {
+        Some(w) => Some(analytics::traffic(&state.db, w, audience).await),
+        None => None,
+    };
+    let visitor_change = analytics::Change { now: visitors, before: before.map(|(v, _)| v) };
+    let view_change = analytics::Change { now: views, before: before.map(|(_, v)| v) };
+    let previous_label = range.previous_label();
+
+    let location_rows = analytics::locations(&state.db, &window, audience, 50).await;
+    let placed = location_rows.iter().any(|(code, _, _)| code.is_some());
+    let campaign_rows = analytics::campaigns(&state.db, &window, campaign, audience, 20).await;
+    let tagged = analytics::tagged_views(&state.db, &window, audience).await;
 
     let top: String = analytics_top_content(&state.db, range, audience, kind, 10)
         .await
@@ -3810,8 +4197,7 @@ async fn analytics_web_tab(
 
     format!(
         r#"<div class="tiles rise" style="--i:1" data-cols="2">
-<div class="tile"><div class="label">Unique visitors</div><div class="value">{visitors}</div><div class="delta">distinct people in this range</div></div>
-<div class="tile"><div class="label">Total views</div><div class="value">{views}</div><div class="delta">page views, repeats included</div></div>
+{visitors_tile}{views_tile}
 </div>
 <div class="section">Audience</div>
 <div class="seg-bar">{segs}</div>
@@ -3820,14 +4206,26 @@ async fn analytics_web_tab(
 <div class="seg-bar">{kind_segs}</div>
 <div class="card rows rise" style="--i:3">{top}</div>
 <div class="section">Top sources</div>
-<div class="card rows rise" style="--i:4">{sources}</div>"#,
-        visitors = compact(visitors),
-        views = compact(views),
+<div class="card rows rise" style="--i:4">{sources}</div>
+<div class="section">Locations</div>
+{locations}
+<div class="section">Campaigns</div>
+{campaigns}"#,
+        visitors_tile = analytics::tile(
+            "Unique visitors",
+            &compact(visitors),
+            visitor_change,
+            &previous_label,
+        ),
+        views_tile =
+            analytics::tile("Total views", &compact(views), view_change, &previous_label),
         segs = segs,
         kind_segs = kind_segs,
         chart = views_chart(&days),
         top = analytics_rows(top, "No content views in this range yet."),
         sources = analytics_rows(sources, "No traffic recorded in this range yet."),
+        locations = analytics::locations_card(&location_rows, ASSETS, !placed),
+        campaigns = analytics::campaigns_card(campaign, &campaign_rows, tagged, campaign_segs),
     )
 }
 
@@ -4344,18 +4742,7 @@ async fn members_page(State(state): State<AppState>, headers: HeaderMap, Query(q
 </div>
 </details>
 <a class="btn tonal" href="/ghost/members/export/{export_query}" title="{export_title}">{download} Export</a>
-<details class="head-pop" data-menu>
-<summary class="btn">{add} New member</summary>
-<div class="pop">
-<p style="margin:0 0 14px;font-weight:600">New member</p>
-<form method="post" action="/ghost/members/">
-<label class="field"><input name="name" placeholder=" "><span>Name · optional</span></label>
-<label class="field"><input name="email" type="email" placeholder=" " required><span>Email</span></label>
-<label class="field"><input name="note" placeholder=" "><span>Note · optional</span></label>
-<button class="btn" type="submit" style="margin-top:14px">{add} Add member</button>
-</form>
-</div>
-</details>
+<a class="btn" href="/ghost/members/new/">{add} New member</a>
 </div></header>
 {banner}
 {list}"#,
@@ -4398,6 +4785,12 @@ fn pill(name: &str) -> String {
 /// actions" button parked in the page header, beside a bare checkbox that
 /// selected rows through a second, invisible selection. One bar, one
 /// selection.
+///
+/// Every button except "Remove label" carries `formnovalidate`, for the same
+/// reason the posts bar's do: the remove picker's `required` radios belong to
+/// this one form, so with none picked the browser refuses every submit on the
+/// bar — and refuses silently, the radio being inside a closed `<details>`
+/// and therefore not focusable enough to complain about.
 fn member_batch_bar(all_labels: &[String]) -> String {
     let options: String = all_labels
         .iter()
@@ -4426,7 +4819,7 @@ fn member_batch_bar(all_labels: &[String]) -> String {
 <div class="pop">
 <label class="field"><input name="label" list="all-labels" placeholder=" "><span>Label</span></label>
 <datalist id="all-labels">{options}</datalist>
-<button class="btn" type="submit" name="action" value="add_label">{check} Add label</button>
+<button class="btn" type="submit" formnovalidate name="action" value="add_label">{check} Add label</button>
 <p>Existing labels are suggested; a new name is created.</p>
 </div>
 </details>
@@ -4437,11 +4830,11 @@ fn member_batch_bar(all_labels: &[String]) -> String {
 <button class="btn tonal" type="submit" name="action" value="remove_label">{close} Remove label</button>
 </div>
 </details>
-<button class="bb-btn" type="submit" name="action" value="unsubscribe"
+<button class="bb-btn" type="submit" formnovalidate name="action" value="unsubscribe"
  data-confirm="Unsubscribe selected members|They stay members and keep their access; they stop receiving every newsletter."
  data-confirm-one="Unsubscribe 1 member|They stay a member and keep their access; they stop receiving every newsletter."
  data-confirm-many="Unsubscribe {{n}} members|They stay members and keep their access; they stop receiving every newsletter.">{mail} Unsubscribe</button>
-<button class="bb-btn danger" type="submit" name="action" value="delete"
+<button class="bb-btn danger" type="submit" formnovalidate name="action" value="delete"
  data-confirm="Delete selected members|The selected members will be permanently removed, along with their subscriptions and labels."
  data-confirm-one="Delete 1 member|This member will be permanently removed, along with their subscriptions and labels."
  data-confirm-many="Delete {{n}} members|The {{n}} selected members will be permanently removed, along with their subscriptions and labels.">{del} Delete</button>
@@ -4455,13 +4848,6 @@ fn member_batch_bar(all_labels: &[String]) -> String {
         options = options,
         remove_chips = remove_chips,
     )
-}
-
-#[derive(Deserialize)]
-struct MemberForm {
-    name: Option<String>,
-    email: String,
-    note: Option<String>,
 }
 
 // --- members CSV: export and import, in Ghost's column order ---
@@ -5121,15 +5507,46 @@ async fn post_analytics_page(
         }
     };
 
+    // Every per-post figure is asked across the set of paths the post is
+    // reachable at, read once here rather than per section.
+    let paths = post_paths_for(&state, &post).await;
+
+    // The shape of its readership over its first 30 days, or the last 30 if
+    // it is older — a post's traffic is a curve, and four totals do not show
+    // whether it is still being read.
+    let since: String = sqlx::query_scalar("SELECT datetime('now', '-29 days')")
+        .fetch_one(&state.db)
+        .await
+        .unwrap_or_default();
+    let daily = analytics::daily_for_paths(&state.db, &paths, &since).await;
+    let seen: HashMap<String, i64> = daily.into_iter().collect();
+    let mut post_days: Vec<DayViews> = Vec::new();
+    for back in (0..30).rev() {
+        let day: String = sqlx::query_scalar("SELECT date('now', ?)")
+            .bind(format!("-{back} days"))
+            .fetch_one(&state.db)
+            .await
+            .unwrap_or_default();
+        post_days.push(DayViews { views: seen.get(&day).copied().unwrap_or(0), day });
+    }
+
+    let post_locations = analytics::locations_for_paths(&state.db, &paths, 20).await;
+    let post_placed = post_locations.iter().any(|(code, _, _)| code.is_some());
+    let post_campaigns = analytics::campaigns_for_paths(&state.db, &paths, "campaign", 10).await;
+    let campaign_rows: Vec<(String, String, i64, i64)> = post_campaigns
+        .into_iter()
+        .map(|(name, visitors, views)| (String::new(), name, visitors, views))
+        .collect();
+
     // Where the readers came from. Direct traffic is a real answer, so it is
     // named rather than left blank.
     let mut referrers: Vec<(String, i64, i64)> = Vec::new();
-    for path in post_paths_for(&state, &post).await {
+    for path in &paths {
         let rows = sqlx::query_as::<_, (Option<String>, i64, i64)>(
             "SELECT COALESCE(referrer_source, referrer), COUNT(*), COUNT(DISTINCT viewer) \
              FROM page_views WHERE path = ? GROUP BY 1 ORDER BY COUNT(*) DESC",
         )
-        .bind(&path)
+        .bind(path)
         .fetch_all(&state.db)
         .await
         .unwrap_or_default();
@@ -5160,10 +5577,17 @@ async fn post_analytics_page(
 <div class="tiles rise" style="--i:1">
 {views_tile}{visitors_tile}{free_tile}{paid_tile}
 </div>
+<div class="section">Unique visitors per day · last 30 days</div>
+<div class="card padded rise" style="--i:2">{chart}</div>
 <div class="section">Sources</div>
-<div class="card rows rise" style="--i:2">{referrer_rows}</div>
+<div class="card rows rise" style="--i:3">{referrer_rows}</div>
+<div class="section">Locations</div>
+{locations}
+<div class="section">Campaigns</div>
+{campaigns}
 {email_card}
-<p class="muted" style="margin:18px 0 0">Members are counted where a signup or a subscription was attributed to this post, not where a member happened to be reading when they joined.</p>"#,
+<p class="muted" style="margin:18px 0 0">Members are counted where a signup or a subscription was attributed to this post, not where a member happened to be reading when they joined.</p>
+<script src="{assets}/analytics-map.js" defer></script>"#,
             back = svg("chevron"),
             title = esc(&title),
             status = esc(&post.status),
@@ -5173,8 +5597,17 @@ async fn post_analytics_page(
             visitors_tile = tile("Visitors", figure(visitors), "unique, counted daily"),
             free_tile = tile("Free signups", figure(free), "attributed to this post"),
             paid_tile = tile("Paid conversions", figure(paid), "attributed to this post"),
+            chart = views_chart(&post_days),
             referrer_rows = analytics_rows(referrer_rows, "No traffic recorded for this post yet."),
+            locations = analytics::locations_card(&post_locations, ASSETS, !post_placed),
+            campaigns = analytics::breakdown_card(
+                "Campaign",
+                &campaign_rows,
+                "No reader arrived at this post on a link tagged with a campaign.",
+                6,
+            ),
             email_card = email_card,
+            assets = ASSETS,
         ),
         true,
     )
@@ -5286,50 +5719,32 @@ fn money(amount: i64, currency: Option<&str>) -> String {
     }
 }
 
-async fn member_edit_page(
-    State(state): State<AppState>,
-    headers: HeaderMap,
-    Path(id): Path<String>,
-    Query(q): Query<HashMap<String, String>>,
-) -> Response {
-    let (user, actor_role) = match require_role(&state, &headers, Role::Administrator).await {
-        Ok(a) => (a.user, a.role),
-        Err(r) => return r,
-    };
-    let row = sqlx::query_as::<_, (String, Option<String>, String, String, Option<String>, String, Option<String>, Option<String>)>(
-        "SELECT id, name, email, status, note, created_at, uuid, commenting FROM members WHERE id = ? LIMIT 1",
-    )
-    .bind(&id)
-    .fetch_optional(&state.db)
-    .await
-    .ok()
-    .flatten();
-    let Some((mid, name, email, status, note, created, _uuid, commenting)) = row else {
-        return not_found_page(&user, "That member could not be found.");
-    };
-
-    // Commenting is per-member state a moderator acts on from here: a
-    // suspension is aimed at a person, not at a comment, so it belongs on
-    // their profile rather than on the moderation queue.
-    let commenting = ghost_api::comments::Commenting::parse(commenting.as_deref());
-    let comment_count: i64 =
-        sqlx::query_scalar("SELECT COUNT(*) FROM comments WHERE member_id = ? AND status <> 'deleted'")
-            .bind(&mid)
-            .fetch_one(&state.db)
-            .await
-            .unwrap_or(0);
-
-    let labels = member_labels(&state, &mid).await;
-    let subscribed: Vec<String> = sqlx::query_scalar::<_, String>(
-        "SELECT newsletter_id FROM members_newsletters WHERE member_id = ?",
-    )
-    .bind(&mid)
-    .fetch_all(&state.db)
-    .await
-    .unwrap_or_default();
-
-    let newsletters = sqlx::query_as::<_, (String, String, Option<String>)>(
-        "SELECT id, name, description FROM newsletters WHERE status = 'active' ORDER BY sort_order ASC",
+/// Everything the member form holds: details, newsletters, custom fields and
+/// access, as one `<form id="member-form">` posting to `action`.
+///
+/// Shared by the editor and the new-member page so creating a member offers
+/// the same fields as editing one. "New member" used to be a popover in the
+/// page header with three inputs — name, email, note — which meant a member's
+/// labels, newsletters, custom fields and complimentary access could only be
+/// set by saving them once and then opening them again.
+///
+/// `subscribed` is `None` for a member who does not exist yet: there is
+/// nothing to read, so the newsletters that new signups get are pre-ticked,
+/// which is what signing up would have done.
+async fn member_form(
+    state: &AppState,
+    action: &str,
+    name: &str,
+    email: &str,
+    note: &str,
+    labels: &str,
+    status: &str,
+    subscribed: Option<&[String]>,
+    held: &HashMap<String, HashMap<String, String>>,
+) -> String {
+    let newsletters = sqlx::query_as::<_, (String, String, Option<String>, bool)>(
+        "SELECT id, name, description, subscribe_on_signup FROM newsletters \
+         WHERE status = 'active' ORDER BY sort_order ASC",
     )
     .fetch_all(&state.db)
     .await
@@ -5340,11 +5755,15 @@ async fn member_edit_page(
     } else {
         newsletters
             .iter()
-            .map(|(nid, nname, ndesc)| {
+            .map(|(nid, nname, ndesc, on_signup)| {
+                let on = match subscribed {
+                    Some(ids) => ids.iter().any(|s| s == nid),
+                    None => *on_signup,
+                };
                 format!(
                     r#"<label class="fchip" title="{desc}"><input type="checkbox" name="newsletters" value="{nid}" {checked}><span class="ck">{check}</span>{nname}</label>"#,
                     nid = esc(nid),
-                    checked = if subscribed.iter().any(|s| s == nid) { "checked" } else { "" },
+                    checked = if on { "checked" } else { "" },
                     nname = esc(nname),
                     check = svg("check"),
                     desc = esc(ndesc.as_deref().unwrap_or("")),
@@ -5360,7 +5779,6 @@ async fn member_edit_page(
     // can. Archived fields show only when this member still holds a value, so
     // a retired field's data stays visible without inviting new entries.
     let definitions = repos::metafields::list_definitions(&state.db).await.unwrap_or_default();
-    let held = repos::metafields::values_for_member(&state.db, &mid).await.unwrap_or_default();
     let mut metafield_rows = String::new();
     for def in &definitions {
         let values = held.get(&def.key);
@@ -5438,22 +5856,8 @@ async fn member_edit_page(
         )
     };
 
-    let initial = name.as_deref().unwrap_or(&email).chars().next().unwrap_or('?').to_uppercase().to_string();
-    page_for_role(actor_role,
-        "Member",
-        "members",
-        Some(&user),
-        &format!(
-            r#"<header class="page-head rise"><a class="icon-btn" style="transform:rotate(180deg)" href="/ghost/members/" title="Back to members">{back}</a>
-<div><h1>{title}</h1><p class="sub">Member since {created}</p></div>
-<div class="actions"><button class="btn" type="submit" form="member-form">{check} Save</button></div></header>
-{banner}
-<div class="card padded rise" style="--i:1;display:flex;align-items:center;gap:16px;flex-wrap:wrap">
-<span class="avatar lg">{initial}</span>
-<div style="min-width:0"><b style="font-size:17px;display:block">{title}</b><span class="muted">{email}</span></div>
-<div class="trailing"><span class="chip {chip}">{status}</span></div>
-</div>
-<form method="post" action="/ghost/members/{id}/" id="member-form">
+    format!(
+        r#"<form method="post" action="{action}" id="member-form">
 <div class="section">Details</div>
 <div class="card rows rise" style="--i:2">
 <div class="row" style="align-items:flex-start"><span class="ic tint-blue">{ghost_ic}</span>
@@ -5480,7 +5884,143 @@ async fn member_edit_page(
 <div class="body"><label class="field fixed" style="margin:0"><select name="status">{status_opts}</select><span>Status</span>{car}</label>
 <p class="muted" style="margin:6px 0 0">{status_note}</p></div></div>
 </div>
-</form>
+</form>"#,
+        action = esc(action),
+        name_v = esc(name),
+        email_v = esc(email),
+        note = esc(note),
+        labels = esc(labels),
+        ghost_ic = svg("ghost"),
+        mail = svg("mail"),
+        tags_ic = svg("tags"),
+        car = SELECT_CARET,
+        newsletter_rows = newsletter_rows,
+        metafields_card = metafields_card,
+        status_opts = select_options(
+            &[("free", "Free"), ("comped", "Complimentary — paid access, no charge")],
+            status
+        ),
+        status_note = if status == "paid" {
+            "This member has a paid subscription. Changing it here does not touch billing, so the list is limited to the states this port can honour."
+        } else {
+            "Complimentary grants paid-tier access without Stripe. Real paid subscriptions are not managed here."
+        },
+    )
+}
+
+/// Members → New member. The editor's own form on a blank member, rather than
+/// the three-field popover this used to be.
+///
+/// Fields prefill from the query string, so the error round-trip a rejected
+/// email takes (duplicate, malformed) comes back with the typing intact.
+/// Newsletters and custom fields do not survive that trip — they are lists,
+/// and a URL is the wrong place to rebuild one.
+async fn member_new_page(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Query(q): Query<HashMap<String, String>>,
+) -> Response {
+    let (user, actor_role) = match require_role(&state, &headers, Role::Administrator).await {
+        Ok(a) => (a.user, a.role),
+        Err(r) => return r,
+    };
+    let was = |key: &str| q.get(key).map(String::as_str).unwrap_or("").to_string();
+    let status = match was("status").as_str() {
+        "comped" => "comped",
+        _ => "free",
+    };
+    page_for_role(
+        actor_role,
+        "New member",
+        "members",
+        Some(&user),
+        &format!(
+            r#"<header class="page-head rise"><a class="icon-btn" style="transform:rotate(180deg)" href="/ghost/members/" title="Back to members">{back}</a>
+<div><h1>New member</h1><p class="sub">Added by hand, not by signup</p></div>
+<div class="actions"><button class="btn" type="submit" form="member-form">{check} Add member</button></div></header>
+{banner}
+{form}"#,
+            back = svg("chevron"),
+            check = svg("check"),
+            banner = flash_banner(&q),
+            form = member_form(
+                &state,
+                "/ghost/members/new/",
+                &was("name"),
+                &was("email"),
+                &was("note"),
+                &was("labels"),
+                status,
+                None,
+                &HashMap::new(),
+            )
+            .await,
+        ),
+        true,
+    )
+    .into_response()
+}
+
+async fn member_edit_page(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+    Query(q): Query<HashMap<String, String>>,
+) -> Response {
+    let (user, actor_role) = match require_role(&state, &headers, Role::Administrator).await {
+        Ok(a) => (a.user, a.role),
+        Err(r) => return r,
+    };
+    let row = sqlx::query_as::<_, (String, Option<String>, String, String, Option<String>, String, Option<String>, Option<String>)>(
+        "SELECT id, name, email, status, note, created_at, uuid, commenting FROM members WHERE id = ? LIMIT 1",
+    )
+    .bind(&id)
+    .fetch_optional(&state.db)
+    .await
+    .ok()
+    .flatten();
+    let Some((mid, name, email, status, note, created, _uuid, commenting)) = row else {
+        return not_found_page(&user, "That member could not be found.");
+    };
+
+    // Commenting is per-member state a moderator acts on from here: a
+    // suspension is aimed at a person, not at a comment, so it belongs on
+    // their profile rather than on the moderation queue.
+    let commenting = ghost_api::comments::Commenting::parse(commenting.as_deref());
+    let comment_count: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM comments WHERE member_id = ? AND status <> 'deleted'")
+            .bind(&mid)
+            .fetch_one(&state.db)
+            .await
+            .unwrap_or(0);
+
+    let labels = member_labels(&state, &mid).await;
+    let subscribed: Vec<String> = sqlx::query_scalar::<_, String>(
+        "SELECT newsletter_id FROM members_newsletters WHERE member_id = ?",
+    )
+    .bind(&mid)
+    .fetch_all(&state.db)
+    .await
+    .unwrap_or_default();
+
+    let held = repos::metafields::values_for_member(&state.db, &mid).await.unwrap_or_default();
+
+    let initial = name.as_deref().unwrap_or(&email).chars().next().unwrap_or('?').to_uppercase().to_string();
+    page_for_role(actor_role,
+        "Member",
+        "members",
+        Some(&user),
+        &format!(
+            r#"<header class="page-head rise"><a class="icon-btn" style="transform:rotate(180deg)" href="/ghost/members/" title="Back to members">{back}</a>
+<div><h1>{title}</h1><p class="sub">Member since {created}</p></div>
+<div class="actions"><button class="btn" type="submit" form="member-form">{check} Save</button></div></header>
+{banner}
+<div class="card padded rise" style="--i:1;display:flex;align-items:center;gap:16px;flex-wrap:wrap">
+<span class="avatar lg">{initial}</span>
+<div style="min-width:0"><b style="font-size:17px;display:block">{title}</b><span class="muted">{email}</span></div>
+<div class="trailing"><span class="chip {chip}">{status}</span></div>
+</div>
+{form}
 {commenting_card}
 {activity_card}
 <div class="section">Danger zone</div>
@@ -5498,31 +6038,24 @@ async fn member_edit_page(
             initial = esc(&initial),
             title = esc(name.as_deref().filter(|n| !n.is_empty()).unwrap_or(&email)),
             email = esc(&email),
-            email_v = esc(&email),
-            name_v = esc(name.as_deref().unwrap_or("")),
             created = esc(&created[..10.min(created.len())]),
             chip = if status == "free" { "draft" } else { "published" },
             status = esc(&status),
-            note = esc(note.as_deref().unwrap_or("")),
-            labels = esc(&labels.join(", ")),
-            ghost_ic = svg("ghost"),
-            mail = svg("mail"),
-            tags_ic = svg("tags"),
             del = svg("delete"),
-            car = SELECT_CARET,
-            newsletter_rows = newsletter_rows,
-            metafields_card = metafields_card,
             commenting_card = comments::member_commenting_card(&mid, &commenting, comment_count),
             activity_card = member_activity_card(&state, &mid).await,
-            status_opts = select_options(
-                &[("free", "Free"), ("comped", "Complimentary — paid access, no charge")],
-                &status
-            ),
-            status_note = if status == "paid" {
-                "This member has a paid subscription. Changing it here does not touch billing, so the list is limited to the states this port can honour."
-            } else {
-                "Complimentary grants paid-tier access without Stripe. Real paid subscriptions are not managed here."
-            },
+            form = member_form(
+                &state,
+                &format!("/ghost/members/{mid}/"),
+                name.as_deref().unwrap_or(""),
+                &email,
+                note.as_deref().unwrap_or(""),
+                &labels.join(", "),
+                &status,
+                Some(&subscribed),
+                &held,
+            )
+            .await,
         ),
         true,
     )
@@ -5673,40 +6206,94 @@ async fn sync_member_labels(state: &AppState, member_id: &str, csv: &str) {
     }
 }
 
-async fn member_create(State(state): State<AppState>, headers: HeaderMap, Form(form): Form<MemberForm>) -> Response {
+/// Create a member from the new-member page's form — the editor's form, so
+/// every field it offers has to be saved, not just the three the old popover
+/// had. Labels, newsletters and custom fields go through the same helpers the
+/// editor's save uses, so the two cannot diverge in what a field means.
+///
+/// A rejected email comes back to the form with the typing in the query
+/// string rather than to an emptied page.
+async fn member_create(State(state): State<AppState>, headers: HeaderMap, form: MemberEditForm) -> Response {
     let (user, _actor_role) = match require_role(&state, &headers, Role::Administrator).await {
         Ok(a) => (a.user, a.role),
         Err(r) => return r,
     };
-    let email = form.email.trim().to_string();
+    // Back to the form, carrying what was typed.
+    let retry = |message: &str| -> Response {
+        let mut qs = form_urlencoded::Serializer::new(String::new());
+        qs.append_pair("error", message)
+            .append_pair("name", form.name.trim())
+            .append_pair("email", form.email.trim())
+            .append_pair("note", form.note.trim())
+            .append_pair("labels", form.labels.trim())
+            .append_pair("status", &form.status);
+        Redirect::to(&format!("/ghost/members/new/?{}", qs.finish())).into_response()
+    };
+
+    let email = form.email.trim().to_lowercase();
     if email.is_empty() || !email.contains('@') {
-        return members_flash("error", "A valid email is required.");
+        return retry("A valid email is required.");
     }
+    let name = form.name.trim();
+    let status = match form.status.as_str() {
+        "comped" => "comped",
+        _ => "free",
+    };
     let now = ghost_core::dates::now_db();
     let id = ghost_core::ids::new_id();
     let res = sqlx::query(
         "INSERT INTO members (id, uuid, transient_id, email, name, note, status, created_at, updated_at) \
-         VALUES (?, ?, ?, ?, ?, ?, 'free', ?, ?)",
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
     )
     .bind(&id)
     .bind(uuid_v4())
     .bind(ghost_core::ids::new_id())
     .bind(&email)
-    .bind(form.name.as_deref().map(str::trim).filter(|n| !n.is_empty()))
-    .bind(form.note.as_deref().map(str::trim).filter(|n| !n.is_empty()))
+    .bind(Some(name).filter(|n| !n.is_empty()))
+    .bind(Some(form.note.trim()).filter(|n| !n.is_empty()))
+    .bind(status)
     .bind(&now)
     .bind(&now)
     .execute(&state.db)
     .await;
-    match res {
-        Ok(_) => {
-            let _ = repos::actions::record(&state.db, "members", &id, &user.id, "added").await;
-            fire_member_webhook(&state, "member.added", &id, &email, form.name.as_deref().unwrap_or("").trim());
-            members_flash("ok", format!("Member {email} added.").as_str())
-        }
-        Err(e) if e.to_string().contains("UNIQUE") => members_flash("error", "A member with that email already exists."),
-        Err(e) => members_flash("error", &format!("Could not add member: {e}")),
+    if let Err(e) = res {
+        return if e.to_string().contains("UNIQUE") {
+            retry("A member with that email already exists.")
+        } else {
+            retry(&format!("Could not add member: {e}"))
+        };
     }
+
+    for nid in &form.newsletters {
+        let _ = sqlx::query(
+            "INSERT INTO members_newsletters (id, member_id, newsletter_id, status) VALUES (?, ?, ?, 'confirmed')",
+        )
+        .bind(ghost_core::ids::new_id())
+        .bind(&id)
+        .bind(nid)
+        .execute(&state.db)
+        .await;
+    }
+    sync_member_labels(&state, &id, &form.labels).await;
+
+    let _ = repos::actions::record(&state.db, "members", &id, &user.id, "added").await;
+    fire_member_webhook(&state, "member.added", &id, &email, name);
+
+    // The member exists either way, so a rejected custom field is reported on
+    // their page rather than sending the whole form back.
+    if !form.metafields.is_empty() {
+        let writer = repos::metafields::Writer::staff(&user.id);
+        if let Err(e) =
+            repos::metafields::write_values(&state.db, &id, &form.metafields, &writer).await
+        {
+            return member_edit_flash(
+                &id,
+                "error",
+                &format!("Member added, but a custom field was not — {}", e.message()),
+            );
+        }
+    }
+    member_edit_flash(&id, "ok", &format!("Member {email} added."))
 }
 
 /// Remove one member and everything pointing at them. Shared by the row's
@@ -5909,61 +6496,46 @@ async fn posts_list_impl(state: &AppState, headers: &HeaderMap, post_type: &str,
         Err(r) => return r,
     };
     let user = &actor.user;
-    let filter = match flash.get("nql").filter(|s|!s.is_empty()).map(|s|ghost_nql::parse(s)).transpose() {
-        Ok(filter)=>filter, Err(e)=>return (StatusCode::UNPROCESSABLE_ENTITY,e.message()).into_response()
+    let filter = match flash.get("nql").filter(|s| !s.is_empty()).map(|s| ghost_nql::parse(s)).transpose() {
+        Ok(filter) => filter,
+        Err(e) => return (StatusCode::UNPROCESSABLE_ENTITY, e.message()).into_response(),
     };
-    let q = repos::posts::BrowsePosts {
-        filter,
-        order: None,
-        limit: 100,
-        page: 1,
-        post_type: Some(post_type.to_string()),
-        public: false,
-        include_authors: false,
-        include_tags: false,
-    };
-    let mut listing = repos::posts::browse(&state.db, &q).await.unwrap_or(ghost_db::repos::posts::PostsPage { posts: vec![], total: 0, limit: 15, page: 1 });
-    // Authors and Contributors only ever see their own work, so the list is
-    // filtered rather than merely hiding the edit links.
-    if !actor.role.can_edit_any_post() {
-        let mine: Vec<String> = sqlx::query_scalar("SELECT post_id FROM posts_authors WHERE author_id = ?")
-            .bind(&actor.user.id)
-            .fetch_all(&state.db)
-            .await
-            .unwrap_or_default();
-        listing.posts.retain(|p| mine.iter().any(|id| id == &p.id));
-        listing.total = listing.posts.len() as i64;
+    let selected_tag = flash.get("tag").map(String::as_str).unwrap_or("");
+    let nql = flash.get("nql").map(String::as_str).unwrap_or("");
+    let search = flash.get("search").map(|s| s.trim()).unwrap_or("");
+    if search.chars().count() > 200 {
+        return (StatusCode::UNPROCESSABLE_ENTITY, "Search must be 200 characters or fewer.").into_response();
     }
-
+    let selected = flash.get("filter").and_then(|selected| posts::FILTERS.iter().find(|(key, _, _)| key == selected))
+        .unwrap_or(&posts::FILTERS[0]);
+    let sort = flash.get("sort").and_then(|sort| posts::SORTS.iter().find(|(key, _)| key == sort))
+        .map(|(key, _)| *key).unwrap_or("newest");
+    let query = repos::posts::AdminBrowsePosts {
+        filter: posts::with_tag_filter(filter, selected_tag),
+        post_type: post_type.into(),
+        author_id: (!actor.role.can_edit_any_post()).then(|| actor.user.id.clone()),
+        search: search.into(),
+        status: selected.2.map(str::to_owned),
+        sort: sort.into(),
+        page: flash.get("page").and_then(|p| p.parse().ok()).unwrap_or(1),
+        limit: 25,
+    };
+    let result = match repos::posts::browse_admin(&state.db, &query).await {
+        Ok(result) => result,
+        Err(error) => {
+            tracing::error!("Could not load {post_type} list: {error}");
+            return (StatusCode::INTERNAL_SERVER_ERROR, "Could not load content. Please retry.").into_response();
+        }
+    };
+    let listing = result.listing;
+    let counts = result.counts;
     let base = if post_type == "page" { "/ghost/pages/" } else { "/ghost/posts/" };
     let singular = if post_type == "page" { "page" } else { "post" };
     let plural = if post_type == "page" { "pages" } else { "posts" };
-
-    // The status tabs count the whole list, then the selected one narrows it,
-    // so a tab's number does not change when you click a different tab.
-    let mut counts: HashMap<String, i64> = HashMap::new();
-    for p in &listing.posts {
-        *counts.entry(p.status.clone()).or_insert(0) += 1;
-    }
-    let selected = flash.get("filter").map(String::as_str).unwrap_or("all");
-    let selected = posts::FILTERS
-        .iter()
-        .find(|(key, _, _)| *key == selected)
-        .unwrap_or(&posts::FILTERS[0]);
-    if let Some(status) = selected.2 {
-        listing.posts.retain(|p| p.status == status);
-    }
-    let shown = listing.posts.len() as i64;
-
-    let sort = flash.get("sort").map(String::as_str).unwrap_or("newest");
-    let sort = posts::SORTS
-        .iter()
-        .find(|(key, _)| *key == sort)
-        .map(|(key, _)| *key)
-        .unwrap_or("newest");
-
-    let nql = flash.get("nql").map(String::as_str).unwrap_or("");
-
+    let list_state = posts::ListState { filter: selected.0, sort, nql, tag: selected_tag, search };
+    let pager = posts::pager(base, &list_state, listing.page, listing.limit, listing.total);
+    let first = if listing.total == 0 { 0 } else { (listing.page - 1) * listing.limit + 1 };
+    let last = (listing.page * listing.limit).min(listing.total);
     // The site's tags, for the batch bar's tag picker. Internal tags (Ghost
     // names them `#something`) are machinery, not something to bulk-apply
     // from a list, so they stay out of the picker.
@@ -5973,14 +6545,15 @@ async fn posts_list_impl(state: &AppState, headers: &HeaderMap, post_type: &str,
     .fetch_all(&state.db)
     .await
     .unwrap_or_default();
+    let tag_options: Vec<(String, String)> = sqlx::query_as("SELECT slug, name FROM tags ORDER BY name COLLATE NOCASE")
+        .fetch_all(&state.db).await.unwrap_or_default();
 
-    let mut cards = posts::load_cards(state, listing.posts).await;
-    posts::sort_cards(&mut cards, sort);
+    let cards = posts::load_cards(state, listing.posts).await;
     let list = if cards.is_empty() {
         // A filter that matched nothing has to offer the way back. Without
         // it the toolbar is gone with the rows, and the only route out of an
         // over-narrow filter is editing the address bar.
-        let (title, detail) = match (nql.trim().is_empty(), selected.0) {
+        let (title, detail) = match (nql.trim().is_empty() && selected_tag.is_empty() && search.is_empty(), selected.0) {
             (false, _) => ("Nothing matches this filter", "Clear it to see the rest."),
             (true, "all") => ("Nothing here yet", "Everything you write shows up here, newest first."),
             _ => ("Nothing in this view", "Switch tabs to see the rest."),
@@ -5992,7 +6565,7 @@ async fn posts_list_impl(state: &AppState, headers: &HeaderMap, post_type: &str,
 {action}</div>"#,
             title = esc(title),
             detail = esc(detail),
-            action = if nql.trim().is_empty() {
+            action = if nql.trim().is_empty() && selected_tag.is_empty() && search.is_empty() {
                 format!(
                     r#"<a class="btn" href="{base}new/">{add} New {singular}</a>"#,
                     base = base,
@@ -6004,20 +6577,7 @@ async fn posts_list_impl(state: &AppState, headers: &HeaderMap, post_type: &str,
             },
         )
     } else {
-        format!(
-            r#"<div data-batch>
-<div class="list-tools rise" style="--i:0">
-<div class="search">{search}<input data-filter type="search" placeholder="Search {plural} by title, author or excerpt" aria-label="Search {label}"></div>
-{filter_menu}{sorter}</div>
-{grid}
-</div>"#,
-            search = svg("search"),
-            plural = plural,
-            label = label,
-            filter_menu = posts::filter_menu(base, selected.0, sort, nql),
-            sorter = posts::sort_picker(base, selected.0, sort, nql),
-            grid = posts::grid(&cards, base, &tags),
-        )
+        posts::grid(&cards, base, &tags)
     };
 
     page_for(
@@ -6026,20 +6586,44 @@ async fn posts_list_impl(state: &AppState, headers: &HeaderMap, post_type: &str,
         Some(user),
         actor.role,
         &format!(
-            r#"<header class="page-head rise"><div><h1>{label}</h1><p class="sub">{shown} of {total} {total_word}</p></div>
+            r#"<header class="page-head rise"><div><h1>{label}</h1><p class="sub">{first}–{last} of {total} {total_word}</p></div>
 <div class="actions"><a class="btn" href="{base}new/">{add} New {singular}</a></div></header>
 {banner}
 {filters}
-{list}"#,
+<div data-batch>
+<div class="list-tools rise" style="--i:0">
+<form class="tool-form" role="search" method="get" action="{base}">
+<input type="hidden" name="filter" value="{status_filter}"><input type="hidden" name="sort" value="{sort}">
+<input type="hidden" name="tag" value="{selected_tag}"><input type="hidden" name="nql" value="{nql}">
+<div class="search">{search_icon}<input name="search" type="search" value="{search_value}" maxlength="200" placeholder="Search {plural} by title, author or excerpt" aria-label="Search {label}">
+<button class="btn text small" type="submit">Search</button>{clear_search}</div></form>
+{tag_picker}{filter_menu}{sorter}</div>
+{list}
+{pager}</div>"#,
             banner = flash_banner(flash),
             label = label,
-            shown = shown,
+            first = first,
+            last = last,
             total = listing.total,
             total_word = plural,
             base = base,
             add = svg("add"),
             singular = singular,
-            filters = posts::filter_bar(base, selected.0, sort, nql, &counts),
+            filters = posts::filter_bar(base, selected.0, sort, nql, selected_tag, search, &counts),
+            search_icon = svg("search"),
+            search_value = esc(search),
+            status_filter = esc(selected.0),
+            sort = esc(sort),
+            selected_tag = esc(selected_tag),
+            nql = esc(nql),
+            clear_search = if search.is_empty() { String::new() } else {
+                format!(r#"<a class="btn text small" href="{}" aria-label="Clear search">Clear</a>"#,
+                    posts::ListState { search: "", ..list_state }.url(base, 1))
+            },
+            pager = pager,
+            tag_picker = posts::tag_picker(base, selected.0, sort, nql, selected_tag, search, &tag_options),
+            filter_menu = posts::filter_menu(base, selected.0, sort, nql, selected_tag, search),
+            sorter = posts::sort_picker(base, selected.0, sort, nql, selected_tag, search),
             list = list,
         ),
         true,
@@ -6089,6 +6673,7 @@ struct Editor<'a> {
     can_publish: bool,
     all_tiers: Vec<(String, String)>,
     members_enabled: bool,
+    stripe_enabled: bool,
     /// Request headers for api.unsplash.com, or `Null` when the Unsplash app
     /// is off or has no access key. Koenig uses this object verbatim.
     unsplash_headers: serde_json::Value,
@@ -6160,6 +6745,23 @@ impl Editor<'_> {
     fn meta(&self, get: impl Fn(&ghost_core::models::PostMeta) -> Option<&str>) -> &str {
         self.post.and_then(|p| p.meta.as_ref()).and_then(get).unwrap_or("")
     }
+}
+
+/// Whether a `mobiledoc` column holds anything worth converting.
+///
+/// Rows written by this port carry the placeholder `{}` — and Ghost's own
+/// empty document has a `sections` array with nothing in it. Either way there
+/// is no content, and treating it as content would shadow the HTML a seeded or
+/// imported post does have.
+fn has_mobiledoc_content(raw: &str) -> bool {
+    let raw = raw.trim();
+    if raw.is_empty() || raw == "{}" {
+        return false;
+    }
+    serde_json::from_str::<serde_json::Value>(raw)
+        .ok()
+        .and_then(|doc| doc.get("sections").and_then(|s| s.as_array()).map(|s| !s.is_empty()))
+        .unwrap_or(false)
 }
 
 /// A collapsible settings panel in the right-hand column. "Post settings" —
@@ -6386,10 +6988,18 @@ fn editor_html(ed: &Editor<'_>) -> String {
     // must never be able to lose anything in it.
     let markdown = ed.field(|p| p.markdown.as_deref());
     let saved = ed.field(|p| p.lexical.as_deref().filter(|l| !l.trim().is_empty()));
-    let initial = if saved.is_empty() {
-        ghost_render::lexical::wrap_existing(Some(markdown), Some(ed.field(|p| p.html.as_deref())))
-    } else {
+    // A post from before Ghost 5 has its content in `mobiledoc`. Converting it
+    // here is what makes it editable at all: wrapping its rendered HTML into a
+    // single HTML card would turn every paragraph, heading and card in it into
+    // one opaque block the publisher cannot edit. The conversion is saved back
+    // as Lexical on the next save, the same point at which Ghost migrates it.
+    let mobiledoc = ed.field(|p| p.mobiledoc.as_deref().filter(|m| has_mobiledoc_content(m)));
+    let initial = if !saved.is_empty() {
         Some(saved.to_string())
+    } else if !mobiledoc.is_empty() {
+        Some(ghost_render::mobiledoc::to_lexical(Some(mobiledoc)))
+    } else {
+        ghost_render::lexical::wrap_existing(Some(markdown), Some(ed.field(|p| p.html.as_deref())))
     };
     // Content is stored without the install's base path, but Koenig renders
     // it live — an image card has to be able to load its `src`. The write path
@@ -6409,6 +7019,7 @@ fn editor_html(ed: &Editor<'_>) -> String {
         "siteTitle": ed.site_title,
         "siteDescription": ed.site_description,
         "membersEnabled": ed.members_enabled,
+        "stripeEnabled": ed.stripe_enabled,
         // the bridge prefixes its upload and oembed endpoints with this; it
         // cannot read the base path off the page, since its own script URL has
         // already been rewritten
@@ -6426,6 +7037,7 @@ fn editor_html(ed: &Editor<'_>) -> String {
 <div id="koenig-mount" data-config="{config}"></div>
 <input type="hidden" name="lexical" id="field-lexical" value="">
 <input type="hidden" name="html" id="field-html" value="">
+<input type="hidden" name="updated_at" id="field-updated-at" value="{updated_at}">
 <div id="markdown-fallback">
 <p class="hint" data-fallback-note>JavaScript is off, so the rich editor cannot run. This {singular} is editable as Markdown.</p>
 {markdown_field}
@@ -6437,6 +7049,9 @@ fn editor_html(ed: &Editor<'_>) -> String {
         config = esc(&config.to_string()),
         singular = singular,
         markdown_field = textarea_field("markdown", "Content · Markdown", markdown, 20, true),
+        // The stamp this editor loaded. Posted back on save so the server can
+        // tell this copy apart from one another session has since written.
+        updated_at = esc(ed.post.and_then(|p| p.updated_at.as_deref()).unwrap_or("")),
     );
 
     // --- the settings column -----------------------------------------------
@@ -6604,7 +7219,6 @@ fn editor_html(ed: &Editor<'_>) -> String {
     let tag_options: Vec<(String, String)> = ed
         .all_tags
         .iter()
-        .filter(|t| t.visibility == "public")
         .map(|t| (t.id.clone(), t.name.clone().unwrap_or_default()))
         .collect();
     let tag_selected: Vec<String> = ed.tags.iter().map(|t| t.id.clone()).collect();
@@ -6810,6 +7424,7 @@ html {{ font-size: 62.5%; }}
 <script src="{assets}/react-dom.js" defer></script>
 <script src="{assets}/koenig-lexical.js" defer></script>
 <script src="{assets}/unsplash-picker.js" defer></script>
+<script src="{assets}/koenig-integrations.js" defer></script>
 <script src="{assets}/koenig-bridge.js" defer></script>
 <script>
 /* Hide the Markdown fallback before anything is painted, and disable it so a
@@ -6853,10 +7468,7 @@ html {{ font-size: 62.5%; }}
         content = content,
         side = side,
         assets = ASSETS,
-        pintura_assets = match (ed.pintura_config["jsUrl"].as_str(), ed.pintura_config["cssUrl"].as_str()) {
-            (Some(js), Some(css)) => format!(r#"<link rel="stylesheet" href="{}"><script src="{}" defer></script>"#, esc(css), esc(js)),
-            _ => String::new(),
-        },
+        pintura_assets = pintura_asset_tags(&ed.pintura_config),
     )
 }
 
@@ -6870,10 +7482,27 @@ html {{ font-size: 62.5%; }}
 /// script changes with this admin rather than with Koenig, so the number
 /// moves for either: a browser holding a stale bridge would keep a broken
 /// editor (and a word count that never counts) until its cache expired.
-const KOENIG_VERSION: &str = "1.8.15";
+macro_rules! koenig_version {
+    () => {
+        "1.8.22"
+    };
+}
+const KOENIG_VERSION: &str = koenig_version!();
 
 /// Where the editor's scripts live, version-stamped.
-const ASSETS: &str = concat!("/ghost/assets/", "1.8.15");
+///
+/// Built from [`KOENIG_VERSION`] rather than repeating the number: the two
+/// were separate literals and had drifted, so bumping the version no longer
+/// changed any URL and a browser kept serving the stale bridge from cache —
+/// which is the one thing the version exists to prevent.
+const ASSETS: &str = concat!("/ghost/assets/", koenig_version!());
+
+fn pintura_asset_tags(config: &serde_json::Value) -> String {
+    match (config["jsUrl"].as_str(), config["cssUrl"].as_str()) {
+        (Some(js), Some(css)) => format!(r#"<link rel="stylesheet" href="{}"><script src="{}" defer></script>"#, esc(css), esc(js)),
+        _ => String::new(),
+    }
+}
 
 /// Vendored editor runtime. Serving these from the binary keeps the admin a
 /// single self-contained process — no CDN, and no network at all once the
@@ -6889,17 +7518,31 @@ async fn admin_asset(Path((version, file)): Path<(String, String)>) -> Response 
         // Ships its own stylesheet, which it injects into <head> on load.
         "koenig-lexical.js" => include_str!("../assets/koenig-lexical.umd.js"),
         "koenig-bridge.js" => include_str!("../assets/koenig-bridge.js"),
+        "koenig-integrations.js" => include_str!("../assets/koenig-integrations.js"),
         "unsplash-picker.js" => include_str!("../assets/unsplash-picker.js"),
         "publishing-workflows.js" => include_str!("../assets/publishing-workflows.js"),
         "automation-editor.js" => include_str!("../assets/automation-editor.js"),
-        "native-social.js" => include_str!("../assets/native-social.js"),
         "machine-payments.js" => include_str!("../assets/machine-payments.js"),
         "checkout-design.js" => include_str!("../assets/checkout-design.js"),
+        "analytics-map.js" => include_str!("../assets/analytics-map.js"),
+        // Country outlines for the Locations choropleth: Natural Earth
+        // v5.1.2 (public domain), projected and simplified to the size this
+        // map is drawn at. Big enough to be worth fetching once — which the
+        // immutable cache below makes it — and far too big to inline in every
+        // Analytics page.
+        "world-map.json" => include_str!("../assets/world-map.json"),
         _ => return (StatusCode::NOT_FOUND, "not found").into_response(),
     };
     (
         [
-            (header::CONTENT_TYPE, "text/javascript; charset=utf-8"),
+            (
+                header::CONTENT_TYPE,
+                if file.ends_with(".json") {
+                    "application/json; charset=utf-8"
+                } else {
+                    "text/javascript; charset=utf-8"
+                },
+            ),
             (header::CACHE_CONTROL, "public, max-age=31536000, immutable"),
         ],
         body,
@@ -6954,7 +7597,7 @@ async fn editor_context<'a>(
         post_type,
         post,
         tags,
-        all_tags: repos::tags::all_public(&state.db).await.unwrap_or_default(),
+        all_tags: repos::tags::all(&state.db).await.unwrap_or_default(),
         authors,
         all_authors: repos::users::list(&state.db, false).await.unwrap_or_default(),
         templates: custom_templates(state).await,
@@ -6963,6 +7606,7 @@ async fn editor_context<'a>(
         can_publish,
         all_tiers: sqlx::query_as("SELECT id, name FROM products WHERE type = 'paid' ORDER BY name").fetch_all(&state.db).await.unwrap_or_default(),
         members_enabled: state.settings.get_str("members_signup_access").as_deref() != Some("none"),
+        stripe_enabled: state.settings.get_bool("paid_members_enabled"),
         unsplash_headers: unsplash_headers(state),
         pintura_config: pintura_config(&state.settings),
         site_url: state.site_url(),
@@ -7075,10 +7719,18 @@ struct EditorForm {
     twitter_description: Option<String>,
     twitter_image: Option<String>,
     email_subject: Option<String>,
+    /// Used only by the transient preview's explicit test-send action.
+    preview_email: Option<String>,
     /// `publish_only` | `publish_email` | `email_only`.
     publish_action: String,
     audience: ghost_api::newsletter_audience::Audience,
     audience_present: bool,
+    /// The post's `updated_at` as it stood when this editor loaded it.
+    ///
+    /// Carried so a save can be refused when someone else has saved since —
+    /// see [`ghost_api::collision`]. Absent on a hand-made request, which
+    /// skips the check the same way Ghost's does.
+    updated_at: Option<String>,
 }
 
 impl EditorForm {
@@ -7127,6 +7779,8 @@ impl EditorForm {
                 "twitter_description" => form.twitter_description = keep(value),
                 "twitter_image" => form.twitter_image = keep(value),
                 "email_subject" => form.email_subject = keep(value),
+                "preview_email" => form.preview_email = keep(value),
+                "updated_at" => form.updated_at = keep(value),
                 "tags" => {
                     if !value.trim().is_empty() {
                         form.tags.push(value);
@@ -7338,6 +7992,10 @@ async fn editor_saved_json(state: &AppState, post: &ghost_core::models::Post, me
         "url": url,
         "message": message,
         "level": level,
+        // The stamp this save produced. The editor adopts it so the next save
+        // compares against what it just wrote rather than against the version
+        // it originally loaded, which would collide with itself.
+        "updated_at": post.updated_at,
     });
     ([(header::CONTENT_TYPE, "application/json")], body.to_string()).into_response()
 }
@@ -7351,6 +8009,57 @@ fn editor_error_json(message: &str, status: StatusCode) -> Response {
         body.to_string(),
     )
         .into_response()
+}
+
+/// Refuse a save that would overwrite a newer edit from another session.
+///
+/// Returns the 409 to send, or `None` when this save is safe. The comparison
+/// itself is [`ghost_api::collision::collides`], so the native editor and the
+/// Admin API apply one rule. The submitted object is built from the fields
+/// this form actually carried: a settings-only save does not claim to be
+/// editing the body, and so cannot collide over it.
+fn editor_collision(form: &EditorForm, current: &ghost_core::models::Post) -> Option<Response> {
+    let submitted_stamp = form.updated_at.as_deref()?;
+    let mut submitted = serde_json::Map::new();
+    submitted.insert("updated_at".into(), serde_json::json!(submitted_stamp));
+    submitted.insert("title".into(), serde_json::json!(form.title));
+    if let Some(lexical) = &form.lexical {
+        submitted.insert("lexical".into(), serde_json::json!(lexical));
+    }
+    if let Some(markdown) = &form.markdown {
+        submitted.insert("markdown".into(), serde_json::json!(markdown));
+    }
+    for (key, value) in [
+        ("slug", &form.slug),
+        ("custom_excerpt", &form.custom_excerpt),
+        ("feature_image", &form.feature_image),
+        ("canonical_url", &form.canonical_url),
+    ] {
+        if let Some(value) = value {
+            submitted.insert(key.into(), serde_json::json!(value));
+        }
+    }
+    if !form.status.is_empty() {
+        submitted.insert("status".into(), serde_json::json!(form.status));
+    }
+    submitted.insert("featured".into(), serde_json::json!(form.featured));
+
+    let stored = serde_json::json!({
+        "updated_at": current.updated_at,
+        "title": current.title,
+        "lexical": current.lexical,
+        "markdown": current.markdown,
+        "slug": current.slug,
+        "custom_excerpt": current.custom_excerpt,
+        "feature_image": current.feature_image,
+        "canonical_url": current.canonical_url,
+        "status": current.status,
+        "featured": current.featured,
+    });
+
+    ghost_api::collision::collides(&serde_json::Value::Object(submitted), &stored).then(|| {
+        editor_error_json(ghost_api::collision::MESSAGE, StatusCode::CONFLICT)
+    })
 }
 
 async fn editor_create_impl(state: &AppState, headers: &HeaderMap, mut form: EditorForm, post_type: &str) -> Response {
@@ -8460,6 +9169,14 @@ async fn editor_save(State(state): State<AppState>, Path(id): Path<String>, head
     let user = actor.user;
     if form.audience_present {if let Err(e)=ghost_api::newsletter_audience::validate(&state,&form.audience).await{return editor_error_json(&e.message(),StatusCode::UNPROCESSABLE_ENTITY)}}
     let existing = repos::posts::find_by_id(&state.db, &id).await.ok().flatten();
+    // Someone else may have saved this post while this editor sat open. Refuse
+    // rather than overwrite them — the editor turns this into a prompt that
+    // offers the publisher a copy of their own version.
+    if let Some(current) = existing.as_ref() {
+        if let Some(conflict) = editor_collision(&form, current) {
+            return conflict;
+        }
+    }
     let post_type = existing
         .as_ref()
         .map(|p| p.post_type.clone())
@@ -9204,6 +9921,60 @@ fn themes_flash(kind: &str, message: &str) -> Response {
     Redirect::to(&format!("/ghost/themes/?{encoded}")).into_response()
 }
 
+/// GScan's verdict on a theme, as a collapsible summary for its row.
+///
+/// Empty for a theme with nothing wrong, which is the common case and should
+/// not cost a line. Fatal findings are named first and separately: they are
+/// the ones that stop the theme being activated at all.
+fn theme_validation_summary(theme_dir: &std::path::Path) -> String {
+    let report = ghost_render::gscan::scan(theme_dir);
+    if report.findings.is_empty() {
+        return String::new();
+    }
+    let count = |n: usize, one: &str, many: &str| match n {
+        0 => String::new(),
+        1 => format!("1 {one}"),
+        n => format!("{n} {many}"),
+    };
+    let parts: Vec<String> = [
+        count(report.errors().count(), "error", "errors"),
+        count(report.warnings().count(), "warning", "warnings"),
+        count(report.recommendations().count(), "recommendation", "recommendations"),
+    ]
+    .into_iter()
+    .filter(|p| !p.is_empty())
+    .collect();
+
+    let mut rows = String::new();
+    for finding in &report.findings {
+        rows.push_str(&format!(
+            r#"<li><code>{code}</code> <strong>{rule}</strong>{fatal}<br><span class="muted">{details}</span>{where_}</li>"#,
+            code = esc(finding.code),
+            rule = esc(&finding.rule),
+            fatal = if finding.fatal { r#" <span class="chip draft">blocks activation</span>"# } else { "" },
+            details = esc(&finding.details),
+            where_ = if finding.failures.is_empty() {
+                String::new()
+            } else {
+                // Enough to find it, not so many that the row becomes a log.
+                let shown: Vec<String> = finding.failures.iter().take(5).map(|f| esc(f)).collect();
+                let more = finding.failures.len().saturating_sub(shown.len());
+                format!(
+                    r#"<br><span class="muted"><code>{}</code>{}</span>"#,
+                    shown.join("</code>, <code>"),
+                    if more > 0 { format!(" and {more} more") } else { String::new() },
+                )
+            },
+        ));
+    }
+    format!(
+        r#"<details class="detail" style="margin-top:4px"><summary>Theme validation · {summary}</summary>
+<ul style="margin:8px 0 0;padding-left:18px;line-height:1.6">{rows}</ul></details>"#,
+        summary = esc(&parts.join(", ")),
+        rows = rows,
+    )
+}
+
 async fn themes_page(State(state): State<AppState>, headers: HeaderMap, Query(q): Query<HashMap<String, String>>) -> Response {
     let (user, actor_role) = match require_role(&state, &headers, Role::Administrator).await {
         Ok(a) => (a.user, a.role),
@@ -9267,15 +10038,20 @@ async fn themes_page(State(state): State<AppState>, headers: HeaderMap, Query(q)
                 )
             };
 
+            // What GScan makes of it. Folded away unless there is something
+            // to say, so a clean theme stays a one-line row.
+            let validation = theme_validation_summary(&state.config.themes_dir().join(&t.name));
+
             format!(
                 r#"<div class="row" data-filterable>
 <span class="ic tint-purple">{ic}</span>
-<div class="body"><span class="title">{name}</span><span class="detail">{meta}</span></div>
+<div class="body"><span class="title">{name}</span><span class="detail">{meta}</span>{validation}</div>
 <div class="trailing">{status}{customise}{edit}{activate}{delete}</div>
 </div>"#,
                 ic = svg("themes"),
                 name = esc(&t.name),
                 meta = meta,
+                validation = validation,
                 status = status,
                 customise = customise,
                 activate = activate,
@@ -13196,82 +13972,57 @@ struct StripeConnectForm {
     publishable_key: String,
 }
 
-/// Ghost's official Connect broker returns a secure key after Stripe onboarding.
-/// Its state is bound to this verified admin session, just as in Ghost 6.73.
-fn stripe_oauth_url(mode: &str, state: &str) -> String {
-    let client = if mode == "test" { "ca_8LBum4Ctv3mmJ1oD0ZRmxjdAhNrrBUy3" } else { "ca_8LBuZWhYshxF0A55KgCXu8PRTquCKC5x" };
-    let query = form_urlencoded::Serializer::new(String::new())
-        .append_pair("response_type", "code").append_pair("scope", "read_write")
-        .append_pair("client_id", client).append_pair("redirect_uri", "https://stripe.ghost.org")
-        .append_pair("state", state).finish();
-    format!("https://connect.stripe.com/oauth/authorize?{query}")
-}
-
+/// Start Connect: mint a state onto this session and send the admin to Stripe.
+///
+/// The URL, the nonce and its window all live in [`ghost_api::stripe_connect`],
+/// shared with the Admin API's `GET /members/stripe_connect`. This handler is
+/// only the difference between the two: a form post that reports failure as a
+/// flash message on the membership screen.
 async fn stripe_oauth_start(State(state): State<AppState>, headers: HeaderMap, Form(form): Form<HashMap<String, String>>) -> Response {
-    use base64::Engine;
     if let Err(response) = require_role(&state, &headers, Role::Administrator).await { return response; }
-    if state.config.env == "production" && !state.site_url().starts_with("https://") {
+    if ghost_api::stripe_connect::can_connect(&state.config.env, &state.site_url()).is_err() {
         return membership_flash("error", "Stripe Connect requires HTTPS in production.");
     }
     let Some(sid) = session_id_from(&headers) else { return membership_flash("error", "Sign in again before connecting Stripe."); };
-    let mode = if form.get("mode").is_some_and(|mode| mode == "test") { "test" } else { "live" };
-    let encoded = base64::engine::general_purpose::STANDARD.encode(serde_json::json!({"mode": mode, "randomState": ghost_core::ids::random_hex(16)}).to_string());
-    let updated = sqlx::query("UPDATE sessions SET session_data = json_set(session_data, '$.stripe-connect-state', ?, '$.stripe-connect-started-at', ?) WHERE session_id = ?")
-        .bind(&encoded).bind(now_unix_seconds()).bind(&sid).execute(&state.db).await;
-    match updated {
-        Ok(result) if result.rows_affected() == 1 => Redirect::to(&stripe_oauth_url(mode, &encoded)).into_response(),
-        _ => membership_flash("error", "Could not start the Stripe connection. Sign in again and retry."),
+    let mode = ghost_api::stripe_connect::mode_from(form.get("mode").map(String::as_str)).unwrap_or("live");
+    match ghost_api::stripe_connect::mint_state(&state.db, &sid, mode).await {
+        Some(minted) => Redirect::to(&ghost_api::stripe_connect::oauth_url(mode, &minted)).into_response(),
+        None => membership_flash("error", "Could not start the Stripe connection. Sign in again and retry."),
     }
 }
-
-fn now_unix_seconds() -> i64 { std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_secs() as i64 }
 
 #[derive(Deserialize)]
 struct StripeSecureKeyForm { secure_key: String }
 
-#[derive(Deserialize)]
-struct StripeSecureKey { a: String, p: String, s: String, l: bool, i: String }
-
-fn decode_stripe_secure_key(encoded: &str, expected: &str) -> Result<StripeSecureKey, &'static str> {
-    use base64::Engine;
-    let raw = base64::engine::general_purpose::STANDARD.decode(encoded.trim()).map_err(|_| "The Stripe secure key could not be parsed.")?;
-    let key: StripeSecureKey = serde_json::from_slice(&raw).map_err(|_| "The Stripe secure key could not be parsed.")?;
-    if expected.is_empty() || key.s != expected { return Err("The Stripe connection belongs to another session. Start the connection again."); }
-    if !key.i.starts_with("acct_") || !key.a.starts_with("sk_") || !key.p.starts_with("pk_") {
-        return Err("The Stripe secure key is incomplete.");
-    }
-    if key.l != key.a.starts_with("sk_live_") || key.l != key.p.starts_with("pk_live_") {
-        return Err("The Stripe secure key has mismatched test and live modes.");
-    }
-    Ok(key)
-}
-
 async fn stripe_oauth_finish(State(state): State<AppState>, headers: HeaderMap, Form(form): Form<StripeSecureKeyForm>) -> Response {
     if let Err(response) = require_role(&state, &headers, Role::Administrator).await { return response; }
     let Some(sid) = session_id_from(&headers) else { return membership_flash("error", "Sign in again before connecting Stripe."); };
-    let saved: Option<(Option<String>, Option<i64>)> = sqlx::query_as("SELECT json_extract(session_data, '$.stripe-connect-state'), json_extract(session_data, '$.stripe-connect-started-at') FROM sessions WHERE session_id = ?")
-        .bind(&sid).fetch_optional(&state.db).await.ok().flatten();
-    let Some((Some(expected), Some(started))) = saved else { return membership_flash("error", "Start Connect with Stripe before pasting its secure key."); };
-    if now_unix_seconds().saturating_sub(started) > 30 * 60 {
-        return membership_flash("error", "The Stripe connection expired. Start Connect with Stripe again.");
-    }
-    let key = match decode_stripe_secure_key(&form.secure_key, &expected) {
+    let Some(expected) = ghost_api::stripe_connect::pending_state(&state.db, &sid).await else {
+        return membership_flash("error", "Start Connect with Stripe before pasting its secure key, and within thirty minutes of doing so.");
+    };
+    let key = match ghost_api::stripe_connect::decode_secure_key(&form.secure_key, &expected) {
         Ok(key) => key,
+        Err(ghost_api::stripe_connect::INCORRECT_STATE) => {
+            return membership_flash("error", "The Stripe connection belongs to another session. Start the connection again.");
+        }
         Err(message) => return membership_flash("error", message),
     };
-    if let Err(error) = sqlx::query("UPDATE sessions SET session_data = json_remove(session_data, '$.stripe-connect-state', '$.stripe-connect-started-at') WHERE session_id = ?")
-        .bind(&sid).execute(&state.db).await {
-        return membership_flash("error", &format!("Could not complete the Stripe connection: {error}"));
+    // Spend the nonce before adopting the keys, not after: a blob that got as
+    // far as a Stripe call must not stay replayable because that call failed.
+    if !ghost_api::stripe_connect::clear_state(&state.db, &sid).await {
+        return membership_flash("error", "Could not complete the Stripe connection. Sign in again and retry.");
     }
-    stripe_connect(State(state), headers, Form(StripeConnectForm {secret_key: key.a, publishable_key: key.p})).await
+    stripe_connect(State(state), headers, Form(StripeConnectForm {secret_key: key.secret_key, publishable_key: key.publishable_key})).await
 }
 
 /// Store Stripe keys after proving they work.
 ///
 /// Ghost(Pro) uses Stripe Connect's OAuth; a self-hosted site pastes its own
-/// keys, which is what this does. The key is verified against `/v1/account`
-/// before anything is saved — a typo should fail here, not at a visitor's
-/// first checkout.
+/// keys, and both arrive here. The work — verifying the key against
+/// `/v1/account`, clearing price ids that belonged to another account,
+/// registering the webhook — is [`ghost_api::stripe_connect::adopt_keys`],
+/// shared with the Admin API's Connect token so the two cannot drift. What is
+/// left in this handler is how the membership screen says what happened.
 async fn stripe_connect(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -13280,93 +14031,17 @@ async fn stripe_connect(
     if let Err(r) = require_role(&state, &headers, Role::Administrator).await {
         return r;
     }
-    let secret = form.secret_key.trim().to_string();
-    let publishable = form.publishable_key.trim().to_string();
-    if !secret.starts_with("sk_") && !secret.starts_with("rk_") {
-        return membership_flash("error", "That does not look like a Stripe secret key — it should start with sk_ or rk_.");
-    }
-    if !publishable.is_empty() && !publishable.starts_with("pk_") {
-        return membership_flash("error", "The publishable key should start with pk_.");
-    }
-    let account = match ghost_stripe::verify_account(&secret).await {
-        Ok(a) => a,
-        Err(e) => return membership_flash("error", &e.message()),
-    };
-
-    let old_account = state.settings.get_str("stripe_connect_account_id").unwrap_or_default();
-    let old_live = ghost_stripe::StripeConfig::from_settings(&state.settings).map(|cfg| cfg.is_live());
-    let account_changed = old_account != account.id || old_live != Some(account.livemode);
-    if account_changed {
-        let reset = async {
-            let mut tx = state.db.begin().await?;
-            sqlx::query("UPDATE products SET monthly_price_id = NULL, yearly_price_id = NULL WHERE type = 'paid'").execute(&mut *tx).await?;
-            sqlx::query("DELETE FROM stripe_prices").execute(&mut *tx).await?;
-            sqlx::query("DELETE FROM stripe_products").execute(&mut *tx).await?;
-            tx.commit().await
-        }.await;
-        if let Err(error) = reset { return membership_flash("error", &format!("Could not reset Stripe price references: {error}")); }
-    }
-
-    // Keep a working endpoint or local Stripe CLI secret when reconnecting
-    // the same account and mode. A different account must not inherit it.
-    if account_changed {
-        if let Some(old_cfg) = ghost_stripe::StripeConfig::from_settings(&state.settings) {
-            if let Some(id) = state.settings.get_str("members_stripe_webhook_id").filter(|id| !id.is_empty()) {
-                let _ = ghost_stripe::delete_webhook(&old_cfg, &id).await;
-            }
+    match ghost_api::stripe_connect::adopt_keys(&state, &form.secret_key, &form.publishable_key).await {
+        Ok(adopted) => {
+            let mode = if adopted.livemode { "live" } else { "test" };
+            let notes = adopted.notes.iter().map(|note| format!(" {note}")).collect::<String>();
+            membership_flash(
+                "ok",
+                &format!("Connected to Stripe account “{}” in {mode} mode.{notes}", adopted.account),
+            )
         }
-        for key in ["members_stripe_webhook_id", "members_stripe_webhook_secret", "stripe_checkout_setup_error"] {
-            let _ = state.settings.set(&state.db, key, &serde_json::json!("")).await;
-        }
+        Err(message) => membership_flash("error", &message),
     }
-
-    let set = |k: &'static str, v: String| {
-        let state = state.clone();
-        async move { state.settings.set(&state.db, k, &serde_json::json!(v)).await.is_ok() }
-    };
-    let mut ok = set("stripe_secret_key", secret.clone()).await;
-    ok &= set("stripe_publishable_key", publishable).await;
-    ok &= set("stripe_connect_account_id", account.id.clone()).await;
-    ok &= set("stripe_connect_display_name", account.display_name.clone()).await;
-    ok &= set("stripe_connect_livemode", account.livemode.to_string()).await;
-    // Paid tiers only become offerable once Stripe is attached, and Portal
-    // reads this to decide whether to show them at all.
-    ok &= state.settings.set(&state.db, "paid_members_enabled", &serde_json::json!(true)).await.is_ok();
-    if !ok {
-        return membership_flash("error", "Could not save the Stripe settings — check the logs.");
-    }
-
-    // Register the webhook so subscription changes reach us. A site on
-    // localhost is unreachable from Stripe, so this is allowed to fail
-    // without failing the connection itself.
-    let cfg = ghost_stripe::StripeConfig {
-        secret_key: secret,
-        publishable_key: String::new(),
-        webhook_secret: String::new(),
-        checkout_design: None,
-    };
-    let price_note = match ghost_api::stripe_tiers::sync_active_tiers(&state, &cfg).await {
-        Ok(()) => String::new(),
-        Err(error) => format!(" Tier price setup failed: {}. Checkout will retry setup when needed.", error.message()),
-    };
-    let hook_url = format!("{}/members/webhooks/stripe/", state.site_url());
-    let hook_note = if state.settings.get_str("members_stripe_webhook_secret").is_some_and(|secret| !secret.is_empty()) {
-        String::new()
-    } else { match ghost_stripe::create_webhook(&cfg, &hook_url).await {
-        Ok((id, whsec)) => {
-            let _ = state.settings.set(&state.db, "members_stripe_webhook_id", &serde_json::json!(id)).await;
-            let _ = state.settings.set(&state.db, "members_stripe_webhook_secret", &serde_json::json!(whsec)).await;
-            String::new()
-        }
-        Err(e) => format!(
-            " Webhooks could not be registered ({}) — subscriptions will not update automatically until {hook_url} is reachable from the internet.",
-            e.message()
-        ),
-    }};
-
-    let who = if account.display_name.is_empty() { account.id } else { account.display_name };
-    let mode = if account.livemode { "live" } else { "test" };
-    membership_flash("ok", &format!("Connected to Stripe account “{who}” in {mode} mode.{price_note}{hook_note}"))
 }
 
 /// The webhook signing-secret form, shown both when nothing is set and when
@@ -13470,6 +14145,13 @@ async fn stripe_deactivate_webhook(State(state): State<AppState>, headers: Heade
 async fn stripe_disconnect(State(state): State<AppState>, headers: HeaderMap) -> Response {
     if let Err(r) = require_role(&state, &headers, Role::Administrator).await {
         return r;
+    }
+    // Upstream's guard, and this screen needs it as much as the API does: the
+    // keys are what reconciles a subscription, so clearing them while members
+    // still hold one leaves them paying Stripe for access this site can no
+    // longer confirm, with nothing in the admin able to show it.
+    if ghost_api::stripe_connect::has_paid_members(&state.db).await {
+        return membership_flash("error", ghost_api::stripe_connect::HAS_SUBSCRIPTIONS);
     }
     // Remove the registered webhook first, while the key still works.
     if let Some(cfg) = ghost_stripe::StripeConfig::from_settings(&state.settings) {
@@ -14675,8 +15357,9 @@ async fn growth_page(State(state): State<AppState>, headers: HeaderMap, Query(q)
     // a recommendation is three short fields, so a separate page would be more
     // navigation than content.
     let mut rec_rows = String::new();
-    if let Ok(recs) = sqlx::query_as::<_, (String, String, String, Option<String>, bool)>(
-        "SELECT id, url, title, description, one_click_subscribe FROM recommendations ORDER BY created_at DESC",
+    if let Ok(recs) = sqlx::query_as::<_, (String, String, String, Option<String>, bool, Option<String>)>(
+        "SELECT id, url, title, description, one_click_subscribe, favicon FROM recommendations \
+         ORDER BY featured DESC, created_at DESC",
     )
     .fetch_all(&state.db)
     .await
@@ -14684,9 +15367,19 @@ async fn growth_page(State(state): State<AppState>, headers: HeaderMap, Query(q)
         if recs.is_empty() {
             rec_rows = r#"<div class="row"><div class="body"><span class="muted">No recommended sites yet — add one below.</span></div></div>"#.into();
         }
-        for (id, url, title, description, one_click) in recs {
+        for (id, url, title, description, one_click, favicon) in recs {
+            // The publication's own favicon, when it had one, so this list
+            // shows what a member will actually see.
+            let mark = match favicon.as_deref().filter(|f| f.starts_with("http")) {
+                Some(favicon) => format!(
+                    r#"<span class="ic"><img src="{}" alt="" width="20" height="20" style="border-radius:4px" loading="lazy" onerror="this.closest('.ic').innerHTML='{}'"></span>"#,
+                    esc(favicon),
+                    svg("globe").replace('\'', "&#39;").replace('\n', ""),
+                ),
+                None => format!(r#"<span class="ic tint-slate">{}</span>"#, svg("globe")),
+            };
             rec_rows.push_str(&format!(
-                r#"<div class="row" style="align-items:flex-start"><span class="ic tint-slate">{globe}</span>
+                r#"<div class="row" style="align-items:flex-start">{mark}
 <div class="body" style="width:100%">
 <form method="post" action="/ghost/settings/growth/recommendations/{id}/" class="inline-form" style="align-items:flex-end">
 <label class="field" style="flex:1;min-width:160px;margin:0"><input name="title" value="{title}" placeholder=" " maxlength="191" required><span>Title</span></label>
@@ -14700,7 +15393,7 @@ async fn growth_page(State(state): State<AppState>, headers: HeaderMap, Query(q)
 <div class="trailing" style="align-items:flex-start">
 <form method="post" action="/ghost/settings/growth/recommendations/{id}/delete/" data-confirm="Remove recommendation|&#8220;{title}&#8221; will no longer be recommended to your members.">
 <button class="icon-btn danger" title="Remove" aria-label="Remove">{del}</button></form></div></div>"#,
-                globe = svg("globe"),
+                mark = mark,
                 id = esc(&id),
                 title = esc(&title),
                 url = esc(&url),
@@ -15008,6 +15701,53 @@ fn recommendation_title(title: &str, url: &str) -> String {
         .unwrap_or_else(|| "Recommended site".into())
 }
 
+/// What a candidate publication says about itself, for the badge.
+#[derive(Debug, Default)]
+struct FetchedRecommendation {
+    title: Option<String>,
+    description: Option<String>,
+    excerpt: Option<String>,
+    featured_image: Option<String>,
+    favicon: Option<String>,
+    one_click_subscribe: bool,
+}
+
+/// Fetch a recommended site's own metadata, failing soft.
+///
+/// This fetches a URL the publisher chose, so it goes through the same
+/// `fetchable` guard the webmention receiver uses — an admin must not be able
+/// to aim it at the host's private network — and gives up quickly rather than
+/// holding the form submission open.
+async fn fetch_recommendation_metadata(url: &str) -> FetchedRecommendation {
+    let Some(parsed) = ghost_api::mentions::fetchable(url) else {
+        return FetchedRecommendation::default();
+    };
+    let Ok(client) = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(10))
+        .redirect(reqwest::redirect::Policy::limited(3))
+        .build()
+    else {
+        return FetchedRecommendation::default();
+    };
+    let Ok(response) = client.get(parsed).send().await else {
+        return FetchedRecommendation::default();
+    };
+    if !response.status().is_success() {
+        return FetchedRecommendation::default();
+    }
+    let html = response.text().await.unwrap_or_default();
+    let meta = ghost_api::mentions::metadata_of(&html);
+    FetchedRecommendation {
+        title: meta.site_title.or(meta.title),
+        description: meta.excerpt.clone(),
+        excerpt: meta.excerpt,
+        featured_image: meta.image,
+        favicon: meta.favicon,
+        // Whether they run Portal, which is what makes one-click subscribe work.
+        one_click_subscribe: html.contains("/members/api/") || html.contains("data-portal"),
+    }
+}
+
 async fn recommendation_new(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -15029,14 +15769,28 @@ async fn recommendation_new(
     if taken > 0 {
         return settings_flash("growth", "error", "That site is already recommended.");
     }
+    // Read the site's own name, description, social image and favicon before
+    // saving, the way Ghost's add dialog does. Without these the member-facing
+    // badge is a bare title, so a site that cannot be reached is still saved —
+    // just with the domain as its title.
+    let fetched = fetch_recommendation_metadata(&url).await;
     let now = ghost_core::dates::now_db();
     let res = sqlx::query(
-        "INSERT INTO recommendations (id, url, title, description, one_click_subscribe, featured, created_at, updated_at) \
-         VALUES (?, ?, ?, '', 0, 0, ?, ?)",
+        "INSERT INTO recommendations (id, url, title, description, excerpt, featured_image, favicon, \
+           one_click_subscribe, featured, created_at, updated_at) \
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?)",
     )
     .bind(ghost_core::ids::new_id())
     .bind(&url)
-    .bind(recommendation_title(&form.title, &url))
+    .bind(recommendation_title(
+        if form.title.trim().is_empty() { fetched.title.as_deref().unwrap_or("") } else { &form.title },
+        &url,
+    ))
+    .bind(fetched.description.clone().unwrap_or_default())
+    .bind(fetched.excerpt.clone())
+    .bind(fetched.featured_image.clone())
+    .bind(fetched.favicon.clone())
+    .bind(fetched.one_click_subscribe)
     .bind(&now)
     .bind(&now)
     .execute(&state.db)
@@ -15903,7 +16657,19 @@ fn build_ghost_export(posts: &[ghost_core::models::Post], tags: &[ghost_core::mo
 /// The content export as a JSON string: posts, pages and tags in Ghost's
 /// export shape. Shared by the standalone download and the backup bundle.
 pub(crate) async fn build_content_export(state: &AppState) -> String {
-    match ghost_db::transfer::export(&state.db).await {
+    build_content_export_with(state, &[]).await
+}
+
+/// The content export, optionally carrying extended backup tables.
+///
+/// `include` names tables from `transfer::BACKUP_TABLES` — members and their
+/// whole event history, emails, comments, automations, sessions and keys. The
+/// default export is deliberately without them: it is the portable one, meant
+/// to be moved between installations, and it is the one a publisher is most
+/// likely to hand to somebody else. A complete backup is a different thing
+/// and has to be asked for.
+pub(crate) async fn build_content_export_with(state: &AppState, include: &[String]) -> String {
+    match ghost_db::transfer::export_with(&state.db, include).await {
         Ok(value) => serde_json::to_string_pretty(&value).unwrap_or_default(),
         Err(error) => { tracing::error!("Content export failed: {}", error.message()); String::new() }
     }
@@ -16074,6 +16840,103 @@ async fn migration_export_analytics(State(state): State<AppState>, headers: Head
 /// `(key, label, detail, on by default)`. Media is off by default for the
 /// reason Ghost gives: it is usually the bulk of the archive, and someone
 /// moving content between sites rarely wants to wait for it.
+/// Build a queued export in the background, then tell the requester.
+///
+/// Detached from the request on purpose: a full export with media in it can
+/// take minutes, which is why `POST /exports` answers 202 rather than holding
+/// the connection. The row is the only record of what happened, so it is
+/// updated whether the build succeeds or fails — an export that quietly never
+/// finishes is indistinguishable from one still running.
+pub(crate) fn spawn_export_build(state: AppState, id: String, components: serde_json::Value) {
+    tokio::spawn(async move {
+        let want = |key: &str| components.get(key) == Some(&serde_json::json!(true));
+        let _ = sqlx::query("UPDATE export_requests SET status = 'running', started_at = ? WHERE id = ?")
+            .bind(ghost_core::dates::now_db())
+            .bind(&id)
+            .execute(&state.db)
+            .await;
+
+        let slug = ghost_core::slug::safe_string(&state.settings.site_name());
+        let prefix = if slug.is_empty() { String::new() } else { format!("{slug}.") };
+        // The id is in the name so two exports of the same site on the same
+        // day cannot overwrite one another.
+        let filename = format!("{prefix}ghost.export.{}.{id}.zip", export_date_stamp());
+        let path = state.config.content_path().join("exports").join(&filename);
+
+        match build_export_archive_to_file(&state, &want, &path).await {
+            Some(size) => {
+                let _ = sqlx::query(
+                    "UPDATE export_requests SET status = 'finished', filename = ?, size_bytes = ?,                      finished_at = ?, error = NULL WHERE id = ?",
+                )
+                .bind(&filename)
+                .bind(size as i64)
+                .bind(ghost_core::dates::now_db())
+                .bind(&id)
+                .execute(&state.db)
+                .await;
+                notify_export_ready(&state, &id, &filename, size).await;
+            }
+            None => {
+                let _ = sqlx::query(
+                    "UPDATE export_requests SET status = 'failed', error = ?, finished_at = ? WHERE id = ?",
+                )
+                .bind("The archive could not be written. Check disk space and content/ permissions.")
+                .bind(ghost_core::dates::now_db())
+                .bind(&id)
+                .execute(&state.db)
+                .await;
+                tracing::error!("export {id} failed to build");
+            }
+        }
+    });
+}
+
+/// Email the staff user who asked for an export that it is ready.
+///
+/// Upstream's host service does this; here it is the only notification a
+/// requester gets, since nothing was holding their connection open. A site
+/// with no mailer configured simply leaves the row for `GET /exports` to
+/// report — the archive is still there either way.
+async fn notify_export_ready(state: &AppState, id: &str, filename: &str, size: u64) {
+    let requester: Option<(Option<String>, Option<String>)> = sqlx::query_as(
+        "SELECT u.name, u.email FROM export_requests e JOIN users u ON u.id = e.requested_by          WHERE e.id = ?",
+    )
+    .bind(id)
+    .fetch_optional(&state.db)
+    .await
+    .ok()
+    .flatten();
+    let Some((name, Some(email))) = requester else { return };
+    let title = state.settings.site_name();
+    let site = state.site_url();
+    let link = format!("{}/ghost/api/admin/exports/{id}/download/", site.trim_end_matches('/'));
+    let megabytes = (size as f64) / (1024.0 * 1024.0);
+    let html = format!(
+        r#"<p>Hi {},</p><p>The export of {} you asked for is ready.</p>
+<p><a href="{}">Download {} ({:.1} MB)</a></p>
+<p>You will need to be signed in to the admin on this device to collect it.</p>"#,
+        esc(name.as_deref().unwrap_or("there")),
+        esc(&title),
+        esc(&link),
+        esc(filename),
+        megabytes,
+    );
+    let cfg = ghost_mail::MailConfig::from_settings(&state.settings, &title, &site);
+    let msg = ghost_mail::Message {
+        to: email,
+        subject: format!("Your {title} export is ready"),
+        html,
+        text: format!("The export of {title} you asked for is ready.
+
+{link}
+
+{filename} ({megabytes:.1} MB)"),
+    };
+    if let Err(e) = ghost_mail::send(&cfg, &msg).await {
+        tracing::warn!("export-ready email failed: {}", e.message());
+    }
+}
+
 const EXPORT_COMPONENTS: &[(&str, &str, &str, bool)] = &[
     ("content", "Content & settings", "Posts, pages and tags, in Ghost's JSON export format", true),
     ("members", "Members", "Every member with their labels and tiers (CSV)", true),
@@ -16084,6 +16947,12 @@ const EXPORT_COMPONENTS: &[(&str, &str, &str, bool)] = &[
         "media",
         "Media files",
         "Every uploaded image and file. Can make the archive very much larger",
+        false,
+    ),
+    (
+        "state",
+        "Members & full history",
+        "Members, emails, comments, automations, events and keys — a restore, not a content move. Keep it secret",
         false,
     ),
 ];
@@ -16109,14 +16978,21 @@ fn zip_add_dir<W: std::io::Write + std::io::Seek>(
             if name.starts_with('.') || name == "node_modules" {
                 continue;
             }
+            if entry.file_type()?.is_symlink() {
+                continue;
+            }
             if path.is_dir() {
                 stack.push(path);
                 continue;
             }
             let Ok(rel) = path.strip_prefix(base) else { continue };
-            let Ok(bytes) = std::fs::read(&path) else { continue };
+            let Ok(mut file) = std::fs::File::open(&path) else { continue };
             zip.start_file(format!("{prefix}/{}", rel.to_string_lossy().replace('\\', "/")), opts)?;
-            std::io::Write::write_all(zip, &bytes)?;
+            // Copied rather than read whole: a video in content/media can be
+            // larger than the process should ever hold at once, and the point
+            // of writing the archive to disk is undone by buffering its
+            // inputs in memory.
+            std::io::copy(&mut file, zip)?;
         }
     }
     Ok(())
@@ -16124,23 +17000,74 @@ fn zip_add_dir<W: std::io::Write + std::io::Seek>(
 
 /// Build the export archive from the components the operator ticked.
 ///
-/// Everything is assembled in memory: these are a publisher's own posts and
-/// members, which is small next to the media they may also have asked for —
-/// and media is the one component that is off by default.
+/// Kept for the small archives — a content-only or themes-only download,
+/// where holding it in memory costs nothing and saves a temporary file.
+/// Anything that can include media goes through
+/// [`build_export_archive_to_file`] instead.
 async fn build_export_archive(
     state: &AppState,
     want: &(dyn Fn(&str) -> bool + Send + Sync),
 ) -> Option<Vec<u8>> {
-    use std::io::Write;
     let mut buf = std::io::Cursor::new(Vec::new());
+    write_export_archive(state, want, &mut buf).await?;
+    Some(buf.into_inner())
+}
+
+/// Assemble an archive on disk, and return its path and size.
+///
+/// This is the path for a full backup. The previous implementation built
+/// every archive in a `Vec<u8>`, so exporting a site's media meant holding
+/// all of it in memory at once — on a publication with a few gigabytes of
+/// video that is not a slow export, it is a dead process. Writing through a
+/// file keeps the peak cost at one zip window regardless of site size, and
+/// the response then streams the file back in chunks.
+///
+/// The caller owns the file and is responsible for removing it.
+async fn build_export_archive_to_file(
+    state: &AppState,
+    want: &(dyn Fn(&str) -> bool + Send + Sync),
+    path: &std::path::Path,
+) -> Option<u64> {
+    if let Some(parent) = path.parent() {
+        let _ = tokio::fs::create_dir_all(parent).await;
+    }
+    let file = std::fs::File::create(path).ok()?;
+    let mut file = std::io::BufWriter::new(file);
+    let written = write_export_archive(state, want, &mut file).await;
+    // Flush before measuring, or the size is whatever happened to have left
+    // the buffer.
+    let flushed = std::io::Write::flush(&mut file).is_ok();
+    drop(file);
+    if written.is_none() || !flushed {
+        let _ = std::fs::remove_file(path);
+        return None;
+    }
+    std::fs::metadata(path).ok().map(|m| m.len())
+}
+
+/// The archive itself, written into whatever the caller provides.
+async fn write_export_archive<W: std::io::Write + std::io::Seek>(
+    state: &AppState,
+    want: &(dyn Fn(&str) -> bool + Send + Sync),
+    sink: &mut W,
+) -> Option<()> {
+    use std::io::Write;
     {
-        let mut zip = zip::ZipWriter::new(&mut buf);
+        let mut zip = zip::ZipWriter::new(sink);
         let opts = zip::write::SimpleFileOptions::default()
             .compression_method(zip::CompressionMethod::Deflated);
 
         if want("content") {
-            zip.start_file("ghost-export.json", opts).ok()?;
-            zip.write_all(build_content_export(state).await.as_bytes()).ok()?;
+            zip.start_file("export.json", opts).ok()?;
+            // `state` is the extended-backup component: with it ticked the
+            // export.json carries the operational tables too, so the archive
+            // is a restore rather than a content move.
+            let include: Vec<String> = if want("state") {
+                ghost_db::transfer::BACKUP_TABLES.iter().map(|t| (*t).to_string()).collect()
+            } else {
+                Vec::new()
+            };
+            zip.write_all(build_content_export_with(state, &include).await.as_bytes()).ok()?;
         }
         if want("members") {
             if let Some(csv) = build_members_csv(state, None).await {
@@ -16150,7 +17077,7 @@ async fn build_export_archive(
         }
         if want("analytics") {
             if let Some(csv) = build_post_analytics_csv(state).await {
-                zip.start_file("posts.analytics.csv", opts).ok()?;
+                zip.start_file("post-analytics.csv", opts).ok()?;
                 zip.write_all(&csv).ok()?;
             }
         }
@@ -16158,20 +17085,23 @@ async fn build_export_archive(
             zip_add_dir(&mut zip, &state.config.themes_dir(), "themes", opts).ok()?;
         }
         if want("routes") {
+            // At the archive root, where Ghost writes them, so an export
+            // from here restores into Ghost and not only back into this port.
             for file in ["routes.yaml", "redirects.yaml"] {
                 if let Ok(bytes) = std::fs::read(state.config.content_path().join(file)) {
-                    zip.start_file(format!("settings/{file}"), opts).ok()?;
+                    zip.start_file(file, opts).ok()?;
                     zip.write_all(&bytes).ok()?;
                 }
             }
         }
         if want("media") {
-            zip_add_dir(&mut zip, &state.config.images_dir(), "content/images", opts).ok()?;
-            zip_add_dir(&mut zip, &state.config.files_dir(), "content/files", opts).ok()?;
+            for (dir,prefix) in archive_media_paths(&state.config) {
+                zip_add_dir(&mut zip, &dir, prefix, opts).ok()?;
+            }
         }
         zip.finish().ok()?;
     }
-    Some(buf.into_inner())
+    Some(())
 }
 
 fn zip_download(filename: &str, body: Vec<u8>) -> Response {
@@ -16259,13 +17189,23 @@ struct ArchiveContents {
     media_restored: usize,
 }
 
+fn archive_media_paths(config: &ghost_core::config::Config) -> [(std::path::PathBuf, &'static str);3] {
+    [(config.images_dir(),"content/images"), (config.files_dir(),"content/files"), (config.media_dir(),"content/media")]
+}
+
+fn archive_media_target(config: &ghost_core::config::Config, path: &str) -> Option<std::path::PathBuf> {
+    archive_media_paths(config).into_iter().find_map(|(dir,prefix)| {
+        after_segment(path,&format!("{prefix}/")).map(|rest|dir.join(rest))
+    })
+}
+
 /// Unpack an uploaded zip: find the export JSON, restore any media beside it.
 ///
 /// Both shapes are accepted — the archive this screen produces
 /// (`ghost-export.json` + `content/images/…`) and Ghost's own, which nests
 /// everything one level down inside a named folder. Rather than guess at the
 /// layout, the first `.json` that parses as an export wins and any path under
-/// a `content/images` or `content/files` segment is treated as media.
+/// a `content/images`, `content/files` or `content/media` segment is treated as media.
 ///
 /// Entry paths are the untrusted part: a zip may name `../../etc/passwd`, so
 /// every restored path is rebuilt from its own segments and anything with a
@@ -16306,11 +17246,7 @@ fn unpack_import_archive(
             }
         }
 
-        let target = if let Some(rest) = after_segment(&rel, "content/images/") {
-            Some(state.config.images_dir().join(rest))
-        } else {
-            after_segment(&rel, "content/files/").map(|rest| state.config.files_dir().join(rest))
-        };
+        let target = archive_media_target(&state.config,&rel);
         if let Some(target) = target {
             if let Some(parent) = target.parent() {
                 let _ = std::fs::create_dir_all(parent);
@@ -16790,22 +17726,14 @@ async fn danger_reset_auth(State(state): State<AppState>, headers: HeaderMap) ->
     if let Err(r) = require_role(&state, &headers, Role::Administrator).await {
         return r;
     }
-    let _ = sqlx::query("DELETE FROM sessions").execute(&state.db).await;
-    // Members authenticate by a signed `transient_id`, so rolling it is what
-    // actually ends their sessions — deleting rows would not.
-    let members: Vec<String> = sqlx::query_scalar("SELECT id FROM members")
-        .fetch_all(&state.db)
-        .await
-        .unwrap_or_default();
-    for id in members {
-        let _ = sqlx::query("UPDATE members SET transient_id = ? WHERE id = ?")
-            .bind(ghost_core::ids::uuid_v4())
-            .bind(&id)
-            .execute(&state.db)
-            .await;
+    // Shared with `POST /authentication/reset`, so the button and the API
+    // revoke the same things. This also rotates every API key secret and locks
+    // every staff account, which signing sessions out alone does not: a
+    // stolen admin key or a known password would otherwise still work.
+    let actor = current_user(&state, &headers).await.map(|u| u.id);
+    if let Err(e) = ghost_api::reset_auth::reset_authentication(&state.db, actor.as_deref()).await {
+        return settings_flash("danger", "error", &format!("Could not reset authentication: {}", e.message()));
     }
-    // Outstanding magic links, including any already in someone's inbox.
-    let _ = sqlx::query("DELETE FROM tokens").execute(&state.db).await;
 
     // No session of our own survives, so there is nowhere to flash to.
     Redirect::to("/ghost/signin/?reset=1").into_response()
@@ -19491,7 +20419,24 @@ async fn unsplash_save(
 
 #[cfg(test)]
 mod tests {
-    use super::{recommendation_title, recommendation_url};
+    use super::{member_batch_bar, recommendation_title, recommendation_url};
+
+    /// The same trap the posts bar had: the remove-label radios are
+    /// `required` and share the form with every other action, so without
+    /// `formnovalidate` Unsubscribe and Delete are silently refused whenever
+    /// no label is picked — which is always, until that popover is opened.
+    #[test]
+    fn only_the_remove_label_button_waits_for_the_label_radios() {
+        let bar = member_batch_bar(&["vip".to_string()]);
+        assert!(bar.contains(r#"name="label" value="vip" required"#), "{bar}");
+        for action in ["add_label", "unsubscribe", "delete"] {
+            assert!(
+                bar.contains(&format!(r#"formnovalidate name="action" value="{action}""#)),
+                "{action} would be blocked by the label radios: {bar}"
+            );
+        }
+        assert!(bar.contains(r#"type="submit" name="action" value="remove_label""#), "{bar}");
+    }
 
     #[tokio::test]
     async fn tier_newsletters_require_a_current_matching_entitlement() {
@@ -19634,29 +20579,10 @@ mod tests {
         assert_eq!(super::members_nql("all", "", "   "), None);
     }
 
-    #[test]
-    fn stripe_connect_secure_keys_are_bound_to_the_starting_session_and_mode() {
-        use base64::Engine;
-        let encode = |value: serde_json::Value| base64::engine::general_purpose::STANDARD.encode(value.to_string());
-        let key = encode(serde_json::json!({"a":"sk_test_fixture", "p":"pk_test_fixture", "i":"acct_fixture", "l":false, "s":"session-state", "n":"A site title"}));
-        assert!(super::decode_stripe_secure_key(&key, "session-state").is_ok());
-        assert!(super::decode_stripe_secure_key(&key, "another-session").is_err());
-        assert!(super::decode_stripe_secure_key(&key, "").is_err());
-        let wrong_mode = encode(serde_json::json!({"a":"sk_test_fixture", "p":"pk_live_fixture", "i":"acct_fixture", "l":false, "s":"session-state"}));
-        assert!(super::decode_stripe_secure_key(&wrong_mode, "session-state").is_err());
-        assert!(super::decode_stripe_secure_key("not-base64", "session-state").is_err());
-    }
-
-    #[test]
-    fn stripe_connect_uses_the_same_provider_and_mode_as_ghost_673() {
-        let test = reqwest::Url::parse(&super::stripe_oauth_url("test", "bound-state")).unwrap();
-        assert_eq!(test.host_str(), Some("connect.stripe.com"));
-        let params: std::collections::HashMap<_, _> = test.query_pairs().into_owned().collect();
-        assert_eq!(params["client_id"], "ca_8LBum4Ctv3mmJ1oD0ZRmxjdAhNrrBUy3");
-        assert_eq!(params["redirect_uri"], "https://stripe.ghost.org");
-        assert_eq!(params["state"], "bound-state");
-        assert_eq!(params["scope"], "read_write");
-    }
+    // The Connect handshake these two screens drive — the OAuth URL, the
+    // session-bound state and the secure key's shape — now lives in
+    // `ghost_api::stripe_connect`, shared with the Admin API endpoint, and is
+    // tested there against the same Ghost 6.73 values.
 
     #[test]
     fn a_recommended_url_gets_a_scheme_but_must_be_a_real_host() {
@@ -20466,16 +21392,20 @@ mod tests {
 
     #[test]
     fn the_export_bundle_offers_ghosts_components() {
-        // Media is the one that defaults off: it is usually the bulk of the
-        // archive, and a content move rarely wants to wait for it.
+        // Ghost's five synchronous components, then media, then this port's
+        // extended-state component for a full backup.
         let keys: Vec<&str> = EXPORT_COMPONENTS.iter().map(|(k, _, _, _)| *k).collect();
-        assert_eq!(keys, ["content", "members", "analytics", "themes", "routes", "media"]);
+        assert_eq!(keys, ["content", "members", "analytics", "themes", "routes", "media", "state"]);
+        // Media defaults off because it is usually the bulk of the archive and
+        // a content move rarely wants to wait for it. `state` defaults off
+        // because it carries members, keys and sessions: the default export is
+        // the one a publisher may hand to somebody else.
         let off: Vec<&str> = EXPORT_COMPONENTS
             .iter()
             .filter(|(_, _, _, on)| !on)
             .map(|(k, _, _, _)| *k)
             .collect();
-        assert_eq!(off, ["media"]);
+        assert_eq!(off, ["media", "state"]);
     }
 
     #[test]
@@ -20485,6 +21415,40 @@ mod tests {
         }
         let unique:std::collections::HashSet<_>=POST_ANALYTICS_COLUMNS.iter().collect();
         assert_eq!(unique.len(),POST_ANALYTICS_COLUMNS.len());
+    }
+
+    #[test]
+    fn media_archives_include_audio_video_images_and_files() {
+        let root=std::env::temp_dir().join(format!("ghost-media-export-{}",ghost_core::ids::new_id()));
+        let config: ghost_core::config::Config=serde_json::from_value(serde_json::json!({
+            "url":"https://example.test","server":{},"database":{"connection":{"filename":":memory:"}},
+            "paths":{"contentPath":root}
+        })).unwrap();
+        let entries=[("images/2026/photo.png",b"image".as_slice()),("files/2026/document.pdf",b"file".as_slice()),
+            ("media/2026/clip.mp4",b"video".as_slice()),("media/2026/recording.mp3",b"audio".as_slice())];
+        for (name,bytes) in entries {
+            let path=config.content_path().join(name);
+            std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+            std::fs::write(path,bytes).unwrap();
+        }
+        let mut zip=zip::ZipWriter::new(std::io::Cursor::new(Vec::new()));
+        for (dir,prefix) in archive_media_paths(&config) {
+            zip_add_dir(&mut zip,&dir,prefix,zip::write::SimpleFileOptions::default()).unwrap();
+        }
+        let mut archive=zip::ZipArchive::new(zip.finish().unwrap()).unwrap();
+        assert_eq!(archive.len(),4);
+        for (name,bytes) in entries {
+            let archived=format!("content/{name}");
+            let mut entry=archive.by_name(&archived).unwrap();
+            let mut restored=Vec::new();
+            std::io::Read::read_to_end(&mut entry,&mut restored).unwrap();
+            assert_eq!(restored,bytes);
+            assert_eq!(archive_media_target(&config,&format!("backup/{archived}")),Some(config.content_path().join(name)));
+        }
+        for bad in ["content/media/../../private","content/media/","mycontent/media/clip.mp4"] {
+            assert!(archive_media_target(&config,bad).is_none());
+        }
+        std::fs::remove_dir_all(root).unwrap();
     }
 
     #[test]
@@ -20661,25 +21625,676 @@ async fn forgot_password_page() -> Response {
     page_u("Reset password", "", None, r#"<div class="auth-box"><h1>Reset password</h1><div class="card padded"><form id="password-recovery"><div id="recovery-fields"></div><button class="btn" type="submit">Continue</button><p role="status" id="recovery-message"></p></form><a href="/ghost/signin/">Back to sign in</a></div></div>"#,false).into_response()
 }
 
-async fn social_page(State(state):State<AppState>,headers:HeaderMap)->Response{
-    let actor=match require_role(&state,&headers,Role::Editor).await{Ok(actor)=>actor,Err(response)=>return response};
-    page_for_role(actor.role,"Social web","modules",Some(&actor.user),r#"<header class="page-head"><div><h1>Social web</h1><p class="sub">Your publication on the fediverse</p></div></header><div id="native-social" class="card padded"><p role="status">Loading your social web…</p></div><script src="/ghost/assets/1.8.15/native-social.js" defer></script>"#,true).into_response()
+// ---------------------------------------------------------------------------
+// social web — Ghost's Fediverse/ActivityPub admin
+// ---------------------------------------------------------------------------
+
+use ghost_api::federation::ops;
+
+/// Back to a social web section, carrying a one-shot banner.
+fn social_flash(tab: &str, kind: &str, message: &str) -> Response {
+    let encoded: String = form_urlencoded::Serializer::new(String::new())
+        .append_pair("tab", tab)
+        .append_pair(kind, message)
+        .finish();
+    Redirect::to(&format!("/ghost/social/?{encoded}")).into_response()
+}
+
+/// Back to wherever the form was submitted from.
+///
+/// An action taken from a thread should land back in that thread, not at the
+/// top of the feed — losing your place is the quickest way to make a feed
+/// unusable.
+fn social_return(form: &HashMap<String, String>, kind: &str, message: &str) -> Response {
+    let encoded: String = form_urlencoded::Serializer::new(String::new())
+        .append_pair(kind, message)
+        .finish();
+    match form.get("return").map(String::as_str).filter(|r| r.starts_with("/ghost/social/")) {
+        Some(back) => {
+            let join = if back.contains('?') { '&' } else { '?' };
+            Redirect::to(&format!("{back}{join}{encoded}")).into_response()
+        }
+        None => Redirect::to(&format!("/ghost/social/?{encoded}")).into_response(),
+    }
+}
+
+/// The publication's handle and actor URL, for the identity card.
+async fn social_identity(state: &AppState) -> (String, String) {
+    let site = reqwest::Url::parse(&state.site_url()).ok();
+    let host = site
+        .as_ref()
+        .and_then(|url| match url.port() {
+            Some(port) => url.host_str().map(|h| format!("{h}:{port}")),
+            None => url.host_str().map(str::to_string),
+        })
+        .unwrap_or_default();
+    (
+        format!("@publication@{host}"),
+        format!("{}/.ghost/activitypub/actor", state.site_url()),
+    )
+}
+
+/// The shell every social screen shares: the identity card and the tab bar.
+async fn social_shell(state: &AppState, tab: &str, body: &str, flash: &str) -> String {
+    let (handle, actor) = social_identity(state).await;
+    let (followers, following, posts) = ops::summary(&state.db).await;
+    let unread = ops::unread(&state.db).await;
+    let enabled = ghost_api::federation::enabled(state);
+
+    let tabs: String = social::TABS
+        .iter()
+        .map(|(slug, label)| {
+            // The unread count rides the tab it belongs to, which is the one
+            // place it is useful without being nagging.
+            let badge = if *slug == "notifications" && unread > 0 {
+                format!(r#"<span class="seg-count">{unread}</span>"#)
+            } else {
+                String::new()
+            };
+            format!(
+                r#"<a class="seg{on}" href="/ghost/social/?tab={slug}">{label}{badge}</a>"#,
+                on = if *slug == tab { " on" } else { "" },
+                slug = slug,
+                label = esc(label),
+                badge = badge,
+            )
+        })
+        .collect();
+
+    // Federation needs a public HTTPS address to be reachable at all. Saying
+    // so once, at the top, beats every action failing with its own message.
+    let notice = if !enabled {
+        format!(
+            r#"<div class="banner info rise">{icon}<span class="msg">The social web is off. Your publication is not federating, and nothing here will be delivered until it is enabled.</span></div>"#,
+            icon = svg("ghost"),
+        )
+    } else if !state.site_url().starts_with("https://") {
+        format!(
+            r#"<div class="banner info rise">{icon}<span class="msg">This site's URL is not HTTPS, so other servers cannot reach it. Notes and follows are recorded here but will not be delivered.</span></div>"#,
+            icon = svg("ghost"),
+        )
+    } else {
+        String::new()
+    };
+
+    format!(
+        r#"<header class="page-head rise"><div><h1>Social web</h1><p class="sub">Your publication on the fediverse</p></div></header>
+{flash}{notice}
+{profile}
+<div class="seg-bar">{tabs}</div>
+{body}"#,
+        flash = flash,
+        notice = notice,
+        profile = social::publication_header(&handle, &actor, followers, following, posts, enabled),
+        tabs = tabs,
+        body = body,
+    )
+}
+
+async fn social_page(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Query(q): Query<HashMap<String, String>>,
+) -> Response {
+    let actor = match require_role(&state, &headers, Role::Editor).await {
+        Ok(actor) => actor,
+        Err(response) => return response,
+    };
+    let tab = q.get("tab").map(String::as_str).unwrap_or("feed");
+    let tab = social::TABS
+        .iter()
+        .find(|(slug, _)| *slug == tab)
+        .map(|(slug, _)| *slug)
+        .unwrap_or("feed");
+    let page = q.get("page").and_then(|p| p.parse::<i64>().ok()).unwrap_or(1).clamp(1, 10000);
+    const PER_PAGE: i64 = 20;
+
+    let body = match tab {
+        "notes" | "feed" => {
+            let feed = if tab == "notes" { ops::Feed::Mine } else { ops::Feed::Reader };
+            let notes = ops::notes(&state.db, feed, None, page, PER_PAGE).await;
+            let own = ops::own_interactions(&state.db).await;
+            // Where this page's forms come back to, so an action taken on
+            // page three of the feed does not land on page one.
+            let feed_return = format!("/ghost/social/?tab={tab}&page={page}");
+            // Names for whoever we have not met yet, after this page is
+            // built: a feed must not wait on a remote fetch per author.
+            social_warm_profiles(&state, notes.iter().map(|n| n.author.actor.clone()).collect());
+            let cards: String = notes
+                .iter()
+                .map(|note| social::note_card(note, &own, &feed_return))
+                .collect();
+            let list = if notes.is_empty() {
+                if tab == "notes" {
+                    social::empty("No notes yet", "Anything you publish here goes to every follower.")
+                } else {
+                    social::empty(
+                        "Nothing in your feed yet",
+                        "Follow some accounts and their notes will appear here.",
+                    )
+                }
+            } else {
+                cards
+            };
+            format!(
+                "{composer}{list}{pager}",
+                composer = social::composer(None),
+                list = list,
+                pager = social_pager(tab, page, notes.len() as i64, PER_PAGE),
+            )
+        }
+        "explore" => {
+            let (_, actor_url) = social_identity(&state).await;
+            let found = ops::suggestions(&state.db, &actor_url, 24).await;
+            social_warm_profiles(&state, found.iter().map(|s| s.profile.actor.clone()).collect());
+            let cards: String = found.iter().map(social::suggestion_card).collect();
+            let hosts = ops::recommended_hosts(&state.db).await;
+            format!(
+                r#"{search}
+{suggestions}
+{recommended}"#,
+                // Explore is where you go looking, so the lookup box belongs
+                // here as well as on Following.
+                search = {
+                    let query = q.get("q").map(String::as_str).unwrap_or("");
+                    if query.trim().is_empty() {
+                        social::search_box("", None, None)
+                    } else {
+                        match ops::preview(&state, query).await {
+                            Ok(profile) => social::search_box(query, Some(&profile), None),
+                            Err(e) => social::search_box(query, None, Some(&e.message())),
+                        }
+                    }
+                },
+                suggestions = if found.is_empty() {
+                    social::empty(
+                        "No suggestions yet",
+                        "Accounts that follow you, or whose notes reach your feed, are suggested here.",
+                    )
+                } else {
+                    format!(
+                        r#"<div class="section">Suggested for you</div><div class="sw-grid">{cards}</div>"#
+                    )
+                },
+                recommended = social::recommended_publications(&hosts),
+            )
+        }
+        "notifications" => {
+            let kind = q.get("kind").map(String::as_str).unwrap_or("all");
+            let kind = social::NOTIFICATION_KINDS
+                .iter()
+                .find(|(slug, _, _)| *slug == kind)
+                .copied()
+                .unwrap_or(social::NOTIFICATION_KINDS[0]);
+            let items = ops::notifications(&state.db, kind.2, 100).await;
+            social_warm_profiles(&state, items.iter().map(|n| n.actor.actor.clone()).collect());
+            let filters: String = social::NOTIFICATION_KINDS
+                .iter()
+                .map(|(slug, label, _)| {
+                    format!(
+                        r#"<a class="seg{on}" href="/ghost/social/?tab=notifications&kind={slug}">{label}</a>"#,
+                        on = if *slug == kind.0 { " on" } else { "" },
+                        slug = slug,
+                        label = esc(label),
+                    )
+                })
+                .collect();
+            let rows: String = items.iter().map(social::notification_row).collect();
+            let unread = ops::unread(&state.db).await;
+            format!(
+                r#"<div class="seg-bar sub">{filters}</div>
+{mark}{list}"#,
+                filters = filters,
+                mark = if unread > 0 {
+                    format!(
+                        r#"<form method="post" action="/ghost/social/read/" class="sw-markread"><button class="btn tonal small" type="submit">Mark all as read</button></form>"#
+                    )
+                } else {
+                    String::new()
+                },
+                list = if items.is_empty() {
+                    social::empty(
+                        "Nothing here yet",
+                        "Follows, replies, likes and boosts from other servers show up here.",
+                    )
+                } else {
+                    format!(r#"<div class="card rows rise">{rows}</div>"#)
+                },
+            )
+        }
+        "following" | "followers" | "blocked" => {
+            let relation = match tab {
+                "followers" => ops::Relation::Followers,
+                "blocked" => ops::Relation::Blocked,
+                _ => ops::Relation::Following,
+            };
+            let accounts = ops::accounts(&state.db, relation, page, PER_PAGE).await;
+            social_warm_profiles(
+                &state,
+                accounts.iter().map(|a| a.profile.actor.clone()).collect(),
+            );
+            let rows: String = accounts
+                .iter()
+                .map(|account| social::account_row(account, relation))
+                .collect();
+            // Account search belongs with Following: it is the screen you are
+            // on when you want another one.
+            let search = if tab == "following" {
+                let query = q.get("q").map(String::as_str).unwrap_or("");
+                if query.trim().is_empty() {
+                    social::search_box("", None, None)
+                } else {
+                    match ops::preview(&state, query).await {
+                        Ok(found) => social::search_box(query, Some(&found), None),
+                        Err(e) => social::search_box(query, None, Some(&e.message())),
+                    }
+                }
+            } else {
+                String::new()
+            };
+            let (empty_title, empty_detail) = match tab {
+                "followers" => ("No followers yet", "Accounts that follow your publication appear here."),
+                "blocked" => ("Nobody is blocked", "Blocking an account drops the follow in both directions."),
+                _ => ("Not following anyone yet", "Look an account up above to follow it."),
+            };
+            format!(
+                "{search}{list}{pager}",
+                search = search,
+                list = if accounts.is_empty() {
+                    social::empty(empty_title, empty_detail)
+                } else {
+                    format!(r#"<div class="card rows rise">{rows}</div>"#)
+                },
+                pager = social_pager(tab, page, accounts.len() as i64, PER_PAGE),
+            )
+        }
+        _ => String::new(),
+    };
+
+    page_for_role(
+        actor.role,
+        "Social web",
+        "modules",
+        Some(&actor.user),
+        &social_shell(&state, tab, &body, &flash_banner(&q)).await,
+        true,
+    )
+    .into_response()
+}
+
+/// Previous/next, shown only where there is somewhere to go.
+fn social_pager(tab: &str, page: i64, shown: i64, per_page: i64) -> String {
+    let mut links = String::new();
+    if page > 1 {
+        links.push_str(&format!(
+            r#"<a class="btn tonal small" href="/ghost/social/?tab={tab}&page={}">Previous</a>"#,
+            page - 1
+        ));
+    }
+    if shown == per_page {
+        links.push_str(&format!(
+            r#"<a class="btn tonal small" href="/ghost/social/?tab={tab}&page={}">Next</a>"#,
+            page + 1
+        ));
+    }
+    if links.is_empty() {
+        String::new()
+    } else {
+        format!(r#"<div class="sw-pager">{links}</div>"#)
+    }
+}
+
+/// Fetch missing profiles in the background.
+///
+/// Detached on purpose: the page this serves has already been rendered from
+/// whatever was cached, so a slow or dead remote server delays nothing. The
+/// names appear on the next load.
+fn social_warm_profiles(state: &AppState, actors: Vec<String>) {
+    let db = state.db.clone();
+    // Resolved before detaching, so the background fetch carries the
+    // publication's identity and reaches authorised-fetch instances.
+    let state = state.clone();
+    tokio::spawn(async move {
+        let signer = ghost_api::federation::signer_for(&state).await;
+        ghost_api::federation::profiles::warm(&db, actors, signer).await;
+    });
+}
+
+/// One note and the conversation under it.
+async fn social_thread_page(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Query(q): Query<HashMap<String, String>>,
+) -> Response {
+    let actor = match require_role(&state, &headers, Role::Editor).await {
+        Ok(actor) => actor,
+        Err(response) => return response,
+    };
+    let id = q.get("id").map(String::as_str).unwrap_or("");
+    let Some(note) = ops::note(&state.db, id).await else {
+        return social_flash("feed", "error", "That note is no longer here.");
+    };
+    let own = ops::own_interactions(&state.db).await;
+    let thread_return = format!("/ghost/social/thread/?id={}", url_value(&note.id));
+    let replies = ops::notes(&state.db, ops::Feed::Replies, Some(&note.id), 1, 100).await;
+
+    // The note it answers, when it answers one, so a thread opened from the
+    // middle still has its top.
+    let parent = match note.in_reply_to.as_deref() {
+        Some(parent) => match ops::note(&state.db, parent).await {
+            Some(parent) => format!(
+                r#"<div class="section">In reply to</div>{}"#,
+                social::note_card(&parent, &own, &thread_return)
+            ),
+            None => String::new(),
+        },
+        None => String::new(),
+    };
+
+    let reply_cards: String = replies
+        .iter()
+        .map(|reply| social::note_card(reply, &own, &thread_return))
+        .collect();
+
+    let body = format!(
+        r#"<p class="sw-back"><a href="/ghost/social/">{icon} Back to the feed</a></p>
+{parent}
+<div class="section">Note</div>
+{note}
+<div class="section">{count}</div>
+{composer}
+{replies}"#,
+        icon = svg("chevron"),
+        parent = parent,
+        note = social::note_card(&note, &own, &thread_return),
+        count = if replies.is_empty() {
+            "No replies yet".to_string()
+        } else if replies.len() == 1 {
+            "1 reply".to_string()
+        } else {
+            format!("{} replies", replies.len())
+        },
+        composer = social::composer(Some(&note)),
+        replies = reply_cards,
+    );
+
+    page_for_role(
+        actor.role,
+        "Social web",
+        "modules",
+        Some(&actor.user),
+        &format!("{}{}", flash_banner(&q), body),
+        true,
+    )
+    .into_response()
+}
+
+/// A remote account's page: who they are, and what we hold of theirs.
+async fn social_account_page(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Query(q): Query<HashMap<String, String>>,
+) -> Response {
+    let user = match require_role(&state, &headers, Role::Editor).await {
+        Ok(actor) => actor,
+        Err(response) => return response,
+    };
+    let target = q.get("actor").map(String::as_str).unwrap_or("");
+    if target.is_empty() {
+        return social_flash("feed", "error", "No account was named.");
+    }
+    // One deliberate fetch, because this page *is* the profile — unlike a
+    // list, where it would be fifty.
+    let signer = ghost_api::federation::signer_for(&state).await;
+    let profile =
+        ghost_api::federation::profiles::refresh(&state.db, target, signer.as_ref()).await;
+
+    let following: bool =
+        sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM federation_following WHERE actor=?)")
+            .bind(target)
+            .fetch_one(&state.db)
+            .await
+            .unwrap_or(false);
+    let blocked: bool =
+        sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM federation_blocks WHERE actor=?)")
+            .bind(target)
+            .fetch_one(&state.db)
+            .await
+            .unwrap_or(false);
+
+    let notes = sqlx::query_as::<_, (String,)>(
+        "SELECT id FROM federation_objects WHERE actor=? AND deleted=0 \
+         ORDER BY published_at DESC LIMIT 20",
+    )
+    .bind(target)
+    .fetch_all(&state.db)
+    .await
+    .unwrap_or_default();
+    let own = ops::own_interactions(&state.db).await;
+    let account_return = format!("/ghost/social/account/?actor={}", url_value(target));
+    let mut cards = String::new();
+    for (id,) in &notes {
+        if let Some(note) = ops::note(&state.db, id).await {
+            cards.push_str(&social::note_card(&note, &own, &account_return));
+        }
+    }
+
+    page_for_role(
+        user.role,
+        "Social web",
+        "modules",
+        Some(&user.user),
+        &format!(
+            r#"{flash}<p class="sw-back"><a href="/ghost/social/">{icon} Back to the feed</a></p>
+{card}
+<div class="section">Notes we have seen</div>
+{notes}"#,
+            flash = flash_banner(&q),
+            icon = svg("chevron"),
+            card = social::account_card(&profile, following, blocked),
+            notes = if cards.is_empty() {
+                social::empty(
+                    "Nothing from this account yet",
+                    "Notes appear here once they reach this server.",
+                )
+            } else {
+                cards
+            },
+        ),
+        true,
+    )
+    .into_response()
+}
+
+async fn social_note_create(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Form(form): Form<HashMap<String, String>>,
+) -> Response {
+    if let Err(r) = require_role(&state, &headers, Role::Editor).await {
+        return r;
+    }
+    let reply = form.get("in_reply_to").map(String::as_str).filter(|r| !r.is_empty());
+    let result = ops::publish_note(
+        &state,
+        form.get("text").map(String::as_str).unwrap_or(""),
+        reply,
+        form.get("reply_actor").map(String::as_str),
+    )
+    .await;
+    // A reply belongs back in its thread; a note belongs in your notes.
+    match (result, reply) {
+        (Ok(_), Some(parent)) => {
+            let encoded: String = form_urlencoded::Serializer::new(String::new())
+                .append_pair("id", parent)
+                .append_pair("ok", "Reply published.")
+                .finish();
+            Redirect::to(&format!("/ghost/social/thread/?{encoded}")).into_response()
+        }
+        (Ok(_), None) => social_flash("notes", "ok", "Note published."),
+        (Err(e), Some(parent)) => {
+            let encoded: String = form_urlencoded::Serializer::new(String::new())
+                .append_pair("id", parent)
+                .append_pair("error", &e.message())
+                .finish();
+            Redirect::to(&format!("/ghost/social/thread/?{encoded}")).into_response()
+        }
+        (Err(e), None) => social_flash("notes", "error", &e.message()),
+    }
+}
+
+async fn social_note_delete(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Form(form): Form<HashMap<String, String>>,
+) -> Response {
+    if let Err(r) = require_role(&state, &headers, Role::Editor).await {
+        return r;
+    }
+    // The screens carry the full object id; only its last segment is ours to
+    // act on, and rebuilding the URL from it is what stops a crafted id
+    // naming something on another server.
+    let id = form.get("id").map(String::as_str).unwrap_or("");
+    let uuid = id.rsplit('/').next().unwrap_or("");
+    match ops::delete_note(&state, uuid).await {
+        Ok(()) => social_return(&form, "ok", "Note deleted."),
+        Err(e) => social_return(&form, "error", &e.message()),
+    }
+}
+
+async fn social_follow(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Form(form): Form<HashMap<String, String>>,
+) -> Response {
+    if let Err(r) = require_role(&state, &headers, Role::Editor).await {
+        return r;
+    }
+    let target = form.get("actor").map(String::as_str).unwrap_or("");
+    if form.get("unfollow").is_some() {
+        return match ops::unfollow(&state, target).await {
+            Ok(()) => social_return(&form, "ok", "Unfollowed."),
+            Err(e) => social_return(&form, "error", &e.message()),
+        };
+    }
+    match ops::follow(&state, target).await {
+        Ok(profile) => social_flash(
+            "following",
+            "ok",
+            &format!("Follow request sent to {}.", profile.handle),
+        ),
+        Err(e) => social_flash("following", "error", &e.message()),
+    }
+}
+
+async fn social_interact(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Form(form): Form<HashMap<String, String>>,
+) -> Response {
+    if let Err(r) = require_role(&state, &headers, Role::Editor).await {
+        return r;
+    }
+    let kind = form.get("type").map(String::as_str).unwrap_or("");
+    let result = ops::interact(
+        &state,
+        kind,
+        form.get("actor").map(String::as_str).unwrap_or(""),
+        form.get("object").map(String::as_str).unwrap_or(""),
+    )
+    .await;
+    match result {
+        Ok(_) => social_return(
+            &form,
+            "ok",
+            match kind {
+                "Like" => "Liked.",
+                "Announce" => "Boosted.",
+                _ => "Withdrawn.",
+            },
+        ),
+        Err(e) => social_return(&form, "error", &e.message()),
+    }
+}
+
+async fn social_block(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Form(form): Form<HashMap<String, String>>,
+) -> Response {
+    if let Err(r) = require_role(&state, &headers, Role::Administrator).await {
+        return r;
+    }
+    let unblock = form.get("unblock").is_some();
+    match ops::set_block(
+        &state,
+        form.get("actor").map(String::as_str).unwrap_or(""),
+        !unblock,
+    )
+    .await
+    {
+        Ok(()) => social_return(
+            &form,
+            "ok",
+            if unblock { "Account unblocked." } else { "Account blocked." },
+        ),
+        Err(e) => social_return(&form, "error", &e.message()),
+    }
+}
+
+async fn social_set_enabled(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Form(form): Form<HashMap<String, String>>,
+) -> Response {
+    if let Err(r) = require_role(&state, &headers, Role::Administrator).await {
+        return r;
+    }
+    let enable = form.get("enabled").map(String::as_str) == Some("1");
+    if enable && state.settings.get_bool("is_private") {
+        return social_flash(
+            "feed",
+            "error",
+            "A private publication cannot federate. Turn off private mode first.",
+        );
+    }
+    if let Err(e) = state
+        .settings
+        .set(&state.db, "social_web_enabled", &serde_json::json!(enable))
+        .await
+    {
+        return social_flash("feed", "error", &e.message());
+    }
+    social_flash(
+        "feed",
+        "ok",
+        if enable { "The social web is on." } else { "The social web is off." },
+    )
+}
+
+async fn social_mark_read(State(state): State<AppState>, headers: HeaderMap) -> Response {
+    if let Err(r) = require_role(&state, &headers, Role::Editor).await {
+        return r;
+    }
+    let _ = ops::mark_read(&state).await;
+    social_flash("notifications", "ok", "Notifications marked as read.")
 }
 
 async fn machine_payments_page(State(state):State<AppState>,headers:HeaderMap)->Response{
     let actor=match require_role(&state,&headers,Role::Administrator).await{Ok(actor)=>actor,Err(response)=>return response};
     let group=SETTINGS_GROUPS.iter().find(|g|g.slug=="machine-payments").unwrap();
     page_for_role(actor.role,"Machine payments","settings",Some(&actor.user),&format!(
-        r#"{head}<div class="card padded" id="machine-payments"><p role="status">Loading payment settings…</p></div><script src="/ghost/assets/1.8.15/machine-payments.js" defer></script>"#,
+        r#"{head}<div class="card padded" id="machine-payments"><p role="status">Loading payment settings…</p></div><script src="{assets}/machine-payments.js" defer></script>"#,
         // No header Save button: the form the JS builds carries its own, and
         // saving has to run through the JSON API rather than a form POST.
         head=group_head(group,None),
+        assets=ASSETS,
     ),true).into_response()
 }
 
 async fn checkout_design_page(State(state):State<AppState>,headers:HeaderMap)->Response {
     let actor=match require_role(&state,&headers,Role::Administrator).await {Ok(actor)=>actor,Err(response)=>return response};
-    page_for_role(actor.role,"Checkout design","settings",Some(&actor.user),r#"<header class="page-head"><div><h1>Checkout design</h1><p class="sub">Style the payment page for paid memberships</p></div></header><div class="card padded" id="checkout-design"><p role="status">Loading checkout design…</p></div><script src="/ghost/assets/1.8.15/checkout-design.js" defer></script>"#,true).into_response()
+    page_for_role(actor.role,"Checkout design","settings",Some(&actor.user),&format!(r#"<header class="page-head"><div><h1>Checkout design</h1><p class="sub">Style the payment page for paid memberships</p></div></header><div class="card padded" id="checkout-design"><p role="status">Loading checkout design…</p></div><script src="{assets}/checkout-design.js" defer></script>"#, assets = ASSETS),true).into_response()
 }
 
 // ---------------------------------------------------------------------------

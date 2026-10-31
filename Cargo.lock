@@ -3619,10 +3619,11 @@ name = "ghost-admin-ui"
 version = "1.0.0"
 dependencies = [
  "axum",
- "base64 0.22.1",
  "bcrypt",
+ "chrono",
  "csv",
  "form_urlencoded",
+ "futures",
  "ghost-api",
  "ghost-core",
  "ghost-db",
@@ -3699,6 +3700,7 @@ dependencies = [
  "serde",
  "serde_json",
  "serde_yaml",
+ "sha2 0.10.9",
  "slug",
  "thiserror 2.0.21",
  "tracing",

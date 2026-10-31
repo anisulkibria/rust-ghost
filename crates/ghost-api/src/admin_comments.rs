@@ -639,7 +639,7 @@ mod tests {
         assert_eq!(site_origin("https://site.test"), "https://site.test");
         assert_eq!(site_origin("https://site.test/"), "https://site.test");
         assert_eq!(site_origin("https://site.test/blog"), "https://site.test");
-        assert_eq!(site_origin("http://localhost:2368/blog/"), "http://localhost:2368");
+        assert_eq!(site_origin("http://localhost:1971/blog/"), "http://localhost:1971");
         // a bare host with no scheme is assumed to be https rather than
         // producing an origin the browser will never match
         assert_eq!(site_origin("site.test"), "https://site.test");

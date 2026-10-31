@@ -30,6 +30,85 @@ pub struct PostsPage {
     pub page: i64,
 }
 
+/// Admin list constraints are applied before counting, sorting and paging.
+/// Keeping this separate avoids changing Content API ordering semantics.
+#[derive(Debug, Default)]
+pub struct AdminBrowsePosts {
+    pub filter: Option<Expr>,
+    pub post_type: String,
+    pub author_id: Option<String>,
+    pub search: String,
+    pub status: Option<String>,
+    pub sort: String,
+    pub page: i64,
+    pub limit: i64,
+}
+
+pub struct AdminPostsPage {
+    pub listing: PostsPage,
+    /// Counts omit the selected status, so tabs remain useful on every page.
+    pub counts: std::collections::HashMap<String, i64>,
+}
+
+fn admin_query(sql: String, q: &AdminBrowsePosts) -> Result<QueryBuilder<'static, Sqlite>> {
+    let mut query = QueryBuilder::new(sql);
+    query.push(" FROM posts WHERE posts.type = ").push_bind(q.post_type.clone());
+    if let Some(author) = &q.author_id {
+        query.push(" AND EXISTS (SELECT 1 FROM posts_authors own WHERE own.post_id = posts.id AND own.author_id = ")
+            .push_bind(author.clone()).push(")");
+    }
+    if let Some(expr) = &q.filter {
+        let compiled = ghost_nql::compile(expr, "posts")?;
+        query.push(" AND (");
+        push_clause_with_binds(&mut query, &compiled.clause, &compiled.binds);
+        query.push(")");
+    }
+    if !q.search.trim().is_empty() {
+        let escaped = q.search.trim().replace('\\', "\\\\").replace('%', "\\%").replace('_', "\\_");
+        let pattern = format!("%{escaped}%");
+        query.push(" AND (posts.title LIKE ").push_bind(pattern.clone()).push(" ESCAPE '\\'")
+            .push(" OR posts.custom_excerpt LIKE ").push_bind(pattern.clone()).push(" ESCAPE '\\'")
+            .push(" OR posts.plaintext LIKE ").push_bind(pattern.clone()).push(" ESCAPE '\\'")
+            .push(" OR EXISTS (SELECT 1 FROM posts_authors pa JOIN users u ON u.id = pa.author_id WHERE pa.post_id = posts.id AND (u.name LIKE ")
+            .push_bind(pattern.clone()).push(" ESCAPE '\\' OR u.slug LIKE ").push_bind(pattern)
+            .push(" ESCAPE '\\'))) ");
+    }
+    Ok(query)
+}
+
+pub async fn browse_admin(pool: &SqlitePool, q: &AdminBrowsePosts) -> Result<AdminPostsPage> {
+    let mut grouped = admin_query("SELECT posts.status, COUNT(*)".into(), q)?;
+    grouped.push(" GROUP BY posts.status");
+    let counts: std::collections::HashMap<String, i64> = grouped.build_query_as::<(String, i64)>()
+        .fetch_all(pool).await.map_err(dberr)?.into_iter().collect();
+    let total = q.status.as_ref().map(|status| counts.get(status).copied().unwrap_or(0))
+        .unwrap_or_else(|| counts.values().sum());
+    let limit = q.limit.clamp(1, 100);
+    let pages = ((total + limit - 1) / limit).max(1);
+    let page = q.page.clamp(1, pages);
+    let mut query = admin_query(format!("SELECT {POST_COLS}"), q)?;
+    if let Some(status) = &q.status {
+        query.push(" AND posts.status = ").push_bind(status.clone());
+    }
+    const DATE: &str = "COALESCE(CASE WHEN posts.status IN ('draft','scheduled') THEN posts.updated_at ELSE posts.published_at END, posts.updated_at, posts.created_at)";
+    query.push(" ORDER BY ");
+    match q.sort.as_str() {
+        "oldest" => { query.push(format!("{DATE} ASC, posts.id ASC")); }
+        "title" => { query.push("LOWER(COALESCE(posts.title, 'Untitled')) ASC, posts.id ASC"); }
+        "views" => {
+            query.push("(SELECT COUNT(*) FROM page_views v WHERE v.path = '/' || posts.slug || '/' OR v.path LIKE '/' || posts.slug || '/%') DESC, ");
+            query.push(format!("{DATE} DESC, posts.id DESC"));
+        }
+        _ => { query.push(format!("{DATE} DESC, posts.id DESC")); }
+    }
+    query.push(" LIMIT ").push_bind(limit).push(" OFFSET ").push_bind((page - 1) * limit);
+    let rows = query.build_query_as::<PostRow>().fetch_all(pool).await.map_err(dberr)?;
+    let mut posts: Vec<Post> = rows.into_iter().map(Into::into).collect();
+    let relations = load_relations(pool, &posts).await?;
+    attach_meta(&mut posts, &relations);
+    Ok(AdminPostsPage { listing: PostsPage { posts, total, limit, page }, counts })
+}
+
 fn enforce_exprs(q: &BrowsePosts) -> Vec<Expr> {
     let mut parts = Vec::new();
     if q.public {
@@ -845,5 +924,107 @@ pub async fn all_published(pool: &SqlitePool) -> Result<Vec<Post>> {
     .await
     .map_err(dberr)?;
     Ok(rows.into_iter().map(Into::into).collect())
+}
+
+#[cfg(test)]
+mod admin_list_tests {
+    use super::*;
+
+    async fn fixture() -> SqlitePool {
+        let pool = sqlx::sqlite::SqlitePoolOptions::new().max_connections(1)
+            .connect("sqlite::memory:").await.unwrap();
+        sqlx::migrate!("../../migrations").run(&pool).await.unwrap();
+        for (id, name) in [("alex", "Writer Alpha"), ("other", "Other Writer")] {
+            sqlx::query("INSERT INTO users(id,name,slug,email,password,created_at) VALUES(?,?,?,?,?,datetime('now'))")
+                .bind(id).bind(name).bind(id).bind(format!("{id}@example.test")).bind("unused")
+                .execute(&pool).await.unwrap();
+        }
+        sqlx::query("INSERT INTO tags(id,name,slug,created_at) VALUES('news','News','news',datetime('now'))")
+            .execute(&pool).await.unwrap();
+        for index in 0..170 {
+            let id = format!("p{index:03}");
+            let date = format!("2026-01-01 00:{:02}:{:02}", index / 60, index % 60);
+            sqlx::query("INSERT INTO posts(id,uuid,title,slug,type,status,created_at,updated_at,published_at,plaintext,custom_excerpt) VALUES(?,?,?,?,?,?,?,?,?,?,?)")
+                .bind(&id).bind(&id).bind(if index == 0 { "Archive needle".into() } else { format!("Entry {index:03}") })
+                .bind(&id).bind(if index < 135 { "post" } else { "page" })
+                .bind(if index % 3 == 0 { "draft" } else { "published" })
+                .bind(&date).bind(&date).bind(&date).bind("Ordinary body")
+                .bind(if index == 5 { "100% ready_under_score" } else { "An excerpt" })
+                .execute(&pool).await.unwrap();
+            sqlx::query("INSERT INTO posts_authors(id,post_id,author_id) VALUES(?,?,?)")
+                .bind(format!("a{index}")).bind(&id).bind(if index % 50 == 0 { "alex" } else { "other" })
+                .execute(&pool).await.unwrap();
+            if index == 0 || index == 134 {
+                sqlx::query("INSERT INTO posts_tags(id,post_id,tag_id) VALUES(?,?,'news')")
+                    .bind(format!("t{index}")).bind(&id).execute(&pool).await.unwrap();
+            }
+        }
+        for i in 0..5 {
+            sqlx::query("INSERT INTO page_views(id,path,viewer,created_at) VALUES(?,'/p001/',?,datetime('now'))")
+                .bind(format!("v{i}")).bind(format!("viewer{i}")).execute(&pool).await.unwrap();
+        }
+        pool
+    }
+
+    fn query() -> AdminBrowsePosts {
+        AdminBrowsePosts { post_type: "post".into(), sort: "newest".into(), limit: 25, page: 1, ..Default::default() }
+    }
+
+    #[tokio::test]
+    async fn pagination_reaches_every_record_and_clamps_stale_page_numbers() {
+        let pool = fixture().await;
+        let mut ids = BTreeSet::new();
+        for page in 1..=6 {
+            let result = browse_admin(&pool, &AdminBrowsePosts { page, ..query() }).await.unwrap();
+            assert_eq!(result.listing.total, 135);
+            assert_eq!(result.counts.get("draft"), Some(&45));
+            assert_eq!(result.counts.get("published"), Some(&90));
+            for post in result.listing.posts { assert!(ids.insert(post.id)); }
+        }
+        assert_eq!(ids.len(), 135);
+        let last = browse_admin(&pool, &AdminBrowsePosts { page: i64::MAX, ..query() }).await.unwrap();
+        assert_eq!(last.listing.page, 6);
+        assert_eq!(last.listing.posts.len(), 10);
+        let first = browse_admin(&pool, &AdminBrowsePosts { page: -8, ..query() }).await.unwrap();
+        assert_eq!(first.listing.page, 1);
+        let pages = browse_admin(&pool, &AdminBrowsePosts { post_type: "page".into(), ..query() }).await.unwrap();
+        assert_eq!(pages.listing.total, 35);
+        assert!(pages.listing.posts.iter().all(|post| post.post_type == "page"));
+    }
+
+    #[tokio::test]
+    async fn search_covers_old_titles_authors_excerpts_and_literal_wildcards() {
+        let pool = fixture().await;
+        for (search, expected) in [("needle", 1), ("Writer Alpha", 3), ("100% ready", 1), ("%", 1), ("_", 1), ("' OR 1=1 --", 0)] {
+            let result = browse_admin(&pool, &AdminBrowsePosts { search: search.into(), ..query() }).await.unwrap();
+            assert_eq!(result.listing.total, expected, "search {search}");
+        }
+        let found = browse_admin(&pool, &AdminBrowsePosts { search: "needle".into(), ..query() }).await.unwrap();
+        assert_eq!(found.listing.posts[0].id, "p000");
+    }
+
+    #[tokio::test]
+    async fn status_tags_and_author_access_are_applied_before_pagination() {
+        let pool = fixture().await;
+        let tagged = browse_admin(&pool, &AdminBrowsePosts { filter: Some(ghost_nql::parse("tag:news").unwrap()), status: Some("draft".into()), ..query() }).await.unwrap();
+        assert_eq!(tagged.listing.total, 1);
+        assert_eq!(tagged.listing.posts[0].id, "p000");
+        assert_eq!(tagged.counts.get("published"), Some(&1));
+        let own = browse_admin(&pool, &AdminBrowsePosts { author_id: Some("alex".into()), limit: 1, page: 3, ..query() }).await.unwrap();
+        assert_eq!(own.listing.total, 3);
+        assert_eq!(own.listing.posts[0].id, "p000");
+        let empty = browse_admin(&pool, &AdminBrowsePosts { filter: Some(ghost_nql::parse("tag:missing").unwrap()), page: 8, ..query() }).await.unwrap();
+        assert_eq!(empty.listing.total, 0);
+        assert_eq!(empty.listing.page, 1);
+    }
+
+    #[tokio::test]
+    async fn each_sort_ranks_the_entire_collection_before_limiting() {
+        let pool = fixture().await;
+        for (sort, expected) in [("newest", "p134"), ("oldest", "p000"), ("title", "p000"), ("views", "p001")] {
+            let result = browse_admin(&pool, &AdminBrowsePosts { sort: sort.into(), limit: 1, ..query() }).await.unwrap();
+            assert_eq!(result.listing.posts[0].id, expected, "sort {sort}");
+        }
+    }
 }
 

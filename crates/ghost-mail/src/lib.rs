@@ -595,7 +595,7 @@ mod tests {
 
     #[test]
     fn site_domain_strips_scheme_and_port() {
-        assert_eq!(site_domain("http://localhost:2368"), "localhost");
+        assert_eq!(site_domain("http://localhost:1971"), "localhost");
         assert_eq!(site_domain("https://example.com/"), "example.com");
         assert_eq!(site_domain("https://blog.example.com"), "blog.example.com");
     }

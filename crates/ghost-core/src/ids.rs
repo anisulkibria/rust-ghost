@@ -37,6 +37,21 @@ pub fn is_objectid(s: &str) -> bool {
     s.len() == 24 && s.bytes().all(|b| b.is_ascii_hexdigit())
 }
 
+/// An id derived from `seed`, stable across runs and installs.
+///
+/// For rows this port synthesises rather than stores — an export projecting
+/// `members.offer_id` back into Ghost's `offer_redemptions` shape is the
+/// case. A random id there would make every export of the same site look
+/// like a different set of redemptions, so re-importing one would duplicate
+/// them; derived from the pair it describes, it does not.
+///
+/// Truncating SHA-256 to 12 bytes: this needs to be well-distributed and
+/// 24 hex characters wide, not unguessable.
+pub fn deterministic_id(seed: &str) -> String {
+    use sha2::{Digest, Sha256};
+    hex::encode(&Sha256::digest(seed.as_bytes())[..12])
+}
+
 /// Random hex string of `n` bytes (2n chars).
 pub fn random_hex(n: usize) -> String {
     let mut buf = vec![0u8; n];

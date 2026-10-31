@@ -397,12 +397,18 @@ async fn seed_content(pool: &SqlitePool) -> Result<()> {
 
 async fn seed_integrations(pool: &SqlitePool) -> Result<()> {
     let now = dates::now_db();
-    for (name, slug, typ, key_type) in [
-        ("Ghost Internal Frontend", "ghost-internal-frontend", "internal", "content"),
-        ("Ghost Core Content API", "ghost-core-content", "core", "content"),
-        ("Ghost Scheduler", "ghost-scheduler", "internal", "admin"),
-        ("Ghost Backup", "ghost-backup", "internal", "admin"),
-        ("Zapier", "zapier", "builtin", "admin"),
+    // The role is least privilege, not convenience. Ghost gives its two
+    // internal integrations roles of their own — the scheduler may publish a
+    // post and nothing else, the backup may read and export and write
+    // nothing — so a key that leaks out of the database or off the
+    // integrations screen cannot be used to take the site over. Only a
+    // general-purpose integration gets the broad role.
+    for (name, slug, typ, key_type, role) in [
+        ("Ghost Internal Frontend", "ghost-internal-frontend", "internal", "content", None),
+        ("Ghost Core Content API", "ghost-core-content", "core", "content", None),
+        ("Ghost Scheduler", "ghost-scheduler", "internal", "admin", Some("Scheduler Integration")),
+        ("Ghost Backup", "ghost-backup", "internal", "admin", Some("DB Backup Integration")),
+        ("Zapier", "zapier", "builtin", "admin", Some("Admin Integration")),
     ] {
         let integration_id = ids::new_id();
         sqlx::query("INSERT INTO integrations (id, type, name, slug, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)")
@@ -417,13 +423,13 @@ async fn seed_integrations(pool: &SqlitePool) -> Result<()> {
             .map_err(|e| ghost_core::GhostError::Db(e.to_string()))?;
 
         let secret_len = if key_type == "admin" { 64 } else { 26 };
-        let role_id: Option<String> = if key_type == "admin" {
-            sqlx::query_scalar("SELECT id FROM roles WHERE name = 'Admin Integration'")
+        let role_id: Option<String> = match role {
+            Some(role) => sqlx::query_scalar("SELECT id FROM roles WHERE name = ?")
+                .bind(role)
                 .fetch_optional(pool)
                 .await
-                .map_err(|e| ghost_core::GhostError::Db(e.to_string()))?
-        } else {
-            None
+                .map_err(|e| ghost_core::GhostError::Db(e.to_string()))?,
+            None => None,
         };
         let secret = ids::random_hex(secret_len / 2 + if secret_len % 2 == 1 { 1 } else { 0 });
         sqlx::query("INSERT INTO api_keys (id, type, secret, role_id, integration_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)")

@@ -2,6 +2,8 @@
 mod admin;
 mod crypto;
 mod network;
+pub mod ops;
+pub mod profiles;
 use crate::AppState;
 use axum::{
     extract::{OriginalUri, Path, Query, State},
@@ -34,6 +36,11 @@ fn failure(error: GhostError) -> Response {
         Json(json!({"errors":[{"message":error.message(),"errorType":"ValidationError"}]})),
     )
         .into_response()
+}
+/// Our outbound signing identity, for fetches that a remote server will only
+/// answer to a known actor.
+pub async fn signer_for(state: &AppState) -> Option<network::Signer> {
+    network::signer(&state.db, &actor_id(state)).await
 }
 fn actor_id(state: &AppState) -> String {
     format!("{}/.ghost/activitypub/actor", state.site_url())
@@ -277,10 +284,12 @@ async fn inbox(
     if blocked {
         return StatusCode::ACCEPTED.into_response();
     }
-    let Some(key) = crypto::key_id(&headers) else {
+    // Either signature format: draft-cavage, which the deployed network
+    // sends today, or RFC 9421, which new implementations send.
+    let Some(key) = crypto::any_key_id(&headers) else {
         return StatusCode::UNAUTHORIZED.into_response();
     };
-    let actor = match network::actor(actor).await {
+    let actor = match network::actor_as(actor, signer_for(&state).await.as_ref()).await {
         Ok(actor) => actor,
         Err(e) => return failure(e),
     };
@@ -297,7 +306,12 @@ async fn inbox(
     } else {
         path.into()
     };
-    if !crypto::verify(&headers, &path, &body, &key, &actor.public_key) {
+    let authority = headers
+        .get(axum::http::header::HOST)
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or_default()
+        .to_string();
+    if !crypto::verify_any(&headers, "POST", &authority, &path, &body, &key, &actor.public_key) {
         return StatusCode::UNAUTHORIZED.into_response();
     }
     let count:i64=sqlx::query_scalar("SELECT COUNT(*) FROM federation_received WHERE actor=? AND datetime(created_at)>datetime('now','-1 hour')").bind(&actor.id).fetch_one(&state.db).await.unwrap_or(1001);
@@ -408,10 +422,63 @@ async fn receive(
                 sqlx::query("UPDATE federation_objects SET deleted=1,content='',updated_at=? WHERE id=? AND actor=? AND local=0").bind(&now).bind(object).bind(&actor.id).execute(&mut *tx).await.map_err(db_error)?;
             }
         }
-        "Like" | "Announce" => {}
+        // Someone liked or boosted one of ours. Recorded as its own row so a
+        // note can carry a count without scanning every activity ever
+        // received, and keyed on (actor, object, kind) so a server that
+        // retries a delivery does not inflate the number.
+        "Like" | "Announce" => {
+            if let Some(object) = object_id(object).filter(|id| id.len() < 2000) {
+                sqlx::query(
+                    "INSERT INTO federation_interactions (id,actor,object,kind,activity,created_at) \
+                     VALUES (?,?,?,?,?,?) ON CONFLICT(actor,object,kind) DO NOTHING",
+                )
+                .bind(ids::new_id())
+                .bind(&actor.id)
+                .bind(object)
+                .bind(kind)
+                .bind(id)
+                .bind(&now)
+                .execute(&mut *tx)
+                .await
+                .map_err(db_error)?;
+            }
+        }
         _ => {}
     }
+    // An Undo of a Like or a Boost has to take the count back down. The
+    // branch above only clears follows, which left a withdrawn like counted
+    // for ever.
+    if kind == "Undo" {
+        if let Some(undone) = object_id(&activity["object"]) {
+            sqlx::query("DELETE FROM federation_interactions WHERE actor=? AND activity=?")
+                .bind(&actor.id)
+                .bind(undone)
+                .execute(&mut *tx)
+                .await
+                .map_err(db_error)?;
+        }
+        // Mastodon sends the whole original activity rather than its id, in
+        // which case the object it acted on is what identifies it here.
+        if let Some(target) = object_id(&activity["object"]["object"]) {
+            if let Some(undone_kind) = activity["object"]["type"].as_str() {
+                sqlx::query(
+                    "DELETE FROM federation_interactions WHERE actor=? AND object=? AND kind=?",
+                )
+                .bind(&actor.id)
+                .bind(target)
+                .bind(undone_kind)
+                .execute(&mut *tx)
+                .await
+                .map_err(db_error)?;
+            }
+        }
+    }
     tx.commit().await.map_err(db_error)?;
+    // Who they are, for the screens that will list this. After the commit and
+    // outside the transaction: a profile fetch that hangs must not hold an
+    // inbox delivery open, and one that fails must not reject the activity —
+    // the lists fall back to the actor URL until it succeeds.
+    profiles::store(pool, &actor.id, &actor.profile).await;
     Ok(())
 }
 fn object_id_ref(value: &Value) -> Option<&str> {
@@ -643,6 +710,10 @@ mod receive_tests {
             inbox: "https://remote.example/inbox".into(),
             key_id: String::new(),
             public_key: String::new(),
+            profile: network::Profile {
+                handle: "@remote@remote.example".into(),
+                ..Default::default()
+            },
         };
         let follow = json!({"id":"https://remote.example/follow/1","type":"Follow","actor":actor.id,"object":local});
         receive(&db, local, &actor, follow["id"].as_str().unwrap(), &follow)
@@ -698,6 +769,72 @@ mod receive_tests {
         let(deleted,content):(bool,String)=sqlx::query_as("SELECT deleted,content FROM federation_objects WHERE id='https://remote.example/note/1'").fetch_one(&db).await.unwrap();
         assert!(deleted);
         assert!(content.is_empty());
+    }
+
+    /// Likes and boosts are counted per (actor, object), so a server that
+    /// retries a delivery cannot inflate a note's numbers — and an Undo has
+    /// to take the count back down, which it did not before: a withdrawn like
+    /// stayed counted for ever.
+    #[tokio::test]
+    async fn likes_are_counted_once_each_and_undone_properly() {
+        let db = sqlx::sqlite::SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect("sqlite::memory:")
+            .await
+            .unwrap();
+        sqlx::migrate!("../../migrations").run(&db).await.unwrap();
+        let local = "https://publication.example/.ghost/activitypub/actor";
+        let note = "https://publication.example/.ghost/activitypub/objects/n1";
+        let actor = |name: &str| network::Actor {
+            id: format!("https://remote.example/{name}"),
+            inbox: "https://remote.example/inbox".into(),
+            key_id: String::new(),
+            public_key: String::new(),
+            profile: network::Profile::default(),
+        };
+        let count = |kind: &'static str| {
+            let db = db.clone();
+            async move {
+                sqlx::query_scalar::<_, i64>(
+                    "SELECT COUNT(*) FROM federation_interactions WHERE object=? AND kind=?",
+                )
+                .bind(note)
+                .bind(kind)
+                .fetch_one(&db)
+                .await
+                .unwrap()
+            }
+        };
+
+        let alice = actor("alice");
+        let like = json!({"id":"https://remote.example/like/1","type":"Like","actor":alice.id,"object":note});
+        receive(&db, local, &alice, like["id"].as_str().unwrap(), &like).await.unwrap();
+        assert_eq!(count("Like").await, 1);
+
+        // The same like again, under a new activity id, as a retrying server
+        // would send it. Still one person liking one note.
+        let again = json!({"id":"https://remote.example/like/2","type":"Like","actor":alice.id,"object":note});
+        receive(&db, local, &alice, again["id"].as_str().unwrap(), &again).await.unwrap();
+        assert_eq!(count("Like").await, 1, "a repeated Like must not count twice");
+
+        // A different person does count.
+        let bob = actor("bob");
+        let bobs = json!({"id":"https://remote.example/like/3","type":"Like","actor":bob.id,"object":note});
+        receive(&db, local, &bob, bobs["id"].as_str().unwrap(), &bobs).await.unwrap();
+        assert_eq!(count("Like").await, 2);
+
+        // Boosts are counted separately from likes.
+        let boost = json!({"id":"https://remote.example/boost/1","type":"Announce","actor":bob.id,"object":note});
+        receive(&db, local, &bob, boost["id"].as_str().unwrap(), &boost).await.unwrap();
+        assert_eq!(count("Announce").await, 1);
+        assert_eq!(count("Like").await, 2);
+
+        // Alice withdraws hers. Mastodon sends the whole original activity
+        // rather than its id, which is the shape that used to be missed.
+        let undo = json!({"id":"https://remote.example/undo/9","type":"Undo","actor":alice.id,"object":like});
+        receive(&db, local, &alice, undo["id"].as_str().unwrap(), &undo).await.unwrap();
+        assert_eq!(count("Like").await, 1, "an undone Like must stop counting");
+        assert_eq!(count("Announce").await, 1, "an Undo must not touch the boosts");
     }
 }
 

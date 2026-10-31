@@ -565,6 +565,22 @@ async fn render_preview(state: AppState, uuid: String, path: &str, headers: Head
     let preview_member=json!({"status":"paid","tiers":post.tier_ids});
     let post_json = post_json(&state, &post, Some(&preview_url), &preview_member).await;
 
+    match render_preview_snapshot(&state, &post, post_json, member, path).await {
+        Ok(html) => html_response(html),
+        Err(e) => error_response(e),
+    }
+}
+
+/// Use the active theme for a transient post, without persisting editor changes.
+pub(crate) async fn render_preview_snapshot(
+    state: &AppState,
+    post: &ghost_core::models::Post,
+    mut post_json: Value,
+    member: Value,
+    path: &str,
+) -> ghost_core::Result<String> {
+    post_json["access"] = json!(true);
+
     let mut context = vec!["preview".to_string()];
     let label = if post.post_type == "page" { "page" } else { "post" };
     context.push(label.to_string());
@@ -578,20 +594,20 @@ async fn render_preview(state: AppState, uuid: String, path: &str, headers: Head
     }
 
     let theme = state.theme.read().await.clone();
-    let candidates = if post.post_type == "page" {
+    let mut candidates = if post.post_type == "page" {
         vec!["page".to_string(), "post".into()]
     } else {
         vec!["post".to_string()]
     };
+    if let Some(custom) = post.custom_template.as_ref().filter(|name|!name.is_empty()) {
+        candidates.insert(0,custom.clone());
+    }
     let rctx = RenderCtx {
         context,
         relative_url: path.to_string(),
         member,
     };
-    match render_template(&state, &theme, &candidates, Value::Object(root), &rctx).await {
-        Ok(html) => html_response(html),
-        Err(e) => error_response(e),
-    }
+    render_template(state, &theme, &candidates, Value::Object(root), &rctx).await
 }
 
 fn error_response(e: GhostError) -> Response {

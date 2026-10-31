@@ -201,6 +201,16 @@ fn head_row(_base: &str, plural: &str, emailed: bool) -> String {
 /// checkboxes; they are plain submit buttons on this bar now, so there is one
 /// selection, one place its actions live, and nothing on screen until a row
 /// is actually ticked.
+///
+/// Every button except "Set access" carries `formnovalidate`. One form holds
+/// every action, so the access picker's `required` radios are part of it:
+/// with nothing picked the form is invalid, and the browser refuses *every*
+/// submit — Publish, Feature, Delete and all. Worse, it refuses in silence,
+/// because the radio it wants to complain about is inside a closed
+/// `<details>` and so not focusable ("An invalid form control with
+/// name='visibility' is not focusable"), which is exactly what made the whole
+/// bar look dead. Only the button that needs that answer validates; the rest
+/// opt out and the server checks its own argument anyway.
 fn batch_form(base: &str, plural: &str, tags: &[(String, String)]) -> String {
     let word = if plural == "pages" { "page" } else { "post" };
     // The two pickers follow the members bar's: chips in a popover that opens
@@ -236,10 +246,10 @@ fn batch_form(base: &str, plural: &str, tags: &[(String, String)]) -> String {
         r#"<form id="batch-list" class="batch" method="post" action="{base}bulk/" data-word="{word}">
 <div class="batch-bar">
 <span class="bb-count"><b data-count>0 {word}s</b> selected</span>
-<button class="bb-btn" type="submit" name="action" value="publish">{globe} Publish</button>
-<button class="bb-btn" type="submit" name="action" value="draft">{hide} Unpublish</button>
-<button class="bb-btn" type="submit" name="action" value="feature">{star} Feature</button>
-<button class="bb-btn" type="submit" name="action" value="unfeature">{star_off} Unfeature</button>
+<button class="bb-btn" type="submit" formnovalidate name="action" value="publish">{globe} Publish</button>
+<button class="bb-btn" type="submit" formnovalidate name="action" value="draft">{hide} Unpublish</button>
+<button class="bb-btn" type="submit" formnovalidate name="action" value="feature">{star} Feature</button>
+<button class="bb-btn" type="submit" formnovalidate name="action" value="unfeature">{star_off} Unfeature</button>
 <details class="batch-pop" data-menu>
 <summary class="bb-btn">{lock} Access</summary>
 <div class="pop">
@@ -253,11 +263,11 @@ fn batch_form(base: &str, plural: &str, tags: &[(String, String)]) -> String {
 <div class="pop">
 <p class="pop-title">Tags for the selected {plural}</p>
 <div class="chips" style="margin-bottom:12px">{tag_chips}</div>
-<button class="btn tonal" type="submit" name="action" value="tags">{check} Replace tags</button>
+<button class="btn tonal" type="submit" formnovalidate name="action" value="tags">{check} Replace tags</button>
 <p>Whatever is ticked becomes the complete set of tags; ticking none clears them.</p>
 </div>
 </details>
-<button class="bb-btn danger" type="submit" name="action" value="delete"
+<button class="bb-btn danger" type="submit" formnovalidate name="action" value="delete"
  data-confirm="Delete selected {plural}|The selected {plural} will be permanently deleted."
  data-confirm-one="Delete 1 {word}|This {word} will be permanently deleted."
  data-confirm-many="Delete {{n}} {plural}|The {{n}} selected {plural} will be permanently deleted.">{del} Delete</button>
@@ -590,7 +600,7 @@ fn title_of(c: &Card) -> &str {
 /// looked it. Each order is a plain link (carrying the current filter, as
 /// the select's handler tried to), so it navigates without script; the
 /// open/close is the same `<details>` menu the rest of the admin uses.
-pub fn sort_picker(base: &str, filter: &str, active: &str, nql: &str) -> String {
+pub fn sort_picker(base: &str, filter: &str, active: &str, nql: &str, tag: &str, search: &str) -> String {
     let active_label = SORTS
         .iter()
         .find(|(key, _)| *key == active)
@@ -599,11 +609,13 @@ pub fn sort_picker(base: &str, filter: &str, active: &str, nql: &str) -> String 
     // An active NQL filter has to survive a change of order, the same way the
     // tab does — reordering a filtered list silently dropping the filter is
     // how a control loses its user's trust.
-    let carry = if nql.trim().is_empty() {
+    let mut carry = if nql.trim().is_empty() {
         String::new()
     } else {
         format!("&amp;nql={}", crate::url_value(nql))
     };
+    if !tag.is_empty() { carry.push_str(&format!("&amp;tag={}", crate::url_value(tag))); }
+    if !search.is_empty() { carry.push_str(&format!("&amp;search={}", crate::url_value(search))); }
     let items: String = SORTS
         .iter()
         .map(|(key, label)| {
@@ -633,21 +645,25 @@ pub fn sort_picker(base: &str, filter: &str, active: &str, nql: &str) -> String 
 
 /// The status filter bar. The sort and any NQL filter ride along, so moving
 /// between tabs narrows the current view rather than replacing it.
-pub fn filter_bar(base: &str, active: &str, sort: &str, nql: &str, counts: &HashMap<String, i64>) -> String {
+pub fn filter_bar(base: &str, active: &str, sort: &str, nql: &str, tag: &str, search: &str, counts: &HashMap<String, i64>) -> String {
     let mut suffix = format!("&amp;sort={}", esc(sort));
     if !nql.trim().is_empty() {
         suffix.push_str(&format!("&amp;nql={}", crate::url_value(nql)));
     }
+    if !tag.is_empty() { suffix.push_str(&format!("&amp;tag={}", crate::url_value(tag))); }
+    if !search.is_empty() { suffix.push_str(&format!("&amp;search={}", crate::url_value(search))); }
     crate::seg_filter_bar(FILTERS, base, active, &suffix, counts)
 }
 
 /// The NQL filter menu for this list, with the tab and sort carried as
 /// hidden inputs so applying a filter keeps the rest of the view.
-pub fn filter_menu(base: &str, filter: &str, sort: &str, nql: &str) -> String {
+pub fn filter_menu(base: &str, filter: &str, sort: &str, nql: &str, tag: &str, search: &str) -> String {
     let carry = format!(
-        r#"<input type="hidden" name="filter" value="{filter}"><input type="hidden" name="sort" value="{sort}">"#,
+        r#"<input type="hidden" name="filter" value="{filter}"><input type="hidden" name="sort" value="{sort}"><input type="hidden" name="tag" value="{tag}"><input type="hidden" name="search" value="{search}">"#,
         filter = esc(filter),
         sort = esc(sort),
+        tag = esc(tag),
+        search = esc(search),
     );
     let resource = if base.contains("/pages/") { "pages" } else { "posts" };
     crate::filter_menu(
@@ -659,9 +675,109 @@ pub fn filter_menu(base: &str, filter: &str, sort: &str, nql: &str) -> String {
     )
 }
 
+/// Combine a tag selection with NQL without parsing user input as filter syntax.
+pub fn with_tag_filter(filter: Option<ghost_nql::Expr>, tag: &str) -> Option<ghost_nql::Expr> {
+    if tag.is_empty() { return filter; }
+    let tagged = ghost_nql::Expr::Cond(ghost_nql::Cond {
+        key: "tag".into(), cmp: ghost_nql::Cmp::Eq, value: ghost_nql::NqlValue::Str(tag.into()),
+    });
+    Some(match filter {
+        Some(filter) => ghost_nql::Expr::And(vec![filter, tagged]),
+        None => tagged,
+    })
+}
+
+/// A dedicated tag picker, independent of the advanced NQL filter.
+pub fn tag_picker(base: &str, filter: &str, sort: &str, nql: &str, active: &str, search: &str, tags: &[(String, String)]) -> String {
+    let current = tags.iter().find(|(slug, _)| slug == active).map(|(_, name)| name.as_str())
+        .unwrap_or(if active.is_empty() { "All tags" } else { active });
+    let mut carry = if nql.is_empty() { String::new() } else { format!("&amp;nql={}", crate::url_value(nql)) };
+    if !search.is_empty() { carry.push_str(&format!("&amp;search={}", crate::url_value(search))); }
+    let items: String = std::iter::once(("", "All tags"))
+        .chain(tags.iter().map(|(slug, name)| (slug.as_str(), name.as_str())))
+        .map(|(slug, name)| format!(
+            r#"<a class="menu-item{on}" href="{base}?filter={filter}&amp;sort={sort}{carry}&amp;tag={tag}"{selected}><span class="ck">{check}</span>{name}</a>"#,
+            on = if slug == active { " on" } else { "" },
+            filter = crate::url_value(filter), sort = crate::url_value(sort), tag = crate::url_value(slug),
+            selected = if slug == active { r#" aria-current="true""# } else { "" },
+            check = if slug == active { svg("check") } else { String::new() }, name = esc(name),
+        )).collect();
+    format!(r#"<details class="sort-menu tag-menu" data-menu><summary><span class="sr-only">Filter by tag: </span>{label}{caret}</summary><div class="pop">{items}</div></details>"#,
+        label = esc(current), caret = crate::SELECT_CARET)
+}
+
+/// Shared URL state for pagination and server-side search. Changing a filter
+/// starts on page one; paging carries every selection unchanged.
+pub struct ListState<'a> {
+    pub filter: &'a str,
+    pub sort: &'a str,
+    pub nql: &'a str,
+    pub tag: &'a str,
+    pub search: &'a str,
+}
+
+impl ListState<'_> {
+    pub fn url(&self, base: &str, page: i64) -> String {
+        let mut query = form_urlencoded::Serializer::new(String::new());
+        for (key, value) in [("filter", self.filter), ("sort", self.sort), ("nql", self.nql), ("tag", self.tag), ("search", self.search)] {
+            if !value.is_empty() { query.append_pair(key, value); }
+        }
+        query.append_pair("page", &page.to_string());
+        esc(&format!("{base}?{}", query.finish()))
+    }
+}
+
+pub fn pager(base: &str, state: &ListState<'_>, page: i64, limit: i64, total: i64) -> String {
+    let pages = ((total + limit - 1) / limit).max(1);
+    if pages <= 1 { return String::new(); }
+    let link = |p, label, rel| format!(r#"<a class="btn tonal small" href="{}" rel="{rel}">{label}</a>"#, state.url(base, p));
+    format!(r#"<nav class="pager" aria-label="{} pagination">{previous}<span class="pages" aria-live="polite">Page {page} of {pages}</span>{next}</nav>"#,
+        if base.contains("/pages/") { "Pages" } else { "Posts" },
+        previous = if page > 1 { link(page - 1, "← Previous", "prev") } else { String::new() },
+        next = if page < pages { link(page + 1, "Next →", "next") } else { String::new() })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn paging_and_filter_controls_keep_search_and_all_other_constraints() {
+        let state = ListState { filter: "draft", sort: "oldest", nql: "featured:true", tag: "hash-internal", search: "C++ & Rust" };
+        let html = pager("/ghost/posts/", &state, 2, 25, 85);
+        assert!(html.contains("Page 2 of 4"), "{html}");
+        assert!(html.contains("page=1") && html.contains("page=3"));
+        for value in ["filter=draft", "sort=oldest", "nql=featured%3Atrue", "tag=hash-internal", "search=C%2B%2B+%26+Rust"] {
+            assert!(html.contains(value), "missing {value}: {html}");
+        }
+        assert!(!pager("/ghost/pages/", &state, 1, 25, 85).contains("rel=\"prev\""));
+        assert!(!pager("/ghost/pages/", &state, 4, 25, 85).contains("rel=\"next\""));
+        assert!(pager("/ghost/pages/", &state, 1, 25, 0).is_empty());
+        assert!(sort_picker("/ghost/posts/", "draft", "oldest", "", "", "needle").contains("search=needle"));
+        assert!(filter_bar("/ghost/posts/", "draft", "oldest", "", "", "needle", &HashMap::new()).contains("search=needle"));
+        assert!(filter_menu("/ghost/posts/", "draft", "oldest", "", "", "needle").contains(r#"name="search" value="needle""#));
+        assert!(tag_picker("/ghost/posts/", "draft", "oldest", "", "", "needle", &[]).contains("search=needle"));
+    }
+
+    #[test]
+    fn tag_selection_survives_status_sort_and_advanced_filters() {
+        let tags = vec![("hash-internal".into(), "#Internal & notes".into())];
+        let picker = tag_picker("/ghost/posts/", "draft", "views", "featured:true", "hash-internal", "", &tags);
+        assert!(picker.contains("#Internal &amp; notes"));
+        assert!(picker.contains("filter=draft&amp;sort=views&amp;nql=featured%3Atrue&amp;tag="));
+        assert!(picker.contains("All tags"));
+        assert!(sort_picker("/ghost/posts/", "draft", "views", "", "hash-internal", "").contains("&amp;tag=hash-internal"));
+        assert!(filter_bar("/ghost/posts/", "all", "newest", "", "hash-internal", "", &HashMap::new()).contains("&amp;tag=hash-internal"));
+        assert!(filter_menu("/ghost/posts/", "all", "newest", "", "hash-internal", "").contains(r#"name="tag" value="hash-internal""#));
+    }
+
+    #[test]
+    fn tag_filter_binds_the_slug_and_preserves_nql_grouping() {
+        let filter = with_tag_filter(Some(ghost_nql::parse("status:draft,status:published").unwrap()), "news+featured:true").unwrap();
+        let sql = ghost_nql::compile(&filter, "posts").unwrap();
+        assert!(sql.binds.contains(&serde_json::json!("news+featured:true")), "{sql:?}");
+        assert!(!sql.clause.contains("featured"), "{sql:?}");
+    }
 
     #[test]
     fn gradients_are_stable_and_two_toned() {
@@ -705,13 +821,13 @@ mod tests {
     fn the_filter_bar_hides_empty_buckets_but_keeps_the_active_one() {
         let counts: HashMap<String, i64> =
             [("published".to_string(), 3i64)].into_iter().collect();
-        let bar = filter_bar("/ghost/posts/", "all", "newest", "", &counts);
+        let bar = filter_bar("/ghost/posts/", "all", "newest", "", "", "", &counts);
         assert!(bar.contains(">Published<"), "{bar}");
         // nothing is scheduled, so that tab is not offered
         assert!(!bar.contains(">Scheduled<"), "{bar}");
 
         // unless it is the one in force, which must stay clickable
-        let bar = filter_bar("/ghost/posts/", "scheduled", "newest", "", &counts);
+        let bar = filter_bar("/ghost/posts/", "scheduled", "newest", "", "", "", &counts);
         assert!(bar.contains(">Scheduled<"), "{bar}");
         assert!(bar.contains(r#"class="seg on""#), "{bar}");
     }
@@ -786,7 +902,7 @@ mod tests {
 
     #[test]
     fn the_sort_picker_keeps_the_current_filter() {
-        let picker = sort_picker("/ghost/posts/", "draft", "views", "");
+        let picker = sort_picker("/ghost/posts/", "draft", "views", "", "", "");
         assert!(picker.contains("filter=draft"), "{picker}");
         // the active order is both what the closed menu shows and the one
         // item carrying the check
@@ -800,7 +916,7 @@ mod tests {
     #[test]
     fn filter_and_sort_survive_each_other() {
         let counts: HashMap<String, i64> = [("draft".to_string(), 2i64)].into_iter().collect();
-        let bar = filter_bar("/ghost/posts/", "draft", "views", "", &counts);
+        let bar = filter_bar("/ghost/posts/", "draft", "views", "", "", "", &counts);
         assert!(bar.contains("sort=views"), "{bar}");
     }
 
@@ -888,6 +1004,26 @@ mod tests {
         assert!(html.contains(">News<"), "{html}");
     }
 
+    /// The access picker's radios are `required` and live in the same form as
+    /// every other action, so without `formnovalidate` the browser refuses
+    /// every submit on the bar while nothing is picked — and refuses in
+    /// silence, the radio being inside a closed `<details>`. That is what made
+    /// Publish, Unpublish, Feature and Delete all look dead.
+    #[test]
+    fn only_the_access_button_waits_for_the_access_radios() {
+        let tags = [("t1".to_string(), "News".to_string())];
+        let html = grid(&[one_card("p1")], "/ghost/posts/", &tags);
+        assert!(html.contains(r#"name="visibility" value="public" required"#), "{html}");
+        for action in ["publish", "draft", "feature", "unfeature", "tags", "delete"] {
+            assert!(
+                html.contains(&format!(r#"formnovalidate name="action" value="{action}""#)),
+                "{action} would be blocked by the access radios: {html}"
+            );
+        }
+        // The one button that does need an answer still asks for it.
+        assert!(html.contains(r#"<button class="btn" type="submit" name="action" value="visibility""#), "{html}");
+    }
+
     /// A list with no tags still offers the picker, saying so, rather than
     /// an empty popover that looks broken.
     #[test]
@@ -901,15 +1037,15 @@ mod tests {
     #[test]
     fn the_toolbar_carries_an_active_filter_between_its_controls() {
         let nql = "status:draft+featured:true";
-        let picker = sort_picker("/ghost/posts/", "all", "newest", nql);
+        let picker = sort_picker("/ghost/posts/", "all", "newest", nql, "", "");
         assert!(picker.contains("nql=status%3Adraft%2Bfeatured%3Atrue"), "{picker}");
 
         let counts: HashMap<String, i64> = [("draft".to_string(), 3i64)].into_iter().collect();
-        let bar = filter_bar("/ghost/posts/", "all", "newest", nql, &counts);
+        let bar = filter_bar("/ghost/posts/", "all", "newest", nql, "", "", &counts);
         assert!(bar.contains("nql=status%3Adraft%2Bfeatured%3Atrue"), "{bar}");
 
         // and with no filter nothing extra is appended
-        assert!(!sort_picker("/ghost/posts/", "all", "newest", "").contains("nql="));
+        assert!(!sort_picker("/ghost/posts/", "all", "newest", "", "", "").contains("nql="));
     }
 
     /// The filter menu reflects its own state: the field is filled, the pill
@@ -917,11 +1053,11 @@ mod tests {
     /// looks identical to no filter is how people lose rows.
     #[test]
     fn the_filter_menu_shows_whether_a_filter_is_on() {
-        let off = filter_menu("/ghost/posts/", "all", "newest", "");
+        let off = filter_menu("/ghost/posts/", "all", "newest", "", "", "");
         assert!(!off.contains("fm-dot"), "{off}");
         assert!(!off.contains(">Clear<"), "{off}");
 
-        let on = filter_menu("/ghost/posts/", "all", "newest", "tag:news");
+        let on = filter_menu("/ghost/posts/", "all", "newest", "tag:news", "", "");
         assert!(on.contains(r#"class="sort-menu filter-menu on""#), "{on}");
         assert!(on.contains("fm-dot") && on.contains(">Clear<"), "{on}");
         assert!(on.contains(r#"value="tag:news""#), "{on}");
@@ -930,6 +1066,6 @@ mod tests {
         assert!(on.contains(r#"name="sort" value="newest""#), "{on}");
         // and the saved-views slot names what the script should fetch
         assert!(on.contains(r#"data-views="posts""#), "{on}");
-        assert!(filter_menu("/ghost/pages/", "all", "newest", "").contains(r#"data-views="pages""#));
+        assert!(filter_menu("/ghost/pages/", "all", "newest", "", "", "").contains(r#"data-views="pages""#));
     }
 }

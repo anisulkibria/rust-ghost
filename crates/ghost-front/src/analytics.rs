@@ -27,7 +27,8 @@ pub async fn track_views(State(state): State<AppState>, req: Request, next: Next
     if headers.get("dnt").is_some_and(|v|v=="1") || headers.get("sec-gpc").is_some_and(|v|v=="1") { return next.run(req).await; }
     let agent=headers.get(header::USER_AGENT).and_then(|v|v.to_str().ok()).unwrap_or("").to_string();
     if ["bot","crawler","spider","preview"].iter().any(|bot|agent.to_lowercase().contains(bot)) { return next.run(req).await; }
-    let peer=req.extensions().get::<axum::extract::ConnectInfo<std::net::SocketAddr>>().map(|p|p.0.ip().to_string()).unwrap_or_default();
+    let socket_ip=req.extensions().get::<axum::extract::ConnectInfo<std::net::SocketAddr>>().map(|p|p.0.ip());
+    let peer=visitor_ip(&headers, socket_ip).map(|ip|ip.to_string()).unwrap_or_default();
     let viewer = viewer_id(&peer,&agent,&state.settings.get_str("theme_session_secret").unwrap_or_default(),&chrono::Utc::now().format("%Y-%m-%d").to_string());
     let lower=agent.to_lowercase();
     let device=if lower.contains("ipad")||lower.contains("tablet"){ "tablet" }else if lower.contains("mobile") {"mobile"}else{"desktop"};
@@ -41,9 +42,8 @@ pub async fn track_views(State(state): State<AppState>, req: Request, next: Next
     // visitor's own link, not a third party's.
     let query = req.uri().query().unwrap_or("").to_string();
     let [utm_source, utm_medium, utm_campaign, utm_term, utm_content] = utm_tags(&query);
-    // Country, from whichever CDN header is in front of the site. Nothing
-    // is inferred from the IP: there is no database here to do it with, and
-    // guessing would be worse than leaving it unknown.
+    // Prefer the CDN's country; otherwise look up the visitor, rather than
+    // the reverse proxy, in the local country database.
     let country = country_of(&headers).or_else(||country_from_database(&state,&peer));
 
     let res = next.run(req).await;
@@ -219,6 +219,37 @@ fn viewer_id(peer:&str,agent:&str,secret:&str,day:&str)->String {
     hex::encode(Sha256::digest(format!("{secret}\0{day}\0{peer}\0{agent}").as_bytes()))
 }
 
+/// Only a local/private reverse proxy may supply forwarding headers. Direct
+/// public connections cannot choose their own IP through a forged header.
+fn visitor_ip(headers: &HeaderMap, peer: Option<std::net::IpAddr>) -> Option<std::net::IpAddr> {
+    let peer = peer?;
+    if !local_ip(peer) {
+        return Some(peer);
+    }
+    // Walk the chain from the server towards the visitor, skipping internal
+    // proxy hops. The nearest public hop is the address the proxy observed.
+    if let Some(chain) = headers.get("x-forwarded-for").and_then(|v| v.to_str().ok()) {
+        for hop in chain.rsplit(',') {
+            let Ok(ip) = hop.trim().parse() else { return Some(peer) };
+            if !local_ip(ip) { return Some(ip); }
+        }
+    }
+    for name in ["cf-connecting-ip", "x-real-ip"] {
+        if let Some(ip) = headers.get(name).and_then(|v| v.to_str().ok()).and_then(|v| v.trim().parse().ok()) {
+            return Some(ip);
+        }
+    }
+    Some(peer)
+}
+
+fn local_ip(ip: std::net::IpAddr) -> bool {
+    match ip {
+        std::net::IpAddr::V4(ip) => ip.is_loopback() || ip.is_private() || ip.is_link_local() || ip.is_unspecified(),
+        std::net::IpAddr::V6(ip) => ip.to_ipv4_mapped().map(|ip| local_ip(ip.into()))
+            .unwrap_or_else(|| ip.is_loopback() || ip.is_unspecified() || ip.is_unique_local() || ip.is_unicast_link_local()),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -229,6 +260,26 @@ mod tests {
         assert_eq!(same,viewer_id("192.0.2.1","Browser","secret","2026-10-28"));
         assert_ne!(same,viewer_id("192.0.2.1","Browser","secret","2026-10-29"));
         assert_ne!(same,viewer_id("192.0.2.2","Browser","secret","2026-10-28"));
+    }
+
+    #[test]
+    fn visitor_address_comes_from_the_nearest_public_proxy_hop() {
+        let mut headers = HeaderMap::new();
+        headers.insert("x-forwarded-for", "1.1.1.1, 8.8.8.8, 10.0.0.2".parse().unwrap());
+        assert_eq!(visitor_ip(&headers, Some("127.0.0.1".parse().unwrap())), Some("8.8.8.8".parse().unwrap()));
+        // An Internet client cannot spoof its address through these headers.
+        assert_eq!(visitor_ip(&headers, Some("9.9.9.9".parse().unwrap())), Some("9.9.9.9".parse().unwrap()));
+        assert_eq!(visitor_ip(&headers, None), None);
+        headers.insert("x-forwarded-for", "8.8.8.8, invalid".parse().unwrap());
+        assert_eq!(visitor_ip(&headers, Some("::1".parse().unwrap())), Some("::1".parse().unwrap()));
+    }
+
+    #[test]
+    fn local_visits_stay_local_and_ipv6_forwarding_works() {
+        let mut headers = HeaderMap::new();
+        assert_eq!(visitor_ip(&headers, Some("127.0.0.1".parse().unwrap())), Some("127.0.0.1".parse().unwrap()));
+        headers.insert("x-real-ip", "2606:4700:4700::1111".parse().unwrap());
+        assert_eq!(visitor_ip(&headers, Some("::ffff:127.0.0.1".parse().unwrap())), Some("2606:4700:4700::1111".parse().unwrap()));
     }
 
     #[test]
@@ -305,7 +356,7 @@ mod tests {
 
     #[test]
     fn host_of_handles_ports_and_userinfo() {
-        assert_eq!(host_of("http://localhost:2368/x").as_deref(), Some("localhost"));
+        assert_eq!(host_of("http://localhost:1971/x").as_deref(), Some("localhost"));
         assert_eq!(host_of("https://user:pw@Example.COM/x").as_deref(), Some("example.com"));
         assert_eq!(host_of("not a url").as_deref(), Some("not a url"));
     }
@@ -314,15 +365,20 @@ mod tests {
 
 /// Optional host-provided MMDB, loaded once. IP addresses never leave the server.
 fn country_from_database(state:&AppState,peer:&str)->Option<String>{
-    type Readers=std::collections::HashMap<String,std::sync::Arc<maxminddb::Reader<Vec<u8>>>>;
+    type Readers=std::collections::HashMap<std::path::PathBuf,std::sync::Arc<maxminddb::Reader<Vec<u8>>>>;
     static READERS:std::sync::OnceLock<std::sync::Mutex<Readers>>=std::sync::OnceLock::new();
-    let path=state.config.host_settings.pointer("/analytics/geoipDatabase").and_then(serde_json::Value::as_str)?;
-    let ip=peer.parse().ok()?;
+    let path = match state.config.host_settings.pointer("/analytics/geoipDatabase").and_then(serde_json::Value::as_str).filter(|s| !s.trim().is_empty()) {
+        Some(path) => state.config.base_dir.join(path),
+        None => ["dbip-country-lite.mmdb", "GeoLite2-Country.mmdb"].into_iter()
+            .map(|name| state.config.data_dir().join(name)).find(|path| path.is_file())?,
+    };
+    let ip: std::net::IpAddr=peer.parse().ok()?;
+    if local_ip(ip) { return None; }
     let cache=READERS.get_or_init(Default::default);
     let mut readers=cache.lock().ok()?;
-    if !readers.contains_key(path){
-        let reader=maxminddb::Reader::open_readfile(path).map_err(|e|tracing::warn!("Could not open geolocation database: {e}")).ok()?;
-        readers.insert(path.into(),std::sync::Arc::new(reader));
+    if !readers.contains_key(&path){
+        let reader=maxminddb::Reader::open_readfile(&path).map_err(|e|tracing::warn!("Could not open geolocation database {}: {e}",path.display())).ok()?;
+        readers.insert(path.clone(),std::sync::Arc::new(reader));
     }
-    readers.get(path)?.lookup(ip).ok()?.decode_path::<String>(&maxminddb::path!["country","iso_code"]).ok().flatten()
+    readers.get(&path)?.lookup(ip).ok()?.decode_path::<String>(&maxminddb::path!["country","iso_code"]).ok().flatten()
 }

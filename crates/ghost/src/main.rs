@@ -101,6 +101,19 @@ async fn main() {
     ghost_db::seed::ensure_builtin_integrations(&db).await.expect("builtin integrations");
     ghost_db::seed::ensure_default_automations(&db).await.expect("default automations");
 
+    // Brute-force records outlive their own window; clearing the expired ones
+    // at boot keeps the table from growing for the lifetime of the install.
+    ghost_api::brute::sweep(&db).await;
+
+    // Content written before Ghost 5 is stored as Mobiledoc, which nothing
+    // renders any more. Converting it once here means a legacy post nobody
+    // edits is still readable and editable.
+    match ghost_render::mobiledoc::backfill_legacy_posts(&db).await {
+        Ok(0) => {}
+        Ok(converted) => tracing::info!("converted {converted} legacy Mobiledoc post(s) to Lexical"),
+        Err(e) => tracing::warn!("Mobiledoc conversion skipped: {e}"),
+    }
+
     // `ghost seed-demo` fills the site with demo content and exits, rather
     // than starting the server
     if matches!(command, cli::Command::SeedDemo) {
@@ -215,6 +228,9 @@ async fn main() {
     ghost_api::automations_engine::spawn(state.clone());
     ghost_api::members::spawn_gift_delivery(state.clone());
     ghost_api::email_analytics::spawn(state.clone());
+    // Ships operational rows to the analytics warehouse, if one is
+    // configured. A self-hosted site has none and this does nothing.
+    ghost_api::tinybird_sync::spawn(state.clone());
     ghost_api::explore::spawn(state.clone());
     ghost_api::federation::spawn(state.clone());
     let app = mount(build_app(state), subdir);
@@ -240,13 +256,13 @@ async fn main() {
 /// forward the prefix through —
 ///
 /// ```nginx
-/// location /blog/ { proxy_pass http://127.0.0.1:2368; }       # keeps /blog/
+/// location /blog/ { proxy_pass http://127.0.0.1:1971; }       # keeps /blog/
 /// ```
 ///
 /// — or strip it before forwarding:
 ///
 /// ```nginx
-/// location /blog/ { proxy_pass http://127.0.0.1:2368/; }      # strips /blog/
+/// location /blog/ { proxy_pass http://127.0.0.1:1971/; }      # strips /blog/
 /// ```
 ///
 /// Both are things people write, and which one you get turns on a single
@@ -314,7 +330,7 @@ fn build_app(state: AppState) -> axum::Router {
 
     // /ghost/api/content/* (+ legacy /vN/ prefixes tolerated like Ghost)
     let api = axum::Router::new()
-        .nest("/content", ghost_api::content::content_router())
+        .nest("/content", ghost_api::content::content_router(state.clone()))
         .nest("/admin", ghost_api::admin::admin_router()
             .merge(ghost_api::admin_comments::admin_comments_router())
             .merge(ghost_api::automations::automations_router())
@@ -331,6 +347,13 @@ fn build_app(state: AppState) -> axum::Router {
                 .nest("/files", ghost_api::images::files_router())
                 // the editor's bookmark and embed cards resolve URLs here
                 .merge(ghost_api::oembed::oembed_router())))
+        // An integration key that names no staff user resolves to the owner,
+        // so the role hierarchy cannot distinguish it from one. Ghost gives
+        // integrations a permission matrix of their own; this applies it.
+        .layer(axum::middleware::from_fn_with_state(
+            state.clone(),
+            ghost_api::integration_permissions::enforce,
+        ))
         .with_state(state.clone());
 
     // The invisible iframe the comments widget talks to when a moderator is

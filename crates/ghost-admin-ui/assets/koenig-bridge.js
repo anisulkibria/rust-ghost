@@ -30,7 +30,7 @@
   var Koenig = window['@tryghost/koenig-lexical'];
   var React = window.React;
   var ReactDOM = window.ReactDOM;
-  if (!Koenig || !React || !ReactDOM) {
+  if (!Koenig || !React || !ReactDOM || !window.GhostKoenig) {
     showFallback('The editor failed to load. Edit the Markdown below instead.');
     return;
   }
@@ -47,134 +47,6 @@
   // forwards paths under it — an unprefixed '/ghost/api/...' would be
   // somebody else's URL.
   var base = config.basePath || '';
-
-  /* ---------------------------------------------------------------- upload */
-
-  // Matches admin-x-framework's koenigFileUploadTypes. Only the endpoints
-  // this server actually implements are listed; anything else would fail at
-  // upload time with a confusing error rather than an honest one.
-  var FILE_TYPES = {
-    image: {
-      mimeTypes: ['image/gif', 'image/jpg', 'image/jpeg', 'image/png', 'image/svg+xml', 'image/webp'],
-      extensions: ['gif', 'jpg', 'jpeg', 'png', 'svg', 'svgz', 'webp'],
-      endpoint: '/ghost/api/admin/images/upload/'
-    },
-    mediaThumbnail: {
-      mimeTypes: ['image/gif', 'image/jpg', 'image/jpeg', 'image/png', 'image/webp'],
-      extensions: ['gif', 'jpg', 'jpeg', 'png', 'webp'],
-      endpoint: '/ghost/api/admin/images/upload/'
-    },
-    video: {
-      mimeTypes: ['video/mp4', 'video/webm', 'video/ogg'],
-      extensions: ['mp4', 'webm', 'ogv'],
-      endpoint: '/ghost/api/admin/media/upload/'
-    },
-    audio: {
-      mimeTypes: ['audio/mp3', 'audio/mpeg', 'audio/ogg', 'audio/wav', 'audio/mp4', 'audio/x-m4a'],
-      extensions: ['mp3', 'wav', 'ogg', 'm4a'],
-      endpoint: '/ghost/api/admin/media/upload/'
-    },
-    file: {
-      mimeTypes: [],
-      extensions: [],
-      endpoint: '/ghost/api/admin/files/upload/'
-    }
-  };
-
-  // The upload endpoints answer either Ghost's `{images: [{url}]}` envelope
-  // or this server's bare `[{url}]`, so both shapes are unwrapped.
-  function urlFromResponse(body) {
-    var list = body;
-    if (body && !Array.isArray(body)) {
-      list = body.images || body.media || body.files || body.data;
-    }
-    if (Array.isArray(list) && list[0] && list[0].url) { return list[0].url; }
-    return undefined;
-  }
-
-  function uploadOne(file, type, onProgress) {
-    return new Promise(function (resolve, reject) {
-      var data = new FormData();
-      data.append('file', file, file.name);
-      var xhr = new XMLHttpRequest();
-      xhr.open('POST', base + FILE_TYPES[type].endpoint, true);
-      xhr.upload.onprogress = function (e) {
-        if (e.lengthComputable) { onProgress(Math.round((e.loaded / e.total) * 100)); }
-      };
-      xhr.onload = function () {
-        var body = null;
-        try { body = JSON.parse(xhr.responseText); } catch (err) { body = null; }
-        if (xhr.status >= 200 && xhr.status < 300) {
-          resolve({url: urlFromResponse(body), fileName: file.name});
-        } else {
-          var message = (body && body.errors && body.errors[0] && body.errors[0].message) || ('Upload failed (' + xhr.status + ')');
-          reject({message: message, fileName: file.name});
-        }
-      };
-      xhr.onerror = function () { reject({message: 'Upload failed', fileName: file.name}); };
-      xhr.send(data);
-    });
-  }
-
-  // Koenig's cards call this hook and read {upload, progress, isLoading,
-  // errors, filesNumber} off it.
-  function useFileUpload(type) {
-    type = type || 'image';
-    var state = React.useState(0);
-    var progress = state[0], setProgress = state[1];
-    var loading = React.useState(false);
-    var isLoading = loading[0], setLoading = loading[1];
-    var errored = React.useState([]);
-    var errors = errored[0], setErrors = errored[1];
-    var counted = React.useState(0);
-    var filesNumber = counted[0], setFilesNumber = counted[1];
-
-    var upload = React.useCallback(function (files) {
-      files = Array.prototype.slice.call(files || []);
-      setFilesNumber(files.length);
-      setLoading(true);
-      setProgress(0);
-
-      var allowed = FILE_TYPES[type].extensions;
-      var rejected = [];
-      if (allowed && allowed.length) {
-        files.forEach(function (file) {
-          var ext = (file.name.split('.').pop() || '').toLowerCase();
-          if (allowed.indexOf(ext) === -1) {
-            rejected.push({fileName: file.name, message: 'Unsupported file type. Use .' + allowed.join(', .').toUpperCase()});
-          }
-        });
-      }
-      if (rejected.length) {
-        setErrors(rejected);
-        setLoading(false);
-        setProgress(100);
-        return Promise.resolve(null);
-      }
-
-      var done = 0;
-      return Promise.all(files.map(function (file) {
-        return uploadOne(file, type, function (pct) {
-          setProgress(Math.round((done * 100 + pct) / files.length));
-        }).then(function (result) {
-          done += 1;
-          setProgress(Math.round((done / files.length) * 100));
-          return result;
-        });
-      })).then(function (results) {
-        setLoading(false);
-        setErrors([]);
-        return results;
-      }).catch(function (err) {
-        setErrors(function (previous) { return previous.concat([err]); });
-        setLoading(false);
-        setProgress(100);
-        return null;
-      });
-    }, [type]);
-
-    return {progress: progress, isLoading: isLoading, upload: upload, errors: errors, filesNumber: filesNumber};
-  }
 
   /* ----------------------------------------------- lexical state -> html */
 
@@ -354,12 +226,18 @@
     }
   }
 
-  function convertToHtml(editor) {
+  function convertToHtml(editor, serialized) {
     var html = '';
-    editor.getEditorState().read(function () {
+    // Card subclasses serialize their nested editors into HTML in exportJSON.
+    // exportDOM on the live node reads the original backing fields instead,
+    // which can still contain the text from before those editors were edited.
+    // Rehydrate the exact state being saved so every card exports those current
+    // values, including captions, callouts, toggles, headers and CTA text.
+    var renderState = editor.parseEditorState(serialized);
+    renderState.read(function () {
       // $getRoot() is not exported by the UMD bundle, but every node can walk
       // up to the root it belongs to.
-      var first = editor.getEditorState()._nodeMap.get('root');
+      var first = renderState._nodeMap.get('root');
       if (!first) { return; }
       var options = {
         editor: editor,
@@ -401,108 +279,25 @@
 
   var e = React.createElement;
 
-  async function snippetRequest(method, path, data) {
-    var response = await fetch(base + '/ghost/api/admin/snippets/' + (path || '') + '?limit=all&formats=mobiledoc,lexical', {
-      method: method,
-      credentials: 'same-origin',
-      headers: {'Content-Type': 'application/json'},
-      body: data ? JSON.stringify({snippets: [data]}) : undefined
-    });
-    if (response.status === 204) return null;
-    var result = await response.json().catch(function () { return {}; });
-    if (!response.ok) throw new Error(result.errors?.[0]?.message || 'Could not save or load snippets.');
-    return result;
-  }
+  var integrations = window.GhostKoenig.create(config, banner);
 
-  function editorSnippet(row) {
-    try {
-      var value = JSON.parse(row.lexical);
-      if (typeof value === 'string') value = JSON.parse(value);
-      if (!Array.isArray(value.nodes) || !value.nodes.length) return null;
-      return {id: row.id, name: row.name, value: JSON.stringify(value)};
-    } catch (error) { return null; }
-  }
-
-  function confirmSnippet(title, message, action, danger) {
-    return new Promise(function (resolve) {
-      var dialog = document.createElement('dialog');
-      var heading = document.createElement('h3');
-      heading.id = 'snippet-confirm-title';
-      heading.textContent = title;
-      dialog.setAttribute('aria-labelledby', heading.id);
-      var description = document.createElement('p');
-      description.textContent = message;
-      var actions = document.createElement('form');
-      actions.method = 'dialog';
-      actions.className = 'd-actions';
-      var cancel = document.createElement('button');
-      cancel.className = 'btn text';
-      cancel.value = 'cancel';
-      cancel.textContent = 'Cancel';
-      var accept = document.createElement('button');
-      accept.className = 'btn' + (danger ? ' danger' : '');
-      accept.value = 'confirm';
-      accept.textContent = action;
-      actions.append(cancel, accept);
-      dialog.append(heading, description, actions);
-      dialog.addEventListener('close', function () {
-        resolve(dialog.returnValue === 'confirm');
-        dialog.remove();
-      }, {once: true});
-      document.body.appendChild(dialog);
-      dialog.showModal();
-      cancel.focus();
+  // Snapshot the live editor independently of the hidden inputs. A settings
+  // save may have cleared those inputs, and previewing must never trigger save.
+  form.ghostPreviewData = function () {
+    var fields = new URLSearchParams();
+    new FormData(form).forEach(function (value, key) {
+      if (typeof value === 'string') fields.append(key, value);
     });
-  }
+    if (api) {
+      var serialized = api.serialize();
+      fields.set('lexical', serialized);
+      fields.set('html', convertToHtml(api.editorInstance, serialized));
+      fields.delete('markdown');
+    }
+    return fields;
+  };
 
   function Editor() {
-    var snippetState = React.useState([]);
-    var snippets = snippetState[0], setSnippets = snippetState[1];
-    var manageState = React.useState(false);
-    var canManageSnippets = manageState[0], setCanManageSnippets = manageState[1];
-    var snippetBusy = React.useRef(false);
-    React.useEffect(function () {
-      var mounted = true;
-      snippetRequest('GET').then(function (result) {
-        if (!mounted) return;
-        setSnippets((result.snippets || []).map(editorSnippet).filter(Boolean));
-        setCanManageSnippets(!!result.meta?.can_manage);
-      }).catch(function (error) { if (mounted) banner('Snippets could not be loaded. ' + error.message, 'error'); });
-      return function () { mounted = false; };
-    }, []);
-
-    async function createSnippet(value) {
-      if (snippetBusy.current) return;
-      snippetBusy.current = true;
-      try {
-        var name = value.name.trim();
-        var existing = snippets.find(function (snippet) { return snippet.name.toLowerCase() === name.toLowerCase(); });
-        if (existing && !await confirmSnippet('Update this snippet?', '“' + existing.name + '” will be replaced for future use. Existing posts will stay the same.', 'Update snippet', false)) return;
-        var result = await snippetRequest(existing ? 'PUT' : 'POST', existing ? existing.id + '/' : '', {
-          name: existing ? existing.name : name, lexical: value.value, mobiledoc: '{}'
-        });
-        var saved = editorSnippet(result.snippets?.[0] || {});
-        if (!saved) throw new Error('The saved snippet could not be loaded.');
-        setSnippets(function (current) {
-          return current.filter(function (snippet) { return snippet.id !== saved.id; }).concat(saved).sort(function (a, b) { return a.name.localeCompare(b.name); });
-        });
-        banner('Snippet “' + saved.name + '” ' + (existing ? 'updated.' : 'saved.'), 'ok');
-      } catch (error) { banner(error.message || 'Snippet save failed.', 'error'); }
-      finally { snippetBusy.current = false; }
-    }
-
-    async function deleteSnippet(value) {
-      if (snippetBusy.current) return;
-      snippetBusy.current = true;
-      try {
-        if (!await confirmSnippet('Delete snippet?', '“' + value.name + '” will be removed for all staff. Existing posts will stay the same.', 'Delete snippet', true)) return;
-        await snippetRequest('DELETE', value.id + '/');
-        setSnippets(function (current) { return current.filter(function (snippet) { return snippet.id !== value.id; }); });
-        banner('Snippet deleted.', 'ok');
-      } catch (error) { banner(error.message || 'Snippet delete failed.', 'error'); }
-      finally { snippetBusy.current = false; }
-    }
-
     return e(
       'div',
       {className: 'koenig-react-editor koenig-lexical'},
@@ -510,42 +305,8 @@
         Koenig.KoenigComposer,
         {
           initialEditorState: config.lexical || undefined,
-          fileUploader: {useFileUpload: useFileUpload, fileTypes: FILE_TYPES},
-          cardConfig: {
-            // Cards ask the host what the site can do; answering honestly
-            // keeps menu items that would not work from being offered.
-            siteTitle: config.siteTitle || '',
-            siteDescription: config.siteDescription || '',
-            siteUrl: config.siteUrl || '',
-            membersEnabled: !!config.membersEnabled,
-            stripeEnabled: !!config.stripeEnabled,
-            feature: {},
-            snippets: snippets,
-            createSnippet: canManageSnippets ? createSnippet : undefined,
-            deleteSnippet: canManageSnippets ? deleteSnippet : undefined,
-            deprecated: {headerV1: true},
-            // Koenig builds its Unsplash provider straight from this object,
-            // using it as the request headers against api.unsplash.com. Null
-            // falls back to its own bundled sample gallery, which is what an
-            // install with the app on but no access key gets.
-            unsplash: config.unsplash || null,
-            pinturaConfig: config.pinturaConfig || null,
-            fetchEmbed: fetchEmbed,
-            fetchAutocompleteLinks: function (query) {
-              var text = typeof query === 'string' ? query : query && (query.search || query.query) || '';
-              return fetch(config.siteUrl + '/ghost/api/admin/editor/links/?q=' + encodeURIComponent(text), {credentials:'same-origin'})
-                .then(function(response){if(!response.ok)throw new Error('Link search failed');return response.json();})
-                .then(function(data){return [{label:'Homepage',value:config.siteUrl+'/'}].concat(data.links||[]);});
-            },
-            searchLinks: function (query) {
-              var text = typeof query === 'string' ? query : query && (query.search || query.query) || '';
-              return fetch(config.siteUrl + '/ghost/api/admin/editor/links/?q=' + encodeURIComponent(text), {credentials:'same-origin'})
-                .then(function(response){if(!response.ok)throw new Error('Link search failed');return response.json();})
-                .then(function(data){return data.links||[];});
-            },
-            renderLabels: false,
-            fetchLabels: function () { return Promise.resolve([]); }
-          },
+          fileUploader: integrations.fileUploader,
+          cardConfig: integrations.useCardConfig(),
           onError: function (error) { console.error(error); },
           darkMode: window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches,
           isTKEnabled: false
@@ -574,16 +335,6 @@
     );
   }
 
-  // The bookmark and embed cards need the server to fetch the target's
-  // oEmbed/metadata; without that endpoint they fall back to a plain link.
-  function fetchEmbed(url, options) {
-    var query = '?url=' + encodeURIComponent(url) + (options && options.type ? '&type=' + options.type : '');
-    return fetch(base + '/ghost/api/admin/oembed/' + query, {headers: {'Content-Type': 'application/json'}})
-      .then(function (response) {
-        if (!response.ok) { throw new Error('Could not fetch ' + url); }
-        return response.json();
-      });
-  }
 
   try {
     ReactDOM.createRoot(mount).render(e(Editor));
@@ -615,6 +366,11 @@
   var savedStatus = config.savedStatus || 'draft';
   var revision = 0;
   var timer = null;
+  // Set once the server has refused a save because another session wrote this
+  // post. Autosave stays off from then on: the publisher's words are still in
+  // the editor, and silently retrying would either keep failing or — once they
+  // reloaded elsewhere — overwrite the other version.
+  var collided = false;
   var bannerTimer = null;
   var toastTimer = null;
   // The count the WordCountPlugin last handed over, so a save can tell a post
@@ -712,6 +468,12 @@
   function adopt(json, kind) {
     if (!json || !json.id) { return; }
 
+    // Move the collision stamp forward to the version this save produced.
+    // Without this the second save of a session would be compared against the
+    // copy first loaded and refused as somebody else's work.
+    var stampInput = document.getElementById('field-updated-at');
+    if (stampInput && json.updated_at) { stampInput.value = json.updated_at; }
+
     var statusSel = form.querySelector('select[name="status"]');
     savedStatus = json.status || savedStatus;
     var view = document.getElementById('editor-view');
@@ -774,7 +536,7 @@
       try {
         if (withContent) {
           lexicalInput.value = api.serialize();
-          htmlInput.value = convertToHtml(api.editorInstance);
+          htmlInput.value = convertToHtml(api.editorInstance, lexicalInput.value);
         } else {
           lexicalInput.value = '';
           htmlInput.value = '';
@@ -810,6 +572,16 @@
       return response.text().then(function (text) {
         var json = null;
         try { json = JSON.parse(text); } catch (err) { json = null; }
+        // 409 is the update-collision refusal: somebody else saved this post
+        // while this editor was open. Flagged rather than thrown plainly so
+        // autosave stops instead of retrying into the same wall every few
+        // seconds, and so the publisher is told how to keep their work.
+        if (response.status === 409) {
+          var collision = new Error((json && json.message) ||
+            'Saving failed! Someone else is editing this post.');
+          collision.collision = true;
+          throw collision;
+        }
         if (!response.ok || !json || !json.id) {
           throw new Error((json && json.message) || ('The save failed (' + response.status + ').'));
         }
@@ -831,6 +603,13 @@
       queued = null;
       dirty = true;
       setState('Not saved', 'error');
+      if (err && err.collision) {
+        collided = true;
+        clearTimeout(timer);
+        timer = null;
+        banner(err.message + ' Copy your changes, then reload to see their version.', 'error');
+        return;
+      }
       banner((err && err.message) || 'The save failed.', 'error');
     });
   }
@@ -841,6 +620,12 @@
     revision++;
     dirty = true;
     clearTimeout(timer);
+    if (collided) {
+      // No clock: an explicit save is the only way out, and it will be
+      // refused again until the editor is reloaded.
+      setState('* Unsaved changes', 'unsaved');
+      return;
+    }
     if (isDraft()) {
       setState('', '');
       timer = setTimeout(function () { timer = null; saveNow('auto'); }, DEBOUNCE_MS);

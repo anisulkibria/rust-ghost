@@ -5,7 +5,7 @@ use crate::{
 };
 use axum::{
     extract::{Path, Query, State},
-    http::{HeaderMap, StatusCode},
+    http::{HeaderMap, StatusCode, Method},
     response::{IntoResponse, Redirect, Response},
     routing::get,
     Json, Router,
@@ -142,8 +142,8 @@ pub async fn record(state: &AppState, token: &str, link: Option<&str>) -> Result
     tx.commit().await.map_err(db)?;
     Ok(revision.is_some())
 }
-async fn open(State(state): State<AppState>, Path(token): Path<String>) -> Response {
-    if state.settings.get_bool("email_track_opens") {
+async fn open(State(state): State<AppState>, method: Method, Path(token): Path<String>) -> Response {
+    if method == Method::GET && state.settings.get_bool("email_track_opens") {
         let _ = record(&state, &token, None).await;
     }
     (
@@ -157,6 +157,7 @@ async fn open(State(state): State<AppState>, Path(token): Path<String>) -> Respo
 }
 async fn click(
     State(state): State<AppState>,
+    method: Method,
     Path((link, token)): Path<(String, String)>,
 ) -> Response {
     let url=sqlx::query_scalar::<_,String>("SELECT l.url FROM automation_links l JOIN automation_tracking t ON t.revision_id=l.revision_id WHERE l.id=? AND t.token=?").bind(&link).bind(&token).fetch_optional(&state.db).await.ok().flatten();
@@ -165,7 +166,7 @@ async fn click(
     else {
         return StatusCode::NOT_FOUND.into_response();
     };
-    if state.settings.get_bool("email_track_clicks") {
+    if method == Method::GET && state.settings.get_bool("email_track_clicks") {
         let _ = record(&state, &token, Some(&link)).await;
     }
     (

@@ -298,9 +298,32 @@ pub async fn all_public(pool: &SqlitePool) -> Result<Vec<Tag>> {
     Ok(rows.into_iter().map(Into::into).collect())
 }
 
+/// Staff tag pickers include internal tags; public theme queries use all_public.
+pub async fn all(pool: &SqlitePool) -> Result<Vec<Tag>> {
+    let rows = sqlx::query_as::<_, TagRow>(&format!("SELECT {TAG_COLS} FROM tags ORDER BY name COLLATE NOCASE"))
+        .fetch_all(pool).await.map_err(dberr)?;
+    Ok(rows.into_iter().map(Into::into).collect())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn staff_picker_includes_internal_tags_while_public_queries_exclude_them() {
+        let pool = sqlx::sqlite::SqlitePoolOptions::new().max_connections(1)
+            .connect("sqlite::memory:").await.unwrap();
+        sqlx::migrate!("../../migrations").run(&pool).await.unwrap();
+        for name in ["News", "#Internal"] {
+            insert(&pool, &NewTag { name: name.into(), ..Default::default() }).await.unwrap();
+        }
+        let staff = all(&pool).await.unwrap();
+        assert_eq!(staff.len(), 2);
+        assert!(staff.iter().any(|t| t.name.as_deref() == Some("#Internal") && t.visibility == "internal"));
+        let public = all_public(&pool).await.unwrap();
+        assert_eq!(public.len(), 1);
+        assert_eq!(public[0].name.as_deref(), Some("News"));
+    }
 
     /// The visibility rule `update` applies, lifted out so it can be checked
     /// without a database.

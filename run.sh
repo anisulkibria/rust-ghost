@@ -8,11 +8,11 @@ BIN=./target/release/ghost
 # The server binds the configured port and fails if it is taken — it does not
 # go looking for a free one, so this is also the port to check for an instance
 # that is already up.
-PORT=${GHOST_SERVER__PORT:-2368}
+PORT=${GHOST_SERVER__PORT:-1971}
 URL="http://localhost:$PORT"
 # One pidfile per port, so two instances on one machine cannot stop each
-# other. The default port keeps the unsuffixed names it has always had.
-if [ "$PORT" = 2368 ]; then
+# other. The default port keeps the unsuffixed names.
+if [ "$PORT" = 1971 ]; then
     PIDFILE=/tmp/ghost-rust.pid
     LOG=/tmp/ghost-rust.log
 else

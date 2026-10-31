@@ -52,23 +52,23 @@ The first build takes a few minutes. After that you should see:
 INFO ghost: database ready at .../content/data/ghost-dev.db
 INFO ghost: seeded initial data (roles, settings, fixture posts)
 INFO ghost: theme 'source' activated
-INFO ghost: Ghost-rust ready in 0.6s — http://localhost:2368 (admin at http://localhost:2368/ghost/)
+INFO ghost: Ghost-rust ready in 0.6s — http://localhost:1971 (admin at http://localhost:1971/ghost/)
 ```
 
 ### Step 3 — Create your account
 
-Open **http://localhost:2368/ghost/** and fill in the setup form. That creates
+Open **http://localhost:1971/ghost/** and fill in the setup form. That creates
 the owner account and names the site.
 
-The site itself is at **http://localhost:2368**.
+The site itself is at **http://localhost:1971**.
 
-> **Port 2368 already taken?** `cargo run` with no config file insists on it
+> **Port 1971 already taken?** `cargo run` with no config file insists on it
 > and stops with `Address in use`, because the port is part of the url every
 > link is built from. To put this install somewhere else, write a config that
 > says so — `ghost setup` finds a free port on its own:
 >
 > ```bash
-> cargo run -- setup --env development --no-ssl --url http://localhost:2368
+> cargo run -- setup --env development --no-ssl --url http://localhost:1971
 > cargo run
 > ```
 >
@@ -92,7 +92,7 @@ To try the Content API, the seeded key is printed to the boot log and shown in
 Admin → Integrations:
 
 ```bash
-curl "http://localhost:2368/ghost/api/content/posts/?key=<content key>"
+curl "http://localhost:1971/ghost/api/content/posts/?key=<content key>"
 ```
 
 ---
@@ -456,10 +456,10 @@ sudo systemctl enable --now second
 
 Three things make this work:
 
-- **Ports sort themselves out.** `ghost setup` without `--port` starts at 2368
+- **Ports sort themselves out.** `ghost setup` without `--port` starts at 1971
   and walks upwards until it finds a port nothing is listening on, then writes
-  that port *and* the matching url. The second install lands on 2369, the third
-  on 2370, and so on. Pass `--port` to choose instead.
+  that port *and* the matching url. The second install lands on 1972, the third
+  on 1973, and so on. Pass `--port` to choose instead.
 
 - **`--name` gives each instance its own service.** Without it every install
   writes `ghost.service`, and the second would take over the first. `ghost
@@ -480,7 +480,7 @@ in a proxy and give each instance `--no-ssl` on its own port. Caddy does the
 certificates for every domain with no extra configuration:
 
 ```caddy
-first.com  { reverse_proxy 127.0.0.1:2368 }
+first.com  { reverse_proxy 127.0.0.1:1971 }
 second.com { reverse_proxy 127.0.0.1:2369 }
 ```
 
@@ -490,7 +490,8 @@ The same pattern routes several sites on one domain by path — see
 ### Alongside an existing Ghost (or anything else)
 
 A stock Ghost install usually holds 2368 — often several, on 2368, 2369, 2370
-— with nginx owning 80 and 443. Nothing has to move:
+— with nginx owning 80 and 443. Nothing has to move: this server defaults to
+1971 precisely so the two can run side by side on one machine.
 
 ```bash
 cd /var/www/new-site
@@ -598,7 +599,7 @@ Terminating TLS in the server is simpler, but a proxy is fully supported. Turn
 {
   "url": "https://example.com",
   "ssl": false,
-  "server": { "host": "127.0.0.1", "port": 2368 }
+  "server": { "host": "127.0.0.1", "port": 1971 }
 }
 ```
 
@@ -610,7 +611,7 @@ Caddy, which handles its own certificates:
 
 ```caddy
 example.com {
-    reverse_proxy 127.0.0.1:2368
+    reverse_proxy 127.0.0.1:1971
 }
 ```
 
@@ -626,7 +627,7 @@ server {
     client_max_body_size 100m;   # theme and media uploads
 
     location / {
-        proxy_pass http://127.0.0.1:2368;
+        proxy_pass http://127.0.0.1:1971;
         proxy_set_header Host              $host;
         proxy_set_header X-Real-IP         $remote_addr;
         proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
@@ -643,10 +644,10 @@ the app accepts requests whether or not the prefix was stripped:
 
 ```nginx
 # forwards /blog/ through (no trailing slash on proxy_pass)
-location /blog/ { proxy_pass http://127.0.0.1:2368; }
+location /blog/ { proxy_pass http://127.0.0.1:1971; }
 
 # strips /blog/ before forwarding (trailing slash)
-location /blog/ { proxy_pass http://127.0.0.1:2368/; }
+location /blog/ { proxy_pass http://127.0.0.1:1971/; }
 ```
 
 Either way the URLs the app writes carry `/blog`, so links stay correct.
@@ -718,10 +719,10 @@ be set as an environment variable with `GHOST_` and `__` for nesting —
 
 | Key | Default | Meaning |
 |---|---|---|
-| `url` | `http://localhost:2368` | Public url, including any subdirectory. Decides the base path and every URL the site writes. |
+| `url` | `http://localhost:1971` | Public url, including any subdirectory. Decides the base path and every URL the site writes. |
 | `ssl` | `false` | `true` for automatic certificates, `false` for plain HTTP, or an object (see above). |
 | `server.host` | `127.0.0.1` | Address to bind. `ghost setup` writes `0.0.0.0` when serving the public directly. |
-| `server.port` | 443 with TLS, else 2368 | Port to bind. If a url carries a port, the two must agree — `ghost setup` keeps them in step. |
+| `server.port` | 443 with TLS, else the port in `url`, else 1971 | Port to bind. Left unset, a port in `url` is used, so the listener and every link the site writes always agree. |
 | `database.connection.filename` | `content/data/ghost.db` | SQLite file, relative to the config's directory. |
 | `paths.contentPath` | `content` | Themes, images, data, the ACME cache. |
 | `mail.transport` | `Direct` | Starting value only; email is configured in the admin. |
@@ -795,7 +796,7 @@ content/          themes/, data/, images/, routes.yaml, redirects.yaml
   real Ghost database works. Passwords are bcrypt like Ghost.
 - **Config**: `config.development.json` / `config.production.json` in the
   working directory, `GHOST_…__…` env overrides, defaults like Ghost
-  (port 2368, `content/` path).
+  (port 1971, `content/` path).
 - **HTTPS**: terminated in-process, with certificates from Let's Encrypt
   requested and renewed automatically (`"ssl": true`). Ghost itself has no
   equivalent — it expects a reverse proxy and an external certbot. A proxy is
@@ -803,6 +804,16 @@ content/          themes/, data/, images/, routes.yaml, redirects.yaml
 - **Subdirectory installs**: a path on `url` works out of the box, which in
   Ghost itself takes a good deal of proxy and asset configuration to approach.
   See [Guide 3](#guide-3--subdomain-or-subdirectory).
+
+Visitor countries use CDN country headers or a local MMDB database. Put
+`dbip-country-lite.mmdb` or `GeoLite2-Country.mmdb` in `content/data/`, or set
+`hostSettings.analytics.geoipDatabase` to a database path (relative paths use
+the config directory). [DB-IP Country Lite](https://db-ip.com/db/download/ip-to-country-lite)
+provides a free monthly database; replace the file and restart to update it.
+Forwarded visitor addresses are read only when the connecting peer is a local
+or private reverse proxy. Configure that proxy to overwrite forwarding headers.
+Direct localhost/private-network visits have no geographic country, and past
+unknown visits cannot be located because visitor IPs are not stored.
 
 ## Tests
 

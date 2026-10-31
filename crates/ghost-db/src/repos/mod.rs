@@ -3,6 +3,7 @@
 //! Row structs are private to ghost-db; repos map them to domain structs.
 pub mod posts;
 pub mod publishing;
+pub mod gift_links;
 pub mod members;
 pub mod subscriptions;
 pub mod tags;
@@ -19,6 +20,7 @@ pub mod integrations;
 pub mod metafields;
 pub mod newsletters;
 pub mod offers;
+pub mod recommendations;
 pub mod webhooks;
 
 use ghost_core::models::{Post, PostMeta, Tag, User};

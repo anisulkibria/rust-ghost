@@ -12,7 +12,12 @@ use std::sync::Arc;
 
 use crate::state::AppState;
 
-pub fn content_router() -> Router<AppState> {
+/// The public Content API.
+///
+/// Takes the state so the brute-force layer below can reach the database:
+/// `from_fn_with_state` needs it at construction time, and the alternative
+/// was threading an address extractor through every one of these handlers.
+pub fn content_router(state: AppState) -> Router<AppState> {
     Router::new()
         .route("/posts/", get(browse_posts))
         .route("/posts", get(browse_posts))
@@ -62,6 +67,7 @@ pub fn content_router() -> Router<AppState> {
         .route("/search-index/tags/", get(search_index_tags))
         .route("/search-index/tags", get(search_index_tags))
         .layer(axum::middleware::from_fn(crate::api_headers))
+        .layer(axum::middleware::from_fn_with_state(state, content_key_brute))
         .layer(tower_http::cors::CorsLayer::new()
             .allow_origin(tower_http::cors::Any)
             .allow_methods([axum::http::Method::GET, axum::http::Method::HEAD, axum::http::Method::OPTIONS])
@@ -73,6 +79,54 @@ pub fn content_router() -> Router<AppState> {
 // ---------------------------------------------------------------------------
 // auth
 // ---------------------------------------------------------------------------
+
+/// Rate-limit rejected Content API keys, per caller address.
+///
+/// Ported from upstream's `brute.contentApiKey`: the budget is generous (99
+/// free tries an hour) because this is a public, cacheable API that a busy
+/// site hits constantly, and it only counts **rejected** requests — the block
+/// is reset whenever a request comes back under 400. Without that reset an
+/// ordinary high-traffic site would lock itself out of its own front end.
+///
+/// A layer rather than a check inside [`authenticate`] so it covers every
+/// route on this router, including ones added later.
+async fn content_key_brute(
+    axum::extract::State(state): axum::extract::State<AppState>,
+    crate::brute::ClientAddr(peer): crate::brute::ClientAddr,
+    request: axum::extract::Request,
+    next: axum::middleware::Next,
+) -> Response {
+    let ip = crate::brute::client_ip(request.headers(), peer);
+    let key = format!("content_api_key:{ip}");
+    // Read-only on the way in, and charged only for a rejected request. This
+    // API is public and cacheable and a busy front end hits it constantly, so
+    // the successful path must not write to the database at all.
+    let had_record = match crate::brute::peek(&state.db, &key, &crate::brute::CONTENT_API_KEY).await {
+        Ok(had_record) => had_record,
+        Err(blocked) => {
+            let body = json!({ "errors": [{
+                "message": blocked.message(),
+                "errorType": "TooManyRequestsError",
+            }]});
+            let mut response = (StatusCode::TOO_MANY_REQUESTS, axum::Json(body)).into_response();
+            if let Ok(value) = blocked.retry_after_secs().to_string().parse() {
+                response.headers_mut().insert(header::RETRY_AFTER, value);
+            }
+            return response;
+        }
+    };
+    let response = next.run(request).await;
+    if response.status().as_u16() >= 400 {
+        crate::brute::record_failure(&state.db, &key, &crate::brute::CONTENT_API_KEY).await;
+    } else if had_record {
+        // Upstream clears the block on an authorized request, so only
+        // rejected ones accumulate — otherwise a site that mistyped its key
+        // once would creep towards the cap over a day of normal traffic.
+        // Skipped entirely when there was nothing to clear.
+        crate::brute::reset(&state.db, &key).await;
+    }
+    response
+}
 
 /// Content API auth: a publishable `?key=<secret>` of a content-type key.
 async fn authenticate(state: &AppState, params: &HashMap<String, String>) -> Result<(), Response> {
@@ -728,64 +782,23 @@ async fn browse_tiers(State(state): State<AppState>, Query(params): Query<HashMa
     if let Err(resp) = authenticate(&state, &params).await {
         return resp;
     }
-    type Row = (
-        String,         // id
-        String,         // name
-        String,         // slug
-        Option<String>, // description
-        String,         // type
-        String,         // visibility
-        Option<String>, // currency
-        Option<i64>,    // monthly_price
-        Option<i64>,    // yearly_price
-        i64,            // trial_days
-        Option<String>, // welcome_page_url
-        Option<String>, // created_at
-        Option<String>, // updated_at
-    );
-    let rows = sqlx::query_as::<_, Row>(
-        "SELECT id, name, slug, description, type, visibility, currency, monthly_price, \
-         yearly_price, trial_days, welcome_page_url, created_at, updated_at \
-         FROM products WHERE active = 1 ORDER BY type DESC, created_at",
-    )
-    .fetch_all(&state.db)
-    .await
-    .unwrap_or_default();
-
-    let mut items: Vec<Value> = Vec::with_capacity(rows.len());
-    for r in rows {
-        let benefits: Vec<String> = sqlx::query_scalar(
-            "SELECT b.name FROM products_benefits pb JOIN benefits b ON b.id = pb.benefit_id \
-             WHERE pb.product_id = ? ORDER BY pb.sort_order",
-        )
-        .bind(&r.0)
-        .fetch_all(&state.db)
-        .await
-        .unwrap_or_default();
-        let mut tier = json!({
-            "id": r.0,
-            "name": r.1,
-            "slug": r.2,
-            "description": r.3,
-            "active": true,
-            "type": r.4,
-            "visibility": r.5,
-            "trial_days": r.9,
-            "welcome_page_url": r.10,
-            "created_at": r.11,
-            "updated_at": r.12,
-            "benefits": benefits,
-        });
-        if r.4 != "free" {
-            if let Value::Object(m) = &mut tier {
-                m.insert("currency".into(), json!(r.6));
-                m.insert("monthly_price".into(), json!(r.7));
-                m.insert("yearly_price".into(), json!(r.8));
-            }
-        }
-        items.push(tier);
+    let p = parse_browse(&params);
+    let filter = match p.filter.as_deref().filter(|f| !f.trim().is_empty()).map(ghost_nql::parse) {
+        Some(Ok(expr)) => Some(expr),
+        Some(Err(e)) => return error_from(e),
+        None => None,
+    };
+    let (mut items, total) =
+        match repos::tiers::browse_public(&state.db, filter.as_ref(), p.order.as_deref(), p.limit, p.page).await {
+            Ok(found) => found,
+            Err(e) => return error_from(e),
+        };
+    for item in items.iter_mut() {
+        select_fields(item, &p);
     }
-    ok_json(json!({ "tiers": items }))
+    let pagination =
+        ghost_core::models::pagination_json(p.page, if p.limit > 0 { p.limit } else { total.max(1) }, total);
+    ok_json(json!({ "tiers": items, "meta": { "pagination": pagination } }))
 }
 
 /// Active newsletters, in Ghost's `newsletters` content shape.
@@ -800,45 +813,30 @@ async fn browse_newsletters(State(state): State<AppState>, Query(params): Query<
     if let Err(resp) = authenticate(&state, &params).await {
         return resp;
     }
-    type Row = (
-        String,         // id
-        Option<String>, // uuid
-        String,         // name
-        Option<String>, // description
-        String,         // slug
-        Option<String>, // sender_name
-        Option<String>, // sender_reply_to
-        String,         // visibility
-        bool,           // subscribe_on_signup
-        i64,            // sort_order
-    );
-    let rows = sqlx::query_as::<_, Row>(
-        "SELECT id, uuid, name, description, slug, sender_name, sender_reply_to, visibility, \
-         subscribe_on_signup, sort_order FROM newsletters WHERE status = 'active' \
-         ORDER BY sort_order, created_at",
+    let p = parse_browse(&params);
+    let filter = match p.filter.as_deref().filter(|f| !f.trim().is_empty()).map(ghost_nql::parse) {
+        Some(Ok(expr)) => Some(expr),
+        Some(Err(e)) => return error_from(e),
+        None => None,
+    };
+    let (mut items, total) = match repos::tiers::browse_newsletters_public(
+        &state.db,
+        filter.as_ref(),
+        p.order.as_deref(),
+        p.limit,
+        p.page,
     )
-    .fetch_all(&state.db)
     .await
-    .unwrap_or_default();
-    let items: Vec<Value> = rows
-        .into_iter()
-        .map(|r| {
-            json!({
-                "id": r.0,
-                "uuid": r.1,
-                "name": r.2,
-                "description": r.3,
-                "slug": r.4,
-                "sender_name": r.5,
-                "sender_reply_to": r.6,
-                "status": "active",
-                "visibility": r.7,
-                "subscribe_on_signup": r.8,
-                "sort_order": r.9,
-            })
-        })
-        .collect();
-    ok_json(json!({ "newsletters": items }))
+    {
+        Ok(found) => found,
+        Err(e) => return error_from(e),
+    };
+    for item in items.iter_mut() {
+        select_fields(item, &p);
+    }
+    let pagination =
+        ghost_core::models::pagination_json(p.page, if p.limit > 0 { p.limit } else { total.max(1) }, total);
+    ok_json(json!({ "newsletters": items, "meta": { "pagination": pagination } }))
 }
 
 /// One offer, as Portal reads it on `#/portal/offers/{id}`.
@@ -864,9 +862,11 @@ async fn read_offer(
 
 /// The recommended publications Portal lists on `#/portal/recommendations`.
 ///
-/// Ghost serves favicon and featured image alongside each row; this port does
-/// not store either, and Portal falls back to a blank badge when they are
-/// absent, so they go out as null rather than being omitted.
+/// Favicon, featured image and excerpt come off the row now that they are
+/// stored, so Portal's publication badges render instead of falling back to a
+/// blank square. `filter`, `order`, `fields` and real pagination metadata are
+/// applied the way the post and tag endpoints apply them — a client paging
+/// this list needs `meta.pagination.pages` to know when to stop.
 async fn browse_recommendations(
     State(state): State<AppState>,
     Query(params): Query<HashMap<String, String>>,
@@ -875,34 +875,27 @@ async fn browse_recommendations(
         return resp;
     }
     let p = parse_browse(&params);
-    type Row = (String, String, String, Option<String>, bool, bool, Option<String>, Option<String>);
-    let mut sql = String::from(
-        "SELECT id, url, title, description, one_click_subscribe, featured, created_at, updated_at \
-         FROM recommendations ORDER BY featured DESC, created_at DESC",
-    );
-    if p.limit > 0 {
-        sql.push_str(&format!(" LIMIT {} OFFSET {}", p.limit, (p.page.max(1) - 1) * p.limit));
+    let filter = match p.filter.as_deref().filter(|f| !f.trim().is_empty()).map(ghost_nql::parse) {
+        Some(Ok(expr)) => Some(expr),
+        Some(Err(e)) => return error_from(e),
+        None => None,
+    };
+    let q = repos::recommendations::BrowseRecommendations {
+        filter,
+        order: p.order.clone(),
+        limit: p.limit,
+        page: p.page,
+    };
+    let (mut items, total) = match repos::recommendations::browse(&state.db, &q).await {
+        Ok(found) => found,
+        Err(e) => return error_from(e),
+    };
+    for item in items.iter_mut() {
+        select_fields(item, &p);
     }
-    let rows = sqlx::query_as::<_, Row>(&sql).fetch_all(&state.db).await.unwrap_or_default();
-    let items: Vec<Value> = rows
-        .into_iter()
-        .map(|r| {
-            json!({
-                "id": r.0,
-                "url": r.1,
-                "title": r.2,
-                "description": r.3,
-                "one_click_subscribe": r.4,
-                "featured": r.5,
-                "favicon": Value::Null,
-                "featured_image": Value::Null,
-                "excerpt": Value::Null,
-                "created_at": r.6,
-                "updated_at": r.7,
-            })
-        })
-        .collect();
-    ok_json(json!({ "recommendations": items, "meta": {} }))
+    let pagination =
+        ghost_core::models::pagination_json(p.page, if p.limit > 0 { p.limit } else { total.max(1) }, total);
+    ok_json(json!({ "recommendations": items, "meta": { "pagination": pagination } }))
 }
 
 #[cfg(test)]
