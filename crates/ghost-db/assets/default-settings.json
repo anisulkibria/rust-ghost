@@ -351,6 +351,41 @@
     },
     {
         "group": "site",
+        "key": "machine_payments_tempo_enabled",
+        "type": "boolean",
+        "flags": "",
+        "value": "false"
+    },
+    {
+        "group": "site",
+        "key": "machine_payments_tempo_testnet",
+        "type": "boolean",
+        "flags": "",
+        "value": "false"
+    },
+    {
+        "group": "site",
+        "key": "machine_payments_x402_enabled",
+        "type": "boolean",
+        "flags": "",
+        "value": "false"
+    },
+    {
+        "group": "site",
+        "key": "machine_payments_x402_network",
+        "type": "string",
+        "flags": "",
+        "value": ""
+    },
+    {
+        "group": "site",
+        "key": "machine_payments_x402_facilitator",
+        "type": "string",
+        "flags": "",
+        "value": ""
+    },
+    {
+        "group": "site",
         "key": "meta_title",
         "type": "string",
         "flags": "",

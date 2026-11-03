@@ -86,6 +86,7 @@ pub fn admin_ui_router(state: AppState) -> Router<AppState> {
         .route("/signin/verify/", get(verify_page).post(verify_submit))
         .route("/signin/resend/", post(verify_resend))
         .route("/signout/", get(logout))
+        .route("/appearance/", post(appearance_save))
         .route("/analytics/", get(analytics_page))
         .route("/modules/", get(modules_page))
         .route("/social/", get(social_page))
@@ -471,10 +472,29 @@ pub(crate) fn svg(name: &str) -> String {
     format!(r#"<svg class="i" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">{}</svg>"#, icon(name))
 }
 
+/// The one place the admin borrows another set: Ghost's appearance menu uses
+/// lucide's stroked sun, moon and monitor, and no filled Material glyph reads
+/// as cleanly for it. Same `class="i"` contract as [`svg`] so sizing rules
+/// apply, but drawn with strokes like lucide does.
+pub(crate) fn svg_stroke(name: &str) -> String {
+    let body = match name {
+        "sun" => r#"<circle cx="12" cy="12" r="4"/><path d="M12 2v2"/><path d="M12 20v2"/><path d="m4.93 4.93 1.41 1.41"/><path d="m17.66 17.66 1.41 1.41"/><path d="M2 12h2"/><path d="M20 12h2"/><path d="m6.34 17.66-1.41 1.41"/><path d="m19.07 4.93-1.41 1.41"/>"#,
+        "moon" => r#"<path d="M20.985 12.486a9 9 0 1 1-9.473-9.472c.405-.022.617.46.402.803a6 6 0 0 0 8.268 8.268c.344-.215.825-.004.803.401"/>"#,
+        "monitor" => r#"<rect width="20" height="14" x="2" y="3" rx="2"/><line x1="8" x2="16" y1="21" y2="21"/><line x1="12" x2="12" y1="17" y2="21"/>"#,
+        _ => "",
+    };
+    format!(
+        r#"<svg class="i t-{name}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">{}</svg>"#,
+        body,
+        name = name
+    )
+}
+
 /// The Material You design system: a tonal palette generated from Ghost's
 /// brand pink (#FF1A75), light + dark schemes, and M3 component styles.
 const CSS: &str = r#"
 :root {
+  color-scheme: light;
   --primary: #984059; --on-primary: #fff;
   --primary-container: #FFD9E0; --on-primary-container: #3E071D;
   --secondary-container: #FADDE1; --on-secondary-container: #2B151A;
@@ -502,27 +522,37 @@ const CSS: &str = r#"
   --shadow-1: 0 1px 2px rgba(0,0,0,.08), 0 1px 3px 1px rgba(0,0,0,.04);
   --shadow-2: 0 1px 2px rgba(0,0,0,.1), 0 2px 6px 2px rgba(0,0,0,.05);
 }
-@media (prefers-color-scheme: dark) {
-  :root {
-    --primary: #FFB1C8; --on-primary: #5E1133;
-    --primary-container: #7B294B; --on-primary-container: #FFD9E0;
-    --secondary-container: #5B4149; --on-secondary-container: #FFD9DE;
-    --tertiary-container: #6B5300; --on-tertiary-container: #FFE396;
-    --error: #FFB4AB; --error-container: #93000A; --on-error-container: #FFDAD6;
-    --surface: #171214; --on-surface: #ECE0E3; --on-surface-variant: #D0C2C6;
-    --sc-lowest: #120E10; --sc-low: #1F1A1C; --sc: #241F21; --sc-high: #2F292B; --sc-highest: #3A3436;
-    --outline: #998D91; --outline-variant: #4B3F42;
-    --inverse-surface: #ECE0E3; --inverse-on-surface: #352F30;
-    --blue-bg: #1F3E75; --blue-fg: #AECBFF;
-    --green-bg: #173B23; --green-fg: #9CD8AA;
-    --amber-bg: #54420A; --amber-fg: #F1CE7F;
-    --purple-bg: #4A3085; --purple-fg: #D0BCFF;
-    --pink-bg: #672739; --pink-fg: #FFB1C8;
-    --teal-bg: #0C4A58; --teal-fg: #8FD8EA;
-    --red-bg: #6A1B16; --red-fg: #FFB4AB;
-    --slate-bg: #2C2F36; --slate-fg: #C6CAD8;
-    --shadow-1: 0 1px 2px rgba(0,0,0,.5); --shadow-2: 0 2px 8px rgba(0,0,0,.55);
-  }
+/* The dark scheme rides a class on <html> rather than the OS media query, so
+   the Appearance switcher can force it — `system` is the media query resolved
+   into the same class by the head script before first paint. */
+html.dark {
+  color-scheme: dark;
+  --primary: #FFB1C8; --on-primary: #5E1133;
+  --primary-container: #7B294B; --on-primary-container: #FFD9E0;
+  --secondary-container: #5B4149; --on-secondary-container: #FFD9DE;
+  --tertiary-container: #6B5300; --on-tertiary-container: #FFE396;
+  --error: #FFB4AB; --error-container: #93000A; --on-error-container: #FFDAD6;
+  --surface: #171214; --on-surface: #ECE0E3; --on-surface-variant: #D0C2C6;
+  --sc-lowest: #120E10; --sc-low: #1F1A1C; --sc: #241F21; --sc-high: #2F292B; --sc-highest: #3A3436;
+  --outline: #998D91; --outline-variant: #4B3F42;
+  --inverse-surface: #ECE0E3; --inverse-on-surface: #352F30;
+  --blue-bg: #1F3E75; --blue-fg: #AECBFF;
+  --green-bg: #173B23; --green-fg: #9CD8AA;
+  --amber-bg: #54420A; --amber-fg: #F1CE7F;
+  --purple-bg: #4A3085; --purple-fg: #D0BCFF;
+  --pink-bg: #672739; --pink-fg: #FFB1C8;
+  --teal-bg: #0C4A58; --teal-fg: #8FD8EA;
+  --red-bg: #6A1B16; --red-fg: #FFB4AB;
+  --slate-bg: #2C2F36; --slate-fg: #C6CAD8;
+  --shadow-1: 0 1px 2px rgba(0,0,0,.5); --shadow-2: 0 2px 8px rgba(0,0,0,.55);
+}
+/* One switch, one repaint: while the class flips, colours and shadows ease
+   instead of snapping. The class is gone again within two frames — its own
+   transition removing itself from the equation — so it costs nothing later. */
+html.theme-switching, html.theme-switching *, html.theme-switching *::before, html.theme-switching *::after {
+  transition: background-color .22s var(--ease), background-position .22s var(--ease), background-size .22s var(--ease),
+    border-color .22s var(--ease), box-shadow .22s var(--ease), color .22s var(--ease),
+    fill .22s var(--ease), stroke .22s var(--ease), opacity .22s var(--ease) !important;
 }
 * { box-sizing: border-box; }
 html { scrollbar-color: var(--outline-variant) transparent; }
@@ -592,6 +622,35 @@ svg.i { width: 22px; height: 22px; flex: none; display: block; }
 .who-link:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
 .who-link > div { min-width: 0; }
 .who-link b, .who-link span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; display: block; }
+
+/* ---- appearance (night shift) ----
+   Ghost's own switcher lives in the account menu and offers Dark, Light and
+   System. Here it is a sun/moon button beside sign-out: the rail has no
+   account dropdown of its own, but the choice it offers is the same three,
+   kept per user in the accessibility JSON. */
+.rail-foot { position: relative; }
+.theme-menu > summary { list-style: none; }
+.theme-menu > summary::-webkit-details-marker { display: none; }
+/* the button shows the resolved scheme, not the preference: System on a dark
+   OS is a moon, and only flipping the class flips the glyph */
+.theme-menu > summary .t-moon { display: none; }
+html.dark .theme-menu > summary .t-moon { display: block; }
+html.dark .theme-menu > summary .t-sun { display: none; }
+/* the popover anchors to the rail foot — the whole row, not the 32px button —
+   so it can span the rail's width and still open inside it; the rail scrolls,
+   and a box hanging past its edge would grow a scrollbar */
+.theme-menu .pop { position: absolute; left: 0; right: 0; bottom: calc(100% + 10px); z-index: 45;
+  background: var(--sc-lowest); border: 1px solid var(--outline-variant); border-radius: 14px;
+  box-shadow: var(--shadow-2); padding: 6px; }
+.theme-menu .pop-title { margin: 6px 12px 8px; font-size: 11px; font-weight: 600; letter-spacing: .06em;
+  text-transform: uppercase; color: var(--on-surface-variant); }
+/* .menu-item elsewhere is an <a>; as a button it needs the chrome stripped */
+.theme-menu .menu-item { width: 100%; border: none; background: none; font: inherit; text-align: left;
+  cursor: pointer; }
+/* the leading glyph only — the check rides in .ck, whose transparent color
+   is what hides it on the unchosen rows */
+.theme-menu .menu-item > svg.i { width: 17px; height: 17px; color: var(--on-surface-variant); }
+.theme-menu .menu-item.on > svg.i { color: inherit; }
 
 .main { flex: 1; min-width: 0; }
 .content { max-width: 1120px; margin: 0 auto; padding: 0 24px 64px; }
@@ -1012,18 +1071,16 @@ code { font-family: var(--mono); }
 .tok-sel { color: #9B2A4A; }
 .tok-prp { color: #1D5FA8; }
 .tok-hed { color: #9B2A4A; font-weight: 700; }
-@media (prefers-color-scheme: dark) {
-  .tok-com { color: #8A95A6; }
-  .tok-str { color: #F0A67F; }
-  .tok-key { color: #DDA7F0; }
-  .tok-num { color: #7FD8BE; }
-  .tok-tag { color: #FF9FB6; }
-  .tok-atr { color: #E7C77A; }
-  .tok-mus { color: #9FC4FF; }
-  .tok-sel { color: #FF9FB6; }
-  .tok-prp { color: #9FC4FF; }
-  .tok-hed { color: #FF9FB6; }
-}
+html.dark .tok-com { color: #8A95A6; }
+html.dark .tok-str { color: #F0A67F; }
+html.dark .tok-key { color: #DDA7F0; }
+html.dark .tok-num { color: #7FD8BE; }
+html.dark .tok-tag { color: #FF9FB6; }
+html.dark .tok-atr { color: #E7C77A; }
+html.dark .tok-mus { color: #9FC4FF; }
+html.dark .tok-sel { color: #FF9FB6; }
+html.dark .tok-prp { color: #9FC4FF; }
+html.dark .tok-hed { color: #FF9FB6; }
 
 /* ---- analytics: stat tiles + chart ---- */
 .tiles { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 12px; }
@@ -1739,7 +1796,7 @@ dialog.unsplash button:focus-visible, .u-chip:focus-visible { outline: 2px solid
 .post-row-chip.draft { color: var(--primary); }
 .post-row-chip.scheduled { color: var(--green-fg); }
 .post-row-chip.published, .post-row-chip.sent { color: var(--on-surface-variant); }
-@media (prefers-color-scheme: dark) { .post-row-chip.scheduled { color: var(--green-fg); } }
+html.dark .post-row-chip.scheduled { color: var(--green-fg); }
 .post-row-detail { font-size: 11.8px; color: var(--on-surface-variant); opacity: .8;
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
 
@@ -1979,9 +2036,7 @@ body:has(.row-check input[name="ids"]:checked) .batch-bar {
 .content:has(.post-list)::after { content: ""; position: fixed; inset: 0; pointer-events: none;
   z-index: 0; opacity: .03; mix-blend-mode: multiply;
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='3'/%3E%3C/filter%3E%3Crect width='140' height='140' filter='url(%23n)'/%3E%3C/svg%3E"); }
-@media (prefers-color-scheme: dark) {
-  .content:has(.post-list)::after { mix-blend-mode: screen; opacity: .045; }
-}
+html.dark .content:has(.post-list)::after { mix-blend-mode: screen; opacity: .045; }
 .content:has(.post-list) > * { position: relative; z-index: 1; }
 
 /* No fill on the sticky header here. Elsewhere its translucent surface is
@@ -2115,6 +2170,28 @@ dialog .d-actions { display: flex; justify-content: flex-end; gap: 8px; }
 
 /// Tiny progressive-enhancement script: confirm dialogs, list filtering,
 /// copy-to-clipboard with a snackbar. Everything works without it too.
+/// Runs in <head>, before the stylesheet: the whole of dark mode keys off a
+/// `dark` class on <html>, and this settles whose choice that is — the stored
+/// preference verbatim, or the OS when the choice is `system` — before
+/// anything is painted. Left callable on `window` so the Appearance menu can
+/// re-resolve after a pick without duplicating the rule.
+const THEME_JS: &str = r#"
+(function () {
+  var root = document.documentElement;
+  var media = window.matchMedia ? window.matchMedia('(prefers-color-scheme: dark)') : null;
+  window.ghostApplyTheme = function () {
+    var choice = root.dataset.theme;
+    root.classList.toggle('dark', choice === 'dark' || (choice === 'system' && !!media && media.matches));
+  };
+  window.ghostApplyTheme();
+  if (media) {
+    var onChange = function () { if (root.dataset.theme === 'system') window.ghostApplyTheme(); };
+    if (media.addEventListener) media.addEventListener('change', onChange);
+    else if (media.addListener) media.addListener(onChange);
+  }
+})();
+"#;
+
 const JS: &str = r#"
 (function () {
   document.querySelectorAll('[data-brand-image]').forEach(function (row) {
@@ -2717,7 +2794,101 @@ const JS: &str = r#"
     });
   });
 })();
+
+(function () {
+  // The Appearance menu in the rail foot. A pick switches immediately and
+  // saves in the background; a save that fails is rolled back, the way
+  // Ghost's night shift does, rather than leaving the screen and the stored
+  // preference disagreeing until the next page load.
+  var menu = document.querySelector('.theme-menu');
+  if (!menu || !window.ghostApplyTheme) return;
+  var root = document.documentElement;
+  var switching = null;
+  function mark(choice) {
+    menu.querySelectorAll('[data-choice]').forEach(function (row) {
+      row.classList.toggle('on', row.dataset.choice === choice);
+    });
+  }
+  function settle() {
+    // Two frames, Ghost's own cadence: the first lands the new colours, the
+    // second has the transitions under way, so lifting the class cannot cut
+    // them short.
+    if (switching) cancelAnimationFrame(switching);
+    switching = requestAnimationFrame(function () {
+      switching = requestAnimationFrame(function () {
+        root.classList.remove('theme-switching');
+        switching = null;
+      });
+    });
+  }
+  menu.addEventListener('click', function (e) {
+    var row = e.target.closest('[data-choice]');
+    if (!row) return;
+    var choice = row.dataset.choice;
+    var previous = root.dataset.theme;
+    if (choice === previous) { menu.removeAttribute('open'); return; }
+    root.classList.add('theme-switching');
+    root.dataset.theme = choice;
+    window.ghostApplyTheme();
+    mark(choice);
+    menu.removeAttribute('open');
+    fetch(menu.dataset.save, {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ theme: choice })
+    }).then(function (response) {
+      if (!response.ok) throw new Error('save failed');
+      mark(choice);
+    }).catch(function () {
+      root.classList.add('theme-switching');
+      root.dataset.theme = previous;
+      window.ghostApplyTheme();
+      mark(previous);
+    }).then(settle, settle);
+  });
+})();
 "#;
+
+/// The dashboard appearance a user chose — Ghost's "night shift": `light`,
+/// `dark` or `system`, kept in that user's `accessibility` JSON.
+///
+/// Ghost migrated this field from an on/off boolean (`true` was dark), so both
+/// shapes are read; anything missing or unreadable is light, which is Ghost's
+/// own default rather than the OS.
+fn night_shift(user: Option<&ghost_core::models::User>) -> &'static str {
+    let raw = user.and_then(|u| u.accessibility.as_deref());
+    let Ok(value) = raw
+        .map(serde_json::from_str::<serde_json::Value>)
+        .unwrap_or_else(|| Ok(serde_json::Value::Null))
+    else {
+        return "light";
+    };
+    match value.get("nightShift") {
+        Some(serde_json::Value::String(s)) => match s.as_str() {
+            "dark" => "dark",
+            "system" => "system",
+            _ => "light",
+        },
+        Some(serde_json::Value::Bool(true)) => "dark",
+        _ => "light",
+    }
+}
+
+/// Fold a night-shift choice into the accessibility JSON, keeping every other
+/// key — the blob is Ghost's, not ours, and its other keys can grow meaning
+/// upstream at any time.
+fn merge_night_shift(existing: Option<&str>, theme: &str) -> String {
+    let mut map = existing
+        .and_then(|raw| serde_json::from_str::<serde_json::Value>(raw).ok())
+        .and_then(|value| match value {
+            serde_json::Value::Object(map) => Some(map),
+            _ => None,
+        })
+        .unwrap_or_default();
+    map.insert("nightShift".into(), serde_json::json!(theme));
+    serde_json::Value::Object(map).to_string()
+}
 
 /// Side navigation. `active` is the nav key of the current page ("" for none),
 /// `user` supplies the account block at the bottom of the rail.
@@ -2795,12 +2966,42 @@ fn rail(active: &str, user: Option<&ghost_core::models::User>, role: Role) -> St
         ),
         None => who_inner,
     };
+    // Ghost's appearance switcher offers Dark, Light and System from the
+    // account menu and keeps the choice per user. Same trio, same per-user
+    // home in the accessibility JSON — only the venue differs, a button
+    // beside sign-out, because this rail has no account dropdown.
+    let shift = night_shift(user);
+    let options: String = [("dark", "Dark", "moon"), ("light", "Light", "sun"), ("system", "System", "monitor")]
+        .iter()
+        .map(|(value, label, glyph)| {
+            format!(
+                r#"<button type="button" class="menu-item{on}" data-choice="{value}">{icon} {label}<span class="ck">{check}</span></button>"#,
+                on = if *value == shift { " on" } else { "" },
+                icon = svg_stroke(glyph),
+                label = label,
+                check = svg("check"),
+                value = value,
+            )
+        })
+        .collect();
+    let appearance = format!(
+        r#"<details class="theme-menu" data-menu data-save="/ghost/appearance/">
+<summary class="icon-btn" title="Appearance">{sun}{moon}</summary>
+<div class="pop">
+<p class="pop-title">Appearance</p>{options}
+</div>
+</details>"#,
+        sun = svg_stroke("sun"),
+        moon = svg_stroke("moon"),
+        options = options,
+    );
     format!(
         r#"<aside class="rail">
 <a class="brand" href="/ghost/analytics/" title="{site_name}">{brand_mark}</a>
 <div class="nav-scroll">{links}</div>
 <div class="rail-foot">
 <div class="who">{who}
+{appearance}
 <a class="icon-btn" href="/ghost/signout/" title="Sign out">{logout}</a></div>
 </div>
 </aside>"#,
@@ -2808,6 +3009,7 @@ fn rail(active: &str, user: Option<&ghost_core::models::User>, role: Role) -> St
         site_name = esc(&admin_site_name()),
         links = links,
         who = who,
+        appearance = appearance,
         logout = svg("logout"),
     )
 }
@@ -2833,13 +3035,22 @@ fn page_for(title: &str, active: &str, user: Option<&ghost_core::models::User>, 
     } else {
         format!(r#"<div class="content" style="max-width:640px;padding-top:40px">{body}</div>"#)
     };
+    // Dark renders with the class already on <html>, so a forced-dark user
+    // never sees a light flash; `system` is the only choice the server cannot
+    // resolve, and the head script settles it before the first paint.
+    let theme = night_shift(user);
+    let dark = if theme == "dark" { r#" class="dark""# } else { "" };
     Html(format!(
-        r#"<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+        r#"<!DOCTYPE html><html{dark} data-theme="{theme}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<script>{theme_js}</script>
 <title>{title} — {site_name}</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='%23984059'%3E%3Cpath d='M12 2a8 8 0 0 0-8 8v10.6c0 .7.85 1.05 1.35.55l1.9-1.9 2.2 2.2c.3.3.78.3 1.08 0L12 20l1.47 1.45c.3.3.78.3 1.08 0l2.2-2.2 1.9 1.9c.5.5 1.35.15 1.35-.55V10a8 8 0 0 0-8-8z'/%3E%3C/svg%3E">
 <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700&family=Fraunces:opsz,wght@9..144,500..700&family=Roboto+Mono:wght@400;500&display=swap">
 <style>{css}</style></head><body>{shell}<script>{js}</script><script src="{assets}/publishing-workflows.js" defer></script></body></html>"#,
+        dark = dark,
+        theme = theme,
+        theme_js = THEME_JS,
         title = esc(title),
         site_name = esc(&admin_site_name()),
         css = CSS,
@@ -3421,6 +3632,39 @@ async fn logout(State(state): State<AppState>, headers: HeaderMap) -> Response {
         format!("ghost-admin-api-session=; Path={}/ghost; HttpOnly; SameSite=Lax; Max-Age=0", ghost_core::url::subdir()).parse().unwrap(),
     );
     resp
+}
+
+/// Saves the Appearance choice from the rail — Ghost's night shift. Every
+/// signed-in staff user carries their own, like Ghost's, so this needs a
+/// session but no role above the entry one. The JSON body is `{"theme":
+/// "light" | "dark" | "system"}`; anything else is a 400 rather than being
+/// guessed at, because a bad value would sit in the JSON silently colouring
+/// every future page wrong.
+async fn appearance_save(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    axum::Json(body): axum::Json<serde_json::Value>,
+) -> Response {
+    let actor = match require_actor(&state, &headers).await {
+        Ok(actor) => actor,
+        Err(response) => return response,
+    };
+    let Some(theme) = body["theme"].as_str().filter(|t| ["light", "dark", "system"].contains(t)) else {
+        return (
+            StatusCode::BAD_REQUEST,
+            axum::Json(serde_json::json!({"errors":[{"message":"theme must be light, dark or system","errorType":"ValidationError"}]})),
+        )
+            .into_response();
+    };
+    let merged = merge_night_shift(actor.user.accessibility.as_deref(), theme);
+    match repos::users::set_accessibility(&state.db, &actor.user.id, &merged).await {
+        Ok(()) => (StatusCode::OK, axum::Json(serde_json::json!({"theme": theme}))).into_response(),
+        Err(e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            axum::Json(serde_json::json!({"errors":[{"message": e.to_string(), "errorType": "InternalServerError"}]})),
+        )
+            .into_response(),
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -7484,7 +7728,7 @@ html {{ font-size: 62.5%; }}
 /// editor (and a word count that never counts) until its cache expired.
 macro_rules! koenig_version {
     () => {
-        "1.8.22"
+        "1.8.26"
     };
 }
 const KOENIG_VERSION: &str = koenig_version!();
@@ -11011,7 +11255,7 @@ const SETTINGS_GROUPS: &[SettingsGroup] = &[
     // This port's own feature, so it has no Ghost sidebar slot to mirror; it
     // sits with Membership because it is the other thing readers (and agents)
     // can be charged for.
-    SettingsGroup { slug: "machine-payments", title: "Machine payments", icon: "integrations", tint: "pink", items: &["Pricing", "Stripe cards & Link", "Stablecoins", "Payment activity"] },
+    SettingsGroup { slug: "machine-payments", title: "Machine payments", icon: "integrations", tint: "pink", items: &["Access", "Pricing", "Stripe cards & Link", "Stablecoins", "Payment activity"] },
     SettingsGroup { slug: "email", title: "Email", icon: "mail", tint: "blue", items: &["Transactional email", "SMTP server", "Sender identity", "Send a test"] },
     SettingsGroup { slug: "newsletters", title: "Newsletters", icon: "send", tint: "purple", items: &["Newsletter sending", "Default recipients", "Mailgun", "Region"] },
     SettingsGroup { slug: "growth", title: "Growth", icon: "globe", tint: "slate", items: &["Network", "Ghost Explore", "Recommendations", "Signup forms", "Offers"] },
@@ -11099,11 +11343,13 @@ const SETTINGS_INDEX: &[(&str, &str, &str)] = &[
     ("membership", "Spam filters", "Blocked email domains"),
     ("membership", "Custom fields", "Field name"),
     ("membership", "Custom fields", "Member access"),
+    ("machine-payments", "Access", "Paid Markdown access"),
     ("machine-payments", "Pricing", "Price per article"),
     ("machine-payments", "Pricing", "Currency"),
     ("machine-payments", "Stripe cards & Link", "Stripe business network profile ID"),
     ("machine-payments", "Stablecoins", "Tempo USDC"),
     ("machine-payments", "Stablecoins", "Base USDC"),
+    ("machine-payments", "Stablecoins", "Settlement network"),
     ("machine-payments", "Stablecoins", "Deposit addresses"),
     ("machine-payments", "Payment activity", "Recent payment attempts"),
     ("growth", "Offers", "Discount code"),
@@ -14765,7 +15011,10 @@ addresses like <code>hello@spam.xyz</code>. Members who already signed up are no
         &format!(
             r#"{head}{banner}
 <form method="post" action="/ghost/settings/membership/" id="membership-form"></form>
-<div class="card"><a class="row" href="/ghost/settings/checkout/"><div class="body"><span class="title">Checkout design</span><span class="desc">Customize colors, typography and button corners for paid signups.</span></div></a></div>
+<div class="section">Checkout</div>
+<div class="card rows rise" style="--i:0"><a class="row" href="/ghost/settings/checkout/"><span class="ic tint-pink">{palette}</span>
+<div class="body"><span class="title">Checkout design</span><span class="detail">Colours, typography and button corners for paid signups</span></div>
+<div class="trailing">{chev}</div></a></div>
 <div class="section">Access</div>
 <div class="card rows rise" style="--i:1">
 <div class="row"><span class="ic tint-amber">{private_ic}</span>
@@ -14902,6 +15151,7 @@ engines and asks every visitor for one shared access code.</p>
             ),
             title_ic = svg("title"),
             palette = svg("themes"),
+            chev = svg("chevron"),
             notes = svg("notes"),
             signup_text = s("portal_button_signup_text"),
             icon = s("portal_button_icon"),
@@ -20419,7 +20669,7 @@ async fn unsplash_save(
 
 #[cfg(test)]
 mod tests {
-    use super::{member_batch_bar, recommendation_title, recommendation_url};
+    use super::{member_batch_bar, merge_night_shift, night_shift, page_for, recommendation_title, recommendation_url, rail};
 
     /// The same trap the posts bar had: the remove-label radios are
     /// `required` and share the form with every other action, so without
@@ -20436,6 +20686,69 @@ mod tests {
             );
         }
         assert!(bar.contains(r#"type="submit" name="action" value="remove_label""#), "{bar}");
+    }
+
+    /// A user with the given accessibility blob, the way a signed-in page
+    /// would see them.
+    fn user_with(accessibility: Option<&str>) -> ghost_core::models::User {
+        let mut user = ghost_core::models::User::default();
+        user.accessibility = accessibility.map(str::to_string);
+        user
+    }
+
+    /// Ghost's own rules for the stored preference: absent and unreadable are
+    /// light (not the OS), the pre-string boolean shape still reads, and only
+    /// the three real choices survive.
+    #[test]
+    fn night_shift_reads_ghosts_shapes_and_defaults_to_light() {
+        assert_eq!(night_shift(None), "light");
+        assert_eq!(night_shift(Some(&user_with(None))), "light");
+        assert_eq!(night_shift(Some(&user_with(Some("not json")))), "light");
+        assert_eq!(night_shift(Some(&user_with(Some(r#"{}"#)))), "light");
+        assert_eq!(night_shift(Some(&user_with(Some(r#"{"nightShift":"neon"}"#)))), "light");
+        assert_eq!(night_shift(Some(&user_with(Some(r#"{"nightShift":"dark"}"#)))), "dark");
+        assert_eq!(night_shift(Some(&user_with(Some(r#"{"nightShift":"system"}"#)))), "system");
+        // the shape Ghost migrated away from
+        assert_eq!(night_shift(Some(&user_with(Some(r#"{"nightShift":true}"#)))), "dark");
+        assert_eq!(night_shift(Some(&user_with(Some(r#"{"nightShift":false}"#)))), "light");
+    }
+
+    /// The blob is shared with Ghost, so a save must only ever touch its own
+    /// key — both directions: keep what is there, and start one when the
+    /// column has never been written.
+    #[test]
+    fn merging_night_shift_leaves_the_rest_of_the_blob_alone() {
+        assert_eq!(merge_night_shift(None, "dark"), r#"{"nightShift":"dark"}"#);
+        let merged = merge_night_shift(Some(r#"{"nightShift":"light","whatsNew":"1.0"}"#), "system");
+        let parsed: serde_json::Value = serde_json::from_str(&merged).unwrap();
+        assert_eq!(parsed["nightShift"], "system");
+        assert_eq!(parsed["whatsNew"], "1.0", "{merged}");
+    }
+
+    /// The document has to open already settled: a dark user gets the class
+    /// from the server, everything else carries its choice as data-theme for
+    /// the head script, and the rail offers all three options with the right
+    /// one marked.
+    #[test]
+    fn the_page_opens_on_the_user_s_scheme_and_offers_to_change_it() {
+        let dark = page_for("Posts", "posts", Some(&user_with(Some(r#"{"nightShift":"dark"}"#))), super::Role::Contributor, "", true).0;
+        assert!(dark.contains(r#"<html class="dark" data-theme="dark">"#), "{dark}");
+        assert!(dark.contains(r#"class="menu-item on" data-choice="dark""#), "{dark}");
+
+        let light = page_for("Posts", "posts", Some(&user_with(Some(r#"{"nightShift":"light"}"#))), super::Role::Contributor, "", true).0;
+        assert!(light.contains(r#"<html data-theme="light">"#), "{light}");
+
+        let system = page_for("Posts", "posts", Some(&user_with(Some(r#"{"nightShift":"system"}"#))), super::Role::Contributor, "", true).0;
+        assert!(system.contains(r#"<html data-theme="system">"#), "{system}");
+        // no preference yet: Ghost's default is light, never the OS
+        let fresh = page_for("Posts", "posts", Some(&user_with(None)), super::Role::Contributor, "", true).0;
+        assert!(fresh.contains(r#"<html data-theme="light">"#), "{fresh}");
+
+        // the switcher itself: three choices, saving where the handler lives
+        let menu = rail("posts", Some(&user_with(Some(r#"{"nightShift":"system"}"#))), super::Role::Contributor);
+        assert!(menu.contains(r#"data-save="/ghost/appearance/""#), "{menu}");
+        assert_eq!(menu.matches("data-choice=").count(), 3, "{menu}");
+        assert!(menu.contains(r#"class="menu-item on" data-choice="system""#), "{menu}");
     }
 
     #[tokio::test]
@@ -22284,9 +22597,11 @@ async fn machine_payments_page(State(state):State<AppState>,headers:HeaderMap)->
     let actor=match require_role(&state,&headers,Role::Administrator).await{Ok(actor)=>actor,Err(response)=>return response};
     let group=SETTINGS_GROUPS.iter().find(|g|g.slug=="machine-payments").unwrap();
     page_for_role(actor.role,"Machine payments","settings",Some(&actor.user),&format!(
-        r#"{head}<div class="card padded" id="machine-payments"><p role="status">Loading payment settings…</p></div><script src="{assets}/machine-payments.js" defer></script>"#,
+        r#"{head}<div id="machine-payments"><div class="card padded"><p class="muted" role="status" style="margin:0">Loading payment settings…</p></div></div><script src="{assets}/machine-payments.js" defer></script>"#,
         // No header Save button: the form the JS builds carries its own, and
         // saving has to run through the JSON API rather than a form POST.
+        // The host is a bare container because the page builds its own
+        // section cards — a card around all of them nests one inside another.
         head=group_head(group,None),
         assets=ASSETS,
     ),true).into_response()
@@ -22294,7 +22609,7 @@ async fn machine_payments_page(State(state):State<AppState>,headers:HeaderMap)->
 
 async fn checkout_design_page(State(state):State<AppState>,headers:HeaderMap)->Response {
     let actor=match require_role(&state,&headers,Role::Administrator).await {Ok(actor)=>actor,Err(response)=>return response};
-    page_for_role(actor.role,"Checkout design","settings",Some(&actor.user),&format!(r#"<header class="page-head"><div><h1>Checkout design</h1><p class="sub">Style the payment page for paid memberships</p></div></header><div class="card padded" id="checkout-design"><p role="status">Loading checkout design…</p></div><script src="{assets}/checkout-design.js" defer></script>"#, assets = ASSETS),true).into_response()
+    page_for_role(actor.role,"Checkout design","settings",Some(&actor.user),&format!(r#"<header class="page-head"><div><h1>Checkout design</h1><p class="sub">Style the payment page for paid memberships</p></div></header><div id="checkout-design"><div class="card padded"><p role="status">Loading checkout design…</p></div></div><script src="{assets}/checkout-design.js" defer></script>"#, assets = ASSETS),true).into_response()
 }
 
 // ---------------------------------------------------------------------------

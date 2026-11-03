@@ -29,8 +29,26 @@ async fn read(State(state): State<AppState>, headers: HeaderMap) -> Response {
         return r;
     }
     let config = Config::load(&state);
-    let methods = json!({"stripe":!config.stripe_profile_id.is_empty()&&config.amount>=50,"tempo":config.tempo_enabled&&config::address(&state,"tempo").is_some(),"x402":x402::requirement(&state,&config).is_some()});
-    ([("cache-control","private, no-store")],Json(json!({"machine_payments":config,"methods":methods,"deposit_addresses":{"base":config::address(&state,"base"),"tempo":config::address(&state,"tempo")},"stripe_connected":ghost_stripe::StripeConfig::from_settings(&state.settings).is_some()}))).into_response()
+    let stripe = ghost_stripe::StripeConfig::from_settings(&state.settings);
+    // Everything `serve` checks before it will issue a challenge, so the page
+    // can name the one thing that is missing instead of leaving the owner to
+    // probe a paid `.md` URL and guess.
+    let eligible: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM posts WHERE status = 'published' AND visibility IN ('paid','tiers')",
+    )
+    .fetch_one(&state.db)
+    .await
+    .unwrap_or(0);
+    ([("cache-control", "private, no-store")], Json(json!({
+        "machine_payments": config,
+        "methods": method_status(&state, &config),
+        "deposit_addresses": {"base": config::address(&state, "base"), "tempo": config::address(&state, "tempo")},
+        "stripe_connected": stripe.is_some(),
+        "stripe_mode": stripe.as_ref().map(|stripe| if stripe.is_live() { "live" } else { "test" }),
+        "is_private": state.settings.get_bool("is_private"),
+        "llms_enabled": state.settings.get_bool("llms_enabled"),
+        "eligible_posts": eligible,
+    }))).into_response()
 }
 async fn save(
     State(state): State<AppState>,
@@ -99,20 +117,29 @@ async fn save(
             return failure(e);
         }
     }
+    // The lab flag tracks the switch in both directions: left behind on a
+    // disable it would read as on in Settings → Labs while nothing is served.
+    let mut labs = state
+        .settings
+        .get("labs")
+        .and_then(|value| value.as_object().cloned())
+        .unwrap_or_default();
     if config.enabled {
-        let mut labs = state
-            .settings
-            .get("labs")
-            .and_then(|value| value.as_object().cloned())
-            .unwrap_or_default();
         labs.insert("machinePayments".into(), json!(true));
-        if let Err(e) = state
-            .settings
-            .set(&state.db, "labs", &Value::Object(labs))
-            .await
-        {
-            return failure(e);
-        }
+    } else {
+        labs.remove("machinePayments");
+    }
+    if let Err(e) = state
+        .settings
+        .set(&state.db, "labs", &Value::Object(labs))
+        .await
+    {
+        return failure(e);
+    }
+    // Markdown delivery is what is being sold, so enabling implies the `.md`
+    // representation is on. Disabling does not switch it back off: the LLM
+    // feed is useful on its own and may have been on first.
+    if config.enabled {
         if let Err(e) = state
             .settings
             .set(&state.db, "llms_enabled", &json!(true))
@@ -160,11 +187,16 @@ async fn deposit(
         else {
             return failure(bad("Stripe returned no valid deposit address"));
         };
-        let mut map = state
-            .settings
-            .get("machine_payments_deposit_address")
-            .and_then(|v| v.as_object().cloned())
-            .unwrap_or_default();
+        // Keep whichever addresses are already stored, reading both shapes
+        // `config::address` accepts — a row written before the map existed
+        // holds a bare Tempo address as a string, and dropping it here would
+        // orphan funds already pointed at it.
+        let mut map = serde_json::Map::new();
+        for other in ["base", "tempo"] {
+            if let Some(existing) = config::address(&state, other) {
+                map.insert(other.into(), json!(existing));
+            }
+        }
         map.insert(network.into(), json!(address));
         if let Err(e) = state
             .settings
@@ -184,6 +216,22 @@ async fn payments(State(state): State<AppState>, headers: HeaderMap) -> Response
     if let Err(r) = authorize(&state, &headers).await {
         return r;
     }
-    let rows=sqlx::query_as::<_,(String,String,String,i64,String,String,Option<String>,String)>("SELECT post_id,protocol,method,amount,currency,status,reference,created_at FROM machine_payment_attempts ORDER BY created_at DESC LIMIT 100").fetch_all(&state.db).await.unwrap_or_default();
-    ([("cache-control","private, no-store")],Json(json!({"payments":rows.into_iter().map(|(post_id,protocol,method,amount,currency,status,reference,created_at)|json!({"post_id":post_id,"protocol":protocol,"method":method,"amount":amount,"currency":currency,"status":status,"reference":reference,"created_at":created_at})).collect::<Vec<_>>()}))).into_response()
+    // The article's title comes along because a bare 24-character post id is
+    // not something an owner can read an activity list by. Left join: an
+    // attempt outlives the post it paid for.
+    let rows = sqlx::query_as::<_, (String, Option<String>, String, String, i64, String, String, Option<String>, String)>(
+        "SELECT a.post_id, p.title, a.protocol, a.method, a.amount, a.currency, a.status, a.reference, a.created_at \
+         FROM machine_payment_attempts a LEFT JOIN posts p ON p.id = a.post_id \
+         ORDER BY a.created_at DESC LIMIT 100",
+    )
+    .fetch_all(&state.db)
+    .await
+    .unwrap_or_default();
+    ([("cache-control", "private, no-store")], Json(json!({"payments": rows.into_iter().map(
+        |(post_id, title, protocol, method, amount, currency, status, reference, created_at)| json!({
+            "post_id": post_id, "title": title, "protocol": protocol, "method": method,
+            "amount": amount, "currency": currency, "status": status,
+            "reference": reference, "created_at": created_at,
+        }),
+    ).collect::<Vec<_>>()}))).into_response()
 }

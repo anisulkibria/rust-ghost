@@ -223,6 +223,7 @@ pub(crate) struct UserRow {
     pub visibility: Option<String>,
     pub meta_title: Option<String>,
     pub meta_description: Option<String>,
+    pub accessibility: Option<String>,
     pub last_seen: Option<String>,
     pub created_at: Option<String>,
     pub updated_at: Option<String>,
@@ -237,7 +238,7 @@ pub(crate) struct UserRow {
     pub gift_subscription_notifications: bool,
 }
 
-pub(crate) const USER_COLS: &str = "id, name, slug, password, email, profile_image, cover_image, bio, website, location, facebook, twitter, threads, bluesky, mastodon, tiktok, youtube, instagram, linkedin, status, visibility, meta_title, meta_description, last_seen, created_at, updated_at, comment_notifications, free_member_signup_notification, paid_subscription_started_notification, paid_subscription_canceled_notification, mention_notifications, recommendation_notifications, milestone_notifications, donation_notifications, gift_subscription_notifications";
+pub(crate) const USER_COLS: &str = "id, name, slug, password, email, profile_image, cover_image, bio, website, location, facebook, twitter, threads, bluesky, mastodon, tiktok, youtube, instagram, linkedin, status, visibility, meta_title, meta_description, accessibility, last_seen, created_at, updated_at, comment_notifications, free_member_signup_notification, paid_subscription_started_notification, paid_subscription_canceled_notification, mention_notifications, recommendation_notifications, milestone_notifications, donation_notifications, gift_subscription_notifications";
 
 impl From<UserRow> for User {
     fn from(r: UserRow) -> Self {
@@ -270,7 +271,7 @@ impl From<UserRow> for User {
             last_seen: r.last_seen,
             created_at: r.created_at,
             updated_at: r.updated_at,
-            accessibility: None,
+            accessibility: r.accessibility,
             comment_notifications: r.comment_notifications,
             free_member_signup_notification: r.free_member_signup_notification,
             paid_subscription_started_notification: r.paid_subscription_started_notification,

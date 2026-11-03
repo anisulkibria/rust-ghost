@@ -97,6 +97,100 @@ fn install_crypto() {
         let _ = rustls::crypto::ring::default_provider().install_default();
     }
 }
+/// Whether each payment method can actually take money, and what is missing
+/// when it cannot.
+///
+/// `machine_payments_enabled` on its own serves nothing: `serve` bails unless
+/// at least one method is constructible, and each one carries prerequisites the
+/// switch says nothing about — a Stripe business network profile, a deposit
+/// address, a settlement network that agrees with the Stripe key's mode. The
+/// settings screen reads this so the switch cannot read as on while every
+/// method is quietly unavailable, which is otherwise only discoverable by
+/// requesting a paid `.md` URL and getting no challenge back.
+pub(crate) fn method_status(state: &AppState, config: &Config) -> Value {
+    let stripe = ghost_stripe::StripeConfig::from_settings(&state.settings);
+    let connected = stripe.is_some();
+    let live_keys = stripe.as_ref().is_some_and(|stripe| stripe.is_live());
+    let secret = config::secret(state).is_some();
+    let state_of = |enabled: bool, reason: Option<&str>| {
+        json!({"enabled":enabled,"live":enabled&&reason.is_none(),"reason":reason})
+    };
+    // Stripe cards are gated on the profile ID rather than a switch of their
+    // own, so an empty profile is "off" and not "misconfigured".
+    let card = if config.stripe_profile_id.is_empty() {
+        state_of(false, Some("Add your Stripe business network profile ID."))
+    } else if !connected {
+        state_of(true, Some("Connect Stripe in Membership settings first."))
+    } else if config.amount < 50 {
+        state_of(
+            true,
+            Some("Card payments need a price of at least 0.50 in this currency."),
+        )
+    } else if !secret {
+        state_of(true, Some("Save once to create the challenge signing key."))
+    } else {
+        state_of(
+            true,
+            stripe_method(state, config)
+                .ok()
+                .flatten()
+                .is_none()
+                .then_some("Stripe card payments could not be prepared."),
+        )
+    };
+    let tempo = if !config.tempo_enabled {
+        state_of(false, None)
+    } else if !connected {
+        state_of(true, Some("Connect Stripe in Membership settings first."))
+    } else if config::address(state, "tempo").is_none() {
+        state_of(true, Some("Create a Tempo deposit address below."))
+    } else if live_keys == config.tempo_testnet {
+        state_of(
+            true,
+            Some(if config.tempo_testnet {
+                "Tempo testnet needs Stripe test keys."
+            } else {
+                "Tempo mainnet needs Stripe live keys."
+            }),
+        )
+    } else if !secret {
+        state_of(true, Some("Save once to create the challenge signing key."))
+    } else {
+        state_of(
+            true,
+            tempo_method(state, config)
+                .ok()
+                .flatten()
+                .is_none()
+                .then_some("Tempo payments could not be prepared."),
+        )
+    };
+    let mainnet = config.x402_network == "eip155:8453";
+    let x402 = if !config.x402_enabled {
+        state_of(false, None)
+    } else if !connected {
+        state_of(true, Some("Connect Stripe in Membership settings first."))
+    } else if live_keys != mainnet {
+        state_of(
+            true,
+            Some(if mainnet {
+                "Base mainnet needs Stripe live keys."
+            } else {
+                "Base Sepolia needs Stripe test keys."
+            }),
+        )
+    } else if config::address(state, "base").is_none() {
+        state_of(true, Some("Create a Base deposit address below."))
+    } else {
+        state_of(
+            true,
+            x402::requirement(state, config)
+                .is_none()
+                .then_some("x402 payments could not be prepared."),
+        )
+    };
+    json!({"stripe":card,"tempo":tempo,"x402":x402})
+}
 fn stripe_options<'a>(post: &'a Post, scope: &'a Value) -> mpp::server::StripeChargeOptions<'a> {
     mpp::server::StripeChargeOptions {
         external_id: Some(&post.id),

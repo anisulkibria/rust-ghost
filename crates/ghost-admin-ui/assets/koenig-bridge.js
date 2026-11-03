@@ -308,7 +308,7 @@
           fileUploader: integrations.fileUploader,
           cardConfig: integrations.useCardConfig(),
           onError: function (error) { console.error(error); },
-          darkMode: window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches,
+          darkMode: document.documentElement.classList.contains('dark'),
           isTKEnabled: false
         },
         e(Koenig.KoenigEditor, {

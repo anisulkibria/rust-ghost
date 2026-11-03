@@ -301,6 +301,21 @@ pub async fn update_last_seen(pool: &SqlitePool, id: &str) -> Result<()> {
     Ok(())
 }
 
+/// Replace the `accessibility` JSON blob wholesale. The caller merges — this
+/// only writes — so a preference save can never clobber the other keys Ghost
+/// keeps in there.
+pub async fn set_accessibility(pool: &SqlitePool, id: &str, accessibility: &str) -> Result<()> {
+    let now = dates::now_db();
+    sqlx::query("UPDATE users SET accessibility = ?, updated_at = ? WHERE id = ?")
+        .bind(accessibility)
+        .bind(&now)
+        .bind(id)
+        .execute(pool)
+        .await
+        .map_err(|e| ghost_core::GhostError::Db(e.to_string()))?;
+    Ok(())
+}
+
 pub async fn verify_password(pool: &SqlitePool, email: &str, password: &str) -> Result<Option<User>> {
     let Some(user) = find_by_email(pool, email).await? else { return Ok(None) };
     if user.status.as_deref() != Some("active") {
