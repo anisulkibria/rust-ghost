@@ -71,8 +71,11 @@ fn grant(state: &AppState, submitted: &str) -> Option<String> {
     }
     let salt = ghost_core::ids::random_hex(8);
     let token = hash_code(&code, &salt);
+    // `Secure` on an https site: this cookie is the whole of a private site's
+    // access control, and over cleartext it is readable by anyone on the path.
+    let secure = if state.site_url().starts_with("https://") { "; Secure" } else { "" };
     Some(format!(
-        "{COOKIE}={salt}.{token}; Path={}/; HttpOnly; SameSite=Lax; Max-Age={MAX_AGE_SECS}",
+        "{COOKIE}={salt}.{token}; Path={}/; HttpOnly; SameSite=Lax; Max-Age={MAX_AGE_SECS}{secure}",
         ghost_core::url::subdir(),
     ))
 }

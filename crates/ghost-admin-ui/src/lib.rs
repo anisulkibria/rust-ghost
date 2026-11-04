@@ -564,7 +564,7 @@ svg.i { width: 22px; height: 22px; flex: none; display: block; }
 
 /* ---- shell: nav rail + content ---- */
 .shell { display: flex; min-height: 100vh; }
-.rail { width: 196px; flex: none; padding: 8px 10px 12px; display: flex; flex-direction: column; gap: 2px;
+.rail { width: 240px; flex: none; padding: 8px 10px 12px; display: flex; flex-direction: column; gap: 2px;
   background: var(--sc-low); position: sticky; top: 0; height: 100vh; overflow-y: auto;
   scrollbar-width: thin; scrollbar-color: var(--outline-variant) transparent;
   border-right: 1px solid color-mix(in srgb, var(--outline-variant) 55%, transparent); }
@@ -918,9 +918,11 @@ html.dark .theme-menu > summary .t-sun { display: none; }
 .settings .rows .row .detail { white-space: normal; overflow: visible; text-overflow: clip; }
 .settings .rows .row .title { white-space: normal; overflow: visible; }
 /* Controls that fell out of the trailing slot on a narrow screen line up
-   under the text instead of hanging at the card's edge. */
-@media (max-width: 919px) {
-  .settings .rows .row .trailing { padding-left: 56px; }
+   under the text instead of hanging at the card's edge. Keyed to the same
+   639px as the row-wrapping itself: above it the trailing is still on the
+   row's own line and must not be indented. */
+@media (max-width: 639px) {
+  .settings .rows .row .trailing { padding-left: 52px; }
   .swatches.under { padding-left: 0; }
 }
 
@@ -1093,8 +1095,13 @@ html.dark .tok-hed { color: #FF9FB6; }
 .chart .bar { transition: opacity .12s var(--ease); }
 .chart g:hover .bar { opacity: .75; }
 .range-tabs { display: inline-flex; background: var(--sc); border-radius: 999px; padding: 4px; gap: 4px; }
+/* `flex: none` and `nowrap` together are what keep these pills pill-shaped.
+   As flex items they shrink by default, so on a phone the row squeezed each
+   one until its label broke over two lines — "30 days" stacked inside a pill
+   grown twice as tall as the rest of the group. They keep their natural
+   width and the group scrolls instead. */
 .range-tabs a { padding: 6px 16px; border-radius: 999px; font-size: 13px; font-weight: 600;
-  color: var(--on-surface-variant); text-decoration: none; }
+  color: var(--on-surface-variant); text-decoration: none; flex: none; white-space: nowrap; }
 .range-tabs a.active { background: var(--secondary-container); color: var(--on-secondary-container); }
 @media (max-width: 919px) { .tiles { grid-template-columns: 1fr 1fr; } }
 
@@ -1350,7 +1357,19 @@ a.sw-count:hover { color: var(--on-surface); }
 .gallery .actions form { display: contents; }
 .gallery .actions .btn { flex: 1; }
 @media (max-width: 1100px) { .gallery { grid-template-columns: 1fr 1fr; } }
-@media (max-width: 719px) { .gallery { grid-template-columns: 1fr; } }
+/* Two columns are held all the way down to the narrowest tablets. Dropping
+   to one at 719px handed every 4:5 thumbnail the full page width — a 560px
+   portrait per theme, and with sixteen official themes a page 14,000px long
+   that nobody could reach the bottom of. */
+@media (max-width: 719px) { .gallery { gap: 12px; } .gallery .actions .btn { padding: 0 12px; } }
+@media (max-width: 479px) {
+  .gallery { grid-template-columns: 1fr; }
+  /* Single column, so the thumbnail finally is page-width. It is letterboxed
+     rather than shown at 4:5: anchored to the top (as `.shot img` already
+     is), the crop keeps the masthead and hero that actually identify a
+     theme, at a third of the scroll a full portrait costs. */
+  .gallery .shot { aspect-ratio: 16 / 10; }
+}
 
 /* ---- post/page editor: Koenig canvas + an always-open settings rail ----
    Ghost hides the post settings behind a slide-over panel; here they are a
@@ -2130,33 +2149,107 @@ dialog .d-actions { display: flex; justify-content: flex-end; gap: 8px; }
   /* The rail is the full page width here, so centring the mark would strand
      it in the middle of the strip. It sits at the start instead. */
   .brand { padding: 14px 8px 10px; justify-content: flex-start; min-height: 0; }
-  .rail .nav-scroll { display: flex; gap: 4px; overflow-x: auto; padding: 4px 8px 12px; scrollbar-width: none; }
+  .rail .nav-scroll { display: flex; gap: 4px; overflow-x: auto; padding: 4px 8px 12px; scrollbar-width: none;
+    scroll-snap-type: x proximity; scroll-padding-inline: 8px; }
   .rail .nav-scroll::-webkit-scrollbar { display: none; }
-  .nav-item { flex: none; padding: 8px 14px 8px 10px; }
+  .nav-item { flex: none; padding: 8px 14px 8px 10px; scroll-snap-align: start; }
   .nav-item .ic { display: none; }
   .rail-foot { margin: 0; padding: 0 8px 10px; }
   .who { padding: 6px 6px; }
+  /* The appearance menu opens upward, which is right when the rail is a tall
+     column and its foot sits at the bottom of the screen. As a top strip the
+     same rule threw the popup off the top of the page — it opened at y=-61
+     with Light and half of Dark above the viewport and no way to scroll to
+     them. Anchored below the strip it opens over the content instead. */
+  .theme-menu .pop { top: calc(100% + 10px); bottom: auto; }
   .content { padding: 0 16px 48px; }
   .page-head { flex-wrap: wrap; }
   .grid2 { grid-template-columns: 1fr; }
   .nav-grid { grid-template-columns: 1fr; }
+  /* The row still fits on one line here, but its supporting text no longer
+     fits beside the trailing control. It wraps onto a second line rather
+     than ellipsizing: on a settings row the explanation is the whole point
+     of the row, and "Users and setting…" reads as broken rather than as
+     abbreviated. (Below 639px the fold rule sets the same thing.) */
+  .rows .row .detail { white-space: normal; overflow: visible; text-overflow: clip; }
+  /* Range pills in the page head can out-run a phone's width; one tidy
+     scrollable row beats either sideways page overflow or a two-line pill. */
+  .page-head .actions { max-width: 100%; min-width: 0; }
+  .range-tabs { display: flex; max-width: 100%; overflow-x: auto;
+    scrollbar-width: none; }
+  .range-tabs::-webkit-scrollbar { display: none; }
+}
+
+/* ---- scrolling strips: fade the edge that is hiding something ----
+   A strip too narrow for its items guillotines one mid-word, which reads as a
+   broken layout rather than as more nav just out of view. A fade says it
+   scrolls. Which edge gets one depends on where the strip is scrolled to, so
+   `data-edge` is set from script and only while there is genuinely something
+   past that edge — no breakpoint has to guess whether the items fit, and a
+   strip with room to spare is never dimmed for nothing. The mask sits on the
+   scroll port, not the content, so it stays pinned while the items move
+   under it. */
+[data-edge] { -webkit-mask-image: var(--edge-mask); mask-image: var(--edge-mask); }
+[data-edge="end"] { --edge-mask: linear-gradient(90deg, #000 calc(100% - 36px), transparent); }
+[data-edge="start"] { --edge-mask: linear-gradient(90deg, transparent, #000 36px); }
+[data-edge="both"] { --edge-mask: linear-gradient(90deg, transparent, #000 36px,
+  #000 calc(100% - 36px), transparent); }
+/* The pill group's rounding would be cut square by the mask, so the faded
+   side drops its radius rather than showing a clipped curve. */
+.range-tabs[data-edge="end"] { border-radius: 999px 0 0 999px; }
+.range-tabs[data-edge="start"] { border-radius: 0 999px 999px 0; }
+.range-tabs[data-edge="both"] { border-radius: 0; }
+
+/* ---- responsive: phone-sized chrome ----
+   Below ~640px the eight nav sections no longer fit on one line. */
+@media (max-width: 639px) {
+  /* The logo gets the whole brand slot, which on a desktop rail is a 240px
+     column worth filling. On a phone the same 56px lockup turned the top of
+     every page into a 200px masthead before a word of content. It drops to
+     an app-bar height instead. */
+  .brand { padding: 10px 8px 6px; }
+  .brand .brand-logo img { max-height: 34px; }
+  .brand .brand-admin svg { width: 34px; height: 34px; }
+  .brand b { font-size: 17px; }
+}
+
+/* ---- responsive: list rows fold onto two lines ----
+   Deliberately a *lower* breakpoint than the rail's. Losing the 240px rail
+   hands the content ~240px more room, not less, so between 640px and 919px a
+   row has more width than it does on a 1024px desktop — folding there left
+   the trailing meta stranded under a half-empty row. Rows only fold once the
+   row itself is actually short of width. */
+@media (max-width: 639px) {
   .rows .row + .row::before { left: 20px; }
 
   /* List rows are a single nowrap flex line on desktop, which on a phone
      made the title, slug, date, status chip and delete button pile onto each
      other and overflow sideways. Let the row wrap: leading icon + body on
-     the first line, trailing meta on its own line under them. */
-  .rows .row { flex-wrap: wrap; gap: 10px 12px; padding: 12px 16px; }
-  .rows .row .body { flex: 1 1 100%; min-width: 0; order: 2; }
-  .rows .row > .ic, .rows .row > .avatar { order: 1; }
+     the first line (the body's basis reserves the icon's share, so a long
+     title shrinks beside it instead of wrapping underneath and orphaning
+     the icon on a line of its own), trailing meta on its own line under
+     them, indented to the title's edge. */
+  .rows .row { flex-wrap: wrap; gap: 10px 12px; padding: 12px 16px; align-items: flex-start; }
+  .rows .row .body { flex: 1 1 calc(100% - 52px); min-width: 0; order: 2; }
+  /* The icon led a centred row before it wrapped; once the body runs to two
+     or three lines, centring drifts it down past the title it labels. It
+     pins to the top instead, nudged to sit on the title's own line. */
+  .rows .row > .ic, .rows .row > .avatar { order: 1; margin-top: 1px; }
   .rows .row .title { white-space: normal; overflow-wrap: anywhere; }
   .rows .row .detail { white-space: normal; overflow-wrap: anywhere; }
   /* trailing drops below and left-aligns instead of being pushed off-screen
      by margin-left:auto */
   .trailing { order: 3; flex: 1 1 100%; margin-left: 0; flex-wrap: wrap;
-    padding-left: 56px; justify-content: flex-start; }
+    padding-left: 52px; justify-content: flex-start; }
   /* …except where the leading icon is hidden, so nothing is indented past it */
   .rows .row:not(:has(> .ic)):not(:has(> .avatar)) .trailing { padding-left: 0; }
+  /* A trailing that is nothing but a chevron says nothing once the row wraps:
+     the whole row is the link, so the lone arrow goes. */
+  .rows .row .trailing > svg.i:only-child { display: none; }
+  /* Same for a chevron that merely *trails* the real controls: the row is
+     the link, and on a folded row the lone arrow reads as a stray glyph
+     floating after the delete button. */
+  .rows .row .trailing > svg.i:last-child { display: none; }
 }
 
 /* Very narrow phones: drop the leading-icon indent entirely so titles get
@@ -2194,6 +2287,38 @@ const THEME_JS: &str = r#"
 
 const JS: &str = r#"
 (function () {
+  // On a phone the nav rail is a horizontal strip too narrow to hold every
+  // section, and it opens scrolled to the start — so on /ghost/settings/ the
+  // one item that says where you are is the one off the right-hand edge.
+  // Bring it into view. Instant, not smooth: this runs at load, and a strip
+  // that animates sideways on arrival reads as a glitch.
+  // Same for the analytics range pills, where the chosen period is just as
+  // likely to be the one past the edge.
+  ['.rail .nav-scroll .nav-item.active', '.range-tabs a.active'].forEach(function (sel) {
+    var active = document.querySelector(sel);
+    if (!active) return;
+    var strip = active.parentElement;
+    if (strip.scrollWidth <= strip.clientWidth) return;
+    // Centre it where there is room on both sides, so the items either side
+    // stay visible and the strip reads as scrollable.
+    strip.scrollLeft = Math.max(0, active.offsetLeft - (strip.clientWidth - active.offsetWidth) / 2);
+  });
+
+  // …then mark which edge of each strip still has items past it, so the CSS
+  // above fades that side and only that side. Re-read on scroll and on
+  // resize: a strip that fits at one width hides items at another.
+  document.querySelectorAll('.rail .nav-scroll, .range-tabs').forEach(function (strip) {
+    function edge() {
+      var max = strip.scrollWidth - strip.clientWidth;
+      if (max <= 1) { strip.removeAttribute('data-edge'); return; }
+      var x = strip.scrollLeft;
+      strip.dataset.edge = x <= 1 ? 'end' : (x >= max - 1 ? 'start' : 'both');
+    }
+    strip.addEventListener('scroll', edge, { passive: true });
+    window.addEventListener('resize', edge);
+    edge();
+  });
+
   document.querySelectorAll('[data-brand-image]').forEach(function (row) {
     var url = row.querySelector('[data-image-url]');
     var file = row.querySelector('input[type="file"]');
@@ -3408,13 +3533,18 @@ struct LoginForm {
 }
 
 /// Attach a freshly minted session cookie to a response.
-fn set_session_cookie(resp: &mut Response, sid: &str) {
+///
+/// `Secure` follows the site's own scheme — see `admin::cookie_secure`. An
+/// admin session sent over cleartext is the whole site, so the flag matters
+/// here more than anywhere else the admin sets a cookie.
+fn set_session_cookie(state: &AppState, resp: &mut Response, sid: &str) {
     resp.headers_mut().insert(
         header::SET_COOKIE,
         format!(
-            "ghost-admin-api-session={sid}; Path={}/ghost; HttpOnly; SameSite=Lax; Max-Age={}",
+            "ghost-admin-api-session={sid}; Path={}/ghost; HttpOnly; SameSite=Lax; Max-Age={}{}",
             ghost_core::url::subdir(),
-            60 * 60 * 24 * 7
+            60 * 60 * 24 * 7,
+            ghost_api::admin::cookie_secure(state)
         )
         .parse()
         .unwrap(),
@@ -3452,7 +3582,7 @@ async fn login_submit(
         return match repos::sessions::create(&state.db, &user.id).await {
             Ok(sid) => {
                 let mut resp = Redirect::to("/ghost/posts/").into_response();
-                set_session_cookie(&mut resp, &sid);
+                set_session_cookie(&state, &mut resp, &sid);
                 resp
             }
             Err(_) => Redirect::to("/ghost/signin/?invalid=1").into_response(),
@@ -3468,7 +3598,7 @@ async fn login_submit(
     let sent = issue_signin_code(&state, &sid, &user).await;
     let mut resp = Redirect::to(if sent { "/ghost/signin/verify/" } else { "/ghost/signin/verify/?send=failed" })
         .into_response();
-    set_session_cookie(&mut resp, &sid);
+    set_session_cookie(&state, &mut resp, &sid);
     resp
 }
 
@@ -3629,7 +3759,7 @@ async fn logout(State(state): State<AppState>, headers: HeaderMap) -> Response {
     let mut resp = Redirect::to("/ghost/signin/").into_response();
     resp.headers_mut().insert(
         header::SET_COOKIE,
-        format!("ghost-admin-api-session=; Path={}/ghost; HttpOnly; SameSite=Lax; Max-Age=0", ghost_core::url::subdir()).parse().unwrap(),
+        format!("ghost-admin-api-session=; Path={}/ghost; HttpOnly; SameSite=Lax; Max-Age=0{}", ghost_core::url::subdir(), ghost_api::admin::cookie_secure(&state)).parse().unwrap(),
     );
     resp
 }
@@ -15974,7 +16104,10 @@ async fn fetch_recommendation_metadata(url: &str) -> FetchedRecommendation {
     };
     let Ok(client) = reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(10))
-        .redirect(reqwest::redirect::Policy::limited(3))
+        // Every hop re-checked, not just the URL the publisher chose: a plain
+        // redirect limit would let a public URL hand this fetch an address
+        // inside the host's own network.
+        .redirect(ghost_api::mentions::guarded_redirect(3))
         .build()
     else {
         return FetchedRecommendation::default();
@@ -18905,9 +19038,10 @@ async fn invite_accept_submit(
                 Ok(sid) => {
                     let mut resp = Redirect::to("/ghost/posts/").into_response();
                     if let Ok(v) = format!(
-                        "ghost-admin-api-session={sid}; Path={}/ghost; HttpOnly; SameSite=Lax; Max-Age={}",
+                        "ghost-admin-api-session={sid}; Path={}/ghost; HttpOnly; SameSite=Lax; Max-Age={}{}",
                         ghost_core::url::subdir(),
-                        60 * 60 * 24 * 7
+                        60 * 60 * 24 * 7,
+                        ghost_api::admin::cookie_secure(&state)
                     )
                     .parse()
                     {
@@ -22638,7 +22772,11 @@ pub(crate) async fn inline_remote_media(
 
     let client = reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(20))
-        .redirect(reqwest::redirect::Policy::limited(3))
+        // Every hop re-checked, not just the URL in the post: these addresses
+        // come out of imported content, so they are a stranger's choice twice
+        // over, and a plain redirect limit would let one reach this host's
+        // own network.
+        .redirect(ghost_api::mentions::guarded_redirect(3))
         .build()
         .unwrap_or_default();
     // One fetch per distinct URL however many posts carry it, and the map is

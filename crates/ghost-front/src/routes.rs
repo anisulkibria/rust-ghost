@@ -40,6 +40,35 @@ fn redirect_response(target: String, permanent: bool) -> Response {
 mod tests {
     use super::*;
 
+    /// The theme asset and content-file routes hand this a path segment
+    /// straight from the URL, and axum has already percent-decoded it — so
+    /// `%2e%2e%2f` reaches here as a real `..` that never looked like
+    /// traversal to anything upstream. It served the theme's package.json
+    /// until the containment check stopped being `starts_with`, which
+    /// compares unresolved components and so could not see the `..` at all.
+    #[test]
+    fn a_relative_segment_cannot_climb_out_of_the_directory_being_served() {
+        let base = std::env::temp_dir().join("ghost-serve-file-test/assets");
+        let inside = base.join("built");
+        std::fs::create_dir_all(&inside).unwrap();
+        std::fs::write(inside.join("screen.css"), "body{}").unwrap();
+        // the file one level up that the traversal was reaching
+        std::fs::write(base.parent().unwrap().join("package.json"), "{}").unwrap();
+
+        assert!(resolve_within(&base, "built/screen.css").is_some(), "an ordinary asset still resolves");
+        for climb in [
+            "built/../../package.json",
+            "../package.json",
+            "built/../../../../../../etc/passwd",
+            "/etc/passwd",
+            "",
+        ] {
+            assert!(resolve_within(&base, climb).is_none(), "{climb} must not resolve");
+        }
+
+        let _ = std::fs::remove_dir_all(std::env::temp_dir().join("ghost-serve-file-test"));
+    }
+
     #[test]
     fn redirects_answer_with_the_status_code_their_rule_was_written_under() {
         assert_eq!(
@@ -623,9 +652,47 @@ fn error_response(e: GhostError) -> Response {
 // static assets
 // ---------------------------------------------------------------------------
 
+/// Resolve `rel` inside `base`, or `None` if it points anywhere else.
+///
+/// `base.join(rel).starts_with(base)` looks like the containment check and is
+/// not one: `starts_with` compares path *components* without resolving them,
+/// so `assets/../../package.json` still begins with the `assets` component
+/// and passes, while the filesystem happily walks the `..` back out. The
+/// router does not save it either — axum percent-decodes a wildcard capture,
+/// so `%2e%2e%2f` arrives as `../` having never looked like traversal to
+/// anything in front of it.
+///
+/// So the segments are walked instead: `..` is refused outright rather than
+/// popped, since nothing under a theme or the content directory has a
+/// legitimate reason to name a parent, and the resolved path is then checked
+/// against the canonical base to catch a symlink pointing out of the tree.
+fn resolve_within(base: &std::path::Path, rel: &str) -> Option<std::path::PathBuf> {
+    use std::path::Component;
+    let mut safe = std::path::PathBuf::new();
+    for component in std::path::Path::new(rel).components() {
+        match component {
+            Component::Normal(part) => safe.push(part),
+            Component::CurDir => continue,
+            // ParentDir, RootDir and Prefix are all refusals.
+            _ => return None,
+        }
+    }
+    if safe.as_os_str().is_empty() {
+        return None;
+    }
+    let full = base.join(&safe);
+    // Belt and braces: a symlink inside the tree could still point out of it.
+    match (full.canonicalize(), base.canonicalize()) {
+        (Ok(f), Ok(b)) if f.starts_with(&b) => Some(full),
+        _ => None,
+    }
+}
+
 fn serve_file(base: &std::path::Path, rel: &str, cache: Option<&str>) -> Response {
-    let file_path = base.join(rel);
-    if !file_path.starts_with(base) || !file_path.is_file() {
+    let Some(file_path) = resolve_within(base, rel) else {
+        return (StatusCode::NOT_FOUND, "not found").into_response();
+    };
+    if !file_path.is_file() {
         return (StatusCode::NOT_FOUND, "not found").into_response();
     }
     match std::fs::read(&file_path) {
@@ -634,6 +701,18 @@ fn serve_file(base: &std::path::Path, rel: &str, cache: Option<&str>) -> Respons
             let mut builder = Response::builder()
                 .status(StatusCode::OK)
                 .header(header::CONTENT_TYPE, mime.as_ref());
+            // An SVG is a document, not a picture: it may carry <script>, and
+            // uploading one only takes a Contributor. Opened directly it would
+            // run that script on this site's origin, which is enough to drive
+            // the admin API as whoever followed the link. `sandbox` puts the
+            // response in an opaque origin, so the script has nothing to act
+            // on. Nothing legitimate is lost — an SVG referenced as an <img>
+            // never ran script in the first place.
+            if mime.as_ref() == "image/svg+xml" {
+                builder = builder
+                    .header("content-security-policy", "sandbox")
+                    .header("x-content-type-options", "nosniff");
+            }
             if let Some(cache) = cache {
                 builder = builder.header(header::CACHE_CONTROL, cache);
             }

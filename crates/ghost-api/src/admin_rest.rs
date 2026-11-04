@@ -763,7 +763,10 @@ async fn check_recommendation(State(state): State<AppState>, headers: HeaderMap,
     };
     let client = reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(10))
-        .redirect(reqwest::redirect::Policy::limited(3))
+        // Every hop re-checked, not just the URL the admin typed: a plain
+        // redirect limit would let a public URL hand this fetch an address
+        // inside the host's own network.
+        .redirect(crate::mentions::guarded_redirect(3))
         .build()
         .unwrap_or_default();
     let Ok(response) = client.get(parsed.clone()).send().await else {

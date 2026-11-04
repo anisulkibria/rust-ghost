@@ -89,7 +89,22 @@ pub fn fetchable(url: &str) -> Option<reqwest::Url> {
     if let Ok(ip) = literal.parse::<std::net::IpAddr>() {
         let private = match ip {
             std::net::IpAddr::V4(v4) => {
-                v4.is_private() || v4.is_loopback() || v4.is_link_local() || v4.is_broadcast() || v4.is_unspecified()
+                // `is_private` is only 10/8, 172.16/12 and 192.168/16, and
+                // `is_unspecified` is the single address 0.0.0.0. Two ranges
+                // that reach the host or its neighbours fall outside both:
+                // carrier-grade NAT (100.64/10), which cloud networks hand
+                // out and some metadata services answer on, and the rest of
+                // 0/8, which several stacks route to loopback.
+                let [a, b, ..] = v4.octets();
+                let cgnat = a == 100 && (64..128).contains(&b);
+                let this_network = a == 0;
+                v4.is_private()
+                    || v4.is_loopback()
+                    || v4.is_link_local()
+                    || v4.is_broadcast()
+                    || v4.is_unspecified()
+                    || cgnat
+                    || this_network
             }
             std::net::IpAddr::V6(v6) => {
                 // Unique-local (fc00::/7) and link-local (fe80::/10) are the
@@ -109,6 +124,32 @@ pub fn fetchable(url: &str) -> Option<reqwest::Url> {
         }
     }
     Some(parsed)
+}
+
+/// A redirect policy that re-runs [`fetchable`] on every hop.
+///
+/// [`fetchable`] can only judge the URL it is handed, so on its own it is
+/// defeated by one redirect: the URL the caller supplies is an ordinary
+/// public address, and the 302 it answers with points at
+/// `http://169.254.169.254/` or back into this host. The webmention client
+/// closes that by refusing redirects outright, but the metadata fetchers
+/// cannot — `http://` → `https://` and apex → `www` are both ordinary, and a
+/// site that does either would simply fail to be read.
+///
+/// So they follow redirects, and every hop goes through the same guard the
+/// first URL did. A hop that fails it stops the chain rather than following
+/// it, which surfaces as the 3xx itself and so fails closed at the
+/// `is_success()` every caller already checks.
+pub fn guarded_redirect(max: usize) -> reqwest::redirect::Policy {
+    reqwest::redirect::Policy::custom(move |attempt| {
+        if attempt.previous().len() >= max {
+            return attempt.stop();
+        }
+        match fetchable(attempt.url().as_str()) {
+            Some(_) => attempt.follow(),
+            None => attempt.stop(),
+        }
+    })
 }
 
 fn client() -> reqwest::Client {
@@ -761,6 +802,9 @@ mod tests {
             "http://169.254.169.254/latest/meta-data/",
             "http://10.1.2.3/",
             "http://192.168.0.1/",
+            "http://100.100.100.200/",
+            "http://0.0.0.0/",
+            "http://0.1.2.3/",
             "http://[::1]/",
             "http://[fc00::1]/",
             "http://[fe80::1]/",
@@ -772,6 +816,54 @@ mod tests {
         ] {
             assert!(fetchable(refused).is_none(), "{refused} should not be fetchable");
         }
+    }
+
+    /// `fetchable` only ever sees the URL it is handed, so the guard is worth
+    /// nothing if a 302 can carry the fetch somewhere it would have refused.
+    /// A server on loopback answers the first request with a redirect to
+    /// itself; the policy must stop there rather than follow, which leaves
+    /// the caller holding the 3xx instead of the private body.
+    #[tokio::test]
+    async fn a_redirect_cannot_smuggle_the_fetch_into_private_space() {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        tokio::spawn(async move {
+            while let Ok((mut socket, _)) = listener.accept().await {
+                let mut buf = [0u8; 1024];
+                let read = socket.read(&mut buf).await.unwrap_or(0);
+                let request = String::from_utf8_lossy(&buf[..read]).to_string();
+                let response = if request.starts_with("GET /secret") {
+                    "HTTP/1.1 200 OK\r\nContent-Length: 6\r\nConnection: close\r\n\r\nSECRET".to_string()
+                } else {
+                    format!(
+                        "HTTP/1.1 302 Found\r\nLocation: http://127.0.0.1:{port}/secret\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
+                    )
+                };
+                let _ = socket.write_all(response.as_bytes()).await;
+                let _ = socket.shutdown().await;
+            }
+        });
+
+        let client = reqwest::Client::builder()
+            .timeout(std::time::Duration::from_secs(5))
+            .redirect(guarded_redirect(3))
+            .build()
+            .unwrap();
+        let response = client.get(format!("http://127.0.0.1:{port}/start")).send().await.unwrap();
+        // Stopped at the redirect: the body behind it was never read.
+        assert_eq!(response.status(), 302);
+        assert!(!response.text().await.unwrap_or_default().contains("SECRET"));
+
+        // A plain hop limit is what this replaces — it would have followed.
+        let naive = reqwest::Client::builder()
+            .timeout(std::time::Duration::from_secs(5))
+            .redirect(reqwest::redirect::Policy::limited(3))
+            .build()
+            .unwrap();
+        let followed = naive.get(format!("http://127.0.0.1:{port}/start")).send().await.unwrap();
+        assert_eq!(followed.status(), 200, "the naive policy follows into loopback");
     }
 
     #[test]

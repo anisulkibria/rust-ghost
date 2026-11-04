@@ -504,12 +504,32 @@ async fn require_user(state: &AppState, headers: &HeaderMap) -> Result<ghost_cor
     crate::permissions::require(state, headers, crate::permissions::Role::Contributor).await
 }
 
-fn session_cookie_header(sid: &str, max_age_secs: i64) -> String {
-    format!("{SESSION_COOKIE}={sid}; Path={}/ghost; HttpOnly; SameSite=Lax; Max-Age={max_age_secs}", ghost_core::url::subdir())
+/// `; Secure` on an https site, nothing on a plain-http one.
+///
+/// Without it the browser is willing to send an admin session over cleartext:
+/// one `http://` request to the same host — a typed address, a stale
+/// bookmark, an injected subresource — hands the whole session to anyone on
+/// the path, `HttpOnly` notwithstanding. A local http install still has to
+/// work, so the flag follows the site's own scheme. This is what the members
+/// session cookie already does; the admin's is the more valuable of the two.
+pub fn cookie_secure(state: &AppState) -> &'static str {
+    if state.site_url().starts_with("https://") { "; Secure" } else { "" }
 }
 
-fn clear_session_cookie_header() -> String {
-    format!("{SESSION_COOKIE}=; Path={}/ghost; HttpOnly; SameSite=Lax; Max-Age=0", ghost_core::url::subdir())
+fn session_cookie_header(state: &AppState, sid: &str, max_age_secs: i64) -> String {
+    format!(
+        "{SESSION_COOKIE}={sid}; Path={}/ghost; HttpOnly; SameSite=Lax; Max-Age={max_age_secs}{}",
+        ghost_core::url::subdir(),
+        cookie_secure(state)
+    )
+}
+
+fn clear_session_cookie_header(state: &AppState) -> String {
+    format!(
+        "{SESSION_COOKIE}=; Path={}/ghost; HttpOnly; SameSite=Lax; Max-Age=0{}",
+        ghost_core::url::subdir(),
+        cookie_secure(state)
+    )
 }
 
 // ---------------------------------------------------------------------------
@@ -645,7 +665,7 @@ async fn login(
                         let mut resp = (StatusCode::CREATED, Json(json!({ "users": [admin_user_json(&user)] }))).into_response();
                         resp.headers_mut().insert(
                             header::SET_COOKIE,
-                            session_cookie_header(&sid, 60 * 60 * 24 * 7).parse().unwrap(),
+                            session_cookie_header(&state, &sid, 60 * 60 * 24 * 7).parse().unwrap(),
                         );
                         return resp;
                     }
@@ -663,7 +683,7 @@ async fn login(
                 let mut resp = err(StatusCode::FORBIDDEN, "A verification code is required to sign in", "Needs2FAError");
                 resp.headers_mut().insert(
                     header::SET_COOKIE,
-                    session_cookie_header(&sid, 60 * 60 * 24 * 7).parse().unwrap(),
+                    session_cookie_header(&state, &sid, 60 * 60 * 24 * 7).parse().unwrap(),
                 );
                 return resp;
             }
@@ -683,7 +703,7 @@ async fn login(
         .into_response();
     resp.headers_mut().insert(
         header::SET_COOKIE,
-        session_cookie_header(&sid, 60 * 60 * 24 * 7).parse().unwrap(),
+        session_cookie_header(&state, &sid, 60 * 60 * 24 * 7).parse().unwrap(),
     );
     resp
 }
@@ -707,7 +727,7 @@ async fn logout(State(state): State<AppState>, headers: HeaderMap) -> Response {
     }
     (
         StatusCode::NO_CONTENT,
-        [(header::SET_COOKIE, clear_session_cookie_header())],
+        [(header::SET_COOKIE, clear_session_cookie_header(&state))],
     )
         .into_response()
 }
