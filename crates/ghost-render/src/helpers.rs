@@ -88,7 +88,7 @@ pub type UrlResolver = Arc<dyn Fn(&Value) -> String + Send + Sync>;
 
 #[derive(Clone)]
 pub struct HelperDeps {
-    pub pool: Arc<sqlx::SqlitePool>,
+    pub pool: Arc<ghost_db::Db>,
     pub runtime: tokio::runtime::Handle,
     pub url_resolver: UrlResolver,
     /// theme asset path ("css/screen.css") → hash

@@ -4,14 +4,14 @@
 //! percentage, a flat amount, or a free trial. The Stripe coupon that actually
 //! applies the discount is minted alongside and its id stored here.
 use ghost_core::{dates, ids, GhostError, Result};
-use sqlx::SqlitePool;
+use crate::Db;
 
 use super::dberr;
 
 /// `active` in Ghost's API is a `status` of `active` / `archived`. Archived
 /// offers keep working for anyone already subscribed; they just stop being
 /// redeemable.
-#[derive(Debug, Clone, sqlx::FromRow)]
+#[derive(Debug, Clone)]
 pub struct Offer {
     pub id: String,
     pub active: bool,
@@ -33,6 +33,38 @@ pub struct Offer {
     pub redemption_type: Option<String>,
     pub created_at: Option<String>,
     pub updated_at: Option<String>,
+}
+
+/// Read by hand rather than derived, because of the boolean columns.
+///
+/// `#[derive(sqlx::FromRow)]` would decode each `bool` field with
+/// `Decode<Any> for bool`, which fails on both engines: a boolean is stored
+/// as a 0/1 integer and `Any` will not turn an integer into a `bool`. See
+/// [`crate::types::flag`]. Everything else is read exactly as the derive
+/// would have read it.
+impl<'r> sqlx::FromRow<'r, sqlx::any::AnyRow> for Offer {
+    fn from_row(row: &'r sqlx::any::AnyRow) -> sqlx::Result<Self> {
+        use sqlx::Row;
+        Ok(Self {
+            id: row.try_get("id")?,
+            active: crate::types::flag(row, "active"),
+            name: row.try_get("name")?,
+            code: row.try_get("code")?,
+            product_id: row.try_get("product_id")?,
+            stripe_coupon_id: row.try_get("stripe_coupon_id")?,
+            interval: row.try_get("interval")?,
+            currency: row.try_get("currency")?,
+            discount_type: row.try_get("discount_type")?,
+            discount_amount: row.try_get("discount_amount")?,
+            duration: row.try_get("duration")?,
+            duration_in_months: row.try_get("duration_in_months")?,
+            portal_title: row.try_get("portal_title")?,
+            portal_description: row.try_get("portal_description")?,
+            redemption_type: row.try_get("redemption_type")?,
+            created_at: row.try_get("created_at")?,
+            updated_at: row.try_get("updated_at")?,
+        })
+    }
 }
 
 impl Offer {
@@ -71,11 +103,11 @@ impl Offer {
     }
 }
 
-const COLS: &str = "id, active, name, code, product_id, stripe_coupon_id, interval, currency, \
+const COLS: &str = "id, active, name, code, product_id, stripe_coupon_id, `interval`, currency, \
      discount_type, discount_amount, duration, duration_in_months, portal_title, \
      portal_description, redemption_type, created_at, updated_at";
 
-pub async fn list(pool: &SqlitePool) -> Result<Vec<Offer>> {
+pub async fn list(pool: &Db) -> Result<Vec<Offer>> {
     let rows = sqlx::query_as::<_, Offer>(&format!(
         "SELECT {COLS} FROM offers ORDER BY active DESC, created_at DESC"
     ))
@@ -85,7 +117,7 @@ pub async fn list(pool: &SqlitePool) -> Result<Vec<Offer>> {
     Ok(rows)
 }
 
-pub async fn find_by_id(pool: &SqlitePool, id: &str) -> Result<Option<Offer>> {
+pub async fn find_by_id(pool: &Db, id: &str) -> Result<Option<Offer>> {
     let row = sqlx::query_as::<_, Offer>(&format!("SELECT {COLS} FROM offers WHERE id = ? LIMIT 1"))
         .bind(id)
         .fetch_optional(pool)
@@ -96,7 +128,7 @@ pub async fn find_by_id(pool: &SqlitePool, id: &str) -> Result<Option<Offer>> {
 
 /// The lookup the portal does when a visitor arrives on an offer URL. Only
 /// active offers resolve — an archived code must stop working.
-pub async fn find_redeemable_by_code(pool: &SqlitePool, code: &str) -> Result<Option<Offer>> {
+pub async fn find_redeemable_by_code(pool: &Db, code: &str) -> Result<Option<Offer>> {
     let row = sqlx::query_as::<_, Offer>(&format!(
         "SELECT {COLS} FROM offers WHERE code = ? AND active = 1 LIMIT 1"
     ))
@@ -108,7 +140,7 @@ pub async fn find_redeemable_by_code(pool: &SqlitePool, code: &str) -> Result<Op
 }
 
 /// How many members arrived through this offer.
-pub async fn redemption_count(pool: &SqlitePool, offer_id: &str) -> i64 {
+pub async fn redemption_count(pool: &Db, offer_id: &str) -> i64 {
     sqlx::query_scalar("SELECT COUNT(*) FROM members WHERE offer_id = ?")
         .bind(offer_id)
         .fetch_one(pool)
@@ -138,7 +170,7 @@ pub struct OfferInput {
 
 /// Whether `name` or `code` is already taken by a *different* offer.
 pub async fn conflict(
-    pool: &SqlitePool,
+    pool: &Db,
     name: &str,
     code: &str,
     self_id: Option<&str>,
@@ -167,11 +199,11 @@ pub async fn conflict(
     Ok(None)
 }
 
-pub async fn create(pool: &SqlitePool, input: &OfferInput) -> Result<Offer> {
+pub async fn create(pool: &Db, input: &OfferInput) -> Result<Offer> {
     let id = ids::new_id();
     let now = dates::now_db();
     sqlx::query(
-        "INSERT INTO offers (id, active, name, code, product_id, stripe_coupon_id, interval, \
+        "INSERT INTO offers (id, active, name, code, product_id, stripe_coupon_id, `interval`, \
          currency, discount_type, discount_amount, duration, duration_in_months, portal_title, \
          portal_description, redemption_type, created_at, updated_at) \
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'signup', ?, ?)",
@@ -204,7 +236,7 @@ pub async fn create(pool: &SqlitePool, input: &OfferInput) -> Result<Offer> {
 /// the portal copy — because the discount itself is a Stripe coupon that
 /// existing subscriptions are already attached to. `coupon` is therefore
 /// written only when a fresh one was minted.
-pub async fn update(pool: &SqlitePool, id: &str, input: &OfferInput) -> Result<Offer> {
+pub async fn update(pool: &Db, id: &str, input: &OfferInput) -> Result<Offer> {
     let now = dates::now_db();
     sqlx::query(
         "UPDATE offers SET name = ?, code = ?, portal_title = ?, portal_description = ?, \
@@ -224,7 +256,7 @@ pub async fn update(pool: &SqlitePool, id: &str, input: &OfferInput) -> Result<O
     find_by_id(pool, id).await?.ok_or_else(|| GhostError::Internal("offer vanished".into()))
 }
 
-pub async fn set_active(pool: &SqlitePool, id: &str, active: bool) -> Result<()> {
+pub async fn set_active(pool: &Db, id: &str, active: bool) -> Result<()> {
     sqlx::query("UPDATE offers SET active = ?, updated_at = ? WHERE id = ?")
         .bind(active)
         .bind(dates::now_db())

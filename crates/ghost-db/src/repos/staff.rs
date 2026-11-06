@@ -6,7 +6,7 @@
 //! transferred — so it is deliberately absent from `ASSIGNABLE_ROLES`.
 
 use ghost_core::{dates, ids, GhostError, Result};
-use sqlx::SqlitePool;
+use crate::Db;
 
 use super::dberr;
 
@@ -41,7 +41,7 @@ pub struct StaffMember {
 
 /// Everyone with a staff role, owner first, then by role seniority and name —
 /// the order Ghost's Staff screen uses.
-pub async fn list_staff(pool: &SqlitePool) -> Result<Vec<StaffMember>> {
+pub async fn list_staff(pool: &Db) -> Result<Vec<StaffMember>> {
     let rows = sqlx::query_as::<_, (String, Option<String>, Option<String>, Option<String>, Option<String>, Option<String>, Option<String>, Option<String>)>(
         "SELECT u.id, u.name, u.slug, u.email, u.profile_image, u.status, r.name, u.last_seen \
          FROM users u \
@@ -72,7 +72,7 @@ pub async fn list_staff(pool: &SqlitePool) -> Result<Vec<StaffMember>> {
 
 /// Replace a user's role. One row per user in `roles_users`, so this clears
 /// before inserting rather than accumulating roles.
-pub async fn set_role(pool: &SqlitePool, user_id: &str, role: &str) -> Result<()> {
+pub async fn set_role(pool: &Db, user_id: &str, role: &str) -> Result<()> {
     if !is_assignable_role(role) {
         return Err(GhostError::BadRequest(format!("{role} is not a role you can assign")));
     }
@@ -115,7 +115,7 @@ impl Invite {
     }
 }
 
-pub async fn list_invites(pool: &SqlitePool) -> Result<Vec<Invite>> {
+pub async fn list_invites(pool: &Db) -> Result<Vec<Invite>> {
     let rows = sqlx::query_as::<_, (String, String, Option<String>, String, i64, String, String)>(
         "SELECT i.id, i.email, r.name, i.token, i.expires, i.status, i.created_at \
          FROM invites i LEFT JOIN roles r ON r.id = i.role_id ORDER BY i.created_at DESC",
@@ -137,7 +137,7 @@ pub async fn list_invites(pool: &SqlitePool) -> Result<Vec<Invite>> {
         .collect())
 }
 
-pub async fn find_invite_by_token(pool: &SqlitePool, token: &str) -> Result<Option<Invite>> {
+pub async fn find_invite_by_token(pool: &Db, token: &str) -> Result<Option<Invite>> {
     let row = sqlx::query_as::<_, (String, String, Option<String>, String, i64, String, String)>(
         "SELECT i.id, i.email, r.name, i.token, i.expires, i.status, i.created_at \
          FROM invites i LEFT JOIN roles r ON r.id = i.role_id WHERE i.token = ? LIMIT 1",
@@ -161,7 +161,7 @@ pub async fn find_invite_by_token(pool: &SqlitePool, token: &str) -> Result<Opti
 /// outstanding invite rather than erroring, which is also how "resend" works
 /// — the old token stops being valid, so a forwarded email cannot be redeemed
 /// after the invite was reissued.
-pub async fn create_invite(pool: &SqlitePool, email: &str, role: &str) -> Result<Invite> {
+pub async fn create_invite(pool: &Db, email: &str, role: &str) -> Result<Invite> {
     if !is_assignable_role(role) {
         return Err(GhostError::BadRequest(format!("{role} is not a role you can assign")));
     }
@@ -210,7 +210,7 @@ pub async fn create_invite(pool: &SqlitePool, email: &str, role: &str) -> Result
         .ok_or_else(|| GhostError::Internal("invite vanished".into()))
 }
 
-pub async fn mark_invite_sent(pool: &SqlitePool, id: &str) -> Result<()> {
+pub async fn mark_invite_sent(pool: &Db, id: &str) -> Result<()> {
     sqlx::query("UPDATE invites SET status = 'sent', updated_at = ? WHERE id = ?")
         .bind(dates::now_db())
         .bind(id)
@@ -220,7 +220,7 @@ pub async fn mark_invite_sent(pool: &SqlitePool, id: &str) -> Result<()> {
     Ok(())
 }
 
-pub async fn revoke_invite(pool: &SqlitePool, id: &str) -> Result<()> {
+pub async fn revoke_invite(pool: &Db, id: &str) -> Result<()> {
     sqlx::query("DELETE FROM invites WHERE id = ?")
         .bind(id)
         .execute(pool)
@@ -229,7 +229,7 @@ pub async fn revoke_invite(pool: &SqlitePool, id: &str) -> Result<()> {
     Ok(())
 }
 
-pub async fn delete_invite_by_email(pool: &SqlitePool, email: &str) -> Result<()> {
+pub async fn delete_invite_by_email(pool: &Db, email: &str) -> Result<()> {
     sqlx::query("DELETE FROM invites WHERE lower(email) = lower(?)")
         .bind(email)
         .execute(pool)
@@ -240,7 +240,7 @@ pub async fn delete_invite_by_email(pool: &SqlitePool, email: &str) -> Result<()
 
 /// Count of people who can still administer the site. Used to refuse the last
 /// removal: a site with no owner or admin cannot be managed again.
-pub async fn admin_count(pool: &SqlitePool) -> Result<i64> {
+pub async fn admin_count(pool: &Db) -> Result<i64> {
     sqlx::query_scalar::<_, i64>(
         "SELECT COUNT(*) FROM users u \
          JOIN roles_users ru ON ru.user_id = u.id \
@@ -254,7 +254,7 @@ pub async fn admin_count(pool: &SqlitePool) -> Result<i64> {
 
 /// Suspend or reactivate. Ghost keeps the row and flips `status`, so the
 /// person's posts keep their author rather than being orphaned by a delete.
-pub async fn set_user_status(pool: &SqlitePool, user_id: &str, status: &str) -> Result<()> {
+pub async fn set_user_status(pool: &Db, user_id: &str, status: &str) -> Result<()> {
     if !matches!(status, "active" | "inactive") {
         return Err(GhostError::BadRequest("unknown status".into()));
     }
@@ -271,7 +271,7 @@ pub async fn set_user_status(pool: &SqlitePool, user_id: &str, status: &str) -> 
 /// Remove a staff account. Posts they authored are kept — `posts_authors`
 /// rows go, and the post's denormalised `author_id` is left for the caller to
 /// reassign if it points here.
-pub async fn delete_staff(pool: &SqlitePool, user_id: &str) -> Result<()> {
+pub async fn delete_staff(pool: &Db, user_id: &str) -> Result<()> {
     for sql in [
         "DELETE FROM roles_users WHERE user_id = ?",
         "DELETE FROM posts_authors WHERE author_id = ?",

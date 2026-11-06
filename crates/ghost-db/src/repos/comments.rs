@@ -21,7 +21,8 @@
 //! comment loaded its own.
 use ghost_core::{dates, ids, GhostError, Result};
 use ghost_nql::Expr;
-use sqlx::{QueryBuilder, Sqlite, SqlitePool};
+use crate::Db;
+use sqlx::{Any, QueryBuilder};
 
 use super::dberr;
 use super::posts::push_clause_with_binds;
@@ -32,7 +33,7 @@ const COMMENT_COLS: &str = "id, post_id, member_id, parent_id, in_reply_to_id, s
 /// the DB's `YYYY-MM-DD HH:MM:SS` before they can be compared as text.
 const DATE_KEYS: &[&str] = &["created_at", "updated_at", "edited_at", "pinned_at"];
 
-#[derive(Debug, Clone, sqlx::FromRow)]
+#[derive(Debug, Clone)]
 pub struct Comment {
     pub id: String,
     pub post_id: String,
@@ -45,6 +46,29 @@ pub struct Comment {
     pub pinned_at: Option<String>,
     pub created_at: String,
     pub updated_at: Option<String>,
+}
+
+/// Read by hand rather than derived, because of the long columns.
+///
+/// `#[derive(sqlx::FromRow)]` would decode them as `String`, which fails on
+/// MySQL: a `MEDIUMTEXT` arrives as a blob. See [`crate::types::long`].
+impl<'r> sqlx::FromRow<'r, sqlx::any::AnyRow> for Comment {
+    fn from_row(row: &'r sqlx::any::AnyRow) -> sqlx::Result<Self> {
+        use sqlx::Row;
+        Ok(Self {
+            id: row.try_get("id")?,
+            post_id: row.try_get("post_id")?,
+            member_id: row.try_get("member_id")?,
+            parent_id: row.try_get("parent_id")?,
+            in_reply_to_id: row.try_get("in_reply_to_id")?,
+            status: row.try_get("status")?,
+            html: crate::types::long_opt(row, "html")?,
+            edited_at: row.try_get("edited_at")?,
+            pinned_at: row.try_get("pinned_at")?,
+            created_at: row.try_get("created_at")?,
+            updated_at: row.try_get("updated_at")?,
+        })
+    }
 }
 
 /// The counts Ghost exposes under a comment's `count` object.
@@ -63,7 +87,7 @@ pub struct Counts {
 }
 
 /// A comment's author, as the API exposes it.
-#[derive(Debug, Clone, sqlx::FromRow)]
+#[derive(Debug, Clone)]
 pub struct CommentMember {
     pub id: String,
     pub uuid: Option<String>,
@@ -75,8 +99,31 @@ pub struct CommentMember {
     pub enable_comment_notifications: bool,
 }
 
+/// Read by hand rather than derived, because of the boolean columns.
+///
+/// `#[derive(sqlx::FromRow)]` would decode each `bool` field with
+/// `Decode<Any> for bool`, which fails on both engines: a boolean is stored
+/// as a 0/1 integer and `Any` will not turn an integer into a `bool`. See
+/// [`crate::types::flag`]. Everything else is read exactly as the derive
+/// would have read it.
+impl<'r> sqlx::FromRow<'r, sqlx::any::AnyRow> for CommentMember {
+    fn from_row(row: &'r sqlx::any::AnyRow) -> sqlx::Result<Self> {
+        use sqlx::Row;
+        Ok(Self {
+            id: row.try_get("id")?,
+            uuid: row.try_get("uuid")?,
+            name: row.try_get("name")?,
+            email: row.try_get("email")?,
+            expertise: row.try_get("expertise")?,
+            status: row.try_get("status")?,
+            commenting: row.try_get("commenting")?,
+            enable_comment_notifications: crate::types::flag(row, "enable_comment_notifications"),
+        })
+    }
+}
+
 /// The post fields the admin moderation screen shows alongside a comment.
-#[derive(Debug, Clone, sqlx::FromRow)]
+#[derive(Debug, Clone)]
 pub struct CommentPost {
     pub id: String,
     pub uuid: Option<String>,
@@ -87,6 +134,27 @@ pub struct CommentPost {
     pub plaintext: Option<String>,
     pub status: Option<String>,
     pub visibility: Option<String>,
+}
+
+/// Read by hand rather than derived, because of the long columns.
+///
+/// `#[derive(sqlx::FromRow)]` would decode them as `String`, which fails on
+/// MySQL: a `MEDIUMTEXT` arrives as a blob. See [`crate::types::long`].
+impl<'r> sqlx::FromRow<'r, sqlx::any::AnyRow> for CommentPost {
+    fn from_row(row: &'r sqlx::any::AnyRow) -> sqlx::Result<Self> {
+        use sqlx::Row;
+        Ok(Self {
+            id: row.try_get("id")?,
+            uuid: row.try_get("uuid")?,
+            title: row.try_get("title")?,
+            slug: row.try_get("slug")?,
+            feature_image: row.try_get("feature_image")?,
+            custom_excerpt: row.try_get("custom_excerpt")?,
+            plaintext: crate::types::long_opt(row, "plaintext")?,
+            status: row.try_get("status")?,
+            visibility: row.try_get("visibility")?,
+        })
+    }
 }
 
 /// One comment with everything the serializer needs attached.
@@ -194,7 +262,7 @@ fn order_clause(order: Option<&str>) -> String {
 }
 
 /// Shared WHERE construction for the page query and its COUNT(*) twin.
-fn push_where(qb: &mut QueryBuilder<'_, Sqlite>, q: &BrowseComments) -> Result<()> {
+fn push_where(qb: &mut QueryBuilder<'_, Any>, q: &BrowseComments) -> Result<()> {
     qb.push(" WHERE ");
     qb.push(status_clause(q.is_admin, q.browse_all));
 
@@ -220,11 +288,11 @@ fn push_where(qb: &mut QueryBuilder<'_, Sqlite>, q: &BrowseComments) -> Result<(
     Ok(())
 }
 
-pub async fn browse(pool: &SqlitePool, q: &BrowseComments) -> Result<CommentsPage> {
+pub async fn browse(pool: &Db, q: &BrowseComments) -> Result<CommentsPage> {
     let limit = if q.limit > 0 { q.limit } else { 15 };
     let page = q.page.max(1);
 
-    let mut qb = QueryBuilder::<Sqlite>::new("SELECT ");
+    let mut qb = QueryBuilder::<Any>::new("SELECT ");
     qb.push(COMMENT_COLS);
     qb.push(" FROM comments");
     push_where(&mut qb, q)?;
@@ -238,7 +306,7 @@ pub async fn browse(pool: &SqlitePool, q: &BrowseComments) -> Result<CommentsPag
     }
     let rows: Vec<Comment> = qb.build_query_as::<Comment>().fetch_all(pool).await.map_err(dberr)?;
 
-    let mut cqb = QueryBuilder::<Sqlite>::new("SELECT COUNT(*) FROM comments");
+    let mut cqb = QueryBuilder::<Any>::new("SELECT COUNT(*) FROM comments");
     push_where(&mut cqb, q)?;
     let total: i64 = cqb.build_query_scalar().fetch_one(pool).await.map_err(dberr)?;
 
@@ -249,7 +317,7 @@ pub async fn browse(pool: &SqlitePool, q: &BrowseComments) -> Result<CommentsPag
 /// Attach members, counts, reply threads and (optionally) posts to a page of
 /// bare comment rows.
 async fn hydrate(
-    pool: &SqlitePool,
+    pool: &Db,
     rows: Vec<Comment>,
     q: &BrowseComments,
 ) -> Result<Vec<CommentWithRelations>> {
@@ -277,7 +345,7 @@ async fn hydrate(
     // one query per comment.
     let mut reply_rows: Vec<Comment> = Vec::new();
     if q.with_replies {
-        let mut rqb = QueryBuilder::<Sqlite>::new("SELECT ");
+        let mut rqb = QueryBuilder::<Any>::new("SELECT ");
         rqb.push(COMMENT_COLS);
         rqb.push(" FROM comments WHERE status NOT IN (");
         let mut sep = rqb.separated(", ");
@@ -351,7 +419,7 @@ fn counts_for(counts: &[(String, Counts)], id: &str) -> Counts {
 /// `OR`, the way Ghost does it: an `OR` across `parent_id` and
 /// `in_reply_to_id` cannot use either index.
 async fn load_counts(
-    pool: &SqlitePool,
+    pool: &Db,
     ids: &[String],
     is_admin: bool,
     member_id: Option<&str>,
@@ -360,7 +428,7 @@ async fn load_counts(
         return Ok(Vec::new());
     }
     let list = excluded(is_admin).iter().map(|s| format!("'{s}'")).collect::<Vec<_>>().join(", ");
-    let mut qb = QueryBuilder::<Sqlite>::new(format!(
+    let mut qb = QueryBuilder::<Any>::new(format!(
         "SELECT c.id, \
          (SELECT COUNT(*) FROM comments r WHERE r.parent_id = c.id AND r.status NOT IN ({list})) AS replies, \
          (SELECT COUNT(*) FROM comments r1 WHERE r1.parent_id = c.id AND r1.in_reply_to_id IS NULL AND r1.status NOT IN ({list})) \
@@ -409,13 +477,13 @@ async fn load_counts(
         .collect())
 }
 
-async fn load_members(pool: &SqlitePool, mut ids: Vec<String>) -> Result<Vec<CommentMember>> {
+async fn load_members(pool: &Db, mut ids: Vec<String>) -> Result<Vec<CommentMember>> {
     ids.sort();
     ids.dedup();
     if ids.is_empty() {
         return Ok(Vec::new());
     }
-    let mut qb = QueryBuilder::<Sqlite>::new(
+    let mut qb = QueryBuilder::<Any>::new(
         "SELECT id, uuid, name, email, expertise, status, commenting, enable_comment_notifications \
          FROM members WHERE id IN (",
     );
@@ -427,13 +495,13 @@ async fn load_members(pool: &SqlitePool, mut ids: Vec<String>) -> Result<Vec<Com
     qb.build_query_as().fetch_all(pool).await.map_err(dberr)
 }
 
-async fn load_posts(pool: &SqlitePool, mut ids: Vec<String>) -> Result<Vec<CommentPost>> {
+async fn load_posts(pool: &Db, mut ids: Vec<String>) -> Result<Vec<CommentPost>> {
     ids.sort();
     ids.dedup();
     if ids.is_empty() {
         return Ok(Vec::new());
     }
-    let mut qb = QueryBuilder::<Sqlite>::new(
+    let mut qb = QueryBuilder::<Any>::new(
         "SELECT id, uuid, title, slug, feature_image, custom_excerpt, plaintext, status, visibility \
          FROM posts WHERE id IN (",
     );
@@ -445,13 +513,13 @@ async fn load_posts(pool: &SqlitePool, mut ids: Vec<String>) -> Result<Vec<Comme
     qb.build_query_as().fetch_all(pool).await.map_err(dberr)
 }
 
-async fn load_by_ids(pool: &SqlitePool, mut ids: Vec<String>) -> Result<Vec<Comment>> {
+async fn load_by_ids(pool: &Db, mut ids: Vec<String>) -> Result<Vec<Comment>> {
     ids.sort();
     ids.dedup();
     if ids.is_empty() {
         return Ok(Vec::new());
     }
-    let mut qb = QueryBuilder::<Sqlite>::new("SELECT ");
+    let mut qb = QueryBuilder::<Any>::new("SELECT ");
     qb.push(COMMENT_COLS);
     qb.push(" FROM comments WHERE id IN (");
     let mut sep = qb.separated(", ");
@@ -468,7 +536,7 @@ async fn load_by_ids(pool: &SqlitePool, mut ids: Vec<String>) -> Result<Vec<Comm
 
 /// The bare row, with no relations — for the ownership and status checks the
 /// write paths make before doing anything.
-pub async fn find_raw(pool: &SqlitePool, id: &str) -> Result<Option<Comment>> {
+pub async fn find_raw(pool: &Db, id: &str) -> Result<Option<Comment>> {
     sqlx::query_as::<_, Comment>(&format!("SELECT {COMMENT_COLS} FROM comments WHERE id = ?"))
         .bind(id)
         .fetch_optional(pool)
@@ -482,7 +550,7 @@ pub async fn find_raw(pool: &SqlitePool, id: &str) -> Result<Option<Comment>> {
 /// `read` must 404 a hidden comment for a visitor while the write paths need
 /// to find their own hidden comment in order to edit it.
 pub async fn find_with_relations(
-    pool: &SqlitePool,
+    pool: &Db,
     id: &str,
     is_admin: bool,
     member_id: Option<&str>,
@@ -523,7 +591,7 @@ pub struct NewComment<'a> {
     pub created_at: Option<String>,
 }
 
-pub async fn insert(pool: &SqlitePool, new: NewComment<'_>) -> Result<Comment> {
+pub async fn insert(pool: &Db, new: NewComment<'_>) -> Result<Comment> {
     let id = ids::new_id();
     let now = dates::now_db();
     let created_at = new.created_at.unwrap_or_else(|| now.clone());
@@ -557,7 +625,7 @@ pub async fn insert(pool: &SqlitePool, new: NewComment<'_>) -> Result<Comment> {
 /// comment's likes and reports go with it, and so do its replies — which is
 /// why the admin UI confirms before calling this. Returns `false` when the
 /// comment did not exist.
-pub async fn delete(pool: &SqlitePool, id: &str) -> Result<bool> {
+pub async fn delete(pool: &Db, id: &str) -> Result<bool> {
     let changed = sqlx::query("DELETE FROM comments WHERE id = ?")
         .bind(id)
         .execute(pool)
@@ -569,7 +637,7 @@ pub async fn delete(pool: &SqlitePool, id: &str) -> Result<bool> {
 
 /// Replace a comment's body and stamp `edited_at`, which is what makes the
 /// UI show an "edited" marker.
-pub async fn update_html(pool: &SqlitePool, id: &str, html: &str) -> Result<Option<Comment>> {
+pub async fn update_html(pool: &Db, id: &str, html: &str) -> Result<Option<Comment>> {
     let now = dates::now_db();
     sqlx::query("UPDATE comments SET html = ?, edited_at = ?, updated_at = ? WHERE id = ?")
         .bind(html)
@@ -584,7 +652,7 @@ pub async fn update_html(pool: &SqlitePool, id: &str, html: &str) -> Result<Opti
 
 /// Moderation and deletion are both a status change — Ghost never removes a
 /// comment row, so replies under a deleted comment keep their thread.
-pub async fn set_status(pool: &SqlitePool, id: &str, status: &str) -> Result<Option<Comment>> {
+pub async fn set_status(pool: &Db, id: &str, status: &str) -> Result<Option<Comment>> {
     sqlx::query("UPDATE comments SET status = ?, updated_at = ? WHERE id = ?")
         .bind(status)
         .bind(dates::now_db())
@@ -597,7 +665,7 @@ pub async fn set_status(pool: &SqlitePool, id: &str, status: &str) -> Result<Opt
 
 /// Hide every published comment by one member, for the "hide existing
 /// comments" option when their commenting is disabled.
-pub async fn hide_all_by_member(pool: &SqlitePool, member_id: &str) -> Result<u64> {
+pub async fn hide_all_by_member(pool: &Db, member_id: &str) -> Result<u64> {
     let res = sqlx::query(
         "UPDATE comments SET status = 'hidden', updated_at = ? WHERE member_id = ? AND status = 'published'",
     )
@@ -631,7 +699,7 @@ impl Reaction {
 }
 
 pub async fn has_reacted(
-    pool: &SqlitePool,
+    pool: &Db,
     comment_id: &str,
     member_id: &str,
     reaction: Reaction,
@@ -654,14 +722,14 @@ pub async fn has_reacted(
 /// disliked moves it rather than leaving both — the unique index on
 /// `(comment_id, member_id)` would refuse the second row anyway.
 pub async fn react(
-    pool: &SqlitePool,
+    pool: &Db,
     comment_id: &str,
     member_id: &str,
     reaction: Reaction,
 ) -> Result<()> {
     sqlx::query(
-        "INSERT INTO comment_likes (id, comment_id, member_id, score, created_at) VALUES (?, ?, ?, ?, ?) \
-         ON CONFLICT(comment_id, member_id) DO UPDATE SET score = excluded.score",
+        crate::dialect::sql("INSERT INTO comment_likes (id, comment_id, member_id, score, created_at) VALUES (?, ?, ?, ?, ?) \
+         ON CONFLICT(comment_id, member_id) DO UPDATE SET score = excluded.score"),
     )
     .bind(ids::new_id())
     .bind(comment_id)
@@ -677,7 +745,7 @@ pub async fn react(
 /// Returns false when there was no such reaction to remove, which the API
 /// turns into Ghost's "Unable to find like" 404.
 pub async fn unreact(
-    pool: &SqlitePool,
+    pool: &Db,
     comment_id: &str,
     member_id: &str,
     reaction: Reaction,
@@ -694,7 +762,7 @@ pub async fn unreact(
 
 /// Record a report. Returns false if this member had already reported this
 /// comment, so the caller can skip sending the owner a second email.
-pub async fn report(pool: &SqlitePool, comment_id: &str, member_id: &str) -> Result<bool> {
+pub async fn report(pool: &Db, comment_id: &str, member_id: &str) -> Result<bool> {
     let existing: i64 = sqlx::query_scalar(
         "SELECT COUNT(*) FROM comment_reports WHERE comment_id = ? AND member_id = ?",
     )
@@ -727,13 +795,13 @@ type MemberWithTimestamp = (
     Option<String>,
     String,
     Option<String>,
-    bool,
+    i64, // 0/1; `Any` does not decode an integer as a bool
     String,
 );
 
 /// The members who liked or reported a comment, for the admin screens.
 pub async fn members_for(
-    pool: &SqlitePool,
+    pool: &Db,
     table: &str,
     comment_id: &str,
     limit: i64,
@@ -782,7 +850,7 @@ pub async fn members_for(
                         expertise,
                         status,
                         commenting,
-                        enable_comment_notifications: notify,
+                        enable_comment_notifications: notify != 0,
                     },
                     at,
                 )
@@ -799,11 +867,11 @@ pub async fn members_for(
 /// Published comment counts for the given posts. Posts with none are
 /// reported as 0 rather than omitted, which is what the counts script needs
 /// to render its "empty" text.
-pub async fn counts_by_post(pool: &SqlitePool, post_ids: &[String]) -> Result<Vec<(String, i64)>> {
+pub async fn counts_by_post(pool: &Db, post_ids: &[String]) -> Result<Vec<(String, i64)>> {
     if post_ids.is_empty() {
         return Ok(Vec::new());
     }
-    let mut qb = QueryBuilder::<Sqlite>::new(
+    let mut qb = QueryBuilder::<Any>::new(
         "SELECT post_id, COUNT(*) FROM comments WHERE status = 'published' AND post_id IN (",
     );
     let mut sep = qb.separated(", ");
@@ -818,7 +886,7 @@ pub async fn counts_by_post(pool: &SqlitePool, post_ids: &[String]) -> Result<Ve
         .collect())
 }
 
-pub async fn all_counts(pool: &SqlitePool) -> Result<Vec<(String, i64)>> {
+pub async fn all_counts(pool: &Db) -> Result<Vec<(String, i64)>> {
     sqlx::query_as("SELECT post_id, COUNT(*) FROM comments WHERE status = 'published' GROUP BY post_id")
         .fetch_all(pool)
         .await
@@ -826,7 +894,7 @@ pub async fn all_counts(pool: &SqlitePool) -> Result<Vec<(String, i64)>> {
 }
 
 /// Totals for the admin moderation screen's header.
-pub async fn moderation_totals(pool: &SqlitePool) -> Result<(i64, i64, i64)> {
+pub async fn moderation_totals(pool: &Db) -> Result<(i64, i64, i64)> {
     let row: (i64, i64, i64) = sqlx::query_as(
         "SELECT \
          (SELECT COUNT(*) FROM comments WHERE status = 'published'), \
@@ -842,7 +910,7 @@ pub async fn moderation_totals(pool: &SqlitePool) -> Result<(i64, i64, i64)> {
 
 /// Bump `last_seen_at` / `last_commented_at` the way Ghost's
 /// `LastSeenAtUpdater` does on a `MemberCommentEvent`.
-pub async fn touch_member_commented(pool: &SqlitePool, member_id: &str) -> Result<()> {
+pub async fn touch_member_commented(pool: &Db, member_id: &str) -> Result<()> {
     let now = dates::now_db();
     sqlx::query("UPDATE members SET last_seen_at = ?, last_commented_at = ? WHERE id = ?")
         .bind(&now)

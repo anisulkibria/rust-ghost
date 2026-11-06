@@ -550,6 +550,14 @@ fn sql_op(cmp: Cmp) -> &'static str {
 pub fn compile(expr: &Expr, resource: &str) -> Result<Sql> {
     let mut sql = Sql::default();
     sql.clause = compile_expr(expr, resource, &mut sql.binds)?;
+    // The clauses below are written in SQLite's dialect, like the rest of this
+    // project's SQL, and translated here for MySQL.
+    //
+    // Translating at this one point rather than at each of the eight places a
+    // compiled filter is pasted into a larger query is deliberate: a caller
+    // that forgot would produce a clause that works locally and fails in
+    // production, and there would be nothing in the type system to catch it.
+    sql.clause = ghost_core::dialect::sql_owned(&sql.clause);
     Ok(sql)
 }
 

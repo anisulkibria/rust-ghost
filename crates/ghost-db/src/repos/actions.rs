@@ -1,9 +1,9 @@
 //! Audit log (actions table).
 use ghost_core::{dates, ids, Result};
-use sqlx::SqlitePool;
+use crate::Db;
 
 pub async fn record(
-    pool: &SqlitePool,
+    pool: &Db,
     resource_type: &str,
     resource_id: &str,
     actor_id: &str,

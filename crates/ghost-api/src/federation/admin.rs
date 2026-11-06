@@ -99,7 +99,7 @@ async fn list_objects(
         .and_then(|s| s.parse::<i64>().ok())
         .unwrap_or(1)
         .clamp(1, 100000);
-    let rows=sqlx::query_as::<_,(String,String,String,String,Option<String>,String,bool)>("SELECT o.id,o.actor,o.content,o.url,o.in_reply_to,o.published_at,o.local FROM federation_objects o WHERE o.deleted=0 AND ((?=1 AND o.local=1) OR (?=0 AND (o.local=1 OR EXISTS(SELECT 1 FROM federation_following f WHERE f.actor=o.actor AND f.accepted=1)))) ORDER BY o.published_at DESC,o.id DESC LIMIT 30 OFFSET ?")
+    let rows=sqlx::query_as::<_,(String,String,String,String,Option<String>,String,i64)>("SELECT o.id,o.actor,o.content,o.url,o.in_reply_to,o.published_at,o.local FROM federation_objects o WHERE o.deleted=0 AND ((?=1 AND o.local=1) OR (?=0 AND (o.local=1 OR EXISTS(SELECT 1 FROM federation_following f WHERE f.actor=o.actor AND f.accepted=1)))) ORDER BY o.published_at DESC,o.id DESC LIMIT 30 OFFSET ?")
         .bind(local).bind(local).bind((page-1)*30).fetch_all(&state.db).await.unwrap_or_default();
     let items=rows.into_iter().map(|(id,actor,content,url,reply,published,local)|json!({"id":id,"actor":actor,"text":ghost_core::comments::to_plaintext(&content),"url":url,"in_reply_to":reply,"published_at":published,"local":local})).collect::<Vec<_>>();
     (
@@ -148,13 +148,15 @@ async fn following_list(State(state): State<AppState>, headers: HeaderMap) -> Re
     if let Err(r) = authorize(&state, &headers).await {
         return r;
     }
-    let rows = sqlx::query_as::<_, (String, bool)>(
+    // `accepted` is a 0/1 column: `Any` will not decode an integer as a
+    // `bool`, so it is read as one and compared here.
+    let rows = sqlx::query_as::<_, (String, i64)>(
         "SELECT actor,accepted FROM federation_following ORDER BY created_at DESC",
     )
     .fetch_all(&state.db)
     .await
     .unwrap_or_default();
-    Json(json!({"following":rows.into_iter().map(|(actor,accepted)|json!({"actor":actor,"accepted":accepted})).collect::<Vec<_>>()})).into_response()
+    Json(json!({"following":rows.into_iter().map(|(actor,accepted)|json!({"actor":actor,"accepted":accepted!=0})).collect::<Vec<_>>()})).into_response()
 }
 async fn follow(
     State(state): State<AppState>,

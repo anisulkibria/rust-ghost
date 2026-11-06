@@ -83,7 +83,7 @@ pub struct Signer {
 /// Returns `None` rather than failing when no key exists yet: an unsigned
 /// fetch still works against the servers that allow one, and a first-boot
 /// lookup should not be blocked on key generation.
-pub async fn signer(pool: &sqlx::SqlitePool, actor_id: &str) -> Option<Signer> {
+pub async fn signer(pool: &ghost_db::Db, actor_id: &str) -> Option<Signer> {
     let private_pem: String = sqlx::query_scalar(
         "SELECT private_pem FROM federation_keys WHERE id='publication'",
     )

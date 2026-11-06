@@ -167,8 +167,8 @@ async fn entitlements(State(state): State<AppState>, headers: HeaderMap) -> Resp
         }
     };
     let tiers: Vec<String> = sqlx::query_scalar(
-        "SELECT p.slug FROM members_products mp JOIN products p ON p.id = mp.product_id \
-         WHERE mp.member_id = ? AND (mp.expiry_at IS NULL OR datetime(mp.expiry_at) > datetime('now'))",
+        ghost_db::dialect::sql("SELECT p.slug FROM members_products mp JOIN products p ON p.id = mp.product_id \
+         WHERE mp.member_id = ? AND (mp.expiry_at IS NULL OR datetime(mp.expiry_at) > datetime('now'))"),
     )
     .bind(&member.id)
     .fetch_all(&state.db)

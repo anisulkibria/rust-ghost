@@ -196,7 +196,12 @@ async fn resource(state: &AppState, id: &str, history: bool) -> Result<Option<Va
     };
     let mut value = json!({"id":id,"app_id":app,"status":status,"manifest_url":url,"manifest":serde_json::from_str::<Value>(&raw).map_err(|_|bad("Stored manifest is corrupt"))?,"revision":revision,"created_at":created,"updated_at":updated});
     if history {
-        let rows=sqlx::query_as::<_,(String,String,String,String)>("SELECT manifest_url,manifest,source,created_at FROM app_manifest_history WHERE installation_id=? ORDER BY rowid DESC").bind(&id).fetch_all(&state.db).await.map_err(db)?;
+        // Newest first, by the history row's own timestamp rather than
+        // SQLite's `rowid`: this table has a random-text primary key, so
+        // there is no insertion-order column MySQL could offer, and
+        // `created_at` is the order the history actually happened in. The id
+        // breaks a same-second tie stably on both engines.
+        let rows=sqlx::query_as::<_,(String,String,String,String)>("SELECT manifest_url,manifest,source,created_at FROM app_manifest_history WHERE installation_id=? ORDER BY created_at DESC,id DESC").bind(&id).fetch_all(&state.db).await.map_err(db)?;
         value["history"]=json!(rows.into_iter().map(|(url,raw,source,at)|json!({"manifest_url":url,"manifest":serde_json::from_str::<Value>(&raw).unwrap_or(Value::Null),"source":source,"created_at":at})).collect::<Vec<_>>());
     }
     Ok(Some(value))

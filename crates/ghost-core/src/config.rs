@@ -172,9 +172,36 @@ fn default_client() -> String {
     "sqlite3".into()
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+/// A knex `connection` block, in either of its two shapes.
+///
+/// Every field is optional because the two shapes share none of them: a
+/// SQLite connection is a `filename`, a MySQL one is a host and a login.
+/// Which fields are *required* depends on the client, and that is checked in
+/// [`Config::db_target`] — where the error can name the missing field and the
+/// client that wanted it, rather than serde reporting a missing key with no
+/// idea why it mattered.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct ConnectionConfig {
-    pub filename: String,
+    /// SQLite: the database file, relative to the site directory.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub filename: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub host: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub port: Option<u16>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub user: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub password: Option<String>,
+    /// MySQL: the database name. Not `name`, because knex calls it this and a
+    /// config is copied between Ghost installs.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub database: Option<String>,
+    /// Accepted and ignored: this build always uses `utf8mb4`, which is the
+    /// only charset that can hold the emoji a post may contain. Present so
+    /// that a config written for stock Ghost deserialises unchanged.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub charset: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -264,12 +291,58 @@ impl Config {
         self.content_path().join("media")
     }
 
+    /// The SQLite file this site would use.
+    ///
+    /// Still meaningful on a MySQL site: it is where a local database *would*
+    /// live, which is what an import or an export needs in order to name the
+    /// file being moved. Falls back to Ghost's own default when the config
+    /// names no filename, which is the case on a MySQL site.
     pub fn db_path(&self) -> PathBuf {
-        let f = Path::new(&self.database.connection.filename);
+        let configured =
+            self.database.connection.filename.as_deref().unwrap_or("content/data/ghost.db");
+        let f = Path::new(configured);
         if f.is_absolute() {
             f.to_path_buf()
         } else {
             self.base_dir.join(f)
+        }
+    }
+
+    /// The database this site runs on.
+    ///
+    /// The one function that decides SQLite versus MySQL. Everything else —
+    /// the pool, `doctor`, the CLI — asks here, so there is no second place
+    /// where the answer could be derived differently.
+    pub fn db_target(&self) -> Result<crate::database::Target> {
+        use crate::database::{Engine, Target};
+
+        let c = &self.database.connection;
+        match Engine::from_client(&self.database.client)? {
+            Engine::Sqlite => Ok(Target::sqlite_file(&self.db_path())),
+            Engine::MySql => {
+                // Named individually so the error says which field is absent.
+                // A host writes this block, and a half-written one is the
+                // likeliest way a provisioned site fails to start.
+                let need = |field: &str, value: Option<&str>| -> Result<String> {
+                    value.map(str::trim).filter(|v| !v.is_empty()).map(str::to_string).ok_or_else(
+                        || {
+                            GhostError::ConfigError(format!(
+                                "database.client is \"{}\" but database.connection.{field} \
+                                 is missing",
+                                self.database.client
+                            ))
+                        },
+                    )
+                };
+
+                let host = need("host", c.host.as_deref())?;
+                let user = need("user", c.user.as_deref())?;
+                let database = need("database", c.database.as_deref())?;
+                // A password may legitimately be empty on a local server, so
+                // it is not required — unlike the three above.
+                let password = c.password.clone().unwrap_or_default();
+                Ok(Target::mysql(&host, c.port.unwrap_or(3306), &user, &password, &database))
+            }
         }
     }
 
@@ -559,7 +632,7 @@ mod tests {
             server: ServerConfig::default(),
             database: DatabaseConfig {
                 client: default_client(),
-                connection: ConnectionConfig { filename: "x.db".into() },
+                connection: ConnectionConfig { filename: Some("x.db".into()), ..Default::default() },
             },
             paths: PathsConfig::default(),
             mail: serde_json::Value::Null,

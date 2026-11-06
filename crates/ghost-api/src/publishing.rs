@@ -65,7 +65,11 @@ async fn copy(State(state):State<AppState>,headers:HeaderMap,Path(id):Path<Strin
 }
 async fn revisions(State(state):State<AppState>,headers:HeaderMap,Path(id):Path<String>)->Response {
     if let Err(r)=authorize(&state,&headers,&id).await{return r}
-    let rows=sqlx::query_as::<_,(String,String,String)>("SELECT id,created_at,snapshot FROM post_revisions WHERE post_id=? AND snapshot IS NOT NULL ORDER BY created_at_ts DESC,rowid DESC LIMIT 100")
+    // `created_at_ts` (milliseconds) is the real order; the id only breaks a
+    // same-millisecond tie, and does so stably on both engines. It replaces
+    // SQLite's `rowid`, which MySQL does not have and this table's
+    // random-text primary key cannot stand in for.
+    let rows=sqlx::query_as::<_,(String,String,ghost_db::types::Text)>("SELECT id,created_at,snapshot FROM post_revisions WHERE post_id=? AND snapshot IS NOT NULL ORDER BY created_at_ts DESC,id DESC LIMIT 100")
         .bind(id).fetch_all(&state.db).await;
     match rows{Ok(rows)=>Json(json!({"revisions":rows.into_iter().map(|(id,date,snapshot)|{
         let snapshot:Value=serde_json::from_str(&snapshot).unwrap_or(Value::Null);
@@ -133,7 +137,7 @@ async fn bulk(State(state):State<AppState>,headers:HeaderMap,OriginalUri(uri):Or
     let tier_ids:Vec<String>=body["tiers"].as_array().into_iter().flatten().filter_map(|t|t.as_str().or_else(||t["id"].as_str()).map(str::to_owned)).collect();
     if action=="visibility"&&visibility=="tiers" {
         if tier_ids.is_empty(){return error(StatusCode::UNPROCESSABLE_ENTITY,"Choose paid tiers")}
-        for id in &tier_ids{let valid:bool=sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM products WHERE id=? AND type='paid')").bind(id).fetch_one(&state.db).await.unwrap_or(false);if !valid{return error(StatusCode::UNPROCESSABLE_ENTITY,"Unknown paid tier")}}
+        for id in &tier_ids{let valid: bool = sqlx::query_scalar::<_, i64>("SELECT EXISTS(SELECT 1 FROM products WHERE id=? AND type='paid')").bind(id).fetch_one(&state.db).await.unwrap_or(0) != 0;if !valid{return error(StatusCode::UNPROCESSABLE_ENTITY,"Unknown paid tier")}}
     }
     let mut done=Vec::new();
     for post in posts {
@@ -161,9 +165,19 @@ async fn save_view(State(state):State<AppState>,headers:HeaderMap,Json(body):Jso
     let name=body["name"].as_str().unwrap_or("").trim();let resource=body["resource"].as_str().unwrap_or("");let filter=body["filter"].as_str().unwrap_or("");
     if name.is_empty()||name.len()>100||!matches!(resource,"posts"|"pages"|"members")||filter.len()>2000{return error(StatusCode::UNPROCESSABLE_ENTITY,"Invalid saved view")}
     let id=ids::new_id();
-    match sqlx::query("INSERT INTO saved_views (id,user_id,resource,name,filter,created_at) VALUES (?,?,?,?,?,?) ON CONFLICT(user_id,resource,name) DO UPDATE SET filter=excluded.filter RETURNING id")
-        .bind(&id).bind(user.id).bind(resource).bind(name).bind(filter).bind(dates::now_db()).fetch_one(&state.db).await {
-        Ok(row)=>(StatusCode::CREATED,Json(json!({"views":[{"id":sqlx::Row::get::<String,_>(&row,"id"),"resource":resource,"name":name,"filter":filter}]}))).into_response(),Err(_)=>error(StatusCode::INTERNAL_SERVER_ERROR,"Could not save view")
+    // Upsert, then read the id back: `RETURNING` is SQLite-only. The select
+    // keys on the same unique triple the upsert conflicts on, so it finds
+    // either the row just inserted or the one just updated.
+    let upserted = sqlx::query(ghost_db::dialect::sql("INSERT INTO saved_views (id,user_id,resource,name,filter,created_at) VALUES (?,?,?,?,?,?) ON CONFLICT(user_id,resource,name) DO UPDATE SET filter=excluded.filter"))
+        .bind(&id).bind(&user.id).bind(resource).bind(name).bind(filter).bind(dates::now_db()).execute(&state.db).await;
+    if upserted.is_err() {
+        return error(StatusCode::INTERNAL_SERVER_ERROR, "Could not save view");
+    }
+    match sqlx::query_scalar::<_, String>(
+        "SELECT id FROM saved_views WHERE user_id=? AND resource=? AND name=?",
+    )
+        .bind(&user.id).bind(resource).bind(name).fetch_one(&state.db).await {
+        Ok(saved_id)=>(StatusCode::CREATED,Json(json!({"views":[{"id":saved_id,"resource":resource,"name":name,"filter":filter}]}))).into_response(),Err(_)=>error(StatusCode::INTERNAL_SERVER_ERROR,"Could not save view")
     }
 }
 async fn delete_view(State(state):State<AppState>,headers:HeaderMap,Path(id):Path<String>)->Response {
@@ -421,7 +435,9 @@ async fn audience(State(state):State<AppState>,headers:HeaderMap,Path(id):Path<S
 }
 async fn save_audience(State(state):State<AppState>,headers:HeaderMap,Path(id):Path<String>,Json(body):Json<crate::newsletter_audience::Audience>)->Response{
     if let Err(r)=authorize(&state,&headers,&id).await{return r}
-    if sqlx::query_scalar::<_,bool>("SELECT EXISTS(SELECT 1 FROM emails WHERE post_id=?)").bind(&id).fetch_one(&state.db).await.unwrap_or(true){return error(StatusCode::CONFLICT,"This post has already been emailed")}
+    // `EXISTS` is 0/1; `Any` does not decode an integer as a `bool`. The
+    // fallback stays "assume already emailed", which is the safe answer.
+    if sqlx::query_scalar::<_,i64>("SELECT EXISTS(SELECT 1 FROM emails WHERE post_id=?)").bind(&id).fetch_one(&state.db).await.unwrap_or(1)!=0{return error(StatusCode::CONFLICT,"This post has already been emailed")}
     match crate::newsletter_audience::save(&state,&id,&body).await{Ok(())=>Json(json!({"audience":body})).into_response(),Err(e)=>failed(e)}
 }
 async fn editor_newsletters(State(state):State<AppState>,headers:HeaderMap)->Response{

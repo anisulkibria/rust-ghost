@@ -1,6 +1,6 @@
 //! Webhooks: the callbacks a custom integration registers against site events.
 use ghost_core::{dates, ids, GhostError, Result};
-use sqlx::SqlitePool;
+use crate::Db;
 
 use super::dberr;
 
@@ -24,7 +24,7 @@ const COLS: &str = "id, event, target_url, name, secret, integration_id, last_tr
      last_triggered_status, last_triggered_error, created_at, updated_at, api_version";
 
 /// Every webhook an integration has registered.
-pub async fn list_for_integration(pool: &SqlitePool, integration_id: &str) -> Result<Vec<Webhook>> {
+pub async fn list_for_integration(pool: &Db, integration_id: &str) -> Result<Vec<Webhook>> {
     let rows = sqlx::query_as::<_, Webhook>(&format!(
         "SELECT {COLS} FROM webhooks WHERE integration_id = ? ORDER BY created_at"
     ))
@@ -37,7 +37,7 @@ pub async fn list_for_integration(pool: &SqlitePool, integration_id: &str) -> Re
 
 /// Every webhook listening for one event, across all integrations — what the
 /// dispatcher asks for when something happens.
-pub async fn list_for_event(pool: &SqlitePool, event: &str) -> Result<Vec<Webhook>> {
+pub async fn list_for_event(pool: &Db, event: &str) -> Result<Vec<Webhook>> {
     let rows = sqlx::query_as::<_, Webhook>(&format!(
         "SELECT {COLS} FROM webhooks WHERE event = ?"
     ))
@@ -49,7 +49,7 @@ pub async fn list_for_event(pool: &SqlitePool, event: &str) -> Result<Vec<Webhoo
 }
 
 pub async fn create(
-    pool: &SqlitePool,
+    pool: &Db,
     integration_id: &str,
     event: &str,
     target_url: &str,
@@ -76,7 +76,7 @@ pub async fn create(
     find(pool, &id).await?.ok_or_else(|| GhostError::Internal("webhook vanished".into()))
 }
 
-pub async fn find(pool: &SqlitePool, id: &str) -> Result<Option<Webhook>> {
+pub async fn find(pool: &Db, id: &str) -> Result<Option<Webhook>> {
     let row = sqlx::query_as::<_, Webhook>(&format!("SELECT {COLS} FROM webhooks WHERE id = ?"))
         .bind(id)
         .fetch_optional(pool)
@@ -85,7 +85,7 @@ pub async fn find(pool: &SqlitePool, id: &str) -> Result<Option<Webhook>> {
     Ok(row)
 }
 
-pub async fn delete(pool: &SqlitePool, id: &str) -> Result<()> {
+pub async fn delete(pool: &Db, id: &str) -> Result<()> {
     sqlx::query("DELETE FROM webhooks WHERE id = ?")
         .bind(id)
         .execute(pool)
@@ -98,7 +98,7 @@ pub async fn delete(pool: &SqlitePool, id: &str) -> Result<()> {
 ///
 /// `error` is bounded to the column's width rather than left to the database
 /// to reject — a long upstream error must not lose the status too.
-pub async fn record_delivery(pool: &SqlitePool, id: &str, status: &str, error: Option<&str>) {
+pub async fn record_delivery(pool: &Db, id: &str, status: &str, error: Option<&str>) {
     let trimmed = error.map(|e| e.chars().take(50).collect::<String>());
     let _ = sqlx::query(
         "UPDATE webhooks SET last_triggered_at = ?, last_triggered_status = ?, last_triggered_error = ?, updated_at = ? WHERE id = ?",

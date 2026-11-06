@@ -65,7 +65,7 @@ ALTER TABLE page_views ADD COLUMN browser TEXT NOT NULL DEFAULT 'unknown';
 CREATE INDEX page_views_realtime ON page_views(created_at,viewer);
 ALTER TABLE scheduled_gift_deliveries ADD COLUMN last_attempt_at TEXT;
 ALTER TABLE posts ADD COLUMN newsletter_audience_filter TEXT;
-ALTER TABLE posts ADD COLUMN newsletter_include_preview BOOLEAN NOT NULL DEFAULT 0;
+ALTER TABLE posts ADD COLUMN newsletter_include_preview INTEGER NOT NULL DEFAULT 0;
 ALTER TABLE members_products ADD COLUMN subscription_id TEXT;
 CREATE INDEX members_products_subscription ON members_products(subscription_id);
 -- Existing recurring grants can be attributed where their price mapping is known.

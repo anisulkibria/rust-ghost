@@ -90,8 +90,14 @@ async fn main() {
     }
 
     // 2. database + migrations
-    let db = ghost_db::connect(&config.db_path()).await.expect("database");
-    tracing::info!("database ready at {}", config.db_path().display());
+    //
+    // SQLite or MySQL, decided by the `database` block; see
+    // `ghost_core::Config::db_target`.
+    let target = config.db_target().expect("database configuration");
+    let db = ghost_db::pool::open(&target).await.expect("database");
+    // Redacted: on MySQL this url carries the password, and this line goes to
+    // a log the site's own administrators can read.
+    tracing::info!("database ready: {}", target.redacted());
 
     // 3. seed on first boot
     if ghost_db::seed::seed_if_empty(&db).await.expect("seed") {

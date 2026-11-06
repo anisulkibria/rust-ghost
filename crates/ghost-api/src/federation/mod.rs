@@ -183,9 +183,9 @@ async fn object(State(state): State<AppState>, Path(id): Path<String>) -> Respon
         return StatusCode::NOT_FOUND.into_response();
     }
     let url = endpoint(&state, &format!("objects/{id}"));
-    let row=sqlx::query_as::<_,(String,String,Option<String>,String,bool)>("SELECT content,url,in_reply_to,published_at,deleted FROM federation_objects WHERE id=? AND local=1").bind(&url).fetch_optional(&state.db).await.ok().flatten();
+    let row=sqlx::query_as::<_,(String,String,Option<String>,String,i64)>("SELECT content,url,in_reply_to,published_at,deleted FROM federation_objects WHERE id=? AND local=1").bind(&url).fetch_optional(&state.db).await.ok().flatten();
     if let Some((content, url, reply, published, deleted)) = row {
-        if deleted {
+        if deleted != 0 {
             return (StatusCode::GONE,ap(json!({"@context":"https://www.w3.org/ns/activitystreams","id":endpoint(&state,&format!("objects/{id}")),"type":"Tombstone"}))).into_response();
         }
         return ap(
@@ -216,7 +216,7 @@ async fn post_object(state: &AppState, post: &ghost_core::models::Post) -> Value
     json!({"@context":"https://www.w3.org/ns/activitystreams","id":endpoint(state,&format!("objects/{}",post.id)),"type":"Article","attributedTo":actor_id(state),"name":post.title,"summary":post.custom_excerpt,"content":html,"url":data["url"],"published":post.published_at.as_deref().and_then(dates::from_db_string).map(|d|d.to_rfc3339()),"updated":post.updated_at.as_deref().and_then(dates::from_db_string).map(|d|d.to_rfc3339()),"to":[PUBLIC],"cc":[endpoint(state,"followers")],"sensitive":false})
 }
 async fn enqueue_tx(
-    tx: &mut sqlx::Transaction<'_, sqlx::Sqlite>,
+    tx: &mut sqlx::Transaction<'_, sqlx::Any>,
     body: &Value,
     inboxes: &[String],
 ) -> Result<()> {
@@ -224,9 +224,9 @@ async fn enqueue_tx(
         .as_str()
         .ok_or_else(|| bad("Missing activity id"))?;
     let now = dates::now_db();
-    sqlx::query("INSERT OR IGNORE INTO federation_activities (id,activity_type,object_id,body,created_at) VALUES (?,?,?,?,?)").bind(id).bind(body["type"].as_str().unwrap_or("")).bind(object_id(&body["object"])).bind(body.to_string()).bind(&now).execute(&mut **tx).await.map_err(db_error)?;
+    sqlx::query(ghost_db::dialect::sql("INSERT OR IGNORE INTO federation_activities (id,activity_type,object_id,body,created_at) VALUES (?,?,?,?,?)")).bind(id).bind(body["type"].as_str().unwrap_or("")).bind(object_id(&body["object"])).bind(body.to_string()).bind(&now).execute(&mut **tx).await.map_err(db_error)?;
     for inbox in inboxes {
-        sqlx::query("INSERT OR IGNORE INTO federation_deliveries (id,activity_id,inbox,next_attempt_at) VALUES (?,?,?,?)").bind(ids::new_id()).bind(id).bind(inbox).bind(&now).execute(&mut **tx).await.map_err(db_error)?;
+        sqlx::query(ghost_db::dialect::sql("INSERT OR IGNORE INTO federation_deliveries (id,activity_id,inbox,next_attempt_at) VALUES (?,?,?,?)")).bind(ids::new_id()).bind(id).bind(inbox).bind(&now).execute(&mut **tx).await.map_err(db_error)?;
     }
     Ok(())
 }
@@ -275,12 +275,11 @@ async fn inbox(
     else {
         return StatusCode::BAD_REQUEST.into_response();
     };
-    let blocked: bool =
-        sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM federation_blocks WHERE actor=?)")
+    let blocked: bool = sqlx::query_scalar::<_, i64>("SELECT EXISTS(SELECT 1 FROM federation_blocks WHERE actor=?)")
             .bind(actor)
             .fetch_one(&state.db)
             .await
-            .unwrap_or(true);
+            .unwrap_or(1) != 0;
     if blocked {
         return StatusCode::ACCEPTED.into_response();
     }
@@ -314,7 +313,7 @@ async fn inbox(
     if !crypto::verify_any(&headers, "POST", &authority, &path, &body, &key, &actor.public_key) {
         return StatusCode::UNAUTHORIZED.into_response();
     }
-    let count:i64=sqlx::query_scalar("SELECT COUNT(*) FROM federation_received WHERE actor=? AND datetime(created_at)>datetime('now','-1 hour')").bind(&actor.id).fetch_one(&state.db).await.unwrap_or(1001);
+    let count:i64=sqlx::query_scalar(ghost_db::dialect::sql("SELECT COUNT(*) FROM federation_received WHERE actor=? AND datetime(created_at)>datetime('now','-1 hour')")).bind(&actor.id).fetch_one(&state.db).await.unwrap_or(1001);
     if count >= 1000 {
         return StatusCode::TOO_MANY_REQUESTS.into_response();
     }
@@ -324,7 +323,7 @@ async fn inbox(
     }
 }
 async fn receive(
-    pool: &sqlx::SqlitePool,
+    pool: &ghost_db::Db,
     local_actor: &str,
     actor: &network::Actor,
     id: &str,
@@ -333,7 +332,7 @@ async fn receive(
     let kind = activity["type"].as_str().unwrap_or("");
     let now = dates::now_db();
     let mut tx = pool.begin().await.map_err(db_error)?;
-    let stored=sqlx::query("INSERT OR IGNORE INTO federation_received (id,actor,activity_type,body,created_at) VALUES (?,?,?,?,?)").bind(id).bind(&actor.id).bind(kind).bind(activity.to_string()).bind(&now).execute(&mut *tx).await.map_err(db_error)?;
+    let stored=sqlx::query(ghost_db::dialect::sql("INSERT OR IGNORE INTO federation_received (id,actor,activity_type,body,created_at) VALUES (?,?,?,?,?)")).bind(id).bind(&actor.id).bind(kind).bind(activity.to_string()).bind(&now).execute(&mut *tx).await.map_err(db_error)?;
     if stored.rows_affected() == 0 {
         return Ok(());
     }
@@ -343,7 +342,7 @@ async fn receive(
             if object_id(object) != Some(local_actor) {
                 return Err(bad("Follow addressed to another actor"));
             }
-            sqlx::query("INSERT INTO federation_followers (actor,inbox,follow_id,created_at) VALUES (?,?,?,?) ON CONFLICT(actor) DO UPDATE SET inbox=excluded.inbox,follow_id=excluded.follow_id").bind(&actor.id).bind(&actor.inbox).bind(id).bind(&now).execute(&mut *tx).await.map_err(db_error)?;
+            sqlx::query(ghost_db::dialect::sql("INSERT INTO federation_followers (actor,inbox,follow_id,created_at) VALUES (?,?,?,?) ON CONFLICT(actor) DO UPDATE SET inbox=excluded.inbox,follow_id=excluded.follow_id")).bind(&actor.id).bind(&actor.inbox).bind(id).bind(&now).execute(&mut *tx).await.map_err(db_error)?;
             let mut accept = json!({"@context":"https://www.w3.org/ns/activitystreams","id":format!("{}/activities/{}",local_actor.trim_end_matches("/actor"),ids::uuid_v4()),"type":"Accept","actor":local_actor,"object":activity});
             accept["to"] = json!([actor.id]);
             accept["cc"] = json!([]);
@@ -410,10 +409,22 @@ async fn receive(
                 let public = addresses_public(activity) || addresses_public(object);
                 // Reader displays only public-addressed posts. Private inbox data stays private.
                 if public {
-                    sqlx::query("INSERT INTO federation_objects (id,actor,object_type,content,url,in_reply_to,published_at,updated_at) VALUES (?,?,?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET content=excluded.content,url=excluded.url,updated_at=excluded.updated_at WHERE federation_objects.actor=excluded.actor AND federation_objects.deleted=0")
+                    // `ON CONFLICT … DO UPDATE … WHERE` is SQLite-only — MySQL
+                    // has no upsert whose update re-checks a condition — so
+                    // the guard is a plain conditional UPDATE. Insert the row
+                    // if it is absent (ignored when it exists), then update it
+                    // only when it belongs to this actor and is not deleted:
+                    // an object owned by someone else, or a deleted one, keeps
+                    // its content exactly as the `WHERE` form kept it, and a
+                    // replayed delivery ends where the first one did.
+                    sqlx::query(ghost_db::dialect::sql(
+                        "INSERT OR IGNORE INTO federation_objects (id,actor,object_type,content,url,in_reply_to,published_at,updated_at) VALUES (?,?,?,?,?,?,?,?)"))
                     .bind(object_id).bind(&actor.id).bind(object["type"].as_str().unwrap_or("Note")).bind(content).bind(object["url"].as_str().unwrap_or(object_id)).bind(object_id_ref(&object["inReplyTo"]))
                     .bind(object["published"].as_str().and_then(|d|chrono::DateTime::parse_from_rfc3339(d).ok()).map(|d|d.with_timezone(&chrono::Utc).format("%Y-%m-%d %H:%M:%S").to_string()).unwrap_or_else(||now.clone()))
                     .bind(&now).execute(&mut *tx).await.map_err(db_error)?;
+                    sqlx::query("UPDATE federation_objects SET content=?,url=?,updated_at=? WHERE id=? AND actor=? AND deleted=0")
+                    .bind(content).bind(object["url"].as_str().unwrap_or(object_id)).bind(&now).bind(object_id).bind(&actor.id)
+                    .execute(&mut *tx).await.map_err(db_error)?;
                 }
             }
         }
@@ -429,8 +440,8 @@ async fn receive(
         "Like" | "Announce" => {
             if let Some(object) = object_id(object).filter(|id| id.len() < 2000) {
                 sqlx::query(
-                    "INSERT INTO federation_interactions (id,actor,object,kind,activity,created_at) \
-                     VALUES (?,?,?,?,?,?) ON CONFLICT(actor,object,kind) DO NOTHING",
+                    ghost_db::dialect::sql("INSERT INTO federation_interactions (id,actor,object,kind,activity,created_at) \
+                     VALUES (?,?,?,?,?,?) ON CONFLICT(actor,object,kind) DO NOTHING"),
                 )
                 .bind(ids::new_id())
                 .bind(&actor.id)
@@ -511,7 +522,7 @@ async fn publish_post(state: &AppState, id: &str, deleted: bool) -> Result<()> {
         return Ok(());
     }
     let object_uri = endpoint(state, &format!("objects/{id}"));
-    let existed:bool=sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM federation_activities WHERE object_id=? AND activity_type IN ('Create','Update'))").bind(&object_uri).fetch_one(&state.db).await.map_err(db_error)?;
+    let existed: bool = sqlx::query_scalar::<_, i64>("SELECT EXISTS(SELECT 1 FROM federation_activities WHERE object_id=? AND activity_type IN ('Create','Update'))").bind(&object_uri).fetch_one(&state.db).await.map_err(db_error)? != 0;
     let post = ghost_db::repos::posts::find_by_id(&state.db, id).await?;
     let published = post.as_ref().is_some_and(|post| post.status == "published");
     if (!published || deleted) && !existed {
@@ -555,7 +566,7 @@ pub fn spawn(state: AppState) {
     });
 }
 async fn deliver(state: &AppState) -> Result<()> {
-    let pending=sqlx::query_as::<_,(String,String,String,i64)>("SELECT d.id,d.inbox,a.body,d.attempts FROM federation_deliveries d JOIN federation_activities a ON a.id=d.activity_id WHERE d.delivered_at IS NULL AND d.attempts<12 AND datetime(d.next_attempt_at)<=datetime('now') ORDER BY d.next_attempt_at LIMIT 50").fetch_all(&state.db).await.map_err(db_error)?;
+    let pending=sqlx::query_as::<_,(String,String,String,i64)>(ghost_db::dialect::sql("SELECT d.id,d.inbox,a.body,d.attempts FROM federation_deliveries d JOIN federation_activities a ON a.id=d.activity_id WHERE d.delivered_at IS NULL AND d.attempts<12 AND datetime(d.next_attempt_at)<=datetime('now') ORDER BY d.next_attempt_at LIMIT 50")).fetch_all(&state.db).await.map_err(db_error)?;
     if pending.is_empty() {
         return Ok(());
     }
@@ -654,13 +665,13 @@ async fn current_activity(state: &AppState, mut activity: Value) -> Value {
             }
         }
     } else {
-        let deleted: bool = sqlx::query_scalar(
+        let deleted: bool = sqlx::query_scalar::<_, i64>(
             "SELECT EXISTS(SELECT 1 FROM federation_objects WHERE id=? AND local=1 AND deleted=1)",
         )
         .bind(&object)
         .fetch_one(&state.db)
         .await
-        .unwrap_or(true);
+        .unwrap_or(1) != 0;
         if deleted {
             activity["type"] = json!("Delete");
             activity["object"] = json!({"id":object,"type":"Tombstone"});
@@ -698,12 +709,8 @@ mod receive_tests {
     use super::*;
     #[tokio::test]
     async fn follows_undos_and_object_ownership_are_atomic_and_replay_safe() {
-        let db = sqlx::sqlite::SqlitePoolOptions::new()
-            .max_connections(1)
-            .connect("sqlite::memory:")
-            .await
-            .unwrap();
-        sqlx::migrate!("../../migrations").run(&db).await.unwrap();
+        let test_db = ghost_db::pool::connect_test().await.unwrap();
+        let db = test_db.pool();
         let local = "https://publication.example/.ghost/activitypub/actor";
         let actor = network::Actor {
             id: "https://remote.example/actor".into(),
@@ -766,8 +773,9 @@ mod receive_tests {
         receive(&db, local, &actor, stale["id"].as_str().unwrap(), &stale)
             .await
             .unwrap();
-        let(deleted,content):(bool,String)=sqlx::query_as("SELECT deleted,content FROM federation_objects WHERE id='https://remote.example/note/1'").fetch_one(&db).await.unwrap();
-        assert!(deleted);
+        // `deleted` is a 0/1 column; `Any` does not decode an integer as a bool.
+        let(deleted,content):(i64,String)=sqlx::query_as("SELECT deleted,content FROM federation_objects WHERE id='https://remote.example/note/1'").fetch_one(&db).await.unwrap();
+        assert!(deleted != 0);
         assert!(content.is_empty());
     }
 
@@ -777,12 +785,8 @@ mod receive_tests {
     /// stayed counted for ever.
     #[tokio::test]
     async fn likes_are_counted_once_each_and_undone_properly() {
-        let db = sqlx::sqlite::SqlitePoolOptions::new()
-            .max_connections(1)
-            .connect("sqlite::memory:")
-            .await
-            .unwrap();
-        sqlx::migrate!("../../migrations").run(&db).await.unwrap();
+        let test_db = ghost_db::pool::connect_test().await.unwrap();
+        let db = test_db.pool();
         let local = "https://publication.example/.ghost/activitypub/actor";
         let note = "https://publication.example/.ghost/activitypub/objects/n1";
         let actor = |name: &str| network::Actor {

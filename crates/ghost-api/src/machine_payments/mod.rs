@@ -87,7 +87,7 @@ fn tempo_method(
         .rpc_url(rpc)
         .realm(&config::realm(state)?)
         .secret_key(&secret)
-        .store(std::sync::Arc::new(store::SqliteStore(state.db.clone()))),
+        .store(std::sync::Arc::new(store::DbStore(state.db.clone()))),
     )
     .map(Some)
     .map_err(|e| bad(&e.to_string()))
@@ -254,15 +254,15 @@ async fn reserve(
     method: &str,
     key: &str,
 ) -> Result<()> {
-    let count:i64=sqlx::query_scalar("SELECT COUNT(*) FROM machine_payment_attempts WHERE datetime(created_at)>datetime('now','-1 minute')").fetch_one(&state.db).await.map_err(db_error)?;
+    let count:i64=sqlx::query_scalar(ghost_db::dialect::sql("SELECT COUNT(*) FROM machine_payment_attempts WHERE datetime(created_at)>datetime('now','-1 minute')")).fetch_one(&state.db).await.map_err(db_error)?;
     if count >= 1000 {
         return Err(bad("Payment verification is temporarily busy"));
     }
     let now = dates::now_db();
-    let result=sqlx::query("INSERT OR IGNORE INTO machine_payment_attempts (credential_hash,post_id,resource,protocol,method,amount,currency,status,created_at,updated_at) VALUES (?,?,?,?,?,?,?,'pending',?,?)")
+    let result=sqlx::query(ghost_db::dialect::sql("INSERT OR IGNORE INTO machine_payment_attempts (credential_hash,post_id,resource,protocol,method,amount,currency,status,created_at,updated_at) VALUES (?,?,?,?,?,?,?,'pending',?,?)"))
         .bind(key).bind(&post.id).bind(resource).bind(protocol).bind(method).bind(config.amount).bind(&config.currency).bind(&now).bind(&now).execute(&state.db).await.map_err(db_error)?;
     if result.rows_affected() != 1 {
-        let retry=sqlx::query("UPDATE machine_payment_attempts SET status='pending',updated_at=? WHERE credential_hash=? AND (status='failed' OR (status='pending' AND datetime(updated_at)<datetime('now','-2 minutes')))").bind(dates::now_db()).bind(key).execute(&state.db).await.map_err(db_error)?;
+        let retry=sqlx::query(ghost_db::dialect::sql("UPDATE machine_payment_attempts SET status='pending',updated_at=? WHERE credential_hash=? AND (status='failed' OR (status='pending' AND datetime(updated_at)<datetime('now','-2 minutes')))")).bind(dates::now_db()).bind(key).execute(&state.db).await.map_err(db_error)?;
         if retry.rows_affected() != 1 {
             return Err(bad(
                 "This payment credential is already being processed or has been used",

@@ -7,7 +7,7 @@
 use ghost_core::{GhostError, Result};
 use ghost_render::ThemeState;
 use ghost_routing::RouterTree;
-use sqlx::SqlitePool;
+use ghost_db::Db;
 use std::collections::HashMap;
 use std::io::{Cursor, Read};
 use std::path::{Path, PathBuf};
@@ -90,7 +90,7 @@ fn resource_kind(resource: &serde_json::Value) -> Option<ghost_routing::tree::Ta
 
 /// Compile a theme directory into an activation state with all helper deps wired.
 pub async fn build_theme_state(
-    db: SqlitePool,
+    db: Db,
     router: Arc<RouterTree>,
     site_origin: String,
     theme_dir: &Path,

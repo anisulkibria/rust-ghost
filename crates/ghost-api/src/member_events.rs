@@ -638,11 +638,11 @@ async fn member_activity_feed(
     if let Err(r) = permissions::require(&state, &headers, Role::Editor).await {
         return r;
     }
-    let exists: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM members WHERE id = ?)")
+    let exists: bool = sqlx::query_scalar::<_, i64>("SELECT EXISTS(SELECT 1 FROM members WHERE id = ?)")
         .bind(&id)
         .fetch_one(&state.db)
         .await
-        .unwrap_or(false);
+        .unwrap_or(0) != 0;
     if !exists {
         return StatusCode::NOT_FOUND.into_response();
     }

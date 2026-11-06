@@ -14,18 +14,16 @@ use tokio::sync::RwLock;
 use tower::ServiceExt;
 
 struct Fixture {
+    /// The test's database; dropped with the fixture, which removes it on MySQL.
+    _db: ghost_db::TestDb,
     state: AppState,
     app: Router,
 }
 
 impl Fixture {
     async fn new() -> Self {
-        let db = sqlx::sqlite::SqlitePoolOptions::new()
-            .max_connections(1)
-            .connect("sqlite::memory:")
-            .await
-            .unwrap();
-        sqlx::migrate!("../../migrations").run(&db).await.unwrap();
+        let test_db = ghost_db::pool::connect_test().await.unwrap();
+        let db = test_db.pool();
         ghost_db::seed::seed_if_empty(&db).await.unwrap();
         let _owner =
             repos::users::setup_owner(&db, "Test owner", "owner@example.test", "unused-test-hash")
@@ -81,7 +79,7 @@ impl Fixture {
         let app = ghost_front::site_router(state.clone())
             .merge(ghost_api::members::members_router().with_state(state.clone()))
             .merge(ghost_api::comments::comments_router().with_state(state.clone()));
-        Self { state, app }
+        Self { _db: test_db, state, app }
     }
 
     async fn request(
@@ -113,7 +111,7 @@ impl Fixture {
     async fn member(&self, status: &str, tiers: &[String]) -> (String, String) {
         let id = ghost_core::ids::new_id();
         let email = format!("{id}@example.test");
-        sqlx::query("INSERT INTO members (id, uuid, transient_id, email, name, status, created_at, updated_at) VALUES (?, ?, ?, ?, 'Test member', ?, datetime('now'), datetime('now'))")
+        sqlx::query(ghost_db::dialect::sql("INSERT INTO members (id, uuid, transient_id, email, name, status, created_at, updated_at) VALUES (?, ?, ?, ?, 'Test member', ?, datetime('now'), datetime('now'))"))
             .bind(&id).bind(ghost_core::ids::uuid_v4()).bind(ghost_core::ids::random_hex(16)).bind(&email).bind(status).execute(&self.state.db).await.unwrap();
         for tier in tiers {
             sqlx::query("INSERT INTO members_products (id, member_id, product_id, sort_order) VALUES (?, ?, ?, 0)")
@@ -121,7 +119,7 @@ impl Fixture {
         }
         // Exchange a single-use fixture token through the real sign-in handler.
         let token = ghost_core::ids::random_hex(32);
-        sqlx::query("INSERT INTO tokens (id, token, uuid, data, created_at) VALUES (?, ?, ?, ?, datetime('now'))")
+        sqlx::query(ghost_db::dialect::sql("INSERT INTO tokens (id, token, uuid, data, created_at) VALUES (?, ?, ?, ?, datetime('now'))"))
             .bind(ghost_core::ids::new_id()).bind(&token).bind(ghost_core::ids::uuid_v4()).bind(json!({"email":email,"action":"signin"}).to_string()).execute(&self.state.db).await.unwrap();
         let (status, headers, _) = self
             .request(
@@ -181,7 +179,7 @@ async fn tier_content_and_comments_require_a_current_matching_entitlement() {
         .await
         .unwrap();
     let other_tier = ghost_core::ids::new_id();
-    sqlx::query("INSERT INTO products (id, name, slug, type, created_at) VALUES (?, 'Other tier', 'other-tier', 'paid', datetime('now'))")
+    sqlx::query(ghost_db::dialect::sql("INSERT INTO products (id, name, slug, type, created_at) VALUES (?, 'Other tier', 'other-tier', 'paid', datetime('now'))"))
         .bind(&other_tier).execute(&f.state.db).await.unwrap();
     let post = f
         .post(
@@ -350,4 +348,119 @@ async fn theme_image_urls_resize_and_convert_without_stretching_portraits() {
     assert_eq!(response.status(),StatusCode::OK);assert_eq!(response.headers()["content-type"],"image/webp");let bytes=to_bytes(response.into_body(),1_000_000).await.unwrap();let image=image::load_from_memory(&bytes).unwrap();assert_eq!((image.width(),image.height()),(200,300));
     let response=app.oneshot(Request::builder().uri("/content/images/size/w999999/portrait.png").body(Body::empty()).unwrap()).await.unwrap();assert_eq!(response.status(),StatusCode::BAD_REQUEST);
     std::fs::remove_dir_all(directory).unwrap();
+}
+
+// ---------------------------------------------------------------------------
+// Host-closed sites (hostSettings.limits.publicSiteAccess)
+// ---------------------------------------------------------------------------
+
+/// Build an app whose host has closed the site's public access, which is what
+/// a managed platform does to a site that has not been paid for.
+fn closed_app(state: &AppState, message: &str) -> Router {
+    let mut state = state.clone();
+    state.limits = Arc::new(ghost_db::limits::Limits::load(&json!({
+        "limits": { "publicSiteAccess": { "disabled": true, "error": message } }
+    })));
+    ghost_front::site_router(state)
+}
+
+async fn get(app: &Router, path: &str) -> (StatusCode, axum::http::HeaderMap, String) {
+    let response = app
+        .clone()
+        .oneshot(Request::builder().uri(path).body(Body::empty()).unwrap())
+        .await
+        .unwrap();
+    let status = response.status();
+    let headers = response.headers().clone();
+    let body = to_bytes(response.into_body(), 10_000_000).await.unwrap();
+    (status, headers, String::from_utf8_lossy(&body).to_string())
+}
+
+/// The bug this exists for: a site suspended for non-payment served its
+/// homepage to anyone with a `200`. The platform wrote
+/// `publicSiteAccess.disabled`, the admin API honoured it, and the public
+/// frontend ignored it entirely — so suspension closed nothing.
+#[tokio::test]
+async fn a_host_closed_site_serves_no_content() {
+    let f = Fixture::new().await;
+    let app = closed_app(&f.state, "This site is not currently published.");
+
+    for path in ["/", "/about/", "/rss/", "/sitemap.xml", "/llms.txt"] {
+        let (status, headers, _) = get(&app, path).await;
+        assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE, "{path} must be closed");
+        // 503 rather than 404 so a late invoice does not have search engines
+        // drop the site, and no-store so lifting the suspension takes effect.
+        assert_eq!(headers["cache-control"], "no-store", "{path} must not be cached");
+    }
+}
+
+/// The visitor is told what the host said, not "Service Unavailable".
+#[tokio::test]
+async fn a_host_closed_site_explains_itself() {
+    let f = Fixture::new().await;
+    let app = closed_app(&f.state, "This site is not currently published.");
+    let (_, _, body) = get(&app, "/").await;
+    assert!(
+        body.contains("This site is not currently published"),
+        "the host's own message should reach the page: {body}"
+    );
+}
+
+/// Crawlers are turned away rather than served a closed page per URL, and the
+/// static files a theme's error page needs still load — otherwise the page
+/// explaining the closure cannot render.
+#[tokio::test]
+async fn a_host_closed_site_still_answers_robots_and_assets() {
+    let f = Fixture::new().await;
+    let app = closed_app(&f.state, "Closed.");
+
+    let (status, _, body) = get(&app, "/robots.txt").await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(body.contains("Disallow: /"), "got {body}");
+
+    let (status, _, _) = get(&app, "/favicon.ico").await;
+    assert_ne!(status, StatusCode::SERVICE_UNAVAILABLE, "the favicon is not content");
+}
+
+/// A suspension the owner could unlock with an access code would not be a
+/// suspension. The login page is closed too, so there is nowhere to type one.
+#[tokio::test]
+async fn the_access_code_cannot_open_a_host_closed_site() {
+    let f = Fixture::new().await;
+    f.state.settings.set(&f.state.db, "is_private", &json!(true)).await.unwrap();
+    f.state.settings.set(&f.state.db, "password", &json!("letmein")).await.unwrap();
+    let app = closed_app(&f.state, "Closed.");
+
+    let (status, _, _) = get(&app, "/private/").await;
+    assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE, "no login page while closed");
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/private/")
+                .header("content-type", "application/x-www-form-urlencoded")
+                .body(Body::from("password=letmein"))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        response.status(),
+        StatusCode::SERVICE_UNAVAILABLE,
+        "the correct code must not open a site the host has closed"
+    );
+    assert!(
+        response.headers().get("set-cookie").is_none(),
+        "and no access cookie may be minted"
+    );
+}
+
+/// The limit must not leak into the ordinary case: a site nobody has closed
+/// carries on serving.
+#[tokio::test]
+async fn an_unclosed_site_is_unaffected() {
+    let f = Fixture::new().await;
+    let (status, _, _) = get(&f.app, "/").await;
+    assert_eq!(status, StatusCode::OK);
 }

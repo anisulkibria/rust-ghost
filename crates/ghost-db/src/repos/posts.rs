@@ -1,7 +1,8 @@
 //! Posts repository — browse with NQL filters, read, add, edit, destroy.
 use ghost_core::{dates, ids, models::Post, slug, GhostError, Result};
 use ghost_nql::{self, Expr};
-use sqlx::{QueryBuilder, Sqlite, SqlitePool};
+use crate::Db;
+use sqlx::{Any, QueryBuilder};
 use std::collections::BTreeSet;
 
 use super::{attach_meta, dberr, PostRow, PostRelations, POST_COLS};
@@ -50,7 +51,7 @@ pub struct AdminPostsPage {
     pub counts: std::collections::HashMap<String, i64>,
 }
 
-fn admin_query(sql: String, q: &AdminBrowsePosts) -> Result<QueryBuilder<'static, Sqlite>> {
+fn admin_query(sql: String, q: &AdminBrowsePosts) -> Result<QueryBuilder<'static, Any>> {
     let mut query = QueryBuilder::new(sql);
     query.push(" FROM posts WHERE posts.type = ").push_bind(q.post_type.clone());
     if let Some(author) = &q.author_id {
@@ -64,19 +65,25 @@ fn admin_query(sql: String, q: &AdminBrowsePosts) -> Result<QueryBuilder<'static
         query.push(")");
     }
     if !q.search.trim().is_empty() {
-        let escaped = q.search.trim().replace('\\', "\\\\").replace('%', "\\%").replace('_', "\\_");
+        // `!` as the LIKE escape character, not `\`: a backslash has no
+        // meaning inside a SQLite string but is an escape *inside the string
+        // literal itself* on MySQL, where `ESCAPE '\'` never terminates and
+        // the query dies with a syntax error. `!` means nothing to either
+        // engine's lexer. The pattern is a bound parameter, not literal SQL,
+        // so escaping it with `!` travels as plain data.
+        let escaped = q.search.trim().replace('!', "!!").replace('%', "!%").replace('_', "!_");
         let pattern = format!("%{escaped}%");
-        query.push(" AND (posts.title LIKE ").push_bind(pattern.clone()).push(" ESCAPE '\\'")
-            .push(" OR posts.custom_excerpt LIKE ").push_bind(pattern.clone()).push(" ESCAPE '\\'")
-            .push(" OR posts.plaintext LIKE ").push_bind(pattern.clone()).push(" ESCAPE '\\'")
+        query.push(" AND (posts.title LIKE ").push_bind(pattern.clone()).push(" ESCAPE '!'")
+            .push(" OR posts.custom_excerpt LIKE ").push_bind(pattern.clone()).push(" ESCAPE '!'")
+            .push(" OR posts.plaintext LIKE ").push_bind(pattern.clone()).push(" ESCAPE '!'")
             .push(" OR EXISTS (SELECT 1 FROM posts_authors pa JOIN users u ON u.id = pa.author_id WHERE pa.post_id = posts.id AND (u.name LIKE ")
-            .push_bind(pattern.clone()).push(" ESCAPE '\\' OR u.slug LIKE ").push_bind(pattern)
-            .push(" ESCAPE '\\'))) ");
+            .push_bind(pattern.clone()).push(" ESCAPE '!' OR u.slug LIKE ").push_bind(pattern)
+            .push(" ESCAPE '!'))) ");
     }
     Ok(query)
 }
 
-pub async fn browse_admin(pool: &SqlitePool, q: &AdminBrowsePosts) -> Result<AdminPostsPage> {
+pub async fn browse_admin(pool: &Db, q: &AdminBrowsePosts) -> Result<AdminPostsPage> {
     let mut grouped = admin_query("SELECT posts.status, COUNT(*)".into(), q)?;
     grouped.push(" GROUP BY posts.status");
     let counts: std::collections::HashMap<String, i64> = grouped.build_query_as::<(String, i64)>()
@@ -96,7 +103,21 @@ pub async fn browse_admin(pool: &SqlitePool, q: &AdminBrowsePosts) -> Result<Adm
         "oldest" => { query.push(format!("{DATE} ASC, posts.id ASC")); }
         "title" => { query.push("LOWER(COALESCE(posts.title, 'Untitled')) ASC, posts.id ASC"); }
         "views" => {
-            query.push("(SELECT COUNT(*) FROM page_views v WHERE v.path = '/' || posts.slug || '/' OR v.path LIKE '/' || posts.slug || '/%') DESC, ");
+            // Concatenation spelled per engine — this is a QueryBuilder, so
+            // the dialect translator never sees it. `||` is string
+            // concatenation on SQLite but logical OR on MySQL, which would
+            // turn the path match into a boolean and rank by nonsense.
+            let (equals, prefix) = match crate::pool::engine() {
+                ghost_core::database::Engine::Sqlite => {
+                    ("'/' || posts.slug || '/'", "'/' || posts.slug || '/%'")
+                }
+                ghost_core::database::Engine::MySql => {
+                    ("CONCAT('/', posts.slug, '/')", "CONCAT('/', posts.slug, '/%')")
+                }
+            };
+            query.push(format!(
+                "(SELECT COUNT(*) FROM page_views v WHERE v.path = {equals} OR v.path LIKE {prefix}) DESC, "
+            ));
             query.push(format!("{DATE} DESC, posts.id DESC"));
         }
         _ => { query.push(format!("{DATE} DESC, posts.id DESC")); }
@@ -157,7 +178,7 @@ fn order_clause(order: Option<&str>) -> String {
 }
 
 /// Push a JSON bind value onto a QueryBuilder (writes the `?` too).
-pub(crate) fn push_bind(qb: &mut QueryBuilder<'_, Sqlite>, v: &serde_json::Value) {
+pub(crate) fn push_bind(qb: &mut QueryBuilder<'_, Any>, v: &serde_json::Value) {
     match v {
         serde_json::Value::String(s) => {
             qb.push_bind(s.clone());
@@ -184,7 +205,7 @@ pub(crate) fn push_bind(qb: &mut QueryBuilder<'_, Sqlite>, v: &serde_json::Value
 /// Push a compiled NQL clause (with embedded `?` marks) and its binds,
 /// interleaving text and placeholders — push_bind writes its own `?`, so
 /// the clause must be split rather than pushed whole.
-pub(crate) fn push_clause_with_binds(qb: &mut QueryBuilder<'_, Sqlite>, clause: &str, binds: &[serde_json::Value]) {
+pub(crate) fn push_clause_with_binds(qb: &mut QueryBuilder<'_, Any>, clause: &str, binds: &[serde_json::Value]) {
     let mut parts = clause.split('?');
     if let Some(first) = parts.next() {
         qb.push(first);
@@ -195,11 +216,11 @@ pub(crate) fn push_clause_with_binds(qb: &mut QueryBuilder<'_, Sqlite>, clause: 
     }
 }
 
-pub async fn browse(pool: &SqlitePool, q: &BrowsePosts) -> Result<PostsPage> {
+pub async fn browse(pool: &Db, q: &BrowsePosts) -> Result<PostsPage> {
     let enforced = enforce_exprs(q);
     let combined = enforced.into_iter().reduce(|a, b| Expr::And(vec![a, b]));
 
-    let mut qb = QueryBuilder::<Sqlite>::new("SELECT ");
+    let mut qb = QueryBuilder::<Any>::new("SELECT ");
     qb.push(POST_COLS);
     qb.push(" FROM posts");
 
@@ -224,7 +245,7 @@ pub async fn browse(pool: &SqlitePool, q: &BrowsePosts) -> Result<PostsPage> {
     let rows: Vec<PostRow> = qb.build_query_as::<PostRow>().fetch_all(pool).await.map_err(dberr)?;
 
     // total count for pagination meta
-    let mut cqb = QueryBuilder::<Sqlite>::new("SELECT COUNT(*) FROM posts");
+    let mut cqb = QueryBuilder::<Any>::new("SELECT COUNT(*) FROM posts");
     if let Some(expr) = enforce_count_expr(q) {
         let sql = ghost_nql::compile(&expr, "posts")?;
         cqb.push(" WHERE ");
@@ -244,7 +265,7 @@ fn enforce_count_expr(q: &BrowsePosts) -> Option<Expr> {
 }
 
 /// Load authors/tags/meta for a batch of posts (avoids N+1).
-pub async fn load_relations(pool: &SqlitePool, posts: &[Post]) -> Result<PostRelations> {
+pub async fn load_relations(pool: &Db, posts: &[Post]) -> Result<PostRelations> {
     if posts.is_empty() {
         return Ok(PostRelations::default());
     }
@@ -307,7 +328,7 @@ pub async fn load_relations(pool: &SqlitePool, posts: &[Post]) -> Result<PostRel
     Ok(rel)
 }
 
-pub async fn find_by_slug(pool: &SqlitePool, slug_: &str, post_type: &str, public: bool) -> Result<Option<Post>> {
+pub async fn find_by_slug(pool: &Db, slug_: &str, post_type: &str, public: bool) -> Result<Option<Post>> {
     let post = sqlx::query_as::<_, PostRow>(&format!(
         "SELECT {POST_COLS} FROM posts WHERE slug = ? AND type = ? {} LIMIT 1",
         if public { "AND status = 'published'" } else { "" }
@@ -324,7 +345,7 @@ pub async fn find_by_slug(pool: &SqlitePool, slug_: &str, post_type: &str, publi
     Ok(Some(post))
 }
 
-pub async fn find_by_id(pool: &SqlitePool, id: &str) -> Result<Option<Post>> {
+pub async fn find_by_id(pool: &Db, id: &str) -> Result<Option<Post>> {
     let post = sqlx::query_as::<_, PostRow>(&format!("SELECT {POST_COLS} FROM posts WHERE id = ? LIMIT 1"))
         .bind(id)
         .fetch_optional(pool)
@@ -337,7 +358,7 @@ pub async fn find_by_id(pool: &SqlitePool, id: &str) -> Result<Option<Post>> {
     Ok(Some(post))
 }
 
-pub async fn find_by_uuid(pool: &SqlitePool, uuid: &str) -> Result<Option<Post>> {
+pub async fn find_by_uuid(pool: &Db, uuid: &str) -> Result<Option<Post>> {
     let post = sqlx::query_as::<_, PostRow>(&format!("SELECT {POST_COLS} FROM posts WHERE uuid = ? LIMIT 1"))
         .bind(uuid)
         .fetch_optional(pool)
@@ -393,7 +414,7 @@ pub struct NewPost {
     pub reading_time: i64,
 }
 
-pub async fn slug_exists(pool: &SqlitePool, slug_: &str, post_type: &str, self_id: Option<&str>) -> Result<bool> {
+pub async fn slug_exists(pool: &Db, slug_: &str, post_type: &str, self_id: Option<&str>) -> Result<bool> {
     let count: i64 = match self_id {
         Some(id) => {
             sqlx::query_scalar("SELECT COUNT(*) FROM posts WHERE slug = ? AND type = ? AND id != ?")
@@ -415,7 +436,7 @@ pub async fn slug_exists(pool: &SqlitePool, slug_: &str, post_type: &str, self_i
     Ok(count > 0)
 }
 
-pub async fn generate_unique_slug(pool: &SqlitePool, title: &str, post_type: &str, self_id: Option<&str>) -> Result<String> {
+pub async fn generate_unique_slug(pool: &Db, title: &str, post_type: &str, self_id: Option<&str>) -> Result<String> {
     let mut s = slug::safe_string(title);
     if s.len() > 185 {
         s.truncate(185);
@@ -464,7 +485,7 @@ fn stored_html(v: &Option<String>) -> Option<String> {
         .map(|h| ghost_core::url::unbase_assets(&h))
 }
 
-pub async fn insert(pool: &SqlitePool, new: &NewPost, author_id: &str) -> Result<Post> {
+pub async fn insert(pool: &Db, new: &NewPost, author_id: &str) -> Result<Post> {
     let id = ids::new_id();
     let now = dates::now_db();
     let now_dt = chrono::Utc::now();
@@ -633,7 +654,7 @@ pub struct PostChanges {
     pub clearing: Vec<&'static str>,
 }
 
-pub async fn update(pool: &SqlitePool, id: &str, changes: &PostChanges) -> Result<Post> {
+pub async fn update(pool: &Db, id: &str, changes: &PostChanges) -> Result<Post> {
     let existing = find_by_id(pool, id).await?.ok_or(ghost_core::GhostError::NotFoundError { message: "not found".into(), context: None })?;
 
     let now = dates::now_db();
@@ -727,9 +748,9 @@ pub async fn update(pool: &SqlitePool, id: &str, changes: &PostChanges) -> Resul
     if touches_meta {
         let resolved: Vec<Option<String>> = meta_fields.iter().map(|(field, new, old)| pick(new, old, field)).collect();
         sqlx::query(
-            "INSERT INTO posts_meta (id, post_id, meta_title, meta_description, og_title, og_description, og_image, twitter_title, twitter_description, twitter_image, email_subject, feature_image_alt, feature_image_caption) \
+            crate::dialect::sql("INSERT INTO posts_meta (id, post_id, meta_title, meta_description, og_title, og_description, og_image, twitter_title, twitter_description, twitter_image, email_subject, feature_image_alt, feature_image_caption) \
              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) \
-             ON CONFLICT(post_id) DO UPDATE SET meta_title = excluded.meta_title, meta_description = excluded.meta_description, og_title = excluded.og_title, og_description = excluded.og_description, og_image = excluded.og_image, twitter_title = excluded.twitter_title, twitter_description = excluded.twitter_description, twitter_image = excluded.twitter_image, email_subject = excluded.email_subject, feature_image_alt = excluded.feature_image_alt, feature_image_caption = excluded.feature_image_caption",
+             ON CONFLICT(post_id) DO UPDATE SET meta_title = excluded.meta_title, meta_description = excluded.meta_description, og_title = excluded.og_title, og_description = excluded.og_description, og_image = excluded.og_image, twitter_title = excluded.twitter_title, twitter_description = excluded.twitter_description, twitter_image = excluded.twitter_image, email_subject = excluded.email_subject, feature_image_alt = excluded.feature_image_alt, feature_image_caption = excluded.feature_image_caption"),
         )
         .bind(&ids::new_id())
         .bind(id)
@@ -825,7 +846,7 @@ impl Delivery {
 }
 
 /// Record what a scheduled post should do when its time comes.
-pub async fn set_delivery(pool: &SqlitePool, post_id: &str, delivery: Delivery) -> Result<()> {
+pub async fn set_delivery(pool: &Db, post_id: &str, delivery: Delivery) -> Result<()> {
     sqlx::query("UPDATE posts SET email_recipient_filter = ? WHERE id = ?")
         .bind(delivery.filter())
         .bind(post_id)
@@ -835,8 +856,8 @@ pub async fn set_delivery(pool: &SqlitePool, post_id: &str, delivery: Delivery) 
     // `post_id` is unique, so this is an upsert: a post whose meta row does
     // not exist yet is the common case for one scheduled straight away.
     sqlx::query(
-        "INSERT INTO posts_meta (id, post_id, email_only) VALUES (?, ?, ?) \
-         ON CONFLICT(post_id) DO UPDATE SET email_only = excluded.email_only",
+        crate::dialect::sql("INSERT INTO posts_meta (id, post_id, email_only) VALUES (?, ?, ?) \
+         ON CONFLICT(post_id) DO UPDATE SET email_only = excluded.email_only"),
     )
     .bind(ids::new_id())
     .bind(post_id)
@@ -849,8 +870,9 @@ pub async fn set_delivery(pool: &SqlitePool, post_id: &str, delivery: Delivery) 
 
 /// What one post is set to do, so the editor can show the choice it is
 /// holding rather than offering a fresh one and quietly dropping it.
-pub async fn delivery(pool: &SqlitePool, post_id: &str) -> Delivery {
-    let row: Option<(Option<String>, Option<bool>)> = sqlx::query_as(
+pub async fn delivery(pool: &Db, post_id: &str) -> Delivery {
+    // Booleans are 0/1 integers; `Any` does not decode one as a `bool`.
+    let row: Option<(Option<String>, Option<i64>)> = sqlx::query_as(
         "SELECT p.email_recipient_filter, m.email_only FROM posts p \
          LEFT JOIN posts_meta m ON m.post_id = p.id WHERE p.id = ?",
     )
@@ -862,7 +884,7 @@ pub async fn delivery(pool: &SqlitePool, post_id: &str) -> Delivery {
     match row {
         Some((filter, email_only)) => Delivery {
             email: filter.is_some_and(|f| !f.is_empty() && f != "none"),
-            email_only: email_only.unwrap_or(false),
+            email_only: email_only.unwrap_or(0) != 0,
         },
         None => Delivery::default(),
     }
@@ -881,8 +903,9 @@ pub struct DuePost {
 /// whose moment passed while the server was down is picked up by the first
 /// run after it starts, which is the behaviour an author expects from a date
 /// they set days ago.
-pub async fn due_scheduled(pool: &SqlitePool, now: &str) -> Result<Vec<DuePost>> {
-    let rows: Vec<(String, Option<String>, Option<bool>)> = sqlx::query_as(
+pub async fn due_scheduled(pool: &Db, now: &str) -> Result<Vec<DuePost>> {
+    // Booleans are 0/1 integers; `Any` does not decode one as a `bool`.
+    let rows: Vec<(String, Option<String>, Option<i64>)> = sqlx::query_as(
         "SELECT p.id, p.email_recipient_filter, m.email_only \
          FROM posts p LEFT JOIN posts_meta m ON m.post_id = p.id \
          WHERE p.status = 'scheduled' AND p.published_at IS NOT NULL AND p.published_at <= ? \
@@ -901,13 +924,13 @@ pub async fn due_scheduled(pool: &SqlitePool, now: &str) -> Result<Vec<DuePost>>
                 // Any filter at all means "email this"; Ghost writes `none`
                 // for a post that is not going out, and so do we.
                 email: filter.is_some_and(|f| !f.is_empty() && f != "none"),
-                email_only: email_only.unwrap_or(false),
+                email_only: email_only.unwrap_or(0) != 0,
             },
         })
         .collect())
 }
 
-pub async fn destroy(pool: &SqlitePool, id: &str) -> Result<()> {
+pub async fn destroy(pool: &Db, id: &str) -> Result<()> {
     let res = sqlx::query("DELETE FROM posts WHERE id = ?").bind(id).execute(pool).await.map_err(dberr)?;
     if res.rows_affected() == 0 {
         return Err(ghost_core::GhostError::NotFoundError { message: "not found".into(), context: None });
@@ -916,7 +939,7 @@ pub async fn destroy(pool: &SqlitePool, id: &str) -> Result<()> {
 }
 
 /// All published posts (posts + pages) for sitemap/RSS/url registries.
-pub async fn all_published(pool: &SqlitePool) -> Result<Vec<Post>> {
+pub async fn all_published(pool: &Db) -> Result<Vec<Post>> {
     let rows = sqlx::query_as::<_, PostRow>(&format!(
         "SELECT {POST_COLS} FROM posts WHERE status = 'published' ORDER BY published_at DESC"
     ))
@@ -930,16 +953,17 @@ pub async fn all_published(pool: &SqlitePool) -> Result<Vec<Post>> {
 mod admin_list_tests {
     use super::*;
 
-    async fn fixture() -> SqlitePool {
-        let pool = sqlx::sqlite::SqlitePoolOptions::new().max_connections(1)
-            .connect("sqlite::memory:").await.unwrap();
-        sqlx::migrate!("../../migrations").run(&pool).await.unwrap();
+    /// Returns the `TestDb` with the pool, so a MySQL fixture's database
+    /// lives as long as the test using it — see `transfer::tests::fixture`.
+    async fn fixture() -> (crate::pool::TestDb, Db) {
+        let test_db = crate::pool::connect_test().await.unwrap();
+        let pool = test_db.pool();
         for (id, name) in [("alex", "Writer Alpha"), ("other", "Other Writer")] {
-            sqlx::query("INSERT INTO users(id,name,slug,email,password,created_at) VALUES(?,?,?,?,?,datetime('now'))")
+            sqlx::query(crate::dialect::sql("INSERT INTO users(id,name,slug,email,password,created_at) VALUES(?,?,?,?,?,datetime('now'))"))
                 .bind(id).bind(name).bind(id).bind(format!("{id}@example.test")).bind("unused")
                 .execute(&pool).await.unwrap();
         }
-        sqlx::query("INSERT INTO tags(id,name,slug,created_at) VALUES('news','News','news',datetime('now'))")
+        sqlx::query(crate::dialect::sql("INSERT INTO tags(id,name,slug,created_at) VALUES('news','News','news',datetime('now'))"))
             .execute(&pool).await.unwrap();
         for index in 0..170 {
             let id = format!("p{index:03}");
@@ -960,10 +984,10 @@ mod admin_list_tests {
             }
         }
         for i in 0..5 {
-            sqlx::query("INSERT INTO page_views(id,path,viewer,created_at) VALUES(?,'/p001/',?,datetime('now'))")
+            sqlx::query(crate::dialect::sql("INSERT INTO page_views(id,path,viewer,created_at) VALUES(?,'/p001/',?,datetime('now'))"))
                 .bind(format!("v{i}")).bind(format!("viewer{i}")).execute(&pool).await.unwrap();
         }
-        pool
+        (test_db, pool)
     }
 
     fn query() -> AdminBrowsePosts {
@@ -972,7 +996,7 @@ mod admin_list_tests {
 
     #[tokio::test]
     async fn pagination_reaches_every_record_and_clamps_stale_page_numbers() {
-        let pool = fixture().await;
+        let (_test_db, pool) = fixture().await;
         let mut ids = BTreeSet::new();
         for page in 1..=6 {
             let result = browse_admin(&pool, &AdminBrowsePosts { page, ..query() }).await.unwrap();
@@ -994,7 +1018,7 @@ mod admin_list_tests {
 
     #[tokio::test]
     async fn search_covers_old_titles_authors_excerpts_and_literal_wildcards() {
-        let pool = fixture().await;
+        let (_test_db, pool) = fixture().await;
         for (search, expected) in [("needle", 1), ("Writer Alpha", 3), ("100% ready", 1), ("%", 1), ("_", 1), ("' OR 1=1 --", 0)] {
             let result = browse_admin(&pool, &AdminBrowsePosts { search: search.into(), ..query() }).await.unwrap();
             assert_eq!(result.listing.total, expected, "search {search}");
@@ -1005,7 +1029,7 @@ mod admin_list_tests {
 
     #[tokio::test]
     async fn status_tags_and_author_access_are_applied_before_pagination() {
-        let pool = fixture().await;
+        let (_test_db, pool) = fixture().await;
         let tagged = browse_admin(&pool, &AdminBrowsePosts { filter: Some(ghost_nql::parse("tag:news").unwrap()), status: Some("draft".into()), ..query() }).await.unwrap();
         assert_eq!(tagged.listing.total, 1);
         assert_eq!(tagged.listing.posts[0].id, "p000");
@@ -1020,7 +1044,7 @@ mod admin_list_tests {
 
     #[tokio::test]
     async fn each_sort_ranks_the_entire_collection_before_limiting() {
-        let pool = fixture().await;
+        let (_test_db, pool) = fixture().await;
         for (sort, expected) in [("newest", "p134"), ("oldest", "p000"), ("title", "p000"), ("views", "p001")] {
             let result = browse_admin(&pool, &AdminBrowsePosts { sort: sort.into(), limit: 1, ..query() }).await.unwrap();
             assert_eq!(result.listing.posts[0].id, expected, "sort {sort}");

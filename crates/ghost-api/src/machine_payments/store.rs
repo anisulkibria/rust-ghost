@@ -4,7 +4,10 @@ use serde_json::Value;
 use std::{future::Future, pin::Pin};
 type Response<'a, T> = Pin<Box<dyn Future<Output = Result<T, StoreError>> + Send + 'a>>;
 #[derive(Clone)]
-pub struct SqliteStore(pub sqlx::SqlitePool);
+/// The site's own database as an MPP replay store — `Db`, whichever
+/// engine the site runs on. Named for the interface it implements rather
+/// than an engine it stopped being tied to.
+pub struct DbStore(pub ghost_db::Db);
 fn error(error: sqlx::Error) -> StoreError {
     StoreError::Internal(error.to_string())
 }
@@ -22,12 +25,12 @@ fn canonical(value: Value) -> Value {
 fn encoded(value: Value) -> String {
     canonical(value).to_string()
 }
-impl Store for SqliteStore {
+impl Store for DbStore {
     fn get(&self, key: &str) -> Response<'_, Option<Value>> {
         let key = key.to_owned();
         Box::pin(async move {
             let value: Option<String> =
-                sqlx::query_scalar("SELECT value FROM machine_payment_replay_store WHERE key=?")
+                sqlx::query_scalar("SELECT value FROM machine_payment_replay_store WHERE `key`=?")
                     .bind(key)
                     .fetch_optional(&self.0)
                     .await
@@ -43,14 +46,14 @@ impl Store for SqliteStore {
     fn put(&self, key: &str, value: Value) -> Response<'_, ()> {
         let key = key.to_owned();
         Box::pin(async move {
-            sqlx::query("INSERT INTO machine_payment_replay_store (key,value) VALUES (?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value").bind(key).bind(encoded(value)).execute(&self.0).await.map_err(error)?;
+            sqlx::query(ghost_db::dialect::sql("INSERT INTO machine_payment_replay_store (`key`,value) VALUES (?,?) ON CONFLICT(`key`) DO UPDATE SET value=excluded.value")).bind(key).bind(encoded(value)).execute(&self.0).await.map_err(error)?;
             Ok(())
         })
     }
     fn delete(&self, key: &str) -> Response<'_, ()> {
         let key = key.to_owned();
         Box::pin(async move {
-            sqlx::query("DELETE FROM machine_payment_replay_store WHERE key=?")
+            sqlx::query("DELETE FROM machine_payment_replay_store WHERE `key`=?")
                 .bind(key)
                 .execute(&self.0)
                 .await
@@ -62,7 +65,7 @@ impl Store for SqliteStore {
         let key = key.to_owned();
         Box::pin(async move {
             Ok(sqlx::query(
-                "INSERT OR IGNORE INTO machine_payment_replay_store (key,value) VALUES (?,?)",
+                ghost_db::dialect::sql("INSERT OR IGNORE INTO machine_payment_replay_store (`key`,value) VALUES (?,?)"),
             )
             .bind(key)
             .bind(encoded(value))
@@ -84,15 +87,17 @@ impl Store for SqliteStore {
             let changed =
                 match (expected, value) {
                     (None, Some(value)) => return self.put_if_absent(&key, value).await,
-                    (None, None) => return sqlx::query_scalar(
-                        "SELECT NOT EXISTS(SELECT 1 FROM machine_payment_replay_store WHERE key=?)",
+                    // // `EXISTS` yields 0/1; `Any` does not decode an integer as a `bool`.
+                    (None, None) => return sqlx::query_scalar::<_, i64>(
+                        "SELECT NOT EXISTS(SELECT 1 FROM machine_payment_replay_store WHERE `key`=?)",
                     )
                     .bind(key)
                     .fetch_one(&self.0)
                     .await
+                    .map(|n| n != 0)
                     .map_err(error),
                     (Some(expected), Some(value)) => sqlx::query(
-                        "UPDATE machine_payment_replay_store SET value=? WHERE key=? AND value=?",
+                        "UPDATE machine_payment_replay_store SET value=? WHERE `key`=? AND value=?",
                     )
                     .bind(encoded(value))
                     .bind(key)
@@ -102,7 +107,7 @@ impl Store for SqliteStore {
                     .map_err(error)?
                     .rows_affected(),
                     (Some(expected), None) => sqlx::query(
-                        "DELETE FROM machine_payment_replay_store WHERE key=? AND value=?",
+                        "DELETE FROM machine_payment_replay_store WHERE `key`=? AND value=?",
                     )
                     .bind(key)
                     .bind(encoded(expected))
@@ -121,14 +126,15 @@ mod tests {
     use serde_json::json;
     #[tokio::test]
     async fn replay_reservations_and_cas_are_atomic() {
-        let db = sqlx::SqlitePool::connect("sqlite::memory:").await.unwrap();
-        sqlx::query(
-            "CREATE TABLE machine_payment_replay_store (key TEXT PRIMARY KEY,value TEXT NOT NULL)",
-        )
-        .execute(&db)
-        .await
-        .unwrap();
-        let store = SqliteStore(db);
+        // Through `connect_test`, not a hand-built `:memory:` pool: the
+        // dialect translator reads a process-global engine, so a test with
+        // its own SQLite pool would be translated for whichever engine
+        // another test opened first — `INSERT IGNORE` on SQLite is a syntax
+        // error. The migrations create this table; the explicit `CREATE
+        // TABLE` below would fail as a duplicate.
+        let test_db = ghost_db::pool::connect_test().await.unwrap();
+        let db = test_db.pool();
+        let store = DbStore(db);
         assert!(store
             .put_if_absent("nonce", json!({"used":true}))
             .await

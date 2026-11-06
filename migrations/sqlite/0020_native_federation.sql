@@ -14,7 +14,7 @@ CREATE TABLE federation_following (
     actor TEXT PRIMARY KEY,
     inbox TEXT NOT NULL,
     follow_id TEXT NOT NULL,
-    accepted BOOLEAN NOT NULL DEFAULT 0,
+    accepted INTEGER NOT NULL DEFAULT 0,
     created_at TEXT NOT NULL
 );
 CREATE TABLE federation_activities (
@@ -40,8 +40,8 @@ CREATE TABLE federation_objects (
     in_reply_to TEXT,
     published_at TEXT NOT NULL,
     updated_at TEXT NOT NULL,
-    local BOOLEAN NOT NULL DEFAULT 0,
-    deleted BOOLEAN NOT NULL DEFAULT 0
+    local INTEGER NOT NULL DEFAULT 0,
+    deleted INTEGER NOT NULL DEFAULT 0
 );
 CREATE INDEX federation_reader ON federation_objects(published_at);
 CREATE TABLE federation_deliveries (
@@ -56,10 +56,10 @@ CREATE TABLE federation_deliveries (
 );
 INSERT OR IGNORE INTO settings (id,key,value,type,`group`,created_at,updated_at)
 VALUES ('native-social-enabled','social_web_enabled','false','boolean','social_web',datetime('now'),datetime('now'));
-ALTER TABLE federation_activities ADD COLUMN undone BOOLEAN NOT NULL DEFAULT 0;
+ALTER TABLE federation_activities ADD COLUMN undone INTEGER NOT NULL DEFAULT 0;
 ALTER TABLE federation_received ADD COLUMN read_at TEXT;
 CREATE TABLE federation_blocks (
     actor TEXT PRIMARY KEY,
     created_at TEXT NOT NULL
 );
-ALTER TABLE federation_received ADD COLUMN undone BOOLEAN NOT NULL DEFAULT 0;
+ALTER TABLE federation_received ADD COLUMN undone INTEGER NOT NULL DEFAULT 0;

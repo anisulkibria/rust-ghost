@@ -87,7 +87,7 @@ fn handle_from_url(actor: &str) -> String {
 ///
 /// Actors with no cached row come back as `Profile::unknown`, so the caller
 /// always gets one profile per actor and never has to handle a gap.
-pub async fn lookup(pool: &sqlx::SqlitePool, actors: &[String]) -> HashMap<String, Profile> {
+pub async fn lookup(pool: &ghost_db::Db, actors: &[String]) -> HashMap<String, Profile> {
     let mut out: HashMap<String, Profile> = actors
         .iter()
         .map(|actor| (actor.clone(), Profile::unknown(actor)))
@@ -129,7 +129,7 @@ pub async fn lookup(pool: &sqlx::SqlitePool, actors: &[String]) -> HashMap<Strin
 }
 
 /// One profile, cached or unknown.
-pub async fn one(pool: &sqlx::SqlitePool, actor: &str) -> Profile {
+pub async fn one(pool: &ghost_db::Db, actor: &str) -> Profile {
     lookup(pool, std::slice::from_ref(&actor.to_string()))
         .await
         .remove(actor)
@@ -137,14 +137,14 @@ pub async fn one(pool: &sqlx::SqlitePool, actor: &str) -> Profile {
 }
 
 /// Store what an actor document said about itself.
-pub async fn store(pool: &sqlx::SqlitePool, actor: &str, profile: &network::Profile) {
+pub async fn store(pool: &ghost_db::Db, actor: &str, profile: &network::Profile) {
     let _ = sqlx::query(
-        "INSERT INTO federation_actors (actor,handle,name,avatar,summary,url,followers,following,posts,fetched_at) \
+        ghost_db::dialect::sql("INSERT INTO federation_actors (actor,handle,name,avatar,summary,url,followers,following,posts,fetched_at) \
          VALUES (?,?,?,?,?,?,?,?,?,?) \
          ON CONFLICT(actor) DO UPDATE SET handle=excluded.handle,name=excluded.name,\
          avatar=excluded.avatar,summary=excluded.summary,url=excluded.url,\
          followers=excluded.followers,following=excluded.following,posts=excluded.posts,\
-         fetched_at=excluded.fetched_at",
+         fetched_at=excluded.fetched_at"),
     )
     .bind(actor)
     .bind(&profile.handle)
@@ -169,19 +169,23 @@ pub async fn store(pool: &sqlx::SqlitePool, actor: &str, profile: &network::Prof
 /// `as_who` is the publication's signing identity; without it an instance in
 /// authorised-fetch mode refuses the read and the profile stays blank.
 pub async fn refresh(
-    pool: &sqlx::SqlitePool,
+    pool: &ghost_db::Db,
     actor: &str,
     as_who: Option<&network::Signer>,
 ) -> Profile {
-    let stale: bool = sqlx::query_scalar(
+    let stale: bool = sqlx::query_scalar::<_, i64>(
         "SELECT NOT EXISTS(SELECT 1 FROM federation_actors WHERE actor=? \
-         AND datetime(fetched_at) > datetime('now', ?))",
+         AND fetched_at > ?)",
     )
     .bind(actor)
-    .bind(format!("-{FRESH_FOR_HOURS} hours"))
+    // The cutoff as an absolute instant: SQLite takes a modifier as a
+    // parameter, MySQL cannot, and the comparison is portable this way.
+    .bind(ghost_core::dates::to_db_string(
+        &(chrono::Utc::now() - chrono::Duration::hours(FRESH_FOR_HOURS)),
+    ))
     .fetch_one(pool)
     .await
-    .unwrap_or(true);
+    .unwrap_or(1) != 0;
     if stale {
         if let Ok(fetched) = network::actor_as(actor, as_who).await {
             store(pool, actor, &fetched.profile).await;
@@ -196,7 +200,7 @@ pub async fn refresh(
 /// whatever was cached: a feed must not take one remote fetch per unknown
 /// author before it can be shown. The next load has the names.
 pub async fn warm(
-    pool: &sqlx::SqlitePool,
+    pool: &ghost_db::Db,
     actors: Vec<String>,
     as_who: Option<network::Signer>,
 ) {
@@ -206,15 +210,19 @@ pub async fn warm(
         if done >= MAX_PER_PASS {
             break;
         }
-        let known: bool = sqlx::query_scalar(
+        let known: bool = sqlx::query_scalar::<_, i64>(
             "SELECT EXISTS(SELECT 1 FROM federation_actors WHERE actor=? \
-             AND datetime(fetched_at) > datetime('now', ?))",
+             AND fetched_at > ?)",
         )
         .bind(&actor)
-        .bind(format!("-{FRESH_FOR_HOURS} hours"))
+        // The cutoff as an absolute instant: SQLite takes a modifier as a
+    // parameter, MySQL cannot, and the comparison is portable this way.
+    .bind(ghost_core::dates::to_db_string(
+        &(chrono::Utc::now() - chrono::Duration::hours(FRESH_FOR_HOURS)),
+    ))
         .fetch_one(pool)
         .await
-        .unwrap_or(true);
+        .unwrap_or(1) != 0;
         if known {
             continue;
         }

@@ -11,12 +11,12 @@
 //! that resolution logic, so it must see the raw value.
 
 use ghost_core::Result;
-use sqlx::SqlitePool;
+use crate::Db;
 
 use super::dberr;
 
 /// One newsletter. Field order follows the table, not Ghost's API output.
-#[derive(Debug, Clone, sqlx::FromRow, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct Newsletter {
     pub id: String,
     pub uuid: Option<String>,
@@ -72,6 +72,64 @@ pub struct Newsletter {
     pub updated_at: Option<String>,
 }
 
+/// Read by hand rather than derived, because of the boolean columns.
+///
+/// `#[derive(sqlx::FromRow)]` would decode each `bool` field with
+/// `Decode<Any> for bool`, which fails on both engines: a boolean is stored
+/// as a 0/1 integer and `Any` will not turn an integer into a `bool`. See
+/// [`crate::types::flag`]. Everything else is read exactly as the derive
+/// would have read it.
+impl<'r> sqlx::FromRow<'r, sqlx::any::AnyRow> for Newsletter {
+    fn from_row(row: &'r sqlx::any::AnyRow) -> sqlx::Result<Self> {
+        use sqlx::Row;
+        Ok(Self {
+            id: row.try_get("id")?,
+            uuid: row.try_get("uuid")?,
+            name: row.try_get("name")?,
+            description: row.try_get("description")?,
+            slug: row.try_get("slug")?,
+            sender_name: row.try_get("sender_name")?,
+            sender_email: row.try_get("sender_email")?,
+            sender_reply_to: row.try_get("sender_reply_to")?,
+            status: row.try_get("status")?,
+            visibility: row.try_get("visibility")?,
+            subscribe_on_signup: crate::types::flag(row, "subscribe_on_signup"),
+            sort_order: row.try_get("sort_order")?,
+            header_image: row.try_get("header_image")?,
+            show_header_icon: crate::types::flag(row, "show_header_icon"),
+            show_header_title: crate::types::flag(row, "show_header_title"),
+            show_header_name: crate::types::flag(row, "show_header_name"),
+            show_post_title_section: crate::types::flag(row, "show_post_title_section"),
+            show_excerpt: crate::types::flag(row, "show_excerpt"),
+            show_feature_image: crate::types::flag(row, "show_feature_image"),
+            title_font_category: row.try_get("title_font_category")?,
+            title_alignment: row.try_get("title_alignment")?,
+            title_font_weight: row.try_get("title_font_weight")?,
+            body_font_category: row.try_get("body_font_category")?,
+            background_color: row.try_get("background_color")?,
+            header_background_color: row.try_get("header_background_color")?,
+            post_title_color: row.try_get("post_title_color")?,
+            section_title_color: row.try_get("section_title_color")?,
+            divider_color: row.try_get("divider_color")?,
+            link_color: row.try_get("link_color")?,
+            link_style: row.try_get("link_style")?,
+            button_color: row.try_get("button_color")?,
+            button_style: row.try_get("button_style")?,
+            button_corners: row.try_get("button_corners")?,
+            image_corners: row.try_get("image_corners")?,
+            footer_content: row.try_get("footer_content")?,
+            show_badge: crate::types::flag(row, "show_badge"),
+            show_comment_cta: crate::types::flag(row, "show_comment_cta"),
+            show_subscription_details: crate::types::flag(row, "show_subscription_details"),
+            show_latest_posts: crate::types::flag(row, "show_latest_posts"),
+            show_share_button: crate::types::flag(row, "show_share_button"),
+            feedback_enabled: crate::types::flag(row, "feedback_enabled"),
+            created_at: row.try_get("created_at")?,
+            updated_at: row.try_get("updated_at")?,
+        })
+    }
+}
+
 /// Every column the struct reads, in struct order. `FromRow` matches by name,
 /// so the order is only for readability — but the list must stay complete.
 pub const NEWSLETTER_COLS: &str = "id, uuid, name, description, slug, sender_name, sender_email, \
@@ -84,7 +142,7 @@ show_badge, show_comment_cta, show_subscription_details, show_latest_posts, show
 feedback_enabled, created_at, updated_at";
 
 /// All newsletters, active first, in Ghost's own ordering.
-pub async fn list(pool: &SqlitePool) -> Result<Vec<Newsletter>> {
+pub async fn list(pool: &Db) -> Result<Vec<Newsletter>> {
     sqlx::query_as::<_, Newsletter>(&format!(
         "SELECT {NEWSLETTER_COLS} FROM newsletters ORDER BY status = 'archived', sort_order, created_at"
     ))
@@ -93,7 +151,7 @@ pub async fn list(pool: &SqlitePool) -> Result<Vec<Newsletter>> {
     .map_err(dberr)
 }
 
-pub async fn find_by_id(pool: &SqlitePool, id: &str) -> Result<Option<Newsletter>> {
+pub async fn find_by_id(pool: &Db, id: &str) -> Result<Option<Newsletter>> {
     sqlx::query_as::<_, Newsletter>(&format!(
         "SELECT {NEWSLETTER_COLS} FROM newsletters WHERE id = ?"
     ))
@@ -105,7 +163,7 @@ pub async fn find_by_id(pool: &SqlitePool, id: &str) -> Result<Option<Newsletter
 
 /// The newsletter a post goes out on when it does not name one: the first
 /// active one by sort order, which is what Ghost calls the default.
-pub async fn default_newsletter(pool: &SqlitePool) -> Result<Option<Newsletter>> {
+pub async fn default_newsletter(pool: &Db) -> Result<Option<Newsletter>> {
     sqlx::query_as::<_, Newsletter>(&format!(
         "SELECT {NEWSLETTER_COLS} FROM newsletters WHERE status = 'active' \
          ORDER BY sort_order, created_at LIMIT 1"
@@ -143,7 +201,7 @@ pub fn default_name(site_title: &str) -> String {
 ///
 /// Even here only the seeded name is replaced, never one that is already
 /// something else.
-pub async fn name_after_site(pool: &SqlitePool, seeded_title: &str, title: &str) -> Result<()> {
+pub async fn name_after_site(pool: &Db, seeded_title: &str, title: &str) -> Result<()> {
     let new_name = default_name(title);
     let seeded = default_name(seeded_title);
     sqlx::query(
@@ -165,7 +223,7 @@ pub async fn name_after_site(pool: &SqlitePool, seeded_title: &str, title: &str)
 /// All of them at once rather than a diff: the design editor posts the whole
 /// form, and a partial update would leave a half-saved design if a field were
 /// ever added to the form and forgotten here.
-pub async fn update(pool: &SqlitePool, n: &Newsletter) -> Result<()> {
+pub async fn update(pool: &Db, n: &Newsletter) -> Result<()> {
     let now = ghost_core::dates::now_db();
     sqlx::query(
         "UPDATE newsletters SET \
@@ -234,7 +292,7 @@ pub async fn update(pool: &SqlitePool, n: &Newsletter) -> Result<()> {
 /// Returns the new row. The slug is derived from the name and made unique by
 /// suffixing, the way Ghost does, because `slug` is a unique index and a
 /// second "Weekly digest" is a perfectly reasonable thing to ask for.
-pub async fn create(pool: &SqlitePool, name: &str) -> Result<Newsletter> {
+pub async fn create(pool: &Db, name: &str) -> Result<Newsletter> {
     let name = name.trim();
     if name.is_empty() {
         return Err(ghost_core::GhostError::ValidationError {
@@ -277,7 +335,7 @@ pub async fn create(pool: &SqlitePool, name: &str) -> Result<Newsletter> {
         .ok_or_else(|| ghost_core::GhostError::Db("newsletter vanished after insert".into()))
 }
 
-async fn slug_taken(pool: &SqlitePool, slug: &str) -> bool {
+async fn slug_taken(pool: &Db, slug: &str) -> bool {
     sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM newsletters WHERE slug = ?")
         .bind(slug)
         .fetch_one(pool)
@@ -305,7 +363,7 @@ fn slugify(s: &str) -> String {
 }
 
 /// How many members are subscribed, for the list page's "N subscribers".
-pub async fn subscriber_count(pool: &SqlitePool, newsletter_id: &str) -> i64 {
+pub async fn subscriber_count(pool: &Db, newsletter_id: &str) -> i64 {
     sqlx::query_scalar::<_, i64>(
         "SELECT COUNT(*) FROM members_newsletters mn JOIN members m ON m.id = mn.member_id \
          WHERE mn.newsletter_id = ? AND m.email_disabled = 0",

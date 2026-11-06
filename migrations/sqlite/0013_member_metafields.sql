@@ -21,8 +21,8 @@ CREATE TABLE IF NOT EXISTS members_metafields (
     -- append past the highest rank and deletes leave gaps, so reads tie-break
     -- on created_at.
     sort_order INTEGER NOT NULL DEFAULT 0,
-    created_at DATETIME NOT NULL,
-    updated_at DATETIME
+    created_at TEXT NOT NULL,
+    updated_at TEXT
 );
 
 -- One row per leaf: a scalar field stores its value under the empty path, a
@@ -41,8 +41,8 @@ CREATE TABLE IF NOT EXISTS members_metafield_values (
     -- no foreign key, because provenance has to outlive its cause.
     written_by_type TEXT(50) NOT NULL,
     written_by_id TEXT(24),
-    created_at DATETIME NOT NULL,
-    updated_at DATETIME
+    created_at TEXT NOT NULL,
+    updated_at TEXT
 );
 
 CREATE UNIQUE INDEX IF NOT EXISTS members_metafield_values_leaf_unique
@@ -58,8 +58,8 @@ CREATE TABLE IF NOT EXISTS members_metafield_bindings (
     id TEXT(24) PRIMARY KEY NOT NULL,
     port TEXT(191) NOT NULL UNIQUE,
     metafield_key TEXT(191) NOT NULL REFERENCES members_metafields(key) ON DELETE CASCADE,
-    created_at DATETIME NOT NULL,
-    updated_at DATETIME
+    created_at TEXT NOT NULL,
+    updated_at TEXT
 );
 
 CREATE INDEX IF NOT EXISTS members_metafield_bindings_key_index
@@ -78,7 +78,7 @@ CREATE TABLE IF NOT EXISTS members_metafield_change_events (
     -- name it had at the time — copied rather than joined, so an entry still
     -- reads after a field is renamed or deleted.
     metafields TEXT NOT NULL,
-    created_at DATETIME NOT NULL
+    created_at TEXT NOT NULL
 );
 
 CREATE INDEX IF NOT EXISTS members_metafield_change_events_member_id_index

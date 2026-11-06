@@ -6,7 +6,45 @@ use std::{collections::HashMap, sync::{Arc, atomic::AtomicBool}};
 use tokio::sync::RwLock;
 use tower::ServiceExt;
 
+/// Install a trigger that aborts matching inserts, to test what a partial
+/// failure does to a transaction.
+///
+/// Spelled per engine, because there is no portable trigger: SQLite's
+/// `RAISE(ABORT, …)` under a `WHEN` guard is MySQL's `SIGNAL SQLSTATE
+/// '45000'` inside an `IF`. Both abort the statement with an error the
+/// surrounding transaction sees, which is the behaviour under test.
+async fn fail_inserts(
+    db: &ghost_db::Db,
+    trigger: &str,
+    table: &str,
+    when: Option<&str>,
+    message: &str,
+) {
+    let sql = match ghost_db::pool::engine() {
+        ghost_core::database::Engine::Sqlite => format!(
+            "CREATE TRIGGER {trigger} BEFORE INSERT ON {table} WHEN {} \
+             BEGIN SELECT RAISE(ABORT, '{message}'); END",
+            when.unwrap_or("1"),
+        ),
+        ghost_core::database::Engine::MySql => match when {
+            Some(when) => format!(
+                "CREATE TRIGGER {trigger} BEFORE INSERT ON {table} FOR EACH ROW \
+                 IF {when} THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = '{message}'; END IF"
+            ),
+            None => format!(
+                "CREATE TRIGGER {trigger} BEFORE INSERT ON {table} FOR EACH ROW \
+                 SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = '{message}'"
+            ),
+        },
+    };
+    sqlx::query(&sql).execute(db).await.unwrap();
+}
+
 struct Fixture {
+    /// The test's own database: in-memory SQLite, or a database on the MySQL
+    /// server `GHOST_TEST_MYSQL_URL` names. Dropped with the fixture, which
+    /// is what removes a MySQL one.
+    _db: ghost_db::TestDb,
     state: AppState,
     app: Router,
     cookie: String,
@@ -35,8 +73,8 @@ impl Fixture {
     }
 
     async fn build(url: &str, env: &str, host_settings: Value) -> Self {
-        let db = sqlx::sqlite::SqlitePoolOptions::new().max_connections(1).connect("sqlite::memory:").await.unwrap();
-        sqlx::migrate!("../../migrations").run(&db).await.unwrap();
+        let test_db = ghost_db::pool::connect_test().await.unwrap();
+        let db = test_db.pool();
         ghost_db::seed::seed_if_empty(&db).await.unwrap();
         let owner = repos::users::setup_owner(&db, "Test owner", "owner@example.test", "unused-test-hash").await.unwrap();
         let sid = repos::sessions::create(&db, &owner.id).await.unwrap();
@@ -73,7 +111,7 @@ impl Fixture {
         let app = Router::new().nest("/admin", ghost_api::admin::admin_router().merge(ghost_api::automations::automations_router()).merge(ghost_api::admin_comments::admin_comments_router()))
             .nest("/content", ghost_api::content::content_router(state.clone()))
             .merge(ghost_api::members::members_router()).with_state(state.clone());
-        Self {state, app, cookie: format!("ghost-admin-api-session={sid}"), content_key}
+        Self {_db: test_db, state, app, cookie: format!("ghost-admin-api-session={sid}"), content_key}
     }
 
     async fn request(&self, method: &str, path: &str, body: Value, auth: Option<&str>) -> (StatusCode, Value) {
@@ -88,7 +126,7 @@ impl Fixture {
 
     async fn staff(&self, role: &str, slug: &str) -> (String, String) {
         let id = ghost_core::ids::new_id();
-        sqlx::query("INSERT INTO users (id, name, slug, email, password, status, created_at, updated_at) VALUES (?, ?, ?, ?, 'fixture', 'active', datetime('now'), datetime('now'))")
+        sqlx::query(ghost_db::dialect::sql("INSERT INTO users (id, name, slug, email, password, status, created_at, updated_at) VALUES (?, ?, ?, ?, 'fixture', 'active', datetime('now'), datetime('now'))"))
             .bind(&id).bind(slug).bind(slug).bind(format!("{slug}@example.test")).execute(&self.state.db).await.unwrap();
         sqlx::query("INSERT INTO roles_users (id, role_id, user_id) SELECT ?, id, ? FROM roles WHERE name = ?")
             .bind(ghost_core::ids::new_id()).bind(&id).bind(role).execute(&self.state.db).await.unwrap();
@@ -124,8 +162,8 @@ async fn editor_snippets_round_trip_validate_and_delete() {
     let id = added["snippets"][0]["id"].as_str().unwrap();
     assert_eq!(added["snippets"][0]["lexical"], lexical);
     assert_eq!(f.request("POST", "/admin/snippets/", body, None).await.0, StatusCode::UNPROCESSABLE_ENTITY);
-    let stored: String = sqlx::query_scalar("SELECT lexical FROM snippets WHERE id = ?").bind(id).fetch_one(&f.state.db).await.unwrap();
-    assert_eq!(stored, lexical);
+    let stored: ghost_db::types::Text = sqlx::query_scalar("SELECT lexical FROM snippets WHERE id = ?").bind(id).fetch_one(&f.state.db).await.unwrap();
+    assert_eq!(stored.0, lexical);
     let path = format!("/admin/snippets/{id}/?formats=lexical");
     let (_, read) = f.request("GET", &path, Value::Null, None).await;
     assert_eq!(read["snippets"][0]["name"], "Reusable greeting");
@@ -366,7 +404,7 @@ async fn api_publishing_delivers_signed_webhooks_with_previous_values() {
 #[tokio::test]
 async fn integration_creation_rolls_back_if_a_key_insert_fails() {
     let f = Fixture::new().await;
-    sqlx::query("CREATE TRIGGER fail_admin_key BEFORE INSERT ON api_keys WHEN NEW.type = 'admin' BEGIN SELECT RAISE(ABORT, 'simulated failure'); END").execute(&f.state.db).await.unwrap();
+    fail_inserts(&f.state.db, "fail_admin_key", "api_keys", Some("NEW.type = 'admin'"), "simulated failure").await;
     let result = repos::integrations::create_custom(&f.state.db, "Must roll back", None).await;
     assert!(result.is_err());
     let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM integrations WHERE name = 'Must roll back'").fetch_one(&f.state.db).await.unwrap();
@@ -410,9 +448,9 @@ async fn free_signup_defaults_are_visible_and_membership_controls_update_visibil
 async fn stripe_sync_repairs_missing_tier_ids_and_reuses_unchanged_prices() {
     let f = Fixture::new().await;
     let tier: String = sqlx::query_scalar("SELECT id FROM products WHERE type = 'paid' LIMIT 1").fetch_one(&f.state.db).await.unwrap();
-    sqlx::query("INSERT INTO stripe_products (id, product_id, stripe_product_id, created_at, updated_at) VALUES ('product-map', ?, 'prod_fixture', datetime('now'), datetime('now'))").bind(&tier).execute(&f.state.db).await.unwrap();
+    sqlx::query(ghost_db::dialect::sql("INSERT INTO stripe_products (id, product_id, stripe_product_id, created_at, updated_at) VALUES ('product-map', ?, 'prod_fixture', datetime('now'), datetime('now'))")).bind(&tier).execute(&f.state.db).await.unwrap();
     for (id, amount, interval) in [("price_month_fixture", 500, "month"), ("price_year_fixture", 5000, "year")] {
-        sqlx::query("INSERT INTO stripe_prices (id, stripe_price_id, stripe_product_id, active, amount, currency, interval, type, created_at, updated_at) VALUES (?, ?, 'prod_fixture', 1, ?, 'usd', ?, 'recurring', datetime('now'), datetime('now'))")
+        sqlx::query(ghost_db::dialect::sql("INSERT INTO stripe_prices (id, stripe_price_id, stripe_product_id, active, amount, currency, `interval`, type, created_at, updated_at) VALUES (?, ?, 'prod_fixture', 1, ?, 'usd', ?, 'recurring', datetime('now'), datetime('now'))"))
             .bind(id).bind(id).bind(amount).bind(interval).execute(&f.state.db).await.unwrap();
     }
     let cfg = ghost_stripe::StripeConfig {secret_key: "sk_test_never_sent".into(), publishable_key: String::new(), webhook_secret: String::new(), checkout_design: None};
@@ -433,8 +471,10 @@ async fn checkout_configuration_errors_use_portal_messages_and_persist_owner_dia
     assert_eq!(status, StatusCode::BAD_REQUEST);
     assert_eq!(body["errors"][0]["message"], "This site is not accepting payments at the moment.");
     f.state.settings.set(&f.state.db, "stripe_checkout_setup_error", &json!("Complete the Stripe business name.")).await.unwrap();
-    let stored: String = sqlx::query_scalar("SELECT value FROM settings WHERE key = 'stripe_checkout_setup_error'").fetch_one(&f.state.db).await.unwrap();
-    assert_eq!(stored, "Complete the Stripe business name.");
+    // `settings.value` is a long column: read as `Text`, or the read fails on
+    // MySQL where a long column arrives as a blob.
+    let stored: ghost_db::types::Text = sqlx::query_scalar("SELECT value FROM settings WHERE `key` = 'stripe_checkout_setup_error'").fetch_one(&f.state.db).await.unwrap();
+    assert_eq!(stored.0, "Complete the Stripe business name.");
 }
 
 #[tokio::test]
@@ -544,7 +584,7 @@ async fn members_filters_bulk_updates_and_impersonation_are_persistent() {
     let (_,empty)=f.request("GET","/admin/members/?filter=status:paid",Value::Null,None).await;assert_eq!(empty["members"].as_array().unwrap().len(),0);
     let (_,matching)=f.request("GET","/admin/members/?filter=status:free%2Bemail:reader@example.test",Value::Null,None).await;assert_eq!(matching["members"].as_array().unwrap().len(),1);
     assert_eq!(f.request("GET","/admin/members/?filter=unknown:bad",Value::Null,None).await.0,StatusCode::UNPROCESSABLE_ENTITY);
-    sqlx::query("INSERT INTO labels (id,name,slug,created_at) VALUES ('vip','VIP','vip',datetime('now'))").execute(&f.state.db).await.unwrap();
+    sqlx::query(ghost_db::dialect::sql("INSERT INTO labels (id,name,slug,created_at) VALUES ('vip','VIP','vip',datetime('now'))")).execute(&f.state.db).await.unwrap();
     assert_eq!(f.request("POST","/admin/members/bulk/",json!({"ids":[id],"action":"label","label_id":"vip"}),None).await.0,StatusCode::OK);
     let (_,matching)=f.request("GET","/admin/members/?filter=labels:vip",Value::Null,None).await;assert_eq!(matching["members"][0]["id"],id);
     let (status,link)=f.request("GET",&format!("/admin/members/{id}/signin_urls/"),Value::Null,None).await;assert_eq!(status,StatusCode::OK,"{link}");
@@ -602,7 +642,7 @@ async fn staff_password_reset_is_expiring_single_use_and_revokes_sessions() {
     use sha2::{Digest,Sha256};
     let f=Fixture::new().await;
     let owner=repos::users::find_owner(&f.state.db).await.unwrap().unwrap();let token="a".repeat(64);let token_hash=hex::encode(Sha256::digest(token.as_bytes()));
-    sqlx::query("INSERT INTO staff_password_resets (token_hash,user_id,expires_at,created_at) VALUES (?,?,datetime('now','+10 minutes'),datetime('now'))").bind(token_hash).bind(&owner.id).execute(&f.state.db).await.unwrap();
+    sqlx::query(ghost_db::dialect::sql("INSERT INTO staff_password_resets (token_hash,user_id,expires_at,created_at) VALUES (?,?,datetime('now','+10 minutes'),datetime('now'))")).bind(token_hash).bind(&owner.id).execute(&f.state.db).await.unwrap();
     let request=json!({"password_reset":[{"token":token,"newPassword":"A secure fixture password"}]});
     assert_eq!(f.request("PUT","/admin/authentication/password_reset/",request.clone(),None).await.0,StatusCode::NO_CONTENT);
     assert_eq!(f.request("PUT","/admin/authentication/password_reset/",request,None).await.0,StatusCode::UNPROCESSABLE_ENTITY);
@@ -655,10 +695,10 @@ async fn machine_payment_challenges_are_article_bound_and_never_grant_membership
 #[tokio::test]
 async fn subscription_sync_preserves_other_active_subscriptions_and_nonrecurring_grants() {
     let f=Fixture::new().await;
-    sqlx::query("INSERT INTO members (id,uuid,transient_id,email,status,created_at) VALUES ('subscriber','subscriber-uuid','subscriber-transient','subscriber@example.test','paid',datetime('now'))").execute(&f.state.db).await.unwrap();
-    for(id,price)in [("tier-a","price_a"),("tier-b","price_b"),("gift-tier","price_gift")]{sqlx::query("INSERT INTO products (id,name,slug,monthly_price_id,created_at) VALUES (?,?,?,?,datetime('now'))").bind(id).bind(id).bind(id).bind(price).execute(&f.state.db).await.unwrap();}
-    sqlx::query("INSERT INTO members_stripe_customers (id,member_id,customer_id,created_at) VALUES ('customer','subscriber','cus_fixture',datetime('now'))").execute(&f.state.db).await.unwrap();
-    sqlx::query("INSERT INTO members_products (id,member_id,product_id,expiry_at) VALUES ('gift-grant','subscriber','gift-tier',datetime('now','+10 days'))").execute(&f.state.db).await.unwrap();
+    sqlx::query(ghost_db::dialect::sql("INSERT INTO members (id,uuid,transient_id,email,status,created_at) VALUES ('subscriber','subscriber-uuid','subscriber-transient','subscriber@example.test','paid',datetime('now'))")).execute(&f.state.db).await.unwrap();
+    for(id,price)in [("tier-a","price_a"),("tier-b","price_b"),("gift-tier","price_gift")]{sqlx::query(ghost_db::dialect::sql("INSERT INTO products (id,name,slug,monthly_price_id,created_at) VALUES (?,?,?,?,datetime('now'))")).bind(id).bind(id).bind(id).bind(price).execute(&f.state.db).await.unwrap();}
+    sqlx::query(ghost_db::dialect::sql("INSERT INTO members_stripe_customers (id,member_id,customer_id,created_at) VALUES ('customer','subscriber','cus_fixture',datetime('now'))")).execute(&f.state.db).await.unwrap();
+    sqlx::query(ghost_db::dialect::sql("INSERT INTO members_products (id,member_id,product_id,expiry_at) VALUES ('gift-grant','subscriber','gift-tier',datetime('now','+10 days'))")).execute(&f.state.db).await.unwrap();
     let sub=|id:&str,price:&str,status:&str|json!({"id":id,"customer":"cus_fixture","status":status,"current_period_end":chrono::Utc::now().timestamp()+86400,"items":{"data":[{"price":{"id":price,"currency":"usd","unit_amount":500,"recurring":{"interval":"month"}}}]}});
     repos::subscriptions::sync(&f.state.db,&sub("sub_a","price_a","active")).await.unwrap();
     repos::subscriptions::sync(&f.state.db,&sub("sub_b","price_b","active")).await.unwrap();
@@ -732,10 +772,10 @@ async fn signed_mailgun_events_are_idempotent_after_suppression_is_removed() {
 async fn stripe_retries_events_when_subscription_persistence_fails() {
     use sha2::{Digest,Sha256};
     let f=Fixture::new().await;
-    sqlx::query("INSERT INTO members (id,uuid,transient_id,email,status,created_at) VALUES ('retry-member','retry-uuid','retry-transient','retry@example.test','free',datetime('now'))").execute(&f.state.db).await.unwrap();
-    sqlx::query("INSERT INTO members_stripe_customers (id,member_id,customer_id,created_at) VALUES ('retry-customer','retry-member','cus_retry',datetime('now'))").execute(&f.state.db).await.unwrap();
+    sqlx::query(ghost_db::dialect::sql("INSERT INTO members (id,uuid,transient_id,email,status,created_at) VALUES ('retry-member','retry-uuid','retry-transient','retry@example.test','free',datetime('now'))")).execute(&f.state.db).await.unwrap();
+    sqlx::query(ghost_db::dialect::sql("INSERT INTO members_stripe_customers (id,member_id,customer_id,created_at) VALUES ('retry-customer','retry-member','cus_retry',datetime('now'))")).execute(&f.state.db).await.unwrap();
     // Force a write failure after ownership resolution, without any provider calls.
-    sqlx::query("CREATE TRIGGER fail_subscription_write BEFORE INSERT ON subscriptions BEGIN SELECT RAISE(ABORT,'fixture write failure'); END").execute(&f.state.db).await.unwrap();
+    fail_inserts(&f.state.db, "fail_subscription_write", "subscriptions", None, "fixture write failure").await;
     let mut state=f.state.clone();state.settings=Arc::new(state.settings.with_overrides([("stripe_secret_key".into(),json!("sk_test_fixture")),("members_stripe_webhook_secret".into(),json!("whsec_fixture"))]));
     let app=ghost_api::members::members_router().with_state(state);
     let event=json!({"type":"customer.subscription.updated","data":{"object":{"id":"sub_retry","customer":"cus_retry","status":"active"}}}).to_string();
@@ -753,8 +793,8 @@ async fn newsletter_opens_are_recorded_once_per_recipient_and_only_for_signed_re
     let f=Fixture::new().await;
     let mut state=f.state.clone();
     state.settings=Arc::new(state.settings.with_overrides([("email_track_opens".into(),json!(true)),("members_email_auth_secret".into(),json!("fixture-open-secret"))]));
-    sqlx::query("INSERT INTO members (id,uuid,transient_id,email,status,created_at) VALUES ('open-member','open-uuid','open-transient','reader@example.test','free',datetime('now'))").execute(&state.db).await.unwrap();
-    sqlx::query("INSERT INTO emails (id,post_id,status,email_count,created_at) VALUES ('open-email','open-post','submitting',1,datetime('now'))").execute(&state.db).await.unwrap();
+    sqlx::query(ghost_db::dialect::sql("INSERT INTO members (id,uuid,transient_id,email,status,created_at) VALUES ('open-member','open-uuid','open-transient','reader@example.test','free',datetime('now'))")).execute(&state.db).await.unwrap();
+    sqlx::query(ghost_db::dialect::sql("INSERT INTO emails (id,post_id,status,email_count,created_at) VALUES ('open-email','open-post','submitting',1,datetime('now'))")).execute(&state.db).await.unwrap();
     ghost_api::newsletter_events::record_recipient(&state,ghost_api::newsletter_events::RecipientRecord{
         email_id:"open-email",batch_id:None,member_id:"open-member",member_uuid:"open-uuid",
         email:"reader@example.test",provider_id:Some("<provider-id@mg.example>"),error:None,
@@ -879,14 +919,14 @@ async fn a_lexical_only_post_renders_its_media_and_layout_cards() {
 #[tokio::test]
 async fn the_emails_family_reports_status_batches_and_who_was_missed() {
     let f=Fixture::new().await;
-    sqlx::query("INSERT INTO members (id,uuid,transient_id,email,name,status,created_at) VALUES ('m1','u1','t1','bounced@example.test','Bo','free',datetime('now'))").execute(&f.state.db).await.unwrap();
-    sqlx::query("INSERT INTO emails (id,uuid,post_id,status,email_count,candidate_count,preflight_email_count,delivered_count,failed_count,opened_count,subject,source_type,created_at) \
-                 VALUES ('e1','e-uuid','p1','submitted',3,4,3,2,1,1,'Issue one','html',datetime('now'))").execute(&f.state.db).await.unwrap();
+    sqlx::query(ghost_db::dialect::sql("INSERT INTO members (id,uuid,transient_id,email,name,status,created_at) VALUES ('m1','u1','t1','bounced@example.test','Bo','free',datetime('now'))")).execute(&f.state.db).await.unwrap();
+    sqlx::query(ghost_db::dialect::sql("INSERT INTO emails (id,uuid,post_id,status,email_count,candidate_count,preflight_email_count,delivered_count,failed_count,opened_count,subject,source_type,created_at) \
+                 VALUES ('e1','e-uuid','p1','submitted',3,4,3,2,1,1,'Issue one','html',datetime('now'))")).execute(&f.state.db).await.unwrap();
     for (id,status,segment,count,submitted) in [("b1","submitted","status:free access:true named:true",2,2),("b2","failed","status:free access:true named:false",1,0)] {
-        sqlx::query("INSERT INTO email_batches (id,email_id,status,member_segment,recipient_count,submitted_count,created_at) VALUES (?,'e1',?,?,?,?,datetime('now'))")
+        sqlx::query(ghost_db::dialect::sql("INSERT INTO email_batches (id,email_id,status,member_segment,recipient_count,submitted_count,created_at) VALUES (?,'e1',?,?,?,?,datetime('now'))"))
             .bind(id).bind(status).bind(segment).bind(count).bind(submitted).execute(&f.state.db).await.unwrap();
     }
-    sqlx::query("INSERT INTO email_recipient_failures (id,email_id,batch_id,member_id,message,severity,code,failed_at) VALUES ('f1','e1','b2','m1','550 no such mailbox','permanent',550,datetime('now'))")
+    sqlx::query(ghost_db::dialect::sql("INSERT INTO email_recipient_failures (id,email_id,batch_id,member_id,message,severity,code,failed_at) VALUES ('f1','e1','b2','m1','550 no such mailbox','permanent',550,datetime('now'))"))
         .execute(&f.state.db).await.unwrap();
 
     let (status,list)=f.request("GET","/admin/emails/",Value::Null,None).await;
@@ -935,8 +975,8 @@ async fn a_provider_failure_event_records_who_was_missed_and_corrects_the_counts
     let f=Fixture::new().await;
     let mut state=f.state.clone();
     state.settings=Arc::new(state.settings.with_overrides([("mailgun_webhook_signing_key".into(),json!("fixture-signing-key"))]));
-    sqlx::query("INSERT INTO members (id,uuid,transient_id,email,status,created_at) VALUES ('fm','fu','ft','gone@example.test','free',datetime('now'))").execute(&state.db).await.unwrap();
-    sqlx::query("INSERT INTO emails (id,post_id,status,email_count,delivered_count,created_at) VALUES ('fe','fp','submitted',1,1,datetime('now'))").execute(&state.db).await.unwrap();
+    sqlx::query(ghost_db::dialect::sql("INSERT INTO members (id,uuid,transient_id,email,status,created_at) VALUES ('fm','fu','ft','gone@example.test','free',datetime('now'))")).execute(&state.db).await.unwrap();
+    sqlx::query(ghost_db::dialect::sql("INSERT INTO emails (id,post_id,status,email_count,delivered_count,created_at) VALUES ('fe','fp','submitted',1,1,datetime('now'))")).execute(&state.db).await.unwrap();
     ghost_api::newsletter_events::record_recipient(&state,ghost_api::newsletter_events::RecipientRecord{
         email_id:"fe",batch_id:None,member_id:"fm",member_uuid:"fu",email:"gone@example.test",
         provider_id:Some("fe.digest@mg.example"),error:None,
@@ -1013,7 +1053,7 @@ async fn a_signup_is_attributed_to_the_post_it_came_from() {
 
     // And the recorded signup carries all of it, which is what makes the
     // post's own analytics answerable.
-    sqlx::query("INSERT INTO members (id,uuid,transient_id,email,status,created_at) VALUES ('am','au','at','attributed@example.test','free',datetime('now'))").execute(&f.state.db).await.unwrap();
+    sqlx::query(ghost_db::dialect::sql("INSERT INTO members (id,uuid,transient_id,email,status,created_at) VALUES ('am','au','at','attributed@example.test','free',datetime('now'))")).execute(&f.state.db).await.unwrap();
     ghost_api::member_events::record_signup(&f.state,"am","member",&attribution).await.unwrap();
     let row:(Option<String>,Option<String>,Option<String>,Option<String>,String)=sqlx::query_as(
         "SELECT attribution_id,attribution_type,referrer_source,utm_campaign,source FROM members_created_events WHERE member_id='am'",
@@ -1041,8 +1081,8 @@ async fn a_signup_is_attributed_to_the_post_it_came_from() {
 #[tokio::test]
 async fn the_member_activity_feed_merges_every_kind_of_event() {
     let f=Fixture::new().await;
-    sqlx::query("INSERT INTO members (id,uuid,transient_id,email,name,status,created_at) VALUES ('fm','fu','ft','busy@example.test','Busy','paid',datetime('now'))").execute(&f.state.db).await.unwrap();
-    sqlx::query("INSERT INTO members (id,uuid,transient_id,email,status,created_at) VALUES ('other','ou','ot','quiet@example.test','free',datetime('now'))").execute(&f.state.db).await.unwrap();
+    sqlx::query(ghost_db::dialect::sql("INSERT INTO members (id,uuid,transient_id,email,name,status,created_at) VALUES ('fm','fu','ft','busy@example.test','Busy','paid',datetime('now'))")).execute(&f.state.db).await.unwrap();
+    sqlx::query(ghost_db::dialect::sql("INSERT INTO members (id,uuid,transient_id,email,status,created_at) VALUES ('other','ou','ot','quiet@example.test','free',datetime('now'))")).execute(&f.state.db).await.unwrap();
     let events=&f.state;
     ghost_api::member_events::record_signup(events,"fm","member",&Default::default()).await.unwrap();
     ghost_api::member_events::record_login(events,"fm").await.unwrap();
@@ -1060,7 +1100,7 @@ async fn the_member_activity_feed_merges_every_kind_of_event() {
 
     // Emails this member was sent, which only exist because sending now
     // writes a row per recipient.
-    sqlx::query("INSERT INTO emails (id,post_id,status,email_count,created_at) VALUES ('fe','fp','submitted',1,datetime('now'))").execute(&f.state.db).await.unwrap();
+    sqlx::query(ghost_db::dialect::sql("INSERT INTO emails (id,post_id,status,email_count,created_at) VALUES ('fe','fp','submitted',1,datetime('now'))")).execute(&f.state.db).await.unwrap();
     ghost_api::newsletter_events::record_recipient(events,ghost_api::newsletter_events::RecipientRecord{
         email_id:"fe",batch_id:None,member_id:"fm",member_uuid:"fu",email:"busy@example.test",provider_id:Some("p1"),error:None,
     }).await.unwrap();
@@ -1098,7 +1138,7 @@ async fn the_member_activity_feed_merges_every_kind_of_event() {
 async fn member_and_revenue_stats_are_built_from_the_event_timeline() {
     let f=Fixture::new().await;
     for (id,status) in [("s1","paid"),("s2","free"),("s3","comped")] {
-        sqlx::query("INSERT INTO members (id,uuid,transient_id,email,status,created_at) VALUES (?,?,?,?,?,datetime('now'))")
+        sqlx::query(ghost_db::dialect::sql("INSERT INTO members (id,uuid,transient_id,email,status,created_at) VALUES (?,?,?,?,?,datetime('now'))"))
             .bind(id).bind(format!("u{id}")).bind(format!("t{id}")).bind(format!("{id}@example.test")).bind(status)
             .execute(&f.state.db).await.unwrap();
         ghost_api::member_events::record_signup(&f.state,id,"member",&Default::default()).await.unwrap();
@@ -1131,7 +1171,7 @@ async fn member_and_revenue_stats_are_built_from_the_event_timeline() {
 
     // Newsletter subscribers: both directions are events, so an unsubscribe
     // is visible rather than just absent.
-    sqlx::query("INSERT INTO newsletters (id,name,slug,created_at) VALUES ('nl','Weekly','weekly',datetime('now'))").execute(&f.state.db).await.unwrap();
+    sqlx::query(ghost_db::dialect::sql("INSERT INTO newsletters (id,name,slug,created_at) VALUES ('nl','Weekly','weekly',datetime('now'))")).execute(&f.state.db).await.unwrap();
     ghost_api::member_events::record_newsletter_change(&f.state,"s1",Some("nl"),true,"member").await.unwrap();
     ghost_api::member_events::record_newsletter_change(&f.state,"s2",Some("nl"),true,"member").await.unwrap();
     ghost_api::member_events::record_newsletter_change(&f.state,"s2",Some("nl"),false,"member").await.unwrap();
@@ -1156,7 +1196,7 @@ async fn traffic_stats_report_sources_locations_and_one_posts_numbers() {
         ("/read-me/","v3",None,None,Some("US")),
         ("/other/","v4",Some("Twitter"),Some("social"),None),
     ] {
-        sqlx::query("INSERT INTO page_views (id,path,viewer,audience,created_at,referrer_source,referrer_medium,country) VALUES (?,?,?,'public',datetime('now'),?,?,?)")
+        sqlx::query(ghost_db::dialect::sql("INSERT INTO page_views (id,path,viewer,audience,created_at,referrer_source,referrer_medium,country) VALUES (?,?,?,'public',datetime('now'),?,?,?)"))
             .bind(ghost_core::ids::new_id()).bind(path).bind(viewer).bind(source).bind(medium).bind(country)
             .execute(&f.state.db).await.unwrap();
     }
@@ -1201,12 +1241,12 @@ async fn a_posts_email_figures_come_from_its_recipient_records() {
     let f=Fixture::new().await;
     let (_,created)=f.request("POST","/admin/posts/",json!({"posts":[{"title":"Emailed","slug":"emailed","status":"published"}]}),None).await;
     let post_id=created["posts"][0]["id"].as_str().unwrap().to_string();
-    sqlx::query("INSERT INTO emails (id,post_id,status,email_count,delivered_count,opened_count,failed_count,subject,created_at) VALUES ('pe',?,'submitted',10,8,4,2,'Emailed',datetime('now'))")
+    sqlx::query(ghost_db::dialect::sql("INSERT INTO emails (id,post_id,status,email_count,delivered_count,opened_count,failed_count,subject,created_at) VALUES ('pe',?,'submitted',10,8,4,2,'Emailed',datetime('now'))"))
         .bind(&post_id).execute(&f.state.db).await.unwrap();
-    sqlx::query("INSERT INTO members (id,uuid,transient_id,email,status,created_at) VALUES ('cm','cu','ct','clicker@example.test','free',datetime('now'))").execute(&f.state.db).await.unwrap();
-    sqlx::query("INSERT INTO newsletter_links (id,post_id,from_url,to_url,created_at,updated_at) VALUES ('nl1',?,'https://a.example','https://a.example',datetime('now'),datetime('now'))")
+    sqlx::query(ghost_db::dialect::sql("INSERT INTO members (id,uuid,transient_id,email,status,created_at) VALUES ('cm','cu','ct','clicker@example.test','free',datetime('now'))")).execute(&f.state.db).await.unwrap();
+    sqlx::query(ghost_db::dialect::sql("INSERT INTO newsletter_links (id,post_id,from_url,to_url,created_at,updated_at) VALUES ('nl1',?,'https://a.example','https://a.example',datetime('now'),datetime('now'))"))
         .bind(&post_id).execute(&f.state.db).await.unwrap();
-    sqlx::query("INSERT INTO newsletter_clicks (id,link_id,member_uuid,created_at) VALUES ('c1','nl1','cu',datetime('now'))").execute(&f.state.db).await.unwrap();
+    sqlx::query(ghost_db::dialect::sql("INSERT INTO newsletter_clicks (id,link_id,member_uuid,created_at) VALUES ('c1','nl1','cu',datetime('now'))")).execute(&f.state.db).await.unwrap();
 
     let (_,stats)=f.request("GET",&format!("/admin/stats/posts/{post_id}/stats/"),Value::Null,None).await;
     let email=stats["stats"][0]["email"].clone();
@@ -1280,7 +1320,8 @@ async fn a_webmention_is_only_kept_when_the_source_really_links_here() {
         <body><p>See <a href="{target}">this</a>.</p></body></html>"#
     );
     ghost_api::mentions::store_verified(&f.state,source,target,&linked).await.unwrap();
-    let row:(String,Option<String>,Option<String>,Option<String>,Option<String>,bool,bool)=sqlx::query_as(
+    // Booleans are 0/1 integers; `Any` does not decode one as a `bool`.
+    let row:(String,Option<String>,Option<String>,Option<String>,Option<String>,i64,i64)=sqlx::query_as(
         "SELECT source,source_title,source_site_title,source_excerpt,resource_id,verified,deleted FROM mentions",
     ).fetch_one(&f.state.db).await.unwrap();
     assert_eq!(row.0,source);
@@ -1290,7 +1331,7 @@ async fn a_webmention_is_only_kept_when_the_source_really_links_here() {
     // The target resolved to the post it points at, which is what lets a
     // mention be shown against a post.
     assert_eq!(row.4.as_deref(),Some(post_id.as_str()));
-    assert!(row.5 && !row.6);
+    assert!(row.5 != 0 && row.6 == 0, "the mention should be verified and not deleted");
 
     // Sending it twice updates the one mention rather than adding a second.
     ghost_api::mentions::store_verified(&f.state,source,target,&linked).await.unwrap();
@@ -1305,7 +1346,7 @@ async fn a_webmention_is_only_kept_when_the_source_really_links_here() {
     // A source that has stopped linking here is marked withdrawn, not left
     // standing as a mention that is no longer true.
     assert!(ghost_api::mentions::store_verified(&f.state,source,target,"<html><body><p>Removed.</p></body></html>").await.is_err());
-    let deleted:bool=sqlx::query_scalar("SELECT deleted FROM mentions").fetch_one(&f.state.db).await.unwrap();
+    let deleted: bool = sqlx::query_scalar::<_, i64>("SELECT deleted FROM mentions").fetch_one(&f.state.db).await.unwrap() != 0;
     assert!(deleted);
     let (_,after)=f.request("GET","/admin/mentions/",Value::Null,None).await;
     assert!(after["mentions"].as_array().unwrap().is_empty(),"{after}");
@@ -1396,7 +1437,7 @@ async fn a_member_can_sign_in_with_the_code_from_the_email() {
     let response=app.clone().oneshot(Request::builder().method("POST").uri("/members/api/send-magic-link")
         .header("content-type","application/json")
         .body(Body::from(json!({"email":"reader@example.test","emailType":"signup","integrityToken":token}).to_string())).unwrap()).await.unwrap();
-    assert_eq!(response.status(),StatusCode::CREATED);
+        assert_eq!(response.status(),StatusCode::CREATED);
     let body:Value=serde_json::from_slice(&to_bytes(response.into_body(),10_000).await.unwrap()).unwrap();
     // The reference names the token without being it: holding it is not
     // enough to sign in, which is the point of a code arriving by email.
@@ -1442,9 +1483,9 @@ async fn a_comment_can_be_disliked_as_well_as_liked() {
     state.settings=Arc::new(state.settings.with_overrides([("comments_enabled".into(),json!("all"))]));
     let (_,created)=f.request("POST","/admin/posts/",json!({"posts":[{"title":"Discussed","status":"published"}]}),None).await;
     let post_id=created["posts"][0]["id"].as_str().unwrap().to_string();
-    sqlx::query("INSERT INTO members (id,uuid,transient_id,email,name,status,created_at) VALUES ('dm','du','dt','reactor@example.test','R','free',datetime('now'))")
+    sqlx::query(ghost_db::dialect::sql("INSERT INTO members (id,uuid,transient_id,email,name,status,created_at) VALUES ('dm','du','dt','reactor@example.test','R','free',datetime('now'))"))
         .execute(&state.db).await.unwrap();
-    sqlx::query("INSERT INTO comments (id,post_id,member_id,html,status,created_at,updated_at) VALUES ('c1',?,'dm','<p>Hi</p>','published',datetime('now'),datetime('now'))")
+    sqlx::query(ghost_db::dialect::sql("INSERT INTO comments (id,post_id,member_id,html,status,created_at,updated_at) VALUES ('c1',?,'dm','<p>Hi</p>','published',datetime('now'),datetime('now'))"))
         .bind(&post_id).execute(&state.db).await.unwrap();
 
     let app=ghost_api::comments::comments_router().with_state(state.clone());
@@ -1477,7 +1518,7 @@ async fn a_comment_can_be_disliked_as_well_as_liked() {
     assert_eq!(react(app.clone(),"DELETE","/members/api/comments/c1/like/".into(),cookie.clone()).await.status(),StatusCode::NO_CONTENT);
 
     // And a moderator can see who reacted which way.
-    sqlx::query("INSERT INTO comment_likes (id,comment_id,member_id,score,created_at) VALUES ('l1','c1','dm',-1,datetime('now'))")
+    sqlx::query(ghost_db::dialect::sql("INSERT INTO comment_likes (id,comment_id,member_id,score,created_at) VALUES ('l1','c1','dm',-1,datetime('now'))"))
         .execute(&f.state.db).await.unwrap();
     let (status,dislikes)=f.request("GET","/admin/comments/c1/dislikes/",Value::Null,None).await;
     assert_eq!(status,StatusCode::OK,"{dislikes}");
@@ -1582,7 +1623,7 @@ async fn the_rest_surface_ghosts_clients_expect_is_reachable() {
     assert_eq!(feedback["feedback"][0]["more_like_this"],0);
 
     // Signing a member out everywhere moves the id their cookie carries.
-    sqlx::query("INSERT INTO members (id,uuid,transient_id,email,status,created_at) VALUES ('sm','su','before','out@example.test','free',datetime('now'))")
+    sqlx::query(ghost_db::dialect::sql("INSERT INTO members (id,uuid,transient_id,email,status,created_at) VALUES ('sm','su','before','out@example.test','free',datetime('now'))"))
         .execute(&f.state.db).await.unwrap();
     assert_eq!(f.request("DELETE","/admin/members/sm/sessions/",Value::Null,None).await.0,StatusCode::NO_CONTENT);
     let transient:String=sqlx::query_scalar("SELECT transient_id FROM members WHERE id='sm'").fetch_one(&f.state.db).await.unwrap();
@@ -1626,7 +1667,10 @@ async fn ghost_bulk_link_payload_is_filtered_and_invalid_filters_never_edit_ever
     assert_eq!(f.request("PUT","/admin/links/bulk/",body.clone(),None).await.0,StatusCode::UNPROCESSABLE_ENTITY);
     let path=format!("/admin/links/bulk/?filter=post_id:{}",post_ids[0]);
     let (status,result)=f.request("PUT",&path,body,None).await;assert_eq!(status,StatusCode::OK,"{result}");assert_eq!(result["bulk"]["meta"]["stats"]["successful"],1);
-    let urls:Vec<String>=sqlx::query_scalar("SELECT to_url FROM newsletter_links ORDER BY rowid").fetch_all(&f.state.db).await.unwrap();assert_eq!(urls,["https://new.example/path","https://old.example/path"]);
+    // Sorted, not in `rowid` order: that column is SQLite's, and MySQL has
+    // no insertion-order column to sort by. The assertion's point is which
+    // two urls exist, not the order they were written in.
+    let mut urls:Vec<String>=sqlx::query_scalar("SELECT to_url FROM newsletter_links").fetch_all(&f.state.db).await.unwrap();urls.sort();assert_eq!(urls,["https://new.example/path","https://old.example/path"]);
 }
 
 #[tokio::test]
@@ -1663,7 +1707,7 @@ async fn newsletter_redirects_ignore_head_and_respect_click_tracking_settings(){
     let id=post["posts"][0]["id"].as_str().unwrap();
     ghost_api::newsletter_events::track_links(&f.state,id,"<a href=\"https://example.org/article\">Read</a>").await.unwrap();
     let link:String=sqlx::query_scalar("SELECT id FROM newsletter_links WHERE post_id=?").bind(id).fetch_one(&f.state.db).await.unwrap();
-    sqlx::query("INSERT INTO members(id,uuid,transient_id,email,status,created_at)VALUES('click-member','click-uuid','click-transient','click@example.test','free',datetime('now'))").execute(&f.state.db).await.unwrap();
+    sqlx::query(ghost_db::dialect::sql("INSERT INTO members(id,uuid,transient_id,email,status,created_at)VALUES('click-member','click-uuid','click-transient','click@example.test','free',datetime('now'))")).execute(&f.state.db).await.unwrap();
     let app=ghost_api::newsletter_events::public_router().with_state(f.state.clone());
     let path=format!("/r/{link}/?m=click-uuid");
     for (method,enabled,expected) in [("HEAD",true,0),("GET",false,0),("GET",true,1)] {
@@ -1680,9 +1724,14 @@ async fn newsletter_redirects_ignore_head_and_respect_click_tracking_settings(){
 async fn verification_tokens_are_expiring_and_single_use(){
     use sha2::{Digest,Sha256};
     let f=Fixture::new().await;
-    sqlx::query("INSERT INTO newsletters(id,name,slug,created_at)VALUES('verify-nl','Verify','verify',datetime('now'))").execute(&f.state.db).await.unwrap();
-    for (token,expiry)in [("valid-verification","+1 day"),("expired-verification","-1 day")]{
-        sqlx::query("INSERT INTO email_verifications(token_hash,resource_type,resource_id,field,value,expires_at)VALUES(?,'newsletter','verify-nl','sender_email','verified@example.test',datetime('now',?))").bind(hex::encode(Sha256::digest(token.as_bytes()))).bind(expiry).execute(&f.state.db).await.unwrap();
+    sqlx::query(ghost_db::dialect::sql("INSERT INTO newsletters(id,name,slug,created_at)VALUES('verify-nl','Verify','verify',datetime('now'))")).execute(&f.state.db).await.unwrap();
+    // The expiry is an absolute instant, not a SQLite modifier: `datetime('now', ?)`
+    // takes its offset as a bound parameter and MySQL cannot express that.
+    for (token,days)in [("valid-verification",1i64),("expired-verification",-1i64)]{
+        let expiry = ghost_core::dates::to_db_string(
+            &(chrono::Utc::now() + chrono::Duration::days(days)),
+        );
+        sqlx::query("INSERT INTO email_verifications(token_hash,resource_type,resource_id,field,value,expires_at)VALUES(?,'newsletter','verify-nl','sender_email','verified@example.test',?)").bind(hex::encode(Sha256::digest(token.as_bytes()))).bind(expiry).execute(&f.state.db).await.unwrap();
     }
     assert_eq!(f.request("PUT","/admin/newsletters/verifications/",json!({"token":"expired-verification"}),None).await.0,StatusCode::UNPROCESSABLE_ENTITY);
     assert_eq!(f.request("PUT","/admin/newsletters/verifications/",json!({"token":"valid-verification"}),None).await.0,StatusCode::OK);
@@ -1702,8 +1751,8 @@ async fn experimental_app_lifecycle_is_gated_and_cannot_fetch_private_hosts(){
 #[tokio::test]
 async fn member_csv_api_round_trip_keeps_labels_preferences_and_complimentary_tiers(){
     let f=Fixture::new().await;
-    sqlx::query("INSERT INTO products(id,name,slug,type,created_at)VALUES('csv-tier','Gold CSV','gold-csv','paid',datetime('now'))").execute(&f.state.db).await.unwrap();
-    sqlx::query("INSERT INTO newsletters(id,name,slug,status,created_at)VALUES('csv-nl','CSV newsletter','csv-nl','active',datetime('now'))").execute(&f.state.db).await.unwrap();
+    sqlx::query(ghost_db::dialect::sql("INSERT INTO products(id,name,slug,type,created_at)VALUES('csv-tier','Gold CSV','gold-csv','paid',datetime('now'))")).execute(&f.state.db).await.unwrap();
+    sqlx::query(ghost_db::dialect::sql("INSERT INTO newsletters(id,name,slug,status,created_at)VALUES('csv-nl','CSV newsletter','csv-nl','active',datetime('now'))")).execute(&f.state.db).await.unwrap();
     let csv="email,name,note,subscribed_to_emails,complimentary_plan,labels,tiers\r\nreader-csv@example.test,Reader,Imported,true,true,VIP,Gold CSV\r\n";
     let body=format!("--csv-boundary\r\nContent-Disposition: form-data; name=\"membersfile\"; filename=\"members.csv\"\r\nContent-Type: text/csv\r\n\r\n{csv}\r\n--csv-boundary--\r\n");
     let response=f.app.clone().oneshot(Request::builder().method("POST").uri("/admin/members/upload/").header("cookie",&f.cookie).header("content-type","multipart/form-data; boundary=csv-boundary").body(Body::from(body)).unwrap()).await.unwrap();
@@ -1730,8 +1779,8 @@ async fn post_csv_import_preserves_flags_dates_tags_and_renders_source(){
     let body=format!("--posts-boundary\r\nContent-Disposition: form-data; name=\"postsfile\"; filename=\"posts.csv\"\r\nContent-Type: text/csv\r\n\r\n{csv}\r\n--posts-boundary--\r\n");
     let response=f.app.clone().oneshot(Request::builder().method("POST").uri("/admin/posts/upload/").header("cookie",&f.cookie).header("content-type","multipart/form-data; boundary=posts-boundary").body(Body::from(body)).unwrap()).await.unwrap();
     let status=response.status();let body=to_bytes(response.into_body(),1_000_000).await.unwrap();assert_eq!(status,StatusCode::OK,"{}",String::from_utf8_lossy(&body));
-    let (html,date,featured):(String,String,bool)=sqlx::query_as("SELECT html,published_at,featured FROM posts WHERE title='CSV post'").fetch_one(&f.state.db).await.unwrap();
-    assert!(html.contains("<strong>Imported body</strong>"));assert_eq!(date,"2026-10-01 12:34:56");assert!(featured);
+    let (html,date,featured):(String,String,i64)=sqlx::query_as("SELECT html,published_at,featured FROM posts WHERE title='CSV post'").fetch_one(&f.state.db).await.unwrap();
+    assert!(html.contains("<strong>Imported body</strong>"));assert_eq!(date,"2026-10-01 12:34:56");assert!(featured!=0);
     let count:i64=sqlx::query_scalar("SELECT COUNT(*) FROM posts_tags pt JOIN posts p ON p.id=pt.post_id JOIN tags t ON t.id=pt.tag_id WHERE p.title='CSV post' AND t.name='Imported CSV'").fetch_one(&f.state.db).await.unwrap();assert_eq!(count,1);
 }
 
@@ -1836,9 +1885,9 @@ async fn a_self_hosted_install_has_no_limits_to_hit() {
 async fn an_announcement_is_served_only_to_the_audience_it_was_set_for() {
     let f = Fixture::new().await;
     let state = f.state.clone();
-    sqlx::query("INSERT INTO members (id,uuid,transient_id,email,name,status,created_at) VALUES ('fm','fu','ft','free@example.test','F','free',datetime('now'))")
+    sqlx::query(ghost_db::dialect::sql("INSERT INTO members (id,uuid,transient_id,email,name,status,created_at) VALUES ('fm','fu','ft','free@example.test','F','free',datetime('now'))"))
         .execute(&state.db).await.unwrap();
-    sqlx::query("INSERT INTO members (id,uuid,transient_id,email,name,status,created_at) VALUES ('pm','pu','pt','paid@example.test','P','comped',datetime('now'))")
+    sqlx::query(ghost_db::dialect::sql("INSERT INTO members (id,uuid,transient_id,email,name,status,created_at) VALUES ('pm','pu','pt','paid@example.test','P','comped',datetime('now'))"))
         .execute(&state.db).await.unwrap();
 
     // Markdown in, HTML out: this port's Settings → Site field takes
@@ -1941,9 +1990,12 @@ async fn article_gift_links_read_ensure_reset_and_revoke_preserve_history() {
     assert!(!ghost_api::publishing::valid_gift(&f.state, id, new_token).await);
     let history: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM gift_links WHERE post_id=?").bind(id).fetch_one(&f.state.db).await.unwrap();
     assert_eq!(history, 2, "revocation retains history");
-    let events: Vec<String> = sqlx::query_scalar("SELECT event FROM actions WHERE resource_type='gift_link' ORDER BY rowid")
+    // Sorted rather than in `rowid` order (SQLite-only): the point is
+    // exactly which events exist, not the order they were written in.
+    let mut events: Vec<String> = sqlx::query_scalar("SELECT event FROM actions WHERE resource_type='gift_link'")
         .fetch_all(&f.state.db).await.unwrap();
-    assert_eq!(events, ["added", "edited", "deleted"], "reads and repeated ensures must not add audit events");
+    events.sort();
+    assert_eq!(events, ["added", "deleted", "edited"], "reads and repeated ensures must not add audit events");
     assert_eq!(f.request("GET", &path, Value::Null, None).await.1["gift_links"], json!([]));
     assert_eq!(f.request("GET", "/admin/posts/missing/gift_links/", Value::Null, None).await.0, StatusCode::NOT_FOUND);
     let (_, cookie) = f.staff("Author", "gift-author").await;
@@ -1958,7 +2010,7 @@ async fn legacy_article_gifts_survive_reads_until_explicit_reset() {
     let (_, post) = f.request("POST", "/admin/posts/", json!({"posts":[{"title":"Legacy gift"}]}), None).await;
     let id = post["posts"][0]["id"].as_str().unwrap();
     let legacy = "ab".repeat(32);
-    sqlx::query("INSERT INTO article_gift_links(id,post_id,token_hash,created_at)VALUES('legacy-gift',?,?,datetime('now'))")
+    sqlx::query(ghost_db::dialect::sql("INSERT INTO article_gift_links(id,post_id,token_hash,created_at)VALUES('legacy-gift',?,?,datetime('now'))"))
         .bind(id).bind(hex::encode(Sha256::digest(legacy.as_bytes()))).execute(&f.state.db).await.unwrap();
     let path = format!("/admin/posts/{id}/gift_links/");
     assert_eq!(f.request("GET", &path, Value::Null, None).await.1["gift_links"], json!([]));
@@ -1974,7 +2026,10 @@ async fn legacy_article_gifts_survive_reads_until_explicit_reset() {
     let jwt = Fixture::jwt(&integration, None);
     let (status, result) = f.request("POST", &path, Value::Null, Some(&jwt)).await;
     assert_eq!(status, StatusCode::OK, "{result}");
-    let actor: (String, String, String) = sqlx::query_as("SELECT actor_id,actor_type,context FROM actions WHERE resource_type='gift_link' ORDER BY rowid DESC LIMIT 1")
+    // The integration's reset action, picked out by *who* acted rather than
+    // by being the newest row — `rowid` is SQLite's and MySQL has no
+    // insertion-order column. The integration acts exactly once here.
+    let actor: (String, String, String) = sqlx::query_as("SELECT actor_id,actor_type,context FROM actions WHERE resource_type='gift_link' AND actor_type='integration'")
         .fetch_one(&f.state.db).await.unwrap();
     assert_eq!(actor.0, integration["id"].as_str().unwrap());
     assert_eq!(actor.1, "integration");
@@ -2003,7 +2058,7 @@ async fn starting_stripe_connect_redirects_with_a_state_bound_to_this_session() 
 
     // The state in the URL is the one now stored against the session, and it
     // is what makes the returned keys unredeemable by anybody else.
-    let state: String = sqlx::query_scalar("SELECT json_extract(session_data, '$.stripe-connect-state') FROM sessions WHERE session_id = ?")
+    let state: String = sqlx::query_scalar(ghost_db::dialect::sql("SELECT json_extract(session_data, '$.stripe-connect-state') FROM sessions WHERE session_id = ?"))
         .bind(f.cookie.trim_start_matches("ghost-admin-api-session="))
         .fetch_one(&f.state.db).await.unwrap();
     let decoded = {
@@ -2077,7 +2132,7 @@ async fn a_connect_token_is_verified_against_the_session_and_never_stored() {
 
     // None of the refused attempts stored the token. It carries a live secret
     // key, and a settings row is readable back through `GET /settings`.
-    let stored: Option<String> = sqlx::query_scalar("SELECT value FROM settings WHERE key = 'stripe_connect_integration_token'")
+    let stored: Option<String> = sqlx::query_scalar("SELECT value FROM settings WHERE `key` = 'stripe_connect_integration_token'")
         .fetch_optional(&f.state.db).await.unwrap().flatten();
     assert_eq!(stored, None, "the Connect token was stored as a setting");
 
@@ -2142,7 +2197,7 @@ async fn editing_settings_follows_upstreams_three_refusals() {
 #[tokio::test]
 async fn stripe_cannot_be_disconnected_while_a_member_still_pays() {
     let f = Fixture::new().await;
-    sqlx::query("INSERT INTO members (id, uuid, transient_id, email, status, created_at, updated_at) VALUES (?, ?, ?, 'paying@example.test', 'paid', datetime('now'), datetime('now'))")
+    sqlx::query(ghost_db::dialect::sql("INSERT INTO members (id, uuid, transient_id, email, status, created_at, updated_at) VALUES (?, ?, ?, 'paying@example.test', 'paid', datetime('now'), datetime('now'))"))
         .bind(ghost_core::ids::new_id()).bind(ghost_core::ids::uuid_v4()).bind(ghost_core::ids::uuid_v4())
         .execute(&f.state.db).await.unwrap();
     let (status, body) = f.request("DELETE", "/admin/settings/stripe/connect/", Value::Null, None).await;

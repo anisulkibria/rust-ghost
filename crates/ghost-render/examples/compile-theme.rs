@@ -24,7 +24,13 @@ async fn main() {
 
     // An empty in-memory database is enough: compiling a theme never runs a
     // query, it only needs the helpers to exist.
-    let pool = sqlx::SqlitePool::connect("sqlite::memory:").await.expect("in-memory sqlite");
+    // `Any` needs a driver registered before first use.
+    sqlx::any::install_default_drivers();
+    let pool = sqlx::any::AnyPoolOptions::new()
+        .max_connections(1)
+        .connect("sqlite::memory:")
+        .await
+        .expect("in-memory sqlite");
 
     let mut failed = 0;
     for dir in &dirs {
@@ -46,7 +52,7 @@ async fn main() {
     }
 }
 
-fn compile(pool: &sqlx::SqlitePool, dir: &Path) -> Result<(), String> {
+fn compile(pool: &ghost_db::Db, dir: &Path) -> Result<(), String> {
     let deps = ghost_render::HelperDeps {
         pool: Arc::new(pool.clone()),
         runtime: tokio::runtime::Handle::current(),

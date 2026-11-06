@@ -19,7 +19,7 @@ ALTER TABLE emails ADD COLUMN source_type TEXT(50);
 ALTER TABLE emails ADD COLUMN candidate_count INTEGER UNSIGNED;
 ALTER TABLE emails ADD COLUMN preflight_email_count INTEGER UNSIGNED;
 ALTER TABLE emails ADD COLUMN preparation_excluded_count INTEGER UNSIGNED;
-ALTER TABLE emails ADD COLUMN prepared_at DATETIME;
+ALTER TABLE emails ADD COLUMN prepared_at TEXT;
 
 -- One row per provider request. `member_segment` records which body variant
 -- the batch carried, since a paywalled post goes out as more than one.

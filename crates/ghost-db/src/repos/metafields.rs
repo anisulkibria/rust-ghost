@@ -6,7 +6,7 @@
 use ghost_core::metafields as mf;
 use ghost_core::{dates, ids, GhostError, Result};
 use serde_json::json;
-use sqlx::SqlitePool;
+use crate::Db;
 use std::collections::HashMap;
 
 use super::dberr;
@@ -42,7 +42,7 @@ impl Metafield {
 }
 
 // `type` is a keyword in Rust, so the column is aliased on the way out.
-const COLS: &str = "id, key, name, type AS field_type, status, member_access, sort_order, \
+const COLS: &str = "id, `key`, name, type AS field_type, status, member_access, sort_order, \
      created_at, updated_at";
 
 /// Every definition, in the publisher's order.
@@ -50,7 +50,7 @@ const COLS: &str = "id, key, name, type AS field_type, status, member_access, so
 /// Ties break on `created_at`: `sort_order` defaults to 0, so a site that has
 /// never reordered has one value repeated and falls back to the order the
 /// fields were created in.
-pub async fn list_definitions(pool: &SqlitePool) -> Result<Vec<Metafield>> {
+pub async fn list_definitions(pool: &Db) -> Result<Vec<Metafield>> {
     let rows = sqlx::query_as::<_, Metafield>(&format!(
         "SELECT {COLS} FROM members_metafields ORDER BY sort_order, created_at, id"
     ))
@@ -62,7 +62,7 @@ pub async fn list_definitions(pool: &SqlitePool) -> Result<Vec<Metafield>> {
 
 /// The fields a given audience may see. Staff see everything; a member sees
 /// only what their access level allows, and never an archived field.
-pub async fn readable_definitions(pool: &SqlitePool, is_member: bool) -> Result<Vec<Metafield>> {
+pub async fn readable_definitions(pool: &Db, is_member: bool) -> Result<Vec<Metafield>> {
     let all = list_definitions(pool).await?;
     Ok(all
         .into_iter()
@@ -75,7 +75,7 @@ pub async fn readable_definitions(pool: &SqlitePool, is_member: bool) -> Result<
         .collect())
 }
 
-pub async fn find_definition(pool: &SqlitePool, id: &str) -> Result<Option<Metafield>> {
+pub async fn find_definition(pool: &Db, id: &str) -> Result<Option<Metafield>> {
     let row = sqlx::query_as::<_, Metafield>(&format!(
         "SELECT {COLS} FROM members_metafields WHERE id = ? LIMIT 1"
     ))
@@ -86,9 +86,9 @@ pub async fn find_definition(pool: &SqlitePool, id: &str) -> Result<Option<Metaf
     Ok(row)
 }
 
-pub async fn find_definition_by_key(pool: &SqlitePool, key: &str) -> Result<Option<Metafield>> {
+pub async fn find_definition_by_key(pool: &Db, key: &str) -> Result<Option<Metafield>> {
     let row = sqlx::query_as::<_, Metafield>(&format!(
-        "SELECT {COLS} FROM members_metafields WHERE key = ? LIMIT 1"
+        "SELECT {COLS} FROM members_metafields WHERE `key` = ? LIMIT 1"
     ))
     .bind(key)
     .fetch_optional(pool)
@@ -100,13 +100,13 @@ pub async fn find_definition_by_key(pool: &SqlitePool, key: &str) -> Result<Opti
 /// Whether `key` or `name` is already taken by a different field. Both are
 /// unique in Ghost, and the key is immutable once values reference it.
 pub async fn definition_conflict(
-    pool: &SqlitePool,
+    pool: &Db,
     key: &str,
     name: &str,
     self_id: Option<&str>,
 ) -> Result<Option<&'static str>> {
     let id = self_id.unwrap_or("");
-    let n: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM members_metafields WHERE key = ? AND id != ?")
+    let n: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM members_metafields WHERE `key` = ? AND id != ?")
         .bind(key)
         .bind(id)
         .fetch_one(pool)
@@ -130,7 +130,7 @@ pub async fn definition_conflict(
 
 /// Create a definition. New fields append past the highest rank.
 pub async fn create_definition(
-    pool: &SqlitePool,
+    pool: &Db,
     key: &str,
     name: &str,
     field_type: &str,
@@ -143,7 +143,7 @@ pub async fn create_definition(
         .await
         .unwrap_or(0);
     sqlx::query(
-        "INSERT INTO members_metafields (id, key, name, type, status, member_access, sort_order, created_at, updated_at) \
+        "INSERT INTO members_metafields (id, `key`, name, type, status, member_access, sort_order, created_at, updated_at) \
          VALUES (?, ?, ?, ?, 'active', ?, ?, ?, ?)",
     )
     .bind(&id)
@@ -166,7 +166,7 @@ pub async fn create_definition(
 /// by the type, so changing either would orphan or misread every value already
 /// stored. Ghost takes the same line.
 pub async fn update_definition(
-    pool: &SqlitePool,
+    pool: &Db,
     id: &str,
     name: &str,
     member_access: &str,
@@ -187,7 +187,7 @@ pub async fn update_definition(
 }
 
 /// Delete a definition and, by cascade, every value held against it.
-pub async fn delete_definition(pool: &SqlitePool, id: &str) -> Result<()> {
+pub async fn delete_definition(pool: &Db, id: &str) -> Result<()> {
     sqlx::query("DELETE FROM members_metafields WHERE id = ?")
         .bind(id)
         .execute(pool)
@@ -200,7 +200,7 @@ pub async fn delete_definition(pool: &SqlitePool, id: &str) -> Result<()> {
 ///
 /// Ranks are rewritten densely across every row, which is what makes a swap
 /// well-defined on a site whose `sort_order` is still all zeroes.
-pub async fn reorder_definition(pool: &SqlitePool, id: &str, up: bool) -> Result<()> {
+pub async fn reorder_definition(pool: &Db, id: &str, up: bool) -> Result<()> {
     let mut all = list_definitions(pool).await?;
     let Some(pos) = all.iter().position(|f| f.id == id) else {
         return Ok(());
@@ -231,7 +231,7 @@ pub async fn reorder_definition(pool: &SqlitePool, id: &str, up: bool) -> Result
 }
 
 /// How many members hold any value for a field.
-pub async fn value_count(pool: &SqlitePool, key: &str) -> i64 {
+pub async fn value_count(pool: &Db, key: &str) -> i64 {
     sqlx::query_scalar(
         "SELECT COUNT(DISTINCT member_id) FROM members_metafield_values WHERE metafield_key = ?",
     )
@@ -246,7 +246,7 @@ pub async fn value_count(pool: &SqlitePool, key: &str) -> i64 {
 /// A scalar lands under the empty path; a record lands one entry per part the
 /// member has filled in.
 pub async fn values_for_member(
-    pool: &SqlitePool,
+    pool: &Db,
     member_id: &str,
 ) -> Result<HashMap<String, HashMap<String, String>>> {
     let rows: Vec<(String, String, Option<String>)> = sqlx::query_as(
@@ -298,7 +298,7 @@ impl Writer {
 /// has not filled in has no row at all, which is what makes "is set" a
 /// question storage can answer.
 async fn write_leaf(
-    pool: &SqlitePool,
+    pool: &Db,
     member_id: &str,
     key: &str,
     path: &str,
@@ -385,7 +385,7 @@ pub type FieldWrite = HashMap<String, String>;
 /// field's declared type, and a key the site has not defined is refused rather
 /// than silently dropped.
 pub async fn write_values(
-    pool: &SqlitePool,
+    pool: &Db,
     member_id: &str,
     writes: &HashMap<String, FieldWrite>,
     writer: &Writer,
@@ -439,7 +439,7 @@ pub async fn write_values(
 /// Each field's name is copied into the entry rather than joined, so the entry
 /// still reads after the field is renamed or deleted.
 async fn record_change(
-    pool: &SqlitePool,
+    pool: &Db,
     member_id: &str,
     changed: &[Metafield],
     writer: &Writer,
@@ -479,13 +479,13 @@ mod tests {
         }
     }
 
-    async fn test_pool() -> (SqlitePool, TempDir) {
+    async fn test_pool() -> (Db, TempDir) {
         let dir = std::env::temp_dir().join(format!("ghost-mf-test-{}", ids::new_id()));
         let pool = crate::pool::connect(&dir.join("test.db")).await.expect("open test db");
         (pool, TempDir(dir))
     }
 
-    async fn a_member(pool: &SqlitePool) -> String {
+    async fn a_member(pool: &Db) -> String {
         let id = ids::new_id();
         let now = dates::now_db();
         sqlx::query(

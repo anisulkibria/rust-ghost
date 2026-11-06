@@ -13,8 +13,8 @@ CREATE TABLE IF NOT EXISTS members_feedback (
     score INTEGER UNSIGNED NOT NULL DEFAULT 0,
     member_id TEXT(24) NOT NULL REFERENCES members(id) ON DELETE CASCADE,
     post_id TEXT(24) NOT NULL REFERENCES posts(id) ON DELETE CASCADE,
-    created_at DATETIME NOT NULL,
-    updated_at DATETIME
+    created_at TEXT NOT NULL,
+    updated_at TEXT
 );
 
 CREATE UNIQUE INDEX IF NOT EXISTS members_feedback_member_post_idx

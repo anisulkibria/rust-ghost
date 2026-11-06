@@ -52,7 +52,7 @@ pub async fn instrument_for_send(
         return Ok(html.into());
     }
     let candidate = ids::random_hex(32);
-    sqlx::query("INSERT INTO automation_tracking(token,revision_id,member_uuid,send_id) VALUES(?,?,?,?) ON CONFLICT(revision_id,member_uuid,send_id) DO NOTHING").bind(candidate).bind(revision).bind(uuid).bind(send_id).execute(&state.db).await.map_err(db)?;
+    sqlx::query(ghost_db::dialect::sql("INSERT INTO automation_tracking(token,revision_id,member_uuid,send_id) VALUES(?,?,?,?) ON CONFLICT(revision_id,member_uuid,send_id) DO NOTHING")).bind(candidate).bind(revision).bind(uuid).bind(send_id).execute(&state.db).await.map_err(db)?;
     let token: String = sqlx::query_scalar(
         "SELECT token FROM automation_tracking WHERE revision_id=? AND member_uuid=? AND send_id=?",
     )
@@ -72,7 +72,7 @@ pub async fn instrument_for_send(
             if url.contains("/unsubscribe/") || url.contains("%%{") {
                 continue;
             }
-            sqlx::query("INSERT INTO automation_links(id,revision_id,url) VALUES(?,?,?) ON CONFLICT(revision_id,url) DO NOTHING").bind(ids::new_id()).bind(revision).bind(&url).execute(&state.db).await.map_err(db)?;
+            sqlx::query(ghost_db::dialect::sql("INSERT INTO automation_links(id,revision_id,url) VALUES(?,?,?) ON CONFLICT(revision_id,url) DO NOTHING")).bind(ids::new_id()).bind(revision).bind(&url).execute(&state.db).await.map_err(db)?;
             let link: String =
                 sqlx::query_scalar("SELECT id FROM automation_links WHERE revision_id=? AND url=?")
                     .bind(revision)
@@ -110,12 +110,12 @@ pub async fn record(state: &AppState, token: &str, link: Option<&str>) -> Result
         "opened_at"
     };
     if let Some(link) = link {
-        let valid:bool=sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM automation_links l JOIN automation_tracking t ON t.revision_id=l.revision_id WHERE l.id=? AND t.token=?)").bind(link).bind(token).fetch_one(&mut *tx).await.map_err(db)?;
+        let valid: bool = sqlx::query_scalar::<_, i64>("SELECT EXISTS(SELECT 1 FROM automation_links l JOIN automation_tracking t ON t.revision_id=l.revision_id WHERE l.id=? AND t.token=?)").bind(link).bind(token).fetch_one(&mut *tx).await.map_err(db)? != 0;
         if !valid {
             return Ok(false);
         }
         sqlx::query(
-            "INSERT OR IGNORE INTO automation_link_clicks(link_id,token,created_at) VALUES(?,?,?)",
+            ghost_db::dialect::sql("INSERT OR IGNORE INTO automation_link_clicks(link_id,token,created_at) VALUES(?,?,?)"),
         )
         .bind(link)
         .bind(token)
@@ -124,7 +124,27 @@ pub async fn record(state: &AppState, token: &str, link: Option<&str>) -> Result
         .await
         .map_err(db)?;
     }
-    let revision=sqlx::query_scalar::<_,String>(&format!("UPDATE automation_tracking SET {field}=? WHERE token=? AND {field} IS NULL RETURNING revision_id")).bind(dates::now_db()).bind(token).fetch_optional(&mut *tx).await.map_err(db)?;
+    // `UPDATE … RETURNING` is SQLite-only. The update's row count is what
+    // makes this first-write-wins — the `{field} IS NULL` test means a second
+    // open or click of the same link changes nothing — so the revision is read
+    // only when this call is the one that recorded it.
+    let recorded = sqlx::query(&format!(
+        "UPDATE automation_tracking SET {field}=? WHERE token=? AND {field} IS NULL"
+    ))
+    .bind(dates::now_db())
+    .bind(token)
+    .execute(&mut *tx)
+    .await
+    .map_err(db)?;
+    let revision: Option<String> = if recorded.rows_affected() == 1 {
+        sqlx::query_scalar("SELECT revision_id FROM automation_tracking WHERE token=?")
+            .bind(token)
+            .fetch_optional(&mut *tx)
+            .await
+            .map_err(db)?
+    } else {
+        None
+    };
     if let Some(revision) = &revision {
         let counter = if link.is_some() {
             "email_clicked_count"

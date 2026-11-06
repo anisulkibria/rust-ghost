@@ -173,7 +173,7 @@ async fn delete_label(
         _ => StatusCode::NOT_FOUND.into_response(),
     }
 }
-#[derive(Serialize, sqlx::FromRow)]
+#[derive(Serialize)]
 struct Tier {
     id: String,
     name: String,
@@ -190,6 +190,35 @@ struct Tier {
     yearly_price_id: Option<String>,
     trial_days: i64,
     welcome_page_url: Option<String>,
+}
+
+/// Read by hand rather than derived, because of the boolean columns.
+///
+/// `#[derive(sqlx::FromRow)]` would decode each `bool` field with
+/// `Decode<Any> for bool`, which fails on both engines: a boolean is stored as
+/// a 0/1 integer and `Any` will not turn an integer into a `bool`. See
+/// [`ghost_db::types::flag`]. Every other field is read exactly as the derive
+/// would have read it.
+impl<'r> sqlx::FromRow<'r, sqlx::any::AnyRow> for Tier {
+    fn from_row(row: &'r sqlx::any::AnyRow) -> sqlx::Result<Self> {
+        use sqlx::Row;
+        Ok(Self {
+            id: row.try_get("id")?,
+            name: row.try_get("name")?,
+            slug: row.try_get("slug")?,
+            active: ghost_db::types::flag(row, "active"),
+            visibility: row.try_get("visibility")?,
+            description: row.try_get("description")?,
+            kind: row.try_get("kind")?,
+            currency: row.try_get("currency")?,
+            monthly_price: row.try_get("monthly_price")?,
+            yearly_price: row.try_get("yearly_price")?,
+            monthly_price_id: row.try_get("monthly_price_id")?,
+            yearly_price_id: row.try_get("yearly_price_id")?,
+            trial_days: row.try_get("trial_days")?,
+            welcome_page_url: row.try_get("welcome_page_url")?,
+        })
+    }
 }
 async fn tier_values(state: &AppState, id: Option<&str>) -> Vec<Value> {
     sqlx::query_as::<_,Tier>("SELECT id,name,slug,active,visibility,description,type AS kind,currency,monthly_price,yearly_price,monthly_price_id,yearly_price_id,trial_days,welcome_page_url FROM products WHERE (? IS NULL OR id=?) ORDER BY created_at")
@@ -620,7 +649,7 @@ async fn realtime(State(state): State<AppState>, headers: HeaderMap) -> Response
     if let Err(r) = admin(&state, &headers).await {
         return r;
     }
-    let active:i64=sqlx::query_scalar("SELECT COUNT(DISTINCT viewer) FROM page_views WHERE datetime(created_at)>=datetime('now','-5 minutes')").fetch_one(&state.db).await.unwrap_or(0);
+    let active:i64=sqlx::query_scalar(ghost_db::dialect::sql("SELECT COUNT(DISTINCT viewer) FROM page_views WHERE datetime(created_at)>=datetime('now','-5 minutes')")).fetch_one(&state.db).await.unwrap_or(0);
     (
         [("cache-control", "private, no-store")],
         Json(json!({"stats":[{"active_visitors":active,"window_seconds":300}]})),

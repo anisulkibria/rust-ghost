@@ -2,6 +2,8 @@
 pub mod automations;
 pub mod comments;
 pub mod config;
+pub mod database;
+pub mod dialect;
 pub mod dates;
 pub mod error;
 pub mod ids;
@@ -11,6 +13,7 @@ pub mod slug;
 pub mod url;
 
 pub use config::Config;
+pub use database::{Engine, Target as DbTarget};
 pub use error::{GhostError, Result};
 
 /// The Ghost release this port tracks.

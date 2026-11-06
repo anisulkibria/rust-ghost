@@ -9,23 +9,23 @@
 use ghost_core::{dates, ids, Result};
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
-use sqlx::SqlitePool;
+use crate::Db;
 
 /// How long an emailed sign-in code stays usable. Matches Ghost's
 /// `AUTH_CODE_VALIDITY_MS` in core/server/auth/session/session-service.js.
 pub const AUTH_CODE_VALIDITY_SECS: i64 = 5 * 60;
 
-pub async fn create(pool: &SqlitePool, user_id: &str) -> Result<String> {
+pub async fn create(pool: &Db, user_id: &str) -> Result<String> {
     insert(pool, user_id, true).await
 }
 
 /// Create a session that still needs an emailed code before it counts as a
 /// login.
-pub async fn create_unverified(pool: &SqlitePool, user_id: &str) -> Result<String> {
+pub async fn create_unverified(pool: &Db, user_id: &str) -> Result<String> {
     insert(pool, user_id, false).await
 }
 
-async fn insert(pool: &SqlitePool, user_id: &str, verified: bool) -> Result<String> {
+async fn insert(pool: &Db, user_id: &str, verified: bool) -> Result<String> {
     let session_id = ids::random_hex(16); // 32 chars
     let now = dates::now_db();
     let data = json!({ "passport": { "user": user_id }, "verified": verified }).to_string();
@@ -44,18 +44,18 @@ async fn insert(pool: &SqlitePool, user_id: &str, verified: bool) -> Result<Stri
 
 /// The user a *verified* session belongs to — the lookup every admin guard
 /// goes through.
-pub async fn get_user(pool: &SqlitePool, session_id: &str) -> Result<Option<String>> {
+pub async fn get_user(pool: &Db, session_id: &str) -> Result<Option<String>> {
     Ok(load(pool, session_id).await?.filter(|s| s.verified).map(|s| s.user_id))
 }
 
 /// The user a session belongs to whether or not it has been verified yet.
 /// Only the code-entry screen should use this.
-pub async fn get_pending_user(pool: &SqlitePool, session_id: &str) -> Result<Option<String>> {
+pub async fn get_pending_user(pool: &Db, session_id: &str) -> Result<Option<String>> {
     Ok(load(pool, session_id).await?.map(|s| s.user_id))
 }
 
 /// Whether a session is still waiting on its emailed code.
-pub async fn is_unverified(pool: &SqlitePool, session_id: &str) -> Result<bool> {
+pub async fn is_unverified(pool: &Db, session_id: &str) -> Result<bool> {
     Ok(load(pool, session_id).await?.is_some_and(|s| !s.verified))
 }
 
@@ -65,7 +65,7 @@ struct SessionRow {
     data: Value,
 }
 
-async fn load(pool: &SqlitePool, session_id: &str) -> Result<Option<SessionRow>> {
+async fn load(pool: &Db, session_id: &str) -> Result<Option<SessionRow>> {
     let row: Option<(String, String)> =
         sqlx::query_as("SELECT user_id, session_data FROM sessions WHERE session_id = ?")
             .bind(session_id)
@@ -89,7 +89,7 @@ fn digest(code: &str) -> String {
 }
 
 /// Attach a freshly issued sign-in code to a pending session.
-pub async fn set_auth_code(pool: &SqlitePool, session_id: &str, code: &str) -> Result<()> {
+pub async fn set_auth_code(pool: &Db, session_id: &str, code: &str) -> Result<()> {
     let Some(session) = load(pool, session_id).await? else {
         return Ok(());
     };
@@ -112,7 +112,7 @@ pub enum CodeCheck {
 
 /// Check a code against the pending session and, when it matches, promote the
 /// session to verified.
-pub async fn verify_auth_code(pool: &SqlitePool, session_id: &str, code: &str) -> Result<CodeCheck> {
+pub async fn verify_auth_code(pool: &Db, session_id: &str, code: &str) -> Result<CodeCheck> {
     let Some(session) = load(pool, session_id).await? else {
         return Ok(CodeCheck::Expired);
     };
@@ -147,7 +147,7 @@ pub async fn verify_auth_code(pool: &SqlitePool, session_id: &str, code: &str) -
     Ok(CodeCheck::Verified)
 }
 
-async fn save(pool: &SqlitePool, session_id: &str, data: &Value) -> Result<()> {
+async fn save(pool: &Db, session_id: &str, data: &Value) -> Result<()> {
     sqlx::query("UPDATE sessions SET session_data = ?, updated_at = ? WHERE session_id = ?")
         .bind(data.to_string())
         .bind(dates::now_db())
@@ -158,7 +158,7 @@ async fn save(pool: &SqlitePool, session_id: &str, data: &Value) -> Result<()> {
     Ok(())
 }
 
-pub async fn destroy(pool: &SqlitePool, session_id: &str) -> Result<()> {
+pub async fn destroy(pool: &Db, session_id: &str) -> Result<()> {
     sqlx::query("DELETE FROM sessions WHERE session_id = ?")
         .bind(session_id)
         .execute(pool)
@@ -171,7 +171,7 @@ pub async fn destroy(pool: &SqlitePool, session_id: &str) -> Result<()> {
 /// changes, so a cookie cloned before the change stops working. `keep` (the
 /// current session id) survives, for the person who just changed their own
 /// password and is handed a replacement.
-pub async fn destroy_for_user(pool: &SqlitePool, user_id: &str, keep: Option<&str>) -> Result<()> {
+pub async fn destroy_for_user(pool: &Db, user_id: &str, keep: Option<&str>) -> Result<()> {
     match keep {
         Some(sid) => {
             sqlx::query("DELETE FROM sessions WHERE user_id = ? AND session_id != ?")

@@ -3001,7 +3001,7 @@ fn night_shift(user: Option<&ghost_core::models::User>) -> &'static str {
 }
 
 /// Fold a night-shift choice into the accessibility JSON, keeping every other
-/// key — the blob is Ghost's, not ours, and its other keys can grow meaning
+/// `key` — the blob is Ghost's, not ours, and its other keys can grow meaning
 /// upstream at any time.
 fn merge_night_shift(existing: Option<&str>, theme: &str) -> String {
     let mut map = existing
@@ -3994,7 +3994,16 @@ const ANALYTICS_AUDIENCES: &[(&str, &str)] = &[
 struct AnalyticsRange {
     slug: String,
     days: Option<i64>,
-    /// SQLite modifier for `datetime('now', ?)`, or `None` for all time.
+    /// The start of the window, as an absolute `'YYYY-MM-DD HH:MM:SS'` UTC
+    /// timestamp — the same form every date in the schema is stored in.
+    ///
+    /// This used to be a SQLite *modifier* (`-30 days`) bound into
+    /// `?`. SQLite takes a modifier as a parameter; MySQL's
+    /// `INTERVAL` is syntax, not a value, so there is no translation. Working
+    /// the instant out here instead makes the comparison portable, and is
+    /// better regardless: the window is now measured by this process rather
+    /// than by whatever clock and timezone the database server happens to
+    /// have.
     cutoff: String,
     label: String,
 }
@@ -4009,10 +4018,19 @@ impl AnalyticsRange {
             .unwrap_or(("30", "30 days", Some(30)));
         // A cutoff far enough back to include everything stands in for "all
         // time", so every query keeps the same shape and the same index.
+        let now = chrono::Utc::now();
         let cutoff = match days {
-            Some(0) => "start of day".to_string(),
-            Some(n) => format!("-{n} days"),
-            None => "-100 years".to_string(),
+            // "Today" starts at midnight UTC, which is what `start of day`
+            // meant.
+            Some(0) => ghost_core::dates::to_db_string(
+                &now.date_naive().and_hms_opt(0, 0, 0).unwrap_or_default().and_utc(),
+            ),
+            Some(n) => {
+                ghost_core::dates::to_db_string(&(now - chrono::Duration::days(n)))
+            }
+            // Far enough back to include everything, so "all time" keeps the
+            // same query shape and the same index as every other window.
+            None => "0001-01-01 00:00:00".to_string(),
         };
         Self { slug: slug.to_string(), days, cutoff, label: label.to_string() }
     }
@@ -4039,7 +4057,7 @@ impl AnalyticsRange {
     }
 
     /// How many daily buckets the chart should show.
-    async fn chart_days(&self, db: &sqlx::SqlitePool) -> i64 {
+    async fn chart_days(&self, db: &ghost_db::Db) -> i64 {
         match self.days {
             Some(0) => 1,
             Some(n) => n,
@@ -4051,14 +4069,18 @@ impl AnalyticsRange {
                         .fetch_one(db)
                         .await
                         .unwrap_or(None);
-                match first {
-                    Some(day) => sqlx::query_scalar::<_, i64>(
-                        "SELECT MIN(365, MAX(1, CAST(julianday('now') - julianday(?) AS INTEGER) + 1))",
-                    )
-                    .bind(day)
-                    .fetch_one(db)
-                    .await
-                    .unwrap_or(30),
+                // Counted here rather than in SQL. The original used
+                // `julianday` and a two-argument `MIN`, and MySQL has neither
+                // — its `MIN` is an aggregate. This is arithmetic on a date
+                // the query above already returned, so it never needed the
+                // database at all.
+                match first.as_deref().and_then(|day| {
+                    chrono::NaiveDate::parse_from_str(day, "%Y-%m-%d").ok()
+                }) {
+                    Some(day) => {
+                        let span = (chrono::Utc::now().date_naive() - day).num_days() + 1;
+                        span.clamp(1, 365)
+                    }
                     None => 30,
                 }
             }
@@ -4073,7 +4095,7 @@ impl AnalyticsRange {
 /// the "unique visitors" figure above it are measuring the same thing — a
 /// reader who opens five posts is one visitor on both.
 async fn analytics_daily_views(
-    db: &sqlx::SqlitePool,
+    db: &ghost_db::Db,
     range: &AnalyticsRange,
     audience: &str,
 ) -> Vec<DayViews> {
@@ -4081,7 +4103,7 @@ async fn analytics_daily_views(
     let mut day_map: std::collections::BTreeMap<String, i64> = std::collections::BTreeMap::new();
     let sql = format!(
         "SELECT substr(created_at, 1, 10) AS day, COUNT(DISTINCT viewer) FROM page_views \
-         WHERE created_at >= datetime('now', ?){} GROUP BY day",
+         WHERE created_at >= ?{} GROUP BY day",
         audience_clause(audience)
     );
     if let Ok(rows) = sqlx::query_as::<_, (String, i64)>(&sql)
@@ -4095,11 +4117,12 @@ async fn analytics_daily_views(
     }
     let mut days = Vec::new();
     for back in (0..span).rev() {
-        let day: String = sqlx::query_scalar("SELECT date('now', ?)")
-            .bind(format!("-{back} days"))
-            .fetch_one(db)
-            .await
-            .unwrap_or_default();
+        // Worked out here rather than asked of the database: `date('now', ?)`
+        // takes its offset as a bound parameter, which MySQL cannot express,
+        // and the answer never depended on the server anyway.
+        let day: String = (chrono::Utc::now() - chrono::Duration::days(back))
+            .format("%Y-%m-%d")
+            .to_string();
         days.push(DayViews { views: day_map.get(&day).copied().unwrap_or(0), day });
     }
     days
@@ -4120,13 +4143,13 @@ fn audience_clause(audience: &str) -> &'static str {
 
 /// Unique visitors and total views over the window.
 async fn analytics_traffic(
-    db: &sqlx::SqlitePool,
+    db: &ghost_db::Db,
     range: &AnalyticsRange,
     audience: &str,
 ) -> (i64, i64) {
     let sql = format!(
         "SELECT COUNT(DISTINCT viewer), COUNT(*) FROM page_views \
-         WHERE created_at >= datetime('now', ?){}",
+         WHERE created_at >= ?{}",
         audience_clause(audience)
     );
     sqlx::query_as(&sql).bind(&range.cutoff).fetch_one(db).await.unwrap_or((0, 0))
@@ -4137,7 +4160,7 @@ async fn analytics_traffic(
 /// `kind` filters to `post`, `page`, or everything. A view counts for a piece
 /// when the path is its own, which is how the front end serves it.
 async fn analytics_top_content(
-    db: &sqlx::SqlitePool,
+    db: &ghost_db::Db,
     range: &AnalyticsRange,
     audience: &str,
     kind: &str,
@@ -4151,7 +4174,7 @@ async fn analytics_top_content(
     let sql = format!(
         "SELECT COALESCE(p.title, p.slug), p.slug, p.type, COUNT(*) AS views FROM page_views v \
          JOIN posts p ON v.path = '/' || p.slug || '/' OR v.path LIKE '/' || p.slug || '/%' \
-         WHERE v.created_at >= datetime('now', ?) AND p.status = 'published'{}{} \
+         WHERE v.created_at >= ? AND p.status = 'published'{}{} \
          GROUP BY p.id ORDER BY views DESC LIMIT ?",
         type_clause,
         audience_clause(audience)
@@ -4162,14 +4185,14 @@ async fn analytics_top_content(
 /// Where the window's traffic came from. A view with no referrer is Direct,
 /// which is how Ghost labels it.
 async fn analytics_top_sources(
-    db: &sqlx::SqlitePool,
+    db: &ghost_db::Db,
     range: &AnalyticsRange,
     audience: &str,
     limit: i64,
 ) -> Vec<(String, i64)> {
     let sql = format!(
         "SELECT COALESCE(NULLIF(referrer, ''), 'Direct') AS source, COUNT(DISTINCT viewer) AS visitors \
-         FROM page_views WHERE created_at >= datetime('now', ?){} \
+         FROM page_views WHERE created_at >= ?{} \
          GROUP BY source ORDER BY visitors DESC LIMIT ?",
         audience_clause(audience)
     );
@@ -4178,7 +4201,7 @@ async fn analytics_top_sources(
 
 /// Members, split the way the Growth tab reports them, plus monthly recurring
 /// revenue in minor units.
-async fn analytics_members(db: &sqlx::SqlitePool) -> (i64, i64, i64, i64) {
+async fn analytics_members(db: &ghost_db::Db) -> (i64, i64, i64, i64) {
     let (total, paid): (i64, i64) = sqlx::query_as(
         "SELECT COUNT(*), COALESCE(SUM(CASE WHEN status = 'paid' THEN 1 ELSE 0 END), 0) FROM members",
     )
@@ -4408,7 +4431,7 @@ async fn analytics_overview_tab(state: &AppState, range: &AnalyticsRange) -> Str
 
     // "Right now" is the live counter Ghost puts at the top of the overview.
     let live: i64 = sqlx::query_scalar(
-        "SELECT COUNT(DISTINCT viewer) FROM page_views WHERE created_at >= datetime('now', '-5 minutes')",
+        ghost_db::dialect::sql("SELECT COUNT(DISTINCT viewer) FROM page_views WHERE created_at >= datetime('now', '-5 minutes')"),
     )
     .fetch_one(&state.db)
     .await
@@ -4614,7 +4637,7 @@ async fn analytics_growth_tab(state: &AppState, range: &AnalyticsRange) -> Strin
     let mut day_map: std::collections::BTreeMap<String, i64> = std::collections::BTreeMap::new();
     if let Ok(rows) = sqlx::query_as::<_, (String, i64)>(
         "SELECT substr(created_at, 1, 10) AS day, COUNT(*) FROM members \
-         WHERE created_at >= datetime('now', ?) GROUP BY day",
+         WHERE created_at >= ? GROUP BY day",
     )
     .bind(&range.cutoff)
     .fetch_all(&state.db)
@@ -4626,11 +4649,12 @@ async fn analytics_growth_tab(state: &AppState, range: &AnalyticsRange) -> Strin
     }
     let mut days = Vec::new();
     for back in (0..span).rev() {
-        let day: String = sqlx::query_scalar("SELECT date('now', ?)")
-            .bind(format!("-{back} days"))
-            .fetch_one(&state.db)
-            .await
-            .unwrap_or_default();
+        // Worked out here rather than asked of the database: `date('now', ?)`
+        // takes its offset as a bound parameter, which MySQL cannot express,
+        // and the answer never depended on the server anyway.
+        let day: String = (chrono::Utc::now() - chrono::Duration::days(back))
+            .format("%Y-%m-%d")
+            .to_string();
         days.push(DayViews { views: day_map.get(&day).copied().unwrap_or(0), day });
     }
     let new_members: i64 = days.iter().map(|d| d.views).sum();
@@ -4639,7 +4663,7 @@ async fn analytics_growth_tab(state: &AppState, range: &AnalyticsRange) -> Strin
     // this port records the signup source, which is the part it has.
     let sources: String = sqlx::query_as::<_, (String, i64)>(
         "SELECT source, COUNT(*) AS n FROM members_created_events \
-         WHERE created_at >= datetime('now', ?) GROUP BY source ORDER BY n DESC LIMIT 10",
+         WHERE created_at >= ? GROUP BY source ORDER BY n DESC LIMIT 10",
     )
     .bind(&range.cutoff)
     .fetch_all(&state.db)
@@ -4723,11 +4747,11 @@ fn analytics_source_label(source: &str) -> String {
 /// Reads the per-recipient records that sending writes. Both figures sat at
 /// zero for as long as nothing wrote them, which is why they are worth a test
 /// of their own rather than only being exercised through the page.
-async fn newsletter_open_stats(db: &sqlx::SqlitePool, cutoff: &str) -> (i64, i64) {
+async fn newsletter_open_stats(db: &ghost_db::Db, cutoff: &str) -> (i64, i64) {
     sqlx::query_as(
         "SELECT COUNT(*), COALESCE(SUM(CASE WHEN r.opened_at IS NOT NULL THEN 1 ELSE 0 END), 0) \
          FROM email_recipients r JOIN emails e ON e.id = r.email_id \
-         WHERE r.created_at >= datetime('now', ?) AND r.status = 'sent'",
+         WHERE r.created_at >= ? AND r.status = 'sent'",
     )
     .bind(cutoff)
     .fetch_one(db)
@@ -4754,7 +4778,7 @@ async fn analytics_newsletters_tab(state: &AppState, range: &AnalyticsRange) -> 
                 COUNT(r.id), COALESCE(SUM(CASE WHEN r.opened_at IS NOT NULL THEN 1 ELSE 0 END), 0) \
          FROM emails e LEFT JOIN posts p ON p.id = e.post_id \
          LEFT JOIN email_recipients r ON r.email_id = e.id AND r.status = 'sent' \
-         WHERE e.created_at >= datetime('now', ?) \
+         WHERE e.created_at >= ? \
          GROUP BY e.id ORDER BY e.created_at DESC LIMIT 15",
     )
     .bind(&range.cutoff)
@@ -5888,7 +5912,7 @@ async fn post_analytics_page(
     // The shape of its readership over its first 30 days, or the last 30 if
     // it is older — a post's traffic is a curve, and four totals do not show
     // whether it is still being read.
-    let since: String = sqlx::query_scalar("SELECT datetime('now', '-29 days')")
+    let since: String = sqlx::query_scalar(ghost_db::dialect::sql("SELECT datetime('now', '-29 days')"))
         .fetch_one(&state.db)
         .await
         .unwrap_or_default();
@@ -5896,11 +5920,12 @@ async fn post_analytics_page(
     let seen: HashMap<String, i64> = daily.into_iter().collect();
     let mut post_days: Vec<DayViews> = Vec::new();
     for back in (0..30).rev() {
-        let day: String = sqlx::query_scalar("SELECT date('now', ?)")
-            .bind(format!("-{back} days"))
-            .fetch_one(&state.db)
-            .await
-            .unwrap_or_default();
+        // Worked out here rather than asked of the database: `date('now', ?)`
+        // takes its offset as a bound parameter, which MySQL cannot express,
+        // and the answer never depended on the server anyway.
+        let day: String = (chrono::Utc::now() - chrono::Duration::days(back))
+            .format("%Y-%m-%d")
+            .to_string();
         post_days.push(DayViews { views: seen.get(&day).copied().unwrap_or(0), day });
     }
 
@@ -6116,7 +6141,7 @@ async fn member_form(
     subscribed: Option<&[String]>,
     held: &HashMap<String, HashMap<String, String>>,
 ) -> String {
-    let newsletters = sqlx::query_as::<_, (String, String, Option<String>, bool)>(
+    let newsletters = sqlx::query_as::<_, (String, String, Option<String>, i64)>(
         "SELECT id, name, description, subscribe_on_signup FROM newsletters \
          WHERE status = 'active' ORDER BY sort_order ASC",
     )
@@ -6132,7 +6157,7 @@ async fn member_form(
             .map(|(nid, nname, ndesc, on_signup)| {
                 let on = match subscribed {
                     Some(ids) => ids.iter().any(|s| s == nid),
-                    None => *on_signup,
+                    None => *on_signup != 0,
                 };
                 format!(
                     r#"<label class="fchip" title="{desc}"><input type="checkbox" name="newsletters" value="{nid}" {checked}><span class="ck">{check}</span>{nname}</label>"#,
@@ -6805,8 +6830,8 @@ async fn members_bulk(State(state): State<AppState>, headers: HeaderMap, form: B
             for id in &form.ids {
                 if adding {
                     let _ = sqlx::query(
-                        "INSERT INTO members_labels (id, member_id, label_id, sort_order) VALUES (?, ?, ?, 0) \
-                         ON CONFLICT DO NOTHING",
+                        ghost_db::dialect::sql("INSERT INTO members_labels (id, member_id, label_id, sort_order) VALUES (?, ?, ?, 0) \
+                         ON CONFLICT DO NOTHING"),
                     )
                     .bind(ghost_core::ids::new_id())
                     .bind(id)
@@ -6914,12 +6939,12 @@ async fn posts_list_impl(state: &AppState, headers: &HeaderMap, post_type: &str,
     // names them `#something`) are machinery, not something to bulk-apply
     // from a list, so they stay out of the picker.
     let tags: Vec<(String, String)> = sqlx::query_as(
-        "SELECT id, name FROM tags WHERE name NOT LIKE '#%' ORDER BY name COLLATE NOCASE LIMIT 200",
+        ghost_db::dialect::sql("SELECT id, name FROM tags WHERE name NOT LIKE '#%' ORDER BY name COLLATE NOCASE LIMIT 200"),
     )
     .fetch_all(&state.db)
     .await
     .unwrap_or_default();
-    let tag_options: Vec<(String, String)> = sqlx::query_as("SELECT slug, name FROM tags ORDER BY name COLLATE NOCASE")
+    let tag_options: Vec<(String, String)> = sqlx::query_as(ghost_db::dialect::sql("SELECT slug, name FROM tags ORDER BY name COLLATE NOCASE"))
         .fetch_all(&state.db).await.unwrap_or_default();
 
     let cards = posts::load_cards(state, listing.posts).await;
@@ -8606,7 +8631,7 @@ struct Subscriber {
 /// Who a post goes to, from its visibility. Ghost derives the recipient
 /// filter the same way: a paid-members post is not emailed to free members.
 async fn newsletter_recipients(
-    pool: &sqlx::SqlitePool,
+    pool: &ghost_db::Db,
     newsletter_id: &str,
     visibility: &str,
     post_id: &str,
@@ -8616,6 +8641,8 @@ async fn newsletter_recipients(
                 coalesce(m.created_at, '') FROM members m \
                 JOIN members_newsletters mn ON mn.member_id = m.id \
                 WHERE mn.newsletter_id = ? AND m.email_disabled = 0 AND NOT EXISTS(SELECT 1 FROM email_suppressions es WHERE es.email=m.email)";
+    // dialect-translated-after-assembly: the branches below are fragments, and
+    // the finished statement goes through `dialect::sql_owned` a few lines down.
     let sql = if visibility == "tiers" {
         format!("{base} AND m.status IN ('paid', 'comped', 'gift') AND EXISTS(SELECT 1 FROM members_products mp JOIN posts_products pp ON pp.product_id = mp.product_id WHERE mp.member_id = m.id AND pp.post_id = ? AND (mp.expiry_at IS NULL OR datetime(mp.expiry_at) > datetime('now')))")
     } else if paid_only {
@@ -8623,6 +8650,8 @@ async fn newsletter_recipients(
     } else {
         base.to_string()
     };
+    // Assembled from fragments above, so the owned translator.
+    let sql = ghost_db::dialect::sql_owned(&sql);
     let query = sqlx::query_as::<_, (String, String, String, String, String)>(&sql).bind(newsletter_id);
     let query = if visibility == "tiers" { query.bind(post_id) } else { query };
     query.fetch_all(pool)
@@ -14690,14 +14719,14 @@ async fn membership_page(State(state): State<AppState>, headers: HeaderMap, Quer
     // The paid, active tiers also feed the Portal links reference below, whose
     // tier-specific signup URLs name a tier by id.
     let mut paid_tiers: Vec<(String, String)> = Vec::new();
-    if let Ok(tiers) = sqlx::query_as::<_, (String, String, String, Option<i64>, Option<i64>, bool)>(
+    if let Ok(tiers) = sqlx::query_as::<_, (String, String, String, Option<i64>, Option<i64>, i64)>(
         "SELECT id, name, type, monthly_price, yearly_price, active FROM products ORDER BY type DESC, created_at",
     )
     .fetch_all(&state.db)
     .await
     {
         for (id, name, tier_type, monthly, yearly, active) in tiers {
-            if active && tier_type != "free" {
+            if active != 0 && tier_type != "free" {
                 paid_tiers.push((id.clone(), name.clone()));
             }
             let price = if tier_type == "free" {
@@ -14713,7 +14742,7 @@ async fn membership_page(State(state): State<AppState>, headers: HeaderMap, Quer
                 ghost = svg("ghost"),
                 name = esc(&name),
                 price = esc(&price),
-                inactive = if active { "" } else { r#"<span class="chip draft">inactive</span>"# },
+                inactive = if active != 0 { "" } else { r#"<span class="chip draft">inactive</span>"# },
                 typ = esc(&tier_type),
                 chev = svg("chevron"),
             ));
@@ -15737,7 +15766,7 @@ async fn growth_page(State(state): State<AppState>, headers: HeaderMap, Query(q)
     // a recommendation is three short fields, so a separate page would be more
     // navigation than content.
     let mut rec_rows = String::new();
-    if let Ok(recs) = sqlx::query_as::<_, (String, String, String, Option<String>, bool, Option<String>)>(
+    if let Ok(recs) = sqlx::query_as::<_, (String, String, String, Option<String>, i64, Option<String>)>(
         "SELECT id, url, title, description, one_click_subscribe, favicon FROM recommendations \
          ORDER BY featured DESC, created_at DESC",
     )
@@ -15778,7 +15807,7 @@ async fn growth_page(State(state): State<AppState>, headers: HeaderMap, Query(q)
                 title = esc(&title),
                 url = esc(&url),
                 desc = esc(description.as_deref().unwrap_or("")),
-                oc = if one_click { " checked" } else { "" },
+                oc = if one_click != 0 { " checked" } else { "" },
                 check = svg("check"),
                 del = svg("delete"),
             ));
@@ -16202,7 +16231,8 @@ async fn recommendation_save(
     // The row carries two forms — one for title/url, one for the description
     // and the subscribe flag — so a field the submitted form did not include
     // keeps its stored value rather than being blanked.
-    let existing: Option<(String, String, Option<String>, bool)> = sqlx::query_as(
+    // Booleans are 0/1 integers; `Any` does not decode one as a `bool`.
+    let existing: Option<(String, String, Option<String>, i64)> = sqlx::query_as(
         "SELECT url, title, description, one_click_subscribe FROM recommendations WHERE id = ?",
     )
     .bind(&id)
@@ -16234,7 +16264,7 @@ async fn recommendation_save(
         form.description.trim().to_string()
     };
     let one_click = if form.description.trim().is_empty() && form.one_click_subscribe.is_empty() {
-        old_oc
+        old_oc != 0
     } else {
         form.one_click_subscribe == "1"
     };
@@ -16650,7 +16680,7 @@ async fn offer_save(
     // they are written here in one statement alongside it.
     let now = ghost_core::dates::now_db();
     let wrote = sqlx::query(
-        "UPDATE offers SET product_id = ?, interval = ?, discount_type = ?, discount_amount = ?, \
+        "UPDATE offers SET product_id = ?, `interval` = ?, discount_type = ?, discount_amount = ?, \
          duration = ?, duration_in_months = ?, currency = ?, updated_at = ? WHERE id = ?",
     )
     .bind(&input.product_id)
@@ -17107,7 +17137,7 @@ async fn build_post_analytics_csv(state: &AppState) -> Option<Vec<u8>> {
         // The email for a post, if one went out. A post reverted to draft
         // keeps its email row, so the status check below is what stops a
         // draft reporting last month's sends.
-        let email = sqlx::query_as::<_, (i64, i64, Option<String>, Option<String>)>(
+        let email = sqlx::query_as::<_, (i64, i64, Option<ghost_db::types::Text>, Option<String>)>(
             "SELECT email_count, opened_count, recipient_filter, newsletter_id \
              FROM emails WHERE post_id = ? LIMIT 1",
         )
@@ -17164,7 +17194,8 @@ async fn build_post_analytics_csv(state: &AppState) -> Option<Vec<u8>> {
             if p.featured { "true".into() } else { "false".into() },
             post_tag_names(state, &p.id).await,
             p.visibility.clone(),
-            email.as_ref().and_then(|e| e.2.clone()).unwrap_or_default(),
+            // `emails.recipient_filter` is MEDIUMTEXT on MySQL, hence `Text`.
+            email.as_ref().and_then(|e| e.2.clone()).map(|t| t.0).unwrap_or_default(),
             newsletter_name,
             email.as_ref().map(|e| e.0.to_string()).unwrap_or_default(),
             email.as_ref().map(|e| e.1.to_string()).unwrap_or_default(),
@@ -18017,7 +18048,7 @@ const SITE_TABLES: &[&str] = &[
     "brute", "tokens", "milestones",
 ];
 
-pub(crate) async fn wipe_tables(db: &sqlx::SqlitePool, tables: &[&str]) -> usize {
+pub(crate) async fn wipe_tables(db: &ghost_db::Db, tables: &[&str]) -> usize {
     let mut wiped = 0;
     for table in tables {
         if sqlx::query(&format!("DELETE FROM {table}")).execute(db).await.is_ok() {
@@ -18152,7 +18183,19 @@ async fn about_page(State(state): State<AppState>, headers: HeaderMap) -> Respon
         Ok(a) => (a.user, a.role),
         Err(r) => return r,
     };
-    let db_path = state.config.database.connection.filename.clone();
+    // What to show for the database depends on the engine, and on MySQL it
+    // must be the *redacted* connection — this page is visible to any
+    // administrator of the site, and on a hosted site the password belongs to
+    // the platform rather than to them.
+    let db_where = match state.config.db_target() {
+        Ok(target) => match target.sqlite_path() {
+            Some(path) => path.display().to_string(),
+            None => target.redacted(),
+        },
+        // A config this build cannot open would have stopped the server long
+        // before here, so this is only for completeness.
+        Err(e) => e.to_string(),
+    };
     let mail = match state.settings.get_str("mail_transport").as_deref() {
         Some("smtp") => format!(
             "SMTP · {}",
@@ -18184,7 +18227,7 @@ release above for its admin, Content API and theme behaviour; it is not affiliat
             version_row = row("Ghost version", GHOST_VERSION),
             port_row = row("Ghost-rust", env!("CARGO_PKG_VERSION")),
             env_row = row("Environment", &state.config.env),
-            db_row = row("Database", &format!("{} · {}", state.config.database.client, db_path)),
+            db_row = row("Database", &format!("{} · {}", state.config.database.client, db_where)),
             mail_row = row("Mail", &mail),
             theme_row = row(
                 "Active theme",
@@ -20887,16 +20930,15 @@ mod tests {
 
     #[tokio::test]
     async fn tier_newsletters_require_a_current_matching_entitlement() {
-        let pool = sqlx::sqlite::SqlitePoolOptions::new().max_connections(1)
-            .connect("sqlite::memory:").await.unwrap();
-        sqlx::migrate!("../../migrations").run(&pool).await.unwrap();
+        let test_db = ghost_db::pool::connect_test().await.unwrap();
+        let pool = test_db.pool();
         ghost_db::seed::seed_if_empty(&pool).await.unwrap();
         let owner = ghost_db::repos::users::setup_owner(&pool, "Test owner", "owner@example.test", "unused-test-hash")
             .await.unwrap();
-        sqlx::query("INSERT INTO newsletters (id, name, slug, created_at) VALUES ('newsletter', 'Test', 'test', datetime('now'))")
+        sqlx::query(ghost_db::dialect::sql("INSERT INTO newsletters (id, name, slug, created_at) VALUES ('newsletter', 'Test', 'test', datetime('now'))"))
             .execute(&pool).await.unwrap();
         for id in ["selected", "other"] {
-            sqlx::query("INSERT INTO products (id, name, slug, created_at) VALUES (?, ?, ?, datetime('now'))")
+            sqlx::query(ghost_db::dialect::sql("INSERT INTO products (id, name, slug, created_at) VALUES (?, ?, ?, datetime('now'))"))
                 .bind(id).bind(id).bind(id).execute(&pool).await.unwrap();
         }
         let post = ghost_db::repos::posts::insert(&pool, &ghost_db::repos::posts::NewPost {
@@ -20913,7 +20955,7 @@ mod tests {
             ("disabled", "paid", "selected", None, true, true),
             ("unsubscribed", "paid", "selected", None, false, false),
         ] {
-            sqlx::query("INSERT INTO members (id, transient_id, email, status, email_disabled, created_at) VALUES (?, ?, ?, ?, ?, datetime('now'))")
+            sqlx::query(ghost_db::dialect::sql("INSERT INTO members (id, transient_id, email, status, email_disabled, created_at) VALUES (?, ?, ?, ?, ?, datetime('now'))"))
                 .bind(id).bind(id).bind(format!("{id}@example.test")).bind(status).bind(disabled)
                 .execute(&pool).await.unwrap();
             sqlx::query("INSERT INTO members_products (id, member_id, product_id, expiry_at) VALUES (?, ?, ?, ?)")
@@ -20932,13 +20974,12 @@ mod tests {
 
     #[tokio::test]
     async fn the_newsletters_tab_counts_what_sending_recorded() {
-        let pool = sqlx::sqlite::SqlitePoolOptions::new().max_connections(1)
-            .connect("sqlite::memory:").await.unwrap();
-        sqlx::migrate!("../../migrations").run(&pool).await.unwrap();
+        let test_db = ghost_db::pool::connect_test().await.unwrap();
+        let pool = test_db.pool();
         // Nothing sent yet, so nothing to report — and no divide by zero.
         assert_eq!(super::newsletter_open_stats(&pool, "-30 days").await, (0, 0));
 
-        sqlx::query("INSERT INTO emails (id, post_id, status, email_count, created_at) VALUES ('an-email', 'a-post', 'submitted', 3, datetime('now'))")
+        sqlx::query(ghost_db::dialect::sql("INSERT INTO emails (id, post_id, status, email_count, created_at) VALUES ('an-email', 'a-post', 'submitted', 3, datetime('now'))"))
             .execute(&pool).await.unwrap();
         let now = ghost_core::dates::now_db();
         for (id, status, opened) in [("one", "sent", true), ("two", "sent", false), ("three", "failed", false)] {
@@ -20948,13 +20989,17 @@ mod tests {
         }
         // Two delivered, one of them opened. The message that never left is
         // not in the denominator.
-        assert_eq!(super::newsletter_open_stats(&pool, "-30 days").await, (2, 1));
+        // The cutoff is an absolute instant rather than a SQLite modifier.
+        let days_ago = |n: i64| {
+            ghost_core::dates::to_db_string(&(chrono::Utc::now() - chrono::Duration::days(n)))
+        };
+        assert_eq!(super::newsletter_open_stats(&pool, &days_ago(30)).await, (2, 1));
 
         // An opened send from before the window does not raise the rate in it.
-        sqlx::query("INSERT INTO email_recipients (id, email_id, member_id, status, opened_at, created_at) VALUES ('old', 'an-email', 'old', 'sent', datetime('now','-60 days'), datetime('now','-60 days'))")
+        sqlx::query(ghost_db::dialect::sql("INSERT INTO email_recipients (id, email_id, member_id, status, opened_at, created_at) VALUES ('old', 'an-email', 'old', 'sent', datetime('now','-60 days'), datetime('now','-60 days'))"))
             .execute(&pool).await.unwrap();
-        assert_eq!(super::newsletter_open_stats(&pool, "-30 days").await, (2, 1));
-        assert_eq!(super::newsletter_open_stats(&pool, "-90 days").await, (3, 2));
+        assert_eq!(super::newsletter_open_stats(&pool, &days_ago(30)).await, (2, 1));
+        assert_eq!(super::newsletter_open_stats(&pool, &days_ago(90)).await, (3, 2));
     }
 
     #[test]
@@ -21515,8 +21560,20 @@ mod tests {
             q.insert("range".to_string(), v.to_string());
             AnalyticsRange::from_query(&q)
         };
-        assert_eq!(any("7").cutoff, "-7 days");
-        assert_eq!(any("today").cutoff, "start of day");
+        // The cutoff is an absolute instant now, not a SQLite modifier, so
+        // what matters is which instant it names.
+        let seven = ghost_core::dates::from_db_string(&any("7").cutoff)
+            .expect("the cutoff is a database timestamp");
+        let back = (chrono::Utc::now() - seven).num_days();
+        assert_eq!(back, 7, "a 7-day range should start 7 days ago, not {back}");
+
+        // "Today" starts at midnight, which is what `start of day` meant.
+        let today = any("today").cutoff;
+        assert!(today.ends_with(" 00:00:00"), "{today}");
+        assert!(today.starts_with(&chrono::Utc::now().format("%Y-%m-%d").to_string()), "{today}");
+
+        // All time has to reach back past any real content.
+        assert!(any("all").cutoff < "2000-01-01 00:00:00".to_string(), "{}", any("all").cutoff);
         assert_eq!(any("all").days, None);
         // an unknown range is the default rather than an error page
         assert_eq!(any("bogus").slug, "30");
@@ -22497,17 +22554,17 @@ async fn social_account_page(
         ghost_api::federation::profiles::refresh(&state.db, target, signer.as_ref()).await;
 
     let following: bool =
-        sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM federation_following WHERE actor=?)")
+        sqlx::query_scalar::<_, i64>("SELECT EXISTS(SELECT 1 FROM federation_following WHERE actor=?)")
             .bind(target)
             .fetch_one(&state.db)
             .await
-            .unwrap_or(false);
+            .unwrap_or(0) != 0;
     let blocked: bool =
-        sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM federation_blocks WHERE actor=?)")
+        sqlx::query_scalar::<_, i64>("SELECT EXISTS(SELECT 1 FROM federation_blocks WHERE actor=?)")
             .bind(target)
             .fetch_one(&state.db)
             .await
-            .unwrap_or(false);
+            .unwrap_or(0) != 0;
 
     let notes = sqlx::query_as::<_, (String,)>(
         "SELECT id FROM federation_objects WHERE actor=? AND deleted=0 \
@@ -22764,7 +22821,7 @@ pub(crate) async fn inline_remote_media(
     state: &AppState,
     domains: &[String],
 ) -> Result<serde_json::Value, ghost_core::GhostError> {
-    let posts: Vec<(String, Option<String>, Option<String>)> =
+    let posts: Vec<(String, Option<ghost_db::types::Text>, Option<ghost_db::types::Text>)> =
         sqlx::query_as("SELECT id, html, lexical FROM posts WHERE html IS NOT NULL OR lexical IS NOT NULL")
             .fetch_all(&state.db)
             .await
@@ -22814,7 +22871,7 @@ pub(crate) async fn inline_remote_media(
             };
             if let Some(body) = new_html.as_mut() {
                 if body.contains(&url) {
-                    *body = body.replace(&url, &local);
+                    *body = ghost_db::types::Text(body.replace(&url, &local));
                     touched = true;
                 }
             }
@@ -22823,7 +22880,9 @@ pub(crate) async fn inline_remote_media(
                 // form is what appears there.
                 let escaped = url.replace('/', "\\/");
                 if body.contains(&url) || body.contains(&escaped) {
-                    *body = body.replace(&url, &local).replace(&escaped, &local.replace('/', "\\/"));
+                    *body = ghost_db::types::Text(
+                        body.replace(&url, &local).replace(&escaped, &local.replace('/', "\\/")),
+                    );
                     touched = true;
                 }
             }

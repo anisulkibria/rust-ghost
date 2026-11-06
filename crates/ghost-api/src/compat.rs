@@ -223,7 +223,28 @@ pub async fn verify_email(
         Ok(t) => t,
         Err(_) => return StatusCode::INTERNAL_SERVER_ERROR.into_response(),
     };
-    let row=sqlx::query_as::<_,(String,String,String,String)>("DELETE FROM email_verifications WHERE token_hash=? AND datetime(expires_at)>datetime('now') RETURNING resource_type,resource_id,field,value").bind(hash).fetch_optional(&mut *tx).await;
+    // `DELETE … RETURNING` has no MySQL equivalent, so this is a read followed
+    // by a delete in the transaction opened above. The delete's row count is
+    // what keeps the token single-use: two requests may both read the row, but
+    // only one delete can affect it.
+    let found = sqlx::query_as::<_, (String, String, String, String)>(ghost_db::dialect::sql(
+        "SELECT resource_type,resource_id,field,value FROM email_verifications \
+         WHERE token_hash=? AND datetime(expires_at)>datetime('now')",
+    ))
+    .bind(&hash)
+    .fetch_optional(&mut *tx)
+    .await;
+    let row = match found {
+        Ok(Some(found)) => {
+            let claimed = sqlx::query("DELETE FROM email_verifications WHERE token_hash=?")
+                .bind(&hash)
+                .execute(&mut *tx)
+                .await;
+            Ok(claimed.is_ok_and(|r| r.rows_affected() == 1).then_some(found))
+        }
+        Ok(None) => Ok(None),
+        Err(e) => Err(e),
+    };
     let Ok(Some((kind, id, field, value))) = row else {
         return bad("Verification token is invalid or expired");
     };
@@ -237,7 +258,7 @@ pub async fn verify_email(
             .execute(&mut *tx)
             .await
     } else {
-        sqlx::query("UPDATE settings SET value=? WHERE key=?")
+        sqlx::query("UPDATE settings SET value=? WHERE `key`=?")
             .bind(value)
             .bind(format!("automated_email_{field}"))
             .execute(&mut *tx)
@@ -264,7 +285,7 @@ pub async fn request_email_verification(
     }
     let token = ids::random_hex(32);
     let hash = hex::encode(Sha256::digest(token.as_bytes()));
-    sqlx::query("INSERT INTO email_verifications(token_hash,resource_type,resource_id,field,value,expires_at) VALUES(?,?,?,?,?,datetime('now','+1 day'))").bind(hash).bind(kind).bind(id).bind(field).bind(email).execute(&state.db).await.map_err(|e|ghost_core::GhostError::Db(e.to_string()))?;
+    sqlx::query(ghost_db::dialect::sql("INSERT INTO email_verifications(token_hash,resource_type,resource_id,field,value,expires_at) VALUES(?,?,?,?,?,datetime('now','+1 day'))")).bind(hash).bind(kind).bind(id).bind(field).bind(email).execute(&state.db).await.map_err(|e|ghost_core::GhostError::Db(e.to_string()))?;
     let cfg = ghost_mail::MailConfig::from_settings(
         &state.settings,
         &state.settings.site_name(),
@@ -566,8 +587,19 @@ async fn import_members(
     for row in &records {
         let id = ids::new_id();
         let email = row["email"].to_lowercase();
-        let saved=sqlx::query_scalar::<_,String>("INSERT INTO members(id,uuid,transient_id,email,name,note,status,created_at,updated_at) VALUES(?,?,?,?,?,?,'free',?,?) ON CONFLICT(email) DO UPDATE SET name=COALESCE(excluded.name,members.name),note=COALESCE(excluded.note,members.note) RETURNING id")
-            .bind(&id).bind(ids::uuid_v4()).bind(ids::uuid_v4()).bind(email).bind(row.get("name")).bind(row.get("note")).bind(row.get("created_at").cloned().unwrap_or_else(dates::now_db)).bind(dates::now_db()).fetch_one(&mut *tx).await;
+        // Upsert, then read the id back: `RETURNING` is SQLite-only. Both
+        // statements are in one transaction, so no other writer can come
+        // between them, and the row is guaranteed to exist by the time of the
+        // select because the insert either created it or found it.
+        let upserted = sqlx::query(ghost_db::dialect::sql("INSERT INTO members(id,uuid,transient_id,email,name,note,status,created_at,updated_at) VALUES(?,?,?,?,?,?,'free',?,?) ON CONFLICT(email) DO UPDATE SET name=COALESCE(excluded.name,members.name),note=COALESCE(excluded.note,members.note)"))
+            .bind(&id).bind(ids::uuid_v4()).bind(ids::uuid_v4()).bind(&email).bind(row.get("name")).bind(row.get("note")).bind(row.get("created_at").cloned().unwrap_or_else(dates::now_db)).bind(dates::now_db()).execute(&mut *tx).await;
+        let saved = match upserted {
+            Ok(_) => sqlx::query_scalar::<_, String>("SELECT id FROM members WHERE email=?")
+                .bind(&email)
+                .fetch_one(&mut *tx)
+                .await,
+            Err(e) => Err(e),
+        };
         let id = match saved {
             Ok(id) => id,
             Err(_) => return bad("Could not import member"),
@@ -579,9 +611,24 @@ async fn import_members(
             .map(str::trim)
             .filter(|v| !v.is_empty())
         {
-            let label_id=match sqlx::query_scalar::<_,String>("INSERT INTO labels(id,name,created_at) VALUES(?,?,?) ON CONFLICT(name) DO UPDATE SET name=excluded.name RETURNING id").bind(ids::new_id()).bind(label).bind(dates::now_db()).fetch_one(&mut *tx).await{Ok(id)=>id,Err(_)=>return bad("Could not import label")};
+            // Upsert then select, for the same reason as the member above.
+            // The `DO UPDATE SET name=name` is a deliberate no-op: it exists
+            // only so an existing row is not an error.
+            let upserted = sqlx::query(ghost_db::dialect::sql("INSERT INTO labels(id,name,created_at) VALUES(?,?,?) ON CONFLICT(name) DO UPDATE SET name=excluded.name"))
+                .bind(ids::new_id()).bind(label).bind(dates::now_db()).execute(&mut *tx).await;
+            if upserted.is_err() {
+                return bad("Could not import label");
+            }
+            let label_id = match sqlx::query_scalar::<_, String>("SELECT id FROM labels WHERE name=?")
+                .bind(label)
+                .fetch_one(&mut *tx)
+                .await
+            {
+                Ok(id) => id,
+                Err(_) => return bad("Could not import label"),
+            };
             if sqlx::query(
-                "INSERT OR IGNORE INTO members_labels(id,member_id,label_id) VALUES(?,?,?)",
+                ghost_db::dialect::sql("INSERT OR IGNORE INTO members_labels(id,member_id,label_id) VALUES(?,?,?)"),
             )
             .bind(ids::new_id())
             .bind(&id)
@@ -704,7 +751,7 @@ async fn create_subscription(
         .as_str()
         .or_else(|| data["stripe_price_id"].as_str())
         .unwrap_or("");
-    let valid:bool=sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM products WHERE active=1 AND (monthly_price_id=? OR yearly_price_id=?))").bind(price).bind(price).fetch_one(&state.db).await.unwrap_or(false);
+    let valid: bool = sqlx::query_scalar::<_, i64>("SELECT EXISTS(SELECT 1 FROM products WHERE active=1 AND (monthly_price_id=? OR yearly_price_id=?))").bind(price).bind(price).fetch_one(&state.db).await.unwrap_or(0) != 0;
     if !valid {
         return bad("Choose an active tier price");
     }
@@ -736,7 +783,7 @@ async fn edit_subscription(
     if let Err(r) = permissions::require(&state, &headers, Role::Administrator).await {
         return r;
     }
-    let own:bool=sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM subscriptions s JOIN members_stripe_customers c ON c.customer_id=s.customer_id WHERE c.member_id=? AND s.subscription_id=?)").bind(&id).bind(&subscription).fetch_one(&state.db).await.unwrap_or(false);
+    let own: bool = sqlx::query_scalar::<_, i64>("SELECT EXISTS(SELECT 1 FROM subscriptions s JOIN members_stripe_customers c ON c.customer_id=s.customer_id WHERE c.member_id=? AND s.subscription_id=?)").bind(&id).bind(&subscription).fetch_one(&state.db).await.unwrap_or(0) != 0;
     if !own
         || !subscription
             .bytes()

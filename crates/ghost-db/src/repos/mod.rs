@@ -30,7 +30,7 @@ pub(crate) fn dberr(e: sqlx::Error) -> ghost_core::GhostError {
     ghost_core::GhostError::Db(e.to_string())
 }
 
-#[derive(Debug, sqlx::FromRow)]
+#[derive(Debug)]
 pub(crate) struct PostRow {
     pub id: String,
     pub uuid: Option<String>,
@@ -43,7 +43,6 @@ pub(crate) struct PostRow {
     pub plaintext: Option<String>,
     pub feature_image: Option<String>,
     pub featured: bool,
-    #[sqlx(rename = "type")]
     pub post_type: Option<String>,
     pub status: Option<String>,
     pub visibility: Option<String>,
@@ -60,6 +59,50 @@ pub(crate) struct PostRow {
     pub custom_template: Option<String>,
     pub canonical_url: Option<String>,
     pub show_title_and_feature_image: Option<bool>,
+}
+
+/// Read by hand rather than derived, because of the boolean columns.
+///
+/// `#[derive(sqlx::FromRow)]` would decode each `bool` field with
+/// `Decode<Any> for bool`, which fails on both engines: a boolean is stored as
+/// a 0/1 integer and `Any` will not turn an integer into a `bool`. See
+/// [`crate::types::flag`]. Every other field is read exactly as the derive
+/// would have read it.
+impl<'r> sqlx::FromRow<'r, sqlx::any::AnyRow> for PostRow {
+    fn from_row(row: &'r sqlx::any::AnyRow) -> sqlx::Result<Self> {
+        use sqlx::Row;
+        Ok(Self {
+            id: row.try_get("id")?,
+            uuid: row.try_get("uuid")?,
+            title: row.try_get("title")?,
+            slug: row.try_get("slug")?,
+            mobiledoc: crate::types::long_opt(row, "mobiledoc")?,
+            lexical: crate::types::long_opt(row, "lexical")?,
+            markdown: crate::types::long_opt(row, "markdown")?,
+            html: crate::types::long_opt(row, "html")?,
+            plaintext: crate::types::long_opt(row, "plaintext")?,
+            feature_image: row.try_get("feature_image")?,
+            featured: crate::types::flag(row, "featured"),
+            // The column is `type`, a reserved word, which is why the
+            // field is named differently.
+            post_type: row.try_get("type")?,
+            status: row.try_get("status")?,
+            visibility: row.try_get("visibility")?,
+            created_at: row.try_get("created_at")?,
+            updated_at: row.try_get("updated_at")?,
+            published_at: row.try_get("published_at")?,
+            published_by: row.try_get("published_by")?,
+            custom_excerpt: row.try_get("custom_excerpt")?,
+            email_recipient_filter: crate::types::long_opt(row, "email_recipient_filter")?,
+            newsletter_id: row.try_get("newsletter_id")?,
+            reading_time: row.try_get("reading_time")?,
+            codeinjection_head: crate::types::long_opt(row, "codeinjection_head")?,
+            codeinjection_foot: crate::types::long_opt(row, "codeinjection_foot")?,
+            custom_template: row.try_get("custom_template")?,
+            canonical_url: row.try_get("canonical_url")?,
+            show_title_and_feature_image: crate::types::flag_opt(row, "show_title_and_feature_image"),
+        })
+    }
 }
 
 pub(crate) const POST_COLS: &str = "id, uuid, title, slug, mobiledoc, lexical, markdown, html, plaintext, feature_image, featured, type, status, visibility, created_at, updated_at, published_at, published_by, custom_excerpt, reading_time, codeinjection_head, codeinjection_foot, custom_template, canonical_url, show_title_and_feature_image, email_recipient_filter, newsletter_id";
@@ -103,7 +146,7 @@ impl From<PostRow> for Post {
     }
 }
 
-#[derive(Debug, sqlx::FromRow)]
+#[derive(Debug)]
 pub(crate) struct MetaRow {
     pub post_id: String,
     pub og_image: Option<String>,
@@ -119,6 +162,32 @@ pub(crate) struct MetaRow {
     pub frontmatter: Option<String>,
     pub feature_image_alt: Option<String>,
     pub feature_image_caption: Option<String>,
+}
+
+/// Read by hand rather than derived, because of the long columns.
+///
+/// `#[derive(sqlx::FromRow)]` would decode them as `String`, which fails on
+/// MySQL: a `MEDIUMTEXT` arrives as a blob. See [`crate::types::long`].
+impl<'r> sqlx::FromRow<'r, sqlx::any::AnyRow> for MetaRow {
+    fn from_row(row: &'r sqlx::any::AnyRow) -> sqlx::Result<Self> {
+        use sqlx::Row;
+        Ok(Self {
+            post_id: row.try_get("post_id")?,
+            og_image: row.try_get("og_image")?,
+            og_title: row.try_get("og_title")?,
+            og_description: row.try_get("og_description")?,
+            twitter_image: row.try_get("twitter_image")?,
+            twitter_title: row.try_get("twitter_title")?,
+            twitter_description: row.try_get("twitter_description")?,
+            meta_title: row.try_get("meta_title")?,
+            meta_description: row.try_get("meta_description")?,
+            email_subject: row.try_get("email_subject")?,
+            email_preview: row.try_get("email_preview")?,
+            frontmatter: crate::types::long_opt(row, "frontmatter")?,
+            feature_image_alt: row.try_get("feature_image_alt")?,
+            feature_image_caption: row.try_get("feature_image_caption")?,
+        })
+    }
 }
 
 impl From<MetaRow> for PostMeta {
@@ -142,7 +211,7 @@ impl From<MetaRow> for PostMeta {
     }
 }
 
-#[derive(Debug, sqlx::FromRow)]
+#[derive(Debug)]
 pub(crate) struct TagRow {
     pub id: String,
     pub name: Option<String>,
@@ -165,6 +234,39 @@ pub(crate) struct TagRow {
     pub accent_color: Option<String>,
     pub created_at: Option<String>,
     pub updated_at: Option<String>,
+}
+
+/// Read by hand rather than derived, because of the long columns.
+///
+/// `#[derive(sqlx::FromRow)]` would decode them as `String`, which fails on
+/// MySQL: a `MEDIUMTEXT` arrives as a blob. See [`crate::types::long`].
+impl<'r> sqlx::FromRow<'r, sqlx::any::AnyRow> for TagRow {
+    fn from_row(row: &'r sqlx::any::AnyRow) -> sqlx::Result<Self> {
+        use sqlx::Row;
+        Ok(Self {
+            id: row.try_get("id")?,
+            name: row.try_get("name")?,
+            slug: row.try_get("slug")?,
+            description: row.try_get("description")?,
+            feature_image: row.try_get("feature_image")?,
+            parent_id: row.try_get("parent_id")?,
+            visibility: row.try_get("visibility")?,
+            meta_title: row.try_get("meta_title")?,
+            meta_description: row.try_get("meta_description")?,
+            og_image: row.try_get("og_image")?,
+            og_title: row.try_get("og_title")?,
+            og_description: row.try_get("og_description")?,
+            twitter_image: row.try_get("twitter_image")?,
+            twitter_title: row.try_get("twitter_title")?,
+            twitter_description: row.try_get("twitter_description")?,
+            codeinjection_head: crate::types::long_opt(row, "codeinjection_head")?,
+            codeinjection_foot: crate::types::long_opt(row, "codeinjection_foot")?,
+            canonical_url: row.try_get("canonical_url")?,
+            accent_color: row.try_get("accent_color")?,
+            created_at: row.try_get("created_at")?,
+            updated_at: row.try_get("updated_at")?,
+        })
+    }
 }
 
 pub(crate) const TAG_COLS: &str = "id, name, slug, description, feature_image, parent_id, visibility, meta_title, meta_description, og_image, og_title, og_description, twitter_image, twitter_title, twitter_description, codeinjection_head, codeinjection_foot, canonical_url, accent_color, created_at, updated_at";
@@ -198,7 +300,7 @@ impl From<TagRow> for Tag {
     }
 }
 
-#[derive(Debug, sqlx::FromRow)]
+#[derive(Debug)]
 pub(crate) struct UserRow {
     pub id: String,
     pub name: Option<String>,
@@ -236,6 +338,57 @@ pub(crate) struct UserRow {
     pub milestone_notifications: bool,
     pub donation_notifications: bool,
     pub gift_subscription_notifications: bool,
+}
+
+/// Read by hand rather than derived, because of the boolean columns.
+///
+/// `#[derive(sqlx::FromRow)]` would decode each `bool` field with
+/// `Decode<Any> for bool`, which fails on both engines: a boolean is stored as
+/// a 0/1 integer and `Any` will not turn an integer into a `bool`. See
+/// [`crate::types::flag`]. Every other field is read exactly as the derive
+/// would have read it.
+impl<'r> sqlx::FromRow<'r, sqlx::any::AnyRow> for UserRow {
+    fn from_row(row: &'r sqlx::any::AnyRow) -> sqlx::Result<Self> {
+        use sqlx::Row;
+        Ok(Self {
+            id: row.try_get("id")?,
+            name: row.try_get("name")?,
+            slug: row.try_get("slug")?,
+            password: row.try_get("password")?,
+            email: row.try_get("email")?,
+            profile_image: row.try_get("profile_image")?,
+            cover_image: row.try_get("cover_image")?,
+            bio: row.try_get("bio")?,
+            website: row.try_get("website")?,
+            location: row.try_get("location")?,
+            facebook: row.try_get("facebook")?,
+            twitter: row.try_get("twitter")?,
+            threads: row.try_get("threads")?,
+            bluesky: row.try_get("bluesky")?,
+            mastodon: row.try_get("mastodon")?,
+            tiktok: row.try_get("tiktok")?,
+            youtube: row.try_get("youtube")?,
+            instagram: row.try_get("instagram")?,
+            linkedin: row.try_get("linkedin")?,
+            status: row.try_get("status")?,
+            visibility: row.try_get("visibility")?,
+            meta_title: row.try_get("meta_title")?,
+            meta_description: row.try_get("meta_description")?,
+            accessibility: crate::types::long_opt(row, "accessibility")?,
+            last_seen: row.try_get("last_seen")?,
+            created_at: row.try_get("created_at")?,
+            updated_at: row.try_get("updated_at")?,
+            comment_notifications: crate::types::flag(row, "comment_notifications"),
+            free_member_signup_notification: crate::types::flag(row, "free_member_signup_notification"),
+            paid_subscription_started_notification: crate::types::flag(row, "paid_subscription_started_notification"),
+            paid_subscription_canceled_notification: crate::types::flag(row, "paid_subscription_canceled_notification"),
+            mention_notifications: crate::types::flag(row, "mention_notifications"),
+            recommendation_notifications: crate::types::flag(row, "recommendation_notifications"),
+            milestone_notifications: crate::types::flag(row, "milestone_notifications"),
+            donation_notifications: crate::types::flag(row, "donation_notifications"),
+            gift_subscription_notifications: crate::types::flag(row, "gift_subscription_notifications"),
+        })
+    }
 }
 
 pub(crate) const USER_COLS: &str = "id, name, slug, password, email, profile_image, cover_image, bio, website, location, facebook, twitter, threads, bluesky, mastodon, tiktok, youtube, instagram, linkedin, status, visibility, meta_title, meta_description, accessibility, last_seen, created_at, updated_at, comment_notifications, free_member_signup_notification, paid_subscription_started_notification, paid_subscription_canceled_notification, mention_notifications, recommendation_notifications, milestone_notifications, donation_notifications, gift_subscription_notifications";

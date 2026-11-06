@@ -2,7 +2,7 @@
 //! fresh via explicit invalidation (the Rust port of shared/settings-cache).
 use ghost_core::{GhostError, Result};
 use serde_json::Value;
-use sqlx::SqlitePool;
+use crate::Db;
 use std::collections::HashMap;
 use std::sync::RwLock;
 
@@ -12,15 +12,18 @@ pub struct SettingsCache {
 }
 
 impl SettingsCache {
-    pub async fn load(pool: &SqlitePool) -> Result<Self> {
-        let rows = sqlx::query_as::<_, (String, String, String, Option<String>)>(
-            "SELECT key, value, type, flags FROM settings",
+    pub async fn load(pool: &Db) -> Result<Self> {
+        let rows = sqlx::query_as::<_, (String, crate::types::Text, String, Option<String>)>(
+            "SELECT `key`, value, type, flags FROM settings",
         )
         .fetch_all(pool)
         .await
         .map_err(|e| GhostError::Db(e.to_string()))?;
         let mut map = HashMap::new();
         for (key, value, typ, _flags) in rows {
+            // `settings.value` is long enough to be MEDIUMTEXT on MySQL, which
+            // arrives as a blob; `types::Text` accepts either form.
+            let value = value.0;
             let typed = match typ.as_str() {
                 "boolean" => Value::Bool(matches!(value.as_str(), "true" | "1")),
                 "number" => value
@@ -36,7 +39,7 @@ impl SettingsCache {
         Ok(Self { map: RwLock::new(map) })
     }
 
-    pub async fn reload(&self, pool: &SqlitePool) -> Result<()> {
+    pub async fn reload(&self, pool: &Db) -> Result<()> {
         let loaded = Self::load(pool).await?;
         *self.map.write().unwrap() = loaded.map.into_inner().unwrap();
         Ok(())
@@ -122,7 +125,7 @@ impl SettingsCache {
     /// install's base path — is stored in site terms like every other internal
     /// URL. Covers every writer at once: the settings screens, the navigation
     /// editor and the Admin API. A no-op at a domain root.
-    pub async fn set(&self, pool: &SqlitePool, key: &str, value: &Value) -> Result<()> {
+    pub async fn set(&self, pool: &Db, key: &str, value: &Value) -> Result<()> {
         let normalized = normalize_stored(value);
         let value = &normalized;
         let (stored, typ) = match value {
@@ -133,7 +136,7 @@ impl SettingsCache {
             Value::Null => (String::new(), "string"),
         };
         let now = ghost_core::dates::now_db();
-        let res = sqlx::query("UPDATE settings SET value = ?, type = ?, updated_at = ? WHERE key = ?")
+        let res = sqlx::query("UPDATE settings SET value = ?, type = ?, updated_at = ? WHERE `key` = ?")
             .bind(&stored)
             .bind(typ)
             .bind(&now)

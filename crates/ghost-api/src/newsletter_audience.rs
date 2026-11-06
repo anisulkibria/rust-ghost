@@ -10,11 +10,11 @@ pub struct Audience {
     pub include_preview: bool,
 }
 pub async fn load(state: &AppState, id: &str) -> Result<Audience> {
-    let row:(Option<String>,Option<String>,bool)=sqlx::query_as("SELECT newsletter_id,newsletter_audience_filter,newsletter_include_preview FROM posts WHERE id=?").bind(id).fetch_one(&state.db).await.map_err(|e|GhostError::Db(e.to_string()))?;
+    let row:(Option<String>,Option<String>,i64)=sqlx::query_as("SELECT newsletter_id,newsletter_audience_filter,newsletter_include_preview FROM posts WHERE id=?").bind(id).fetch_one(&state.db).await.map_err(|e|GhostError::Db(e.to_string()))?;
     Ok(Audience {
         newsletter_id: row.0,
         filter: row.1,
-        include_preview: row.2,
+        include_preview: row.2 != 0,
     })
 }
 pub async fn validate(state: &AppState, audience: &Audience) -> Result<()> {
@@ -26,13 +26,13 @@ pub async fn validate(state: &AppState, audience: &Audience) -> Result<()> {
         ghost_nql::compile(&expression, "members")?;
     }
     if let Some(id) = audience.newsletter_id.as_deref().filter(|s| !s.is_empty()) {
-        let active: bool = sqlx::query_scalar(
+        let active: bool = sqlx::query_scalar::<_, i64>(
             "SELECT EXISTS(SELECT 1 FROM newsletters WHERE id=? AND status='active')",
         )
         .bind(id)
         .fetch_one(&state.db)
         .await
-        .map_err(|e| GhostError::Db(e.to_string()))?;
+        .map_err(|e| GhostError::Db(e.to_string()))? != 0;
         if !active {
             return Err(GhostError::BadRequest("Choose an active newsletter".into()));
         }

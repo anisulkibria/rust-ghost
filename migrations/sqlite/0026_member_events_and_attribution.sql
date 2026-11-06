@@ -28,7 +28,7 @@ CREATE INDEX IF NOT EXISTS members_created_events_attribution_idx
 CREATE TABLE IF NOT EXISTS members_login_events (
     id TEXT PRIMARY KEY NOT NULL,
     member_id TEXT(24) NOT NULL REFERENCES members(id) ON DELETE CASCADE,
-    created_at DATETIME NOT NULL
+    created_at TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS members_login_events_member_idx ON members_login_events (member_id, created_at);
 
@@ -39,7 +39,7 @@ CREATE TABLE IF NOT EXISTS members_status_events (
     member_id TEXT(24) NOT NULL REFERENCES members(id) ON DELETE CASCADE,
     from_status TEXT(50),
     to_status TEXT(50) NOT NULL,
-    created_at DATETIME NOT NULL
+    created_at TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS members_status_events_member_idx ON members_status_events (member_id, created_at);
 
@@ -48,7 +48,7 @@ CREATE TABLE IF NOT EXISTS members_email_change_events (
     member_id TEXT(24) NOT NULL REFERENCES members(id) ON DELETE CASCADE,
     from_email TEXT(191),
     to_email TEXT(191) NOT NULL,
-    created_at DATETIME NOT NULL
+    created_at TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS members_email_change_events_member_idx ON members_email_change_events (member_id, created_at);
 
@@ -58,9 +58,9 @@ CREATE TABLE IF NOT EXISTS members_subscribe_events (
     id TEXT PRIMARY KEY NOT NULL,
     member_id TEXT(24) NOT NULL REFERENCES members(id) ON DELETE CASCADE,
     newsletter_id TEXT(24),
-    subscribed BOOLEAN NOT NULL DEFAULT 1,
+    subscribed INTEGER NOT NULL DEFAULT 1,
     source TEXT(50),
-    created_at DATETIME NOT NULL
+    created_at TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS members_subscribe_events_member_idx ON members_subscribe_events (member_id, created_at);
 
@@ -82,7 +82,7 @@ CREATE TABLE IF NOT EXISTS members_subscription_created_events (
     utm_campaign TEXT(191),
     utm_term TEXT(191),
     utm_content TEXT(191),
-    created_at DATETIME NOT NULL
+    created_at TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS members_subscription_created_events_member_idx
     ON members_subscription_created_events (member_id, created_at);
@@ -104,7 +104,7 @@ CREATE TABLE IF NOT EXISTS members_paid_subscription_events (
     currency TEXT(3),
     source TEXT(50),
     mrr_delta INTEGER NOT NULL DEFAULT 0,
-    created_at DATETIME NOT NULL
+    created_at TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS members_paid_subscription_events_member_idx
     ON members_paid_subscription_events (member_id, created_at);
@@ -117,7 +117,7 @@ CREATE TABLE IF NOT EXISTS members_payment_events (
     amount INTEGER NOT NULL DEFAULT 0,
     currency TEXT(3),
     source TEXT(50),
-    created_at DATETIME NOT NULL
+    created_at TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS members_payment_events_member_idx ON members_payment_events (member_id, created_at);
 
@@ -127,7 +127,7 @@ CREATE TABLE IF NOT EXISTS members_product_events (
     member_id TEXT(24) NOT NULL REFERENCES members(id) ON DELETE CASCADE,
     product_id TEXT(24),
     action TEXT(50) NOT NULL,
-    created_at DATETIME NOT NULL
+    created_at TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS members_product_events_member_idx ON members_product_events (member_id, created_at);
 
@@ -136,7 +136,7 @@ CREATE TABLE IF NOT EXISTS members_cancel_events (
     member_id TEXT(24) NOT NULL REFERENCES members(id) ON DELETE CASCADE,
     subscription_id TEXT(24),
     from_plan TEXT(191),
-    created_at DATETIME NOT NULL
+    created_at TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS members_cancel_events_member_idx ON members_cancel_events (member_id, created_at);
 

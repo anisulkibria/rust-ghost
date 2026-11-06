@@ -132,7 +132,7 @@ async fn slug_response(state: &AppState, headers: &HeaderMap, kind: &str, name: 
     // `-2`, `-3`, … until one is free, which is how Ghost deduplicates.
     let mut candidate = base.clone();
     for attempt in 2..1000 {
-        let taken: bool = sqlx::query_scalar(&format!(
+        let taken: bool = sqlx::query_scalar::<_, i64>(&format!(
             "SELECT EXISTS(SELECT 1 FROM {table} WHERE slug = ? AND (? IS NULL OR id != ?){extra})"
         ))
         .bind(&candidate)
@@ -140,7 +140,7 @@ async fn slug_response(state: &AppState, headers: &HeaderMap, kind: &str, name: 
         .bind(id)
         .fetch_one(&state.db)
         .await
-        .unwrap_or(false);
+        .unwrap_or(0) != 0;
         if !taken {
             break;
         }
@@ -319,8 +319,8 @@ async fn read_theme_settings(State(state): State<AppState>, headers: HeaderMap) 
         return r;
     }
     let theme = crate::themes::active_theme_name(&state);
-    let rows = sqlx::query_as::<_, (String, String, Option<String>, Option<String>)>(
-        "SELECT id, key, type, value FROM custom_theme_settings WHERE theme = ? ORDER BY key",
+    let rows = sqlx::query_as::<_, (String, String, Option<String>, Option<ghost_db::types::Text>)>(
+        "SELECT id, `key`, type, value FROM custom_theme_settings WHERE theme = ? ORDER BY `key`",
     )
     .bind(&theme)
     .fetch_all(&state.db)
@@ -340,13 +340,12 @@ async fn edit_theme_settings(State(state): State<AppState>, headers: HeaderMap, 
         let Some(key) = setting.get("key").and_then(Value::as_str) else { continue };
         // Only a key the active theme declares: this is the theme's own
         // vocabulary, not a general-purpose store.
-        let declared: bool =
-            sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM custom_theme_settings WHERE theme = ? AND key = ?)")
+        let declared: bool = sqlx::query_scalar::<_, i64>("SELECT EXISTS(SELECT 1 FROM custom_theme_settings WHERE theme = ? AND `key` = ?)")
                 .bind(&theme)
                 .bind(key)
                 .fetch_one(&state.db)
                 .await
-                .unwrap_or(false);
+                .unwrap_or(0) != 0;
         if !declared {
             return error(StatusCode::UNPROCESSABLE_ENTITY, &format!("The active theme has no setting named {key}."));
         }
@@ -355,7 +354,7 @@ async fn edit_theme_settings(State(state): State<AppState>, headers: HeaderMap, 
             Some(Value::Null) | None => None,
             Some(other) => Some(other.to_string()),
         };
-        let _ = sqlx::query("UPDATE custom_theme_settings SET value = ? WHERE theme = ? AND key = ?")
+        let _ = sqlx::query("UPDATE custom_theme_settings SET value = ? WHERE theme = ? AND `key` = ?")
             .bind(value)
             .bind(&theme)
             .bind(key)
@@ -667,11 +666,11 @@ async fn add_recommendation(State(state): State<AppState>, headers: HeaderMap, J
     if !matches!(parsed.scheme(), "http" | "https") {
         return error(StatusCode::UNPROCESSABLE_ENTITY, "A recommendation must be an HTTP or HTTPS URL.");
     }
-    let taken: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM recommendations WHERE url = ?)")
+    let taken: bool = sqlx::query_scalar::<_, i64>("SELECT EXISTS(SELECT 1 FROM recommendations WHERE url = ?)")
         .bind(url)
         .fetch_one(&state.db)
         .await
-        .unwrap_or(false);
+        .unwrap_or(0) != 0;
     if taken {
         return error(StatusCode::UNPROCESSABLE_ENTITY, "That site is already recommended.");
     }
@@ -929,14 +928,14 @@ async fn update_setup(State(state): State<AppState>, headers: HeaderMap, Json(bo
         if !email.contains('@') {
             return error(StatusCode::UNPROCESSABLE_ENTITY, "That is not a valid email address.");
         }
-        let taken: bool = sqlx::query_scalar(
+        let taken: bool = sqlx::query_scalar::<_, i64>(
             "SELECT EXISTS(SELECT 1 FROM users WHERE lower(email) = lower(?) AND id != ?)",
         )
         .bind(email)
         .bind(&user.id)
         .fetch_one(&state.db)
         .await
-        .unwrap_or(false);
+        .unwrap_or(0) != 0;
         if taken {
             return error(StatusCode::UNPROCESSABLE_ENTITY, "Another staff account already uses that address.");
         }

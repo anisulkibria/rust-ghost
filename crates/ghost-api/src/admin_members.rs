@@ -44,7 +44,7 @@ async fn value(state: &AppState, member: repos::members::Member) -> Value {
     let id = member.id.clone();
     let mut value = serde_json::to_value(member).unwrap();
     let labels=sqlx::query_as::<_,(String,String,String)>("SELECT l.id,l.name,l.slug FROM labels l JOIN members_labels ml ON ml.label_id=l.id WHERE ml.member_id=? ORDER BY l.name").bind(&id).fetch_all(&state.db).await.unwrap_or_default();
-    let tiers=sqlx::query_as::<_,(String,String)>("SELECT p.id,p.name FROM products p JOIN members_products mp ON mp.product_id=p.id WHERE mp.member_id=? AND (mp.expiry_at IS NULL OR datetime(mp.expiry_at)>datetime('now'))").bind(&id).fetch_all(&state.db).await.unwrap_or_default();
+    let tiers=sqlx::query_as::<_,(String,String)>(ghost_db::dialect::sql("SELECT p.id,p.name FROM products p JOIN members_products mp ON mp.product_id=p.id WHERE mp.member_id=? AND (mp.expiry_at IS NULL OR datetime(mp.expiry_at)>datetime('now'))")).bind(&id).fetch_all(&state.db).await.unwrap_or_default();
     let newsletters=sqlx::query_as::<_,(String,String)>("SELECT n.id,n.name FROM newsletters n JOIN members_newsletters mn ON mn.newsletter_id=n.id WHERE mn.member_id=?").bind(&id).fetch_all(&state.db).await.unwrap_or_default();
     value["labels"] = json!(labels
         .into_iter()
@@ -161,7 +161,7 @@ async fn add(
     }
 }
 async fn relations(
-    tx: &mut sqlx::Transaction<'_, sqlx::Sqlite>,
+    tx: &mut sqlx::Transaction<'_, sqlx::Any>,
     id: &str,
     data: &Value,
 ) -> std::result::Result<(), String> {
@@ -188,19 +188,19 @@ async fn relations(
                     .as_str()
                     .or_else(|| item["id"].as_str())
                     .ok_or_else(|| format!("Invalid {key} id"))?;
-                let found: bool = sqlx::query_scalar(&format!(
+                let found: bool = sqlx::query_scalar::<_, i64>(&format!(
                     "SELECT EXISTS(SELECT 1 FROM {parent} WHERE id=?)"
                 ))
                 .bind(target)
                 .fetch_one(&mut **tx)
                 .await
-                .map_err(|e| e.to_string())?;
+                .map_err(|e| e.to_string())? != 0;
                 if !found {
                     return Err(format!("Unknown {key} id"));
                 }
-                sqlx::query(&format!(
+                sqlx::query(&ghost_db::dialect::sql_owned(&format!(
                     "INSERT OR IGNORE INTO {table} (id,member_id,{column}) VALUES (?,?,?)"
-                ))
+                )))
                 .bind(ids::new_id())
                 .bind(id)
                 .bind(target)
@@ -287,8 +287,8 @@ async fn delete(
         return r;
     }
     // Deleting a local member must never silently leave a paid Stripe subscription.
-    let active:bool=sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM members_stripe_customers c JOIN subscriptions s ON s.customer_id=c.customer_id WHERE c.member_id=? AND s.status IN ('active','trialing','past_due','unpaid'))")
-        .bind(&id).fetch_one(&state.db).await.unwrap_or(true);
+    let active: bool = sqlx::query_scalar::<_, i64>("SELECT EXISTS(SELECT 1 FROM members_stripe_customers c JOIN subscriptions s ON s.customer_id=c.customer_id WHERE c.member_id=? AND s.status IN ('active','trialing','past_due','unpaid'))")
+        .bind(&id).fetch_one(&state.db).await.unwrap_or(1) != 0;
     if active {
         return error(
             StatusCode::CONFLICT,
@@ -358,9 +358,9 @@ pub(crate) async fn export(
     if writer.write_record(["id","email","name","note","subscribed_to_emails","complimentary_plan","stripe_customer_id","created_at","deleted_at","labels","tiers"]).is_err(){return StatusCode::INTERNAL_SERVER_ERROR.into_response()}
     for row in rows {
         let labels:Vec<String>=sqlx::query_scalar("SELECT l.name FROM labels l JOIN members_labels ml ON ml.label_id=l.id WHERE ml.member_id=? ORDER BY l.name").bind(&row.id).fetch_all(&state.db).await.unwrap_or_default();
-        let tiers:Vec<String>=sqlx::query_scalar("SELECT p.name FROM products p JOIN members_products mp ON mp.product_id=p.id WHERE mp.member_id=? AND (mp.expiry_at IS NULL OR datetime(mp.expiry_at)>datetime('now')) ORDER BY p.name").bind(&row.id).fetch_all(&state.db).await.unwrap_or_default();
+        let tiers:Vec<String>=sqlx::query_scalar(ghost_db::dialect::sql("SELECT p.name FROM products p JOIN members_products mp ON mp.product_id=p.id WHERE mp.member_id=? AND (mp.expiry_at IS NULL OR datetime(mp.expiry_at)>datetime('now')) ORDER BY p.name")).bind(&row.id).fetch_all(&state.db).await.unwrap_or_default();
         let customer:Option<String>=sqlx::query_scalar("SELECT customer_id FROM members_stripe_customers WHERE member_id=? LIMIT 1").bind(&row.id).fetch_optional(&state.db).await.ok().flatten();
-        let subscribed:bool=sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM members_newsletters WHERE member_id=?)").bind(&row.id).fetch_one(&state.db).await.unwrap_or(false);
+        let subscribed: bool = sqlx::query_scalar::<_, i64>("SELECT EXISTS(SELECT 1 FROM members_newsletters WHERE member_id=?)").bind(&row.id).fetch_one(&state.db).await.unwrap_or(0) != 0;
         if writer.write_record([row.id,row.email,row.name.unwrap_or_default(),row.note.unwrap_or_default(),subscribed.to_string(),(row.status=="comped").to_string(),customer.unwrap_or_default(),row.created_at,String::new(),labels.join(","),tiers.join(",")]).is_err(){return StatusCode::INTERNAL_SERVER_ERROR.into_response()}
     }
     let csv=match writer.into_inner(){Ok(bytes)=>bytes,Err(_)=>return StatusCode::INTERNAL_SERVER_ERROR.into_response()};
@@ -409,11 +409,11 @@ async fn bulk(
     }
     let label = body["label_id"].as_str().unwrap_or("");
     if matches!(action, "label" | "unlabel") {
-        let found: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM labels WHERE id=?)")
+        let found: bool = sqlx::query_scalar::<_, i64>("SELECT EXISTS(SELECT 1 FROM labels WHERE id=?)")
             .bind(label)
             .fetch_one(&state.db)
             .await
-            .unwrap_or(false);
+            .unwrap_or(0) != 0;
         if !found {
             return error(StatusCode::UNPROCESSABLE_ENTITY, "Label not found");
         }
@@ -424,10 +424,10 @@ async fn bulk(
     };
     for id in &selected {
         let result=match action{
-            "label"=>sqlx::query("INSERT OR IGNORE INTO members_labels (id,member_id,label_id) SELECT ?,id,? FROM members WHERE id=?").bind(ids::new_id()).bind(label).bind(id).execute(&mut *tx).await,
+            "label"=>sqlx::query(ghost_db::dialect::sql("INSERT OR IGNORE INTO members_labels (id,member_id,label_id) SELECT ?,id,? FROM members WHERE id=?")).bind(ids::new_id()).bind(label).bind(id).execute(&mut *tx).await,
             "unlabel"=>sqlx::query("DELETE FROM members_labels WHERE member_id=? AND label_id=?").bind(id).bind(label).execute(&mut *tx).await,
             "unsubscribe"=>sqlx::query("DELETE FROM members_newsletters WHERE member_id=?").bind(id).execute(&mut *tx).await,
-            _=>{let active:bool=sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM members_stripe_customers c JOIN subscriptions s ON s.customer_id=c.customer_id WHERE c.member_id=? AND s.status IN ('active','trialing','past_due','unpaid'))").bind(id).fetch_one(&mut *tx).await.unwrap_or(true);
+            _=>{let active: bool = sqlx::query_scalar::<_, i64>("SELECT EXISTS(SELECT 1 FROM members_stripe_customers c JOIN subscriptions s ON s.customer_id=c.customer_id WHERE c.member_id=? AND s.status IN ('active','trialing','past_due','unpaid'))").bind(id).fetch_one(&mut *tx).await.unwrap_or(1) != 0;
                 if active{return error(StatusCode::CONFLICT,"Cancel active billing subscriptions before deleting members")}
                 sqlx::query("DELETE FROM members WHERE id=?").bind(id).execute(&mut *tx).await}
         };

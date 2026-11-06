@@ -395,8 +395,8 @@ fn card_section(section: &[Value], mobiledoc: &Value) -> Option<Value> {
 ///
 /// Returns how many posts were converted, for the startup log. A row that
 /// cannot be converted is left exactly as it was rather than failing the boot.
-pub async fn backfill_legacy_posts(pool: &sqlx::SqlitePool) -> Result<u64, sqlx::Error> {
-    let rows = sqlx::query_as::<_, (String, String, Option<String>)>(
+pub async fn backfill_legacy_posts(pool: &ghost_db::Db) -> Result<u64, sqlx::Error> {
+    let rows = sqlx::query_as::<_, (String, ghost_db::types::Text, Option<ghost_db::types::Text>)>(
         "SELECT id, mobiledoc, html FROM posts \
          WHERE mobiledoc IS NOT NULL AND TRIM(mobiledoc) NOT IN ('', '{}') \
            AND (lexical IS NULL OR TRIM(lexical) = '')",

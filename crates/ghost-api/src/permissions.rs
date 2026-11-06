@@ -58,14 +58,14 @@ pub async fn post_access(state: &AppState, user: &User, post: &Post) -> Result<(
     if role(state, user).await? >= Role::Editor {
         return Ok(());
     }
-    let owns: bool = sqlx::query_scalar(
+    let owns: bool = sqlx::query_scalar::<_, i64>(
         "SELECT EXISTS(SELECT 1 FROM posts_authors WHERE post_id = ? AND author_id = ?)",
     )
     .bind(&post.id)
     .bind(&user.id)
     .fetch_one(&state.db)
     .await
-    .unwrap_or(false);
+    .unwrap_or(0) != 0;
     if !owns {
         return Err(denied());
     }

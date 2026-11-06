@@ -16,9 +16,9 @@ CREATE TABLE IF NOT EXISTS export_requests (
     filename TEXT(191),
     size_bytes BIGINT,
     error TEXT(2000),
-    created_at DATETIME NOT NULL,
-    started_at DATETIME,
-    finished_at DATETIME
+    created_at TEXT NOT NULL,
+    started_at TEXT,
+    finished_at TEXT
 );
 
 CREATE INDEX IF NOT EXISTS export_requests_status_index ON export_requests (status);

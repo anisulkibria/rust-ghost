@@ -23,7 +23,7 @@
 use crate::AppState;
 use base64::Engine;
 use serde::Deserialize;
-use sqlx::SqlitePool;
+use ghost_db::Db;
 
 /// Where the pending nonce lives in `sessions.session_data`. Upstream's
 /// `STATE_PROP`, spelled the same so a session is legible across both.
@@ -113,7 +113,7 @@ fn now_unix_seconds() -> i64 {
 /// Returns the encoded state on success. `None` means the session row was not
 /// there to write to, and the caller must not proceed: a handshake with no
 /// stored state is one that [`decode_secure_key`] could never verify.
-pub async fn mint_state(db: &SqlitePool, session_id: &str, mode: &str) -> Option<String> {
+pub async fn mint_state(db: &Db, session_id: &str, mode: &str) -> Option<String> {
     let encoded = base64::engine::general_purpose::STANDARD.encode(
         serde_json::json!({ "mode": mode, "randomState": ghost_core::ids::random_hex(16) }).to_string(),
     );
@@ -129,10 +129,10 @@ pub async fn mint_state(db: &SqlitePool, session_id: &str, mode: &str) -> Option
 }
 
 /// The nonce this session is waiting on, if it is still inside its window.
-pub async fn pending_state(db: &SqlitePool, session_id: &str) -> Option<String> {
-    let row: Option<(Option<String>, Option<i64>)> = sqlx::query_as(&format!(
+pub async fn pending_state(db: &Db, session_id: &str) -> Option<String> {
+    let row: Option<(Option<String>, Option<i64>)> = sqlx::query_as(&ghost_db::dialect::sql_owned(&format!(
         "SELECT json_extract(session_data, '$.{STATE_PROP}'), json_extract(session_data, '$.{STARTED_PROP}') FROM sessions WHERE session_id = ?"
-    ))
+    )))
     .bind(session_id)
     .fetch_optional(db)
     .await
@@ -145,7 +145,7 @@ pub async fn pending_state(db: &SqlitePool, session_id: &str) -> Option<String> 
 /// Spend the nonce. A `state` is single-use, so this runs before the keys are
 /// adopted rather than after — a failure to save must not leave a blob that
 /// can be replayed.
-pub async fn clear_state(db: &SqlitePool, session_id: &str) -> bool {
+pub async fn clear_state(db: &Db, session_id: &str) -> bool {
     sqlx::query(&format!(
         "UPDATE sessions SET session_data = json_remove(session_data, '$.{STATE_PROP}', '$.{STARTED_PROP}') WHERE session_id = ?"
     ))
@@ -223,7 +223,7 @@ pub fn decode_secure_key(encoded: &str, expected: &str) -> Result<SecureKey, &'s
 /// Upstream's disconnect refuses while one does, and it is right to: the keys
 /// are what reconciles those subscriptions, so dropping them leaves members
 /// paying Stripe for access this site can no longer confirm.
-pub async fn has_paid_members(db: &SqlitePool) -> bool {
+pub async fn has_paid_members(db: &Db) -> bool {
     sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM members WHERE status = 'paid'")
         .fetch_one(db)
         .await

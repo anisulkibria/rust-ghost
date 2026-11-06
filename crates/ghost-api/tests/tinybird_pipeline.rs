@@ -29,7 +29,7 @@ async fn receiver(received: Arc<Mutex<Vec<String>>>) -> (String, tokio::task::Jo
 }
 
 /// The parent rows the foreign keys require.
-async fn seed_automations(pool: &sqlx::SqlitePool) {
+async fn seed_automations(pool: &ghost_db::Db) {
     let now = chrono::Utc::now().format("%Y-%m-%d %H:%M:%S").to_string();
     for id in ["a1", "a2"] {
         sqlx::query(
@@ -46,12 +46,8 @@ async fn the_sync_is_incremental_resumable_and_lagged() {
     let received = Arc::new(Mutex::new(Vec::new()));
     let (endpoint, server) = receiver(received.clone()).await;
 
-    let pool = sqlx::sqlite::SqlitePoolOptions::new()
-        .max_connections(1)
-        .connect("sqlite::memory:")
-        .await
-        .unwrap();
-    sqlx::migrate!("../../migrations").run(&pool).await.unwrap();
+    let test_db = ghost_db::pool::connect_test().await.unwrap();
+    let pool = test_db.pool();
     seed_automations(&pool).await;
 
     let config = ghost_api::tinybird_sync::Config {
@@ -127,12 +123,8 @@ async fn two_rows_sharing_a_timestamp_are_both_shipped_exactly_once() {
     // both are resent on every run.
     let received = Arc::new(Mutex::new(Vec::new()));
     let (endpoint, server) = receiver(received.clone()).await;
-    let pool = sqlx::sqlite::SqlitePoolOptions::new()
-        .max_connections(1)
-        .connect("sqlite::memory:")
-        .await
-        .unwrap();
-    sqlx::migrate!("../../migrations").run(&pool).await.unwrap();
+    let test_db = ghost_db::pool::connect_test().await.unwrap();
+    let pool = test_db.pool();
     seed_automations(&pool).await;
 
     let when = (chrono::Utc::now() - chrono::Duration::minutes(10))
@@ -168,12 +160,8 @@ async fn a_refused_batch_does_not_advance_the_watermark() {
     );
     let server = tokio::spawn(async move { let _ = axum::serve(listener, app).await; });
 
-    let pool = sqlx::sqlite::SqlitePoolOptions::new()
-        .max_connections(1)
-        .connect("sqlite::memory:")
-        .await
-        .unwrap();
-    sqlx::migrate!("../../migrations").run(&pool).await.unwrap();
+    let test_db = ghost_db::pool::connect_test().await.unwrap();
+    let pool = test_db.pool();
     seed_automations(&pool).await;
     let when = (chrono::Utc::now() - chrono::Duration::minutes(10))
         .format("%Y-%m-%d %H:%M:%S").to_string();

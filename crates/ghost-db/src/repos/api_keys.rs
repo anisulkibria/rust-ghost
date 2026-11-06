@@ -1,8 +1,8 @@
 //! API keys + integrations repository.
 use ghost_core::{dates, ids, models::{ApiKey, Integration}, Result};
-use sqlx::SqlitePool;
+use crate::Db;
 
-pub async fn find_by_secret(pool: &SqlitePool, secret: &str) -> Result<Option<ApiKey>> {
+pub async fn find_by_secret(pool: &Db, secret: &str) -> Result<Option<ApiKey>> {
     let row = sqlx::query_as::<_, (String, String, String, Option<String>, Option<String>, Option<String>)>(
         "SELECT id, type, secret, role_id, integration_id, user_id FROM api_keys WHERE secret = ? LIMIT 1",
     )
@@ -27,7 +27,7 @@ pub async fn find_by_secret(pool: &SqlitePool, secret: &str) -> Result<Option<Ap
 /// Look a key up by its row id — what the `kid` header of an Admin API JWT
 /// names. Separate from `find_by_secret` because a signed token never carries
 /// the secret itself; that is the point of signing it.
-pub async fn find_by_id(pool: &SqlitePool, id: &str) -> Result<Option<ApiKey>> {
+pub async fn find_by_id(pool: &Db, id: &str) -> Result<Option<ApiKey>> {
     let row = sqlx::query_as::<_, (String, String, String, Option<String>, Option<String>, Option<String>)>(
         "SELECT id, type, secret, role_id, integration_id, user_id FROM api_keys WHERE id = ? LIMIT 1",
     )
@@ -49,7 +49,7 @@ pub async fn find_by_id(pool: &SqlitePool, id: &str) -> Result<Option<ApiKey>> {
     }))
 }
 
-pub async fn find_by_integration(pool: &SqlitePool, integration_id: &str) -> Result<Vec<ApiKey>> {
+pub async fn find_by_integration(pool: &Db, integration_id: &str) -> Result<Vec<ApiKey>> {
     let rows = sqlx::query_as::<_, (String, String, String, Option<String>, Option<String>, Option<String>)>(
         "SELECT id, type, secret, role_id, integration_id, user_id FROM api_keys WHERE integration_id = ?",
     )
@@ -76,7 +76,7 @@ pub async fn find_by_integration(pool: &SqlitePool, integration_id: &str) -> Res
 
 /// Create an integration with a fresh content or admin key.
 pub async fn create_integration(
-    pool: &SqlitePool,
+    pool: &Db,
     name: &str,
     key_type: &str,
 ) -> Result<(Integration, ApiKey)> {

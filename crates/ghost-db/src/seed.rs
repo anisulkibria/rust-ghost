@@ -2,7 +2,7 @@
 //! permissions, fixture posts, and the placeholder Owner user.
 use ghost_core::{dates, ids, Result};
 use serde::Deserialize;
-use sqlx::SqlitePool;
+use crate::Db;
 
 #[derive(Debug, Deserialize)]
 struct SettingSeed {
@@ -38,7 +38,7 @@ fn value_to_string(v: &serde_json::Value) -> String {
 /// `roles` is written only here, so it answers the question actually being
 /// asked. The steps below are individually idempotent anyway, but the guard
 /// keeps fixture content from reappearing after someone deletes it.
-pub async fn seed_if_empty(pool: &SqlitePool) -> Result<bool> {
+pub async fn seed_if_empty(pool: &Db) -> Result<bool> {
     let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM roles")
         .fetch_one(pool)
         .await
@@ -54,14 +54,14 @@ pub async fn seed_if_empty(pool: &SqlitePool) -> Result<bool> {
     Ok(true)
 }
 
-async fn seed_settings(pool: &SqlitePool) -> Result<()> {
+async fn seed_settings(pool: &Db) -> Result<()> {
     let raw = include_str!("../assets/default-settings.json");
     let seeds: Vec<SettingSeed> = serde_json::from_str(raw)?;
 
     let now = dates::now_db();
     for s in seeds {
         let value = value_to_string(&s.value);
-        sqlx::query("INSERT OR IGNORE INTO settings (id, `group`, key, value, type, flags, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)")
+        sqlx::query(crate::dialect::sql("INSERT OR IGNORE INTO settings (id, `group`, `key`, value, type, flags, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)"))
             .bind(&ids::new_id())
             .bind(&s.group)
             .bind(&s.key)
@@ -87,7 +87,7 @@ async fn seed_settings(pool: &SqlitePool) -> Result<()> {
         ("indexnow", "indexnow_api_key", ids::random_hex(16), "string"),
     ];
     for (group, key, value, typ) in dynamic {
-        sqlx::query("INSERT INTO settings (id, `group`, key, value, type, flags, created_at, updated_at) VALUES (?, ?, ?, ?, ?, 'RO', ?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value, flags = 'RO', updated_at = excluded.updated_at")
+        sqlx::query(crate::dialect::sql("INSERT INTO settings (id, `group`, `key`, value, type, flags, created_at, updated_at) VALUES (?, ?, ?, ?, ?, 'RO', ?, ?) ON CONFLICT(`key`) DO UPDATE SET value = excluded.value, flags = 'RO', updated_at = excluded.updated_at"))
             .bind(&ids::new_id())
             .bind(group)
             .bind(key)
@@ -130,7 +130,7 @@ const ROLES: &[&str] = &[
     "Super Editor",
 ];
 
-async fn seed_roles_and_permissions(pool: &SqlitePool) -> Result<()> {
+async fn seed_roles_and_permissions(pool: &Db) -> Result<()> {
     let now = dates::now_db();
     for name in ROLES {
         sqlx::query("INSERT INTO roles (id, name, description, created_at, updated_at) VALUES (?, ?, ?, ?, ?)")
@@ -252,7 +252,7 @@ async fn seed_roles_and_permissions(pool: &SqlitePool) -> Result<()> {
 }
 
 /// Placeholder Owner (inactive) — the setup flow activates this user.
-async fn seed_owner(pool: &SqlitePool) -> Result<()> {
+async fn seed_owner(pool: &Db) -> Result<()> {
     let now = dates::now_db();
     let owner_id = ids::new_id();
     let password = bcrypt::hash(&ids::random_hex(12), 10).map_err(|e| ghost_core::GhostError::Internal(e.to_string()))?;
@@ -286,7 +286,7 @@ async fn seed_owner(pool: &SqlitePool) -> Result<()> {
     Ok(())
 }
 
-async fn seed_content(pool: &SqlitePool) -> Result<()> {
+async fn seed_content(pool: &Db) -> Result<()> {
     let now = dates::now_db();
     let owner_id: String = sqlx::query_scalar("SELECT user_id FROM roles_users ru JOIN roles r ON r.id = ru.role_id WHERE r.name = 'Owner' LIMIT 1")
         .fetch_one(pool)
@@ -328,7 +328,7 @@ async fn seed_content(pool: &SqlitePool) -> Result<()> {
     // Default newsletter, named after the site. The title is whatever
     // `seed_settings` just wrote; setup rewrites both a moment later when the
     // owner gives the site its real name.
-    let site_title: String = sqlx::query_scalar("SELECT value FROM settings WHERE key = 'title'")
+    let site_title: crate::types::Text = sqlx::query_scalar("SELECT value FROM settings WHERE `key` = 'title'")
         .fetch_optional(pool)
         .await
         .ok()
@@ -395,7 +395,7 @@ async fn seed_content(pool: &SqlitePool) -> Result<()> {
     Ok(())
 }
 
-async fn seed_integrations(pool: &SqlitePool) -> Result<()> {
+async fn seed_integrations(pool: &Db) -> Result<()> {
     let now = dates::now_db();
     // The role is least privilege, not convenience. Ghost gives its two
     // internal integrations roles of their own — the scheduler may publish a
@@ -485,19 +485,19 @@ fn html_plain(html: &str) -> String {
 }
 
 /// Re-seed settings rows that are missing (mirrors Ghost's populateDefaults).
-pub async fn populate_missing_settings(pool: &SqlitePool) -> Result<()> {
+pub async fn populate_missing_settings(pool: &Db) -> Result<()> {
     let raw = include_str!("../assets/default-settings.json");
     let seeds: Vec<SettingSeed> = serde_json::from_str(raw)?;
     let now = dates::now_db();
     for s in seeds {
-        let exists: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM settings WHERE key = ?")
+        let exists: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM settings WHERE `key` = ?")
             .bind(&s.key)
             .fetch_one(pool)
             .await
             .unwrap_or(0);
         if exists == 0 {
             let value = value_to_string(&s.value);
-            sqlx::query("INSERT INTO settings (id, `group`, key, value, type, flags, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)")
+            sqlx::query("INSERT INTO settings (id, `group`, `key`, value, type, flags, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)")
                 .bind(&ids::new_id())
                 .bind(&s.group)
                 .bind(&s.key)
@@ -534,13 +534,13 @@ pub fn new_uuid_v4() -> String {
 /// like `ensure_builtin_integrations`, so a database created before
 /// automations existed gets the flows too — and deleting one brings it back
 /// on the next boot, which is also true in Ghost.
-pub async fn ensure_default_automations(pool: &SqlitePool) -> Result<()> {
+pub async fn ensure_default_automations(pool: &Db) -> Result<()> {
     for (name, description, slug, scope) in ghost_core::automations::DEFAULT_WELCOME_AUTOMATIONS {
         let now = dates::now_db();
         let inserted = sqlx::query(
-            "INSERT INTO automations (id, status, name, description, slug, trigger_tier_scope, created_at, updated_at) \
+            crate::dialect::sql("INSERT INTO automations (id, status, name, description, slug, trigger_tier_scope, created_at, updated_at) \
              VALUES (?, 'inactive', ?, ?, ?, ?, ?, ?) \
-             ON CONFLICT(slug) DO NOTHING",
+             ON CONFLICT(slug) DO NOTHING"),
         )
         .bind(ids::new_id())
         .bind(name)
@@ -570,7 +570,7 @@ pub async fn ensure_default_automations(pool: &SqlitePool) -> Result<()> {
 ///
 /// Only Zapier is here. Slack and Unsplash are configuration rather than API
 /// clients — they live in settings, which is the same split Ghost makes.
-pub async fn ensure_builtin_integrations(pool: &SqlitePool) -> Result<()> {
+pub async fn ensure_builtin_integrations(pool: &Db) -> Result<()> {
     for (name, slug, key_type) in [("Zapier", "zapier", "admin")] {
         let exists: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM integrations WHERE slug = ?")
             .bind(slug)

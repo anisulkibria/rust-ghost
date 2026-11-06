@@ -131,7 +131,8 @@ impl MemberSnapshot {
 }
 
 async fn load_member(state: &AppState, member_id: &str) -> Option<MemberSnapshot> {
-    let row: (String, Option<String>, String, Option<String>, String, Option<bool>) =
+    // Booleans are 0/1 integers; `Any` does not decode one as a `bool`.
+    let row: (String, Option<String>, String, Option<String>, String, Option<i64>) =
         sqlx::query_as(
             "SELECT id, uuid, email, name, status, enable_updates_and_announcements \
              FROM members WHERE id = ? AND email_disabled=0 AND NOT EXISTS(SELECT 1 FROM email_suppressions es WHERE es.email=members.email)",
@@ -152,7 +153,7 @@ async fn load_member(state: &AppState, member_id: &str) -> Option<MemberSnapshot
     .unwrap_or(0);
 
     let tier_ids: Vec<String> =
-        sqlx::query_scalar("SELECT product_id FROM members_products WHERE member_id = ? AND (expiry_at IS NULL OR datetime(expiry_at)>datetime('now'))")
+        sqlx::query_scalar(ghost_db::dialect::sql("SELECT product_id FROM members_products WHERE member_id = ? AND (expiry_at IS NULL OR datetime(expiry_at)>datetime('now'))"))
             .bind(member_id)
             .fetch_all(&state.db)
             .await
@@ -164,7 +165,7 @@ async fn load_member(state: &AppState, member_id: &str) -> Option<MemberSnapshot
         email: row.2,
         name: row.3,
         status: row.4,
-        updates_preference: row.5,
+        updates_preference: row.5.map(|v| v != 0),
         newsletter_count,
         tier_ids,
     })

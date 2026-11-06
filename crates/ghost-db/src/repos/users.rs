@@ -1,11 +1,11 @@
 //! Users (staff) repository.
 use ghost_core::{dates, ids, models::User, slug, GhostError, Result};
-use sqlx::SqlitePool;
+use crate::Db;
 use std::collections::BTreeSet;
 
 use super::{dberr, UserRow, USER_COLS};
 
-pub async fn find_by_ids(pool: &SqlitePool, user_ids: &BTreeSet<String>) -> Result<Vec<User>> {
+pub async fn find_by_ids(pool: &Db, user_ids: &BTreeSet<String>) -> Result<Vec<User>> {
     let mut out = Vec::new();
     for chunk in user_ids.iter().collect::<Vec<_>>().chunks(100) {
         let mut q = format!("SELECT {USER_COLS} FROM users WHERE id IN (");
@@ -21,7 +21,7 @@ pub async fn find_by_ids(pool: &SqlitePool, user_ids: &BTreeSet<String>) -> Resu
     Ok(out)
 }
 
-pub async fn find_by_email(pool: &SqlitePool, email: &str) -> Result<Option<User>> {
+pub async fn find_by_email(pool: &Db, email: &str) -> Result<Option<User>> {
     let user = sqlx::query_as::<_, UserRow>(&format!(
         "SELECT {USER_COLS} FROM users WHERE email = ? LIMIT 1"
     ))
@@ -33,7 +33,7 @@ pub async fn find_by_email(pool: &SqlitePool, email: &str) -> Result<Option<User
     Ok(user)
 }
 
-pub async fn find_by_slug(pool: &SqlitePool, slug_: &str) -> Result<Option<User>> {
+pub async fn find_by_slug(pool: &Db, slug_: &str) -> Result<Option<User>> {
     let user = sqlx::query_as::<_, UserRow>(&format!(
         "SELECT {USER_COLS} FROM users WHERE slug = ? LIMIT 1"
     ))
@@ -45,7 +45,7 @@ pub async fn find_by_slug(pool: &SqlitePool, slug_: &str) -> Result<Option<User>
     Ok(user)
 }
 
-pub async fn find_by_id(pool: &SqlitePool, id: &str) -> Result<Option<User>> {
+pub async fn find_by_id(pool: &Db, id: &str) -> Result<Option<User>> {
     let user = sqlx::query_as::<_, UserRow>(&format!(
         "SELECT {USER_COLS} FROM users WHERE id = ? LIMIT 1"
     ))
@@ -57,7 +57,7 @@ pub async fn find_by_id(pool: &SqlitePool, id: &str) -> Result<Option<User>> {
     Ok(user)
 }
 
-pub async fn list(pool: &SqlitePool, public_only: bool) -> Result<Vec<User>> {
+pub async fn list(pool: &Db, public_only: bool) -> Result<Vec<User>> {
     let rows = sqlx::query_as::<_, UserRow>(&format!(
         "SELECT {USER_COLS} FROM users {} ORDER BY name",
         if public_only { "WHERE status = 'active' AND visibility = 'public'" } else { "" }
@@ -69,7 +69,7 @@ pub async fn list(pool: &SqlitePool, public_only: bool) -> Result<Vec<User>> {
 }
 
 /// The Owner = the user holding the Owner role.
-pub async fn find_owner(pool: &SqlitePool) -> Result<Option<User>> {
+pub async fn find_owner(pool: &Db) -> Result<Option<User>> {
     let user_id: Option<String> = sqlx::query_scalar(
         "SELECT ru.user_id FROM roles_users ru JOIN roles r ON r.id = ru.role_id WHERE r.name = 'Owner' LIMIT 1",
     )
@@ -83,12 +83,12 @@ pub async fn find_owner(pool: &SqlitePool) -> Result<Option<User>> {
 }
 
 /// Is setup complete? Ghost: an Owner user with active status exists.
-pub async fn is_setup(pool: &SqlitePool) -> Result<bool> {
+pub async fn is_setup(pool: &Db) -> Result<bool> {
     let owner = find_owner(pool).await?;
     Ok(owner.map(|u| u.status.as_deref() == Some("active")).unwrap_or(false))
 }
 
-pub async fn role_name(pool: &SqlitePool, user_id: &str) -> Result<Option<String>> {
+pub async fn role_name(pool: &Db, user_id: &str) -> Result<Option<String>> {
     let name: Option<String> = sqlx::query_scalar(
         "SELECT r.name FROM roles_users ru JOIN roles r ON r.id = ru.role_id WHERE ru.user_id = ? LIMIT 1",
     )
@@ -99,7 +99,7 @@ pub async fn role_name(pool: &SqlitePool, user_id: &str) -> Result<Option<String
     Ok(name)
 }
 
-async fn unique_slug(pool: &SqlitePool, base: &str, self_id: Option<&str>) -> Result<String> {
+async fn unique_slug(pool: &Db, base: &str, self_id: Option<&str>) -> Result<String> {
     let mut s = slug::safe_string(base);
     if s.len() > 185 {
         s.truncate(185);
@@ -138,7 +138,7 @@ async fn unique_slug(pool: &SqlitePool, base: &str, self_id: Option<&str>) -> Re
 }
 
 /// Complete setup: activate the placeholder Owner with real credentials.
-pub async fn setup_owner(pool: &SqlitePool, name: &str, email: &str, password_hash: &str) -> Result<User> {
+pub async fn setup_owner(pool: &Db, name: &str, email: &str, password_hash: &str) -> Result<User> {
     let mut owner = find_owner(pool)
         .await?
         .ok_or_else(|| GhostError::Internal("placeholder owner missing".into()))?;
@@ -197,7 +197,7 @@ pub struct UserChanges {
     pub gift_subscription_notifications: Option<bool>,
 }
 
-pub async fn update(pool: &SqlitePool, id: &str, changes: &UserChanges) -> Result<User> {
+pub async fn update(pool: &Db, id: &str, changes: &UserChanges) -> Result<User> {
     let existing = find_by_id(pool, id).await?.ok_or(ghost_core::GhostError::NotFoundError { message: "not found".into(), context: None })?;
     let now = dates::now_db();
     let name = changes.name.clone().unwrap_or(existing.name.clone().unwrap_or_default());
@@ -251,7 +251,7 @@ pub async fn update(pool: &SqlitePool, id: &str, changes: &UserChanges) -> Resul
 }
 
 /// Update by slug — the staff profile routes address users that way.
-pub async fn update_by_slug(pool: &SqlitePool, slug_: &str, changes: &UserChanges) -> Result<User> {
+pub async fn update_by_slug(pool: &Db, slug_: &str, changes: &UserChanges) -> Result<User> {
     let user = find_by_slug(pool, slug_)
         .await?
         .ok_or(ghost_core::GhostError::NotFoundError { message: "not found".into(), context: None })?;
@@ -259,7 +259,7 @@ pub async fn update_by_slug(pool: &SqlitePool, slug_: &str, changes: &UserChange
 }
 
 /// Create an additional staff user.
-pub async fn insert_staff(pool: &SqlitePool, name: &str, email: &str, password_hash: &str, role: &str) -> Result<User> {
+pub async fn insert_staff(pool: &Db, name: &str, email: &str, password_hash: &str, role: &str) -> Result<User> {
     let id = ids::new_id();
     let now = dates::now_db();
     let slug_ = unique_slug(pool, name, None).await?;
@@ -291,7 +291,7 @@ pub async fn insert_staff(pool: &SqlitePool, name: &str, email: &str, password_h
     find_by_id(pool, &id).await?.ok_or_else(|| GhostError::Internal("user vanished".into()))
 }
 
-pub async fn update_last_seen(pool: &SqlitePool, id: &str) -> Result<()> {
+pub async fn update_last_seen(pool: &Db, id: &str) -> Result<()> {
     let now = dates::now_db();
     let _ = sqlx::query("UPDATE users SET last_seen = ? WHERE id = ?")
         .bind(&now)
@@ -304,7 +304,7 @@ pub async fn update_last_seen(pool: &SqlitePool, id: &str) -> Result<()> {
 /// Replace the `accessibility` JSON blob wholesale. The caller merges — this
 /// only writes — so a preference save can never clobber the other keys Ghost
 /// keeps in there.
-pub async fn set_accessibility(pool: &SqlitePool, id: &str, accessibility: &str) -> Result<()> {
+pub async fn set_accessibility(pool: &Db, id: &str, accessibility: &str) -> Result<()> {
     let now = dates::now_db();
     sqlx::query("UPDATE users SET accessibility = ?, updated_at = ? WHERE id = ?")
         .bind(accessibility)
@@ -316,7 +316,7 @@ pub async fn set_accessibility(pool: &SqlitePool, id: &str, accessibility: &str)
     Ok(())
 }
 
-pub async fn verify_password(pool: &SqlitePool, email: &str, password: &str) -> Result<Option<User>> {
+pub async fn verify_password(pool: &Db, email: &str, password: &str) -> Result<Option<User>> {
     let Some(user) = find_by_email(pool, email).await? else { return Ok(None) };
     if user.status.as_deref() != Some("active") {
         return Ok(None);
@@ -347,13 +347,13 @@ mod tests {
     }
 
     /// A throwaway database with the real migrations applied.
-    async fn test_pool() -> (SqlitePool, TempDir) {
+    async fn test_pool() -> (Db, TempDir) {
         let dir = std::env::temp_dir().join(format!("ghost-users-test-{}", ids::new_id()));
         let pool = crate::pool::connect(&dir.join("test.db")).await.expect("open test db");
         (pool, TempDir(dir))
     }
 
-    async fn a_user(pool: &SqlitePool) -> User {
+    async fn a_user(pool: &Db) -> User {
         insert_staff(pool, "Jo Bloggs", "jo@example.com", "hash", "Author").await.expect("insert")
     }
 

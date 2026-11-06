@@ -31,14 +31,14 @@ pub async fn sync_tier(
     }
     for (amount, interval, column) in [(monthly, "month", "monthly_price_id"), (yearly, "year", "yearly_price_id")] {
         let Some(amount) = amount.filter(|amount| *amount > 0) else { continue };
-        let cached: Option<String> = sqlx::query_scalar("SELECT stripe_price_id FROM stripe_prices WHERE stripe_product_id = ? AND amount = ? AND lower(currency) = lower(?) AND interval = ? AND active = 1 LIMIT 1")
+        let cached: Option<String> = sqlx::query_scalar("SELECT stripe_price_id FROM stripe_prices WHERE stripe_product_id = ? AND amount = ? AND lower(currency) = lower(?) AND `interval` = ? AND active = 1 LIMIT 1")
             .bind(&product_id).bind(amount).bind(currency).bind(interval)
             .fetch_optional(&state.db).await.map_err(db_error)?;
         let price_id = match cached {
             Some(id) => id,
             None => {
                 let id = ghost_stripe::create_price(cfg, &product_id, currency, amount, interval).await?;
-                sqlx::query("INSERT INTO stripe_prices (id, stripe_price_id, stripe_product_id, active, nickname, amount, currency, interval, type, created_at, updated_at) VALUES (?, ?, ?, 1, ?, ?, ?, ?, 'recurring', ?, ?)")
+                sqlx::query("INSERT INTO stripe_prices (id, stripe_price_id, stripe_product_id, active, nickname, amount, currency, `interval`, type, created_at, updated_at) VALUES (?, ?, ?, 1, ?, ?, ?, ?, 'recurring', ?, ?)")
                     .bind(ghost_core::ids::new_id()).bind(&id).bind(&product_id).bind(interval)
                     .bind(amount).bind(currency).bind(interval).bind(&now).bind(&now)
                     .execute(&state.db).await.map_err(db_error)?;

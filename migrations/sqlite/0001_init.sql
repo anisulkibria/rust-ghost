@@ -15,15 +15,15 @@ CREATE TABLE IF NOT EXISTS posts (
     comment_id TEXT(50),
     plaintext TEXT,
     feature_image TEXT(2000),
-    featured BOOLEAN NOT NULL DEFAULT 0,
+    featured INTEGER NOT NULL DEFAULT 0,
     type TEXT(50) NOT NULL DEFAULT 'post',
     status TEXT(50) NOT NULL DEFAULT 'draft',
     locale TEXT(6),
     visibility TEXT(50) NOT NULL DEFAULT 'public',
     email_recipient_filter TEXT,
-    created_at DATETIME NOT NULL,
-    updated_at DATETIME,
-    published_at DATETIME,
+    created_at TEXT NOT NULL,
+    updated_at TEXT,
+    published_at TEXT,
     published_by TEXT(24),
     custom_excerpt TEXT(2000),
     auto_excerpt TEXT(500),
@@ -33,7 +33,7 @@ CREATE TABLE IF NOT EXISTS posts (
     custom_template TEXT(100),
     canonical_url TEXT(2000),
     newsletter_id TEXT(24) REFERENCES newsletters(id),
-    show_title_and_feature_image BOOLEAN NOT NULL DEFAULT 1
+    show_title_and_feature_image INTEGER NOT NULL DEFAULT 1
 );
 CREATE INDEX IF NOT EXISTS posts_uuid_idx ON posts (uuid);
 CREATE INDEX IF NOT EXISTS posts_published_at_idx ON posts (published_at);
@@ -53,7 +53,7 @@ CREATE TABLE IF NOT EXISTS posts_meta (
     meta_title TEXT(300),
     meta_description TEXT(500),
     email_subject TEXT(300),
-    email_only BOOLEAN NOT NULL DEFAULT 0,
+    email_only INTEGER NOT NULL DEFAULT 0,
     email_preview TEXT(300),
     frontmatter TEXT,
     feature_image_alt TEXT(2000),
@@ -87,18 +87,18 @@ CREATE TABLE IF NOT EXISTS users (
     meta_title TEXT(300),
     meta_description TEXT(500),
     tour TEXT,
-    last_seen DATETIME,
-    comment_notifications BOOLEAN NOT NULL DEFAULT 1,
-    free_member_signup_notification BOOLEAN NOT NULL DEFAULT 1,
-    paid_subscription_started_notification BOOLEAN NOT NULL DEFAULT 1,
-    paid_subscription_canceled_notification BOOLEAN NOT NULL DEFAULT 0,
-    mention_notifications BOOLEAN NOT NULL DEFAULT 1,
-    recommendation_notifications BOOLEAN NOT NULL DEFAULT 1,
-    milestone_notifications BOOLEAN NOT NULL DEFAULT 1,
-    donation_notifications BOOLEAN NOT NULL DEFAULT 1,
-    gift_subscription_notifications BOOLEAN NOT NULL DEFAULT 1,
-    created_at DATETIME NOT NULL,
-    updated_at DATETIME
+    last_seen TEXT,
+    comment_notifications INTEGER NOT NULL DEFAULT 1,
+    free_member_signup_notification INTEGER NOT NULL DEFAULT 1,
+    paid_subscription_started_notification INTEGER NOT NULL DEFAULT 1,
+    paid_subscription_canceled_notification INTEGER NOT NULL DEFAULT 0,
+    mention_notifications INTEGER NOT NULL DEFAULT 1,
+    recommendation_notifications INTEGER NOT NULL DEFAULT 1,
+    milestone_notifications INTEGER NOT NULL DEFAULT 1,
+    donation_notifications INTEGER NOT NULL DEFAULT 1,
+    gift_subscription_notifications INTEGER NOT NULL DEFAULT 1,
+    created_at TEXT NOT NULL,
+    updated_at TEXT
 );
 
 CREATE TABLE IF NOT EXISTS tags (
@@ -121,8 +121,8 @@ CREATE TABLE IF NOT EXISTS tags (
     codeinjection_foot TEXT,
     canonical_url TEXT(2000),
     accent_color TEXT(50),
-    created_at DATETIME NOT NULL,
-    updated_at DATETIME
+    created_at TEXT NOT NULL,
+    updated_at TEXT
 );
 
 CREATE TABLE IF NOT EXISTS posts_tags (
@@ -145,8 +145,8 @@ CREATE TABLE IF NOT EXISTS roles (
     id TEXT PRIMARY KEY NOT NULL,
     name TEXT(50) NOT NULL UNIQUE,
     description TEXT(2000),
-    created_at DATETIME NOT NULL,
-    updated_at DATETIME
+    created_at TEXT NOT NULL,
+    updated_at TEXT
 );
 
 CREATE TABLE IF NOT EXISTS roles_users (
@@ -161,8 +161,8 @@ CREATE TABLE IF NOT EXISTS permissions (
     object_type TEXT(50) NOT NULL,
     action_type TEXT(50) NOT NULL,
     object_id TEXT(24),
-    created_at DATETIME NOT NULL,
-    updated_at DATETIME
+    created_at TEXT NOT NULL,
+    updated_at TEXT
 );
 
 CREATE TABLE IF NOT EXISTS permissions_users (
@@ -184,8 +184,8 @@ CREATE TABLE IF NOT EXISTS settings (
     value TEXT,
     type TEXT(50) NOT NULL DEFAULT 'string',
     flags TEXT(50),
-    created_at DATETIME NOT NULL,
-    updated_at DATETIME
+    created_at TEXT NOT NULL,
+    updated_at TEXT
 );
 
 CREATE TABLE IF NOT EXISTS sessions (
@@ -193,8 +193,8 @@ CREATE TABLE IF NOT EXISTS sessions (
     session_id TEXT(32) NOT NULL UNIQUE,
     user_id TEXT(24) NOT NULL,
     session_data TEXT(2000) NOT NULL,
-    created_at DATETIME NOT NULL,
-    updated_at DATETIME
+    created_at TEXT NOT NULL,
+    updated_at TEXT
 );
 
 CREATE TABLE IF NOT EXISTS integrations (
@@ -204,8 +204,8 @@ CREATE TABLE IF NOT EXISTS integrations (
     slug TEXT(191) NOT NULL UNIQUE,
     icon_image TEXT(2000),
     description TEXT(2000),
-    created_at DATETIME NOT NULL,
-    updated_at DATETIME
+    created_at TEXT NOT NULL,
+    updated_at TEXT
 );
 
 CREATE TABLE IF NOT EXISTS webhooks (
@@ -216,11 +216,11 @@ CREATE TABLE IF NOT EXISTS webhooks (
     secret TEXT(191),
     api_version TEXT(50) NOT NULL DEFAULT 'v2',
     integration_id TEXT(24) NOT NULL REFERENCES integrations(id) ON DELETE CASCADE,
-    last_triggered_at DATETIME,
+    last_triggered_at TEXT,
     last_triggered_status TEXT(50),
     last_triggered_error TEXT(50),
-    created_at DATETIME NOT NULL,
-    updated_at DATETIME
+    created_at TEXT NOT NULL,
+    updated_at TEXT
 );
 
 CREATE TABLE IF NOT EXISTS api_keys (
@@ -230,10 +230,10 @@ CREATE TABLE IF NOT EXISTS api_keys (
     role_id TEXT(24),
     integration_id TEXT(24) REFERENCES integrations(id) ON DELETE CASCADE,
     user_id TEXT(24),
-    last_seen_at DATETIME,
+    last_seen_at TEXT,
     last_seen_version TEXT(50),
-    created_at DATETIME NOT NULL,
-    updated_at DATETIME
+    created_at TEXT NOT NULL,
+    updated_at TEXT
 );
 
 CREATE TABLE IF NOT EXISTS actions (
@@ -244,7 +244,7 @@ CREATE TABLE IF NOT EXISTS actions (
     actor_type TEXT(50) NOT NULL,
     event TEXT(50) NOT NULL,
     context TEXT,
-    created_at DATETIME NOT NULL
+    created_at TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS actions_resource_idx ON actions (resource_type, resource_id);
 
@@ -253,8 +253,8 @@ CREATE TABLE IF NOT EXISTS invites (
     role_id TEXT(24) NOT NULL,
     token TEXT(191) NOT NULL UNIQUE,
     expires BIGINT NOT NULL,
-    created_at DATETIME NOT NULL,
-    updated_at DATETIME
+    created_at TEXT NOT NULL,
+    updated_at TEXT
 );
 
 CREATE TABLE IF NOT EXISTS brute (
@@ -267,12 +267,12 @@ CREATE TABLE IF NOT EXISTS brute (
 
 CREATE TABLE IF NOT EXISTS tokens (
     id TEXT PRIMARY KEY NOT NULL,
-    token TEXT(32) NOT NULL,
+    token TEXT(64) NOT NULL,
     uuid TEXT(36) UNIQUE,
     data TEXT(2000),
-    created_at DATETIME NOT NULL,
-    updated_at DATETIME,
-    first_used_at DATETIME,
+    created_at TEXT NOT NULL,
+    updated_at TEXT,
+    first_used_at TEXT,
     used_count INTEGER UNSIGNED NOT NULL DEFAULT 0,
     otc_used_count INTEGER UNSIGNED NOT NULL DEFAULT 0
 );
@@ -283,8 +283,8 @@ CREATE TABLE IF NOT EXISTS snippets (
     name TEXT(191) NOT NULL UNIQUE,
     mobiledoc TEXT NOT NULL,
     lexical TEXT,
-    created_at DATETIME NOT NULL,
-    updated_at DATETIME
+    created_at TEXT NOT NULL,
+    updated_at TEXT
 );
 
 CREATE TABLE IF NOT EXISTS custom_theme_settings (
@@ -310,17 +310,17 @@ CREATE TABLE IF NOT EXISTS members (
     expertise TEXT(50),
     note TEXT(2000),
     geolocation TEXT(2000),
-    enable_comment_notifications BOOLEAN NOT NULL DEFAULT 1,
-    enable_updates_and_announcements BOOLEAN,
+    enable_comment_notifications INTEGER NOT NULL DEFAULT 1,
+    enable_updates_and_announcements INTEGER,
     email_count INTEGER UNSIGNED NOT NULL DEFAULT 0,
     email_opened_count INTEGER UNSIGNED NOT NULL DEFAULT 0,
     email_open_rate INTEGER UNSIGNED,
-    email_disabled BOOLEAN NOT NULL DEFAULT 0,
-    last_seen_at DATETIME,
-    last_commented_at DATETIME,
+    email_disabled INTEGER NOT NULL DEFAULT 0,
+    last_seen_at TEXT,
+    last_commented_at TEXT,
     commenting TEXT,
-    created_at DATETIME NOT NULL,
-    updated_at DATETIME
+    created_at TEXT NOT NULL,
+    updated_at TEXT
 );
 CREATE INDEX IF NOT EXISTS members_created_at_idx ON members (created_at, id);
 CREATE INDEX IF NOT EXISTS members_email_disabled_idx ON members (email_disabled);
@@ -329,7 +329,7 @@ CREATE TABLE IF NOT EXISTS products (
     id TEXT PRIMARY KEY NOT NULL,
     name TEXT(191) NOT NULL,
     slug TEXT(191) NOT NULL UNIQUE,
-    active BOOLEAN NOT NULL DEFAULT 1,
+    active INTEGER NOT NULL DEFAULT 1,
     welcome_page_url TEXT(2000),
     visibility TEXT(50) NOT NULL DEFAULT 'none',
     trial_days INTEGER UNSIGNED NOT NULL DEFAULT 0,
@@ -340,8 +340,8 @@ CREATE TABLE IF NOT EXISTS products (
     yearly_price INTEGER UNSIGNED,
     monthly_price_id TEXT(24),
     yearly_price_id TEXT(24),
-    created_at DATETIME NOT NULL,
-    updated_at DATETIME
+    created_at TEXT NOT NULL,
+    updated_at TEXT
 );
 
 CREATE TABLE IF NOT EXISTS members_products (
@@ -349,7 +349,7 @@ CREATE TABLE IF NOT EXISTS members_products (
     member_id TEXT(24) NOT NULL REFERENCES members(id) ON DELETE CASCADE,
     product_id TEXT(24) NOT NULL REFERENCES products(id) ON DELETE CASCADE,
     sort_order INTEGER UNSIGNED NOT NULL DEFAULT 0,
-    expiry_at DATETIME
+    expiry_at TEXT
 );
 
 CREATE TABLE IF NOT EXISTS posts_products (
@@ -363,8 +363,8 @@ CREATE TABLE IF NOT EXISTS benefits (
     id TEXT PRIMARY KEY NOT NULL,
     name TEXT(191) NOT NULL,
     slug TEXT(191) NOT NULL UNIQUE,
-    created_at DATETIME NOT NULL,
-    updated_at DATETIME
+    created_at TEXT NOT NULL,
+    updated_at TEXT
 );
 
 CREATE TABLE IF NOT EXISTS products_benefits (
@@ -376,7 +376,7 @@ CREATE TABLE IF NOT EXISTS products_benefits (
 
 CREATE TABLE IF NOT EXISTS offers (
     id TEXT PRIMARY KEY NOT NULL,
-    active BOOLEAN NOT NULL DEFAULT 0,
+    active INTEGER NOT NULL DEFAULT 0,
     name TEXT(191) NOT NULL UNIQUE,
     code TEXT(191) NOT NULL UNIQUE,
     product_id TEXT(24) NOT NULL REFERENCES products(id) ON DELETE CASCADE,
@@ -390,8 +390,8 @@ CREATE TABLE IF NOT EXISTS offers (
     portal_title TEXT(191),
     portal_description TEXT(2000),
     redemption_type TEXT(50),
-    created_at DATETIME NOT NULL,
-    updated_at DATETIME
+    created_at TEXT NOT NULL,
+    updated_at TEXT
 );
 
 CREATE TABLE IF NOT EXISTS newsletters (
@@ -399,28 +399,28 @@ CREATE TABLE IF NOT EXISTS newsletters (
     uuid TEXT(36),
     name TEXT(191) NOT NULL UNIQUE,
     description TEXT(2000),
-    feedback_enabled BOOLEAN NOT NULL DEFAULT 0,
+    feedback_enabled INTEGER NOT NULL DEFAULT 0,
     slug TEXT(191) NOT NULL UNIQUE,
     sender_name TEXT(191),
     sender_email TEXT(191),
     sender_reply_to TEXT(191) NOT NULL DEFAULT 'newsletter',
     status TEXT(50) NOT NULL DEFAULT 'active',
     visibility TEXT(50) NOT NULL DEFAULT 'members',
-    subscribe_on_signup BOOLEAN NOT NULL DEFAULT 1,
+    subscribe_on_signup INTEGER NOT NULL DEFAULT 1,
     sort_order INTEGER UNSIGNED NOT NULL DEFAULT 0,
     header_image TEXT(2000),
-    show_header_icon BOOLEAN NOT NULL DEFAULT 1,
-    show_header_title BOOLEAN NOT NULL DEFAULT 1,
-    show_excerpt BOOLEAN NOT NULL DEFAULT 0,
-    show_feature_image BOOLEAN NOT NULL DEFAULT 1,
+    show_header_icon INTEGER NOT NULL DEFAULT 1,
+    show_header_title INTEGER NOT NULL DEFAULT 1,
+    show_excerpt INTEGER NOT NULL DEFAULT 0,
+    show_feature_image INTEGER NOT NULL DEFAULT 1,
     footer_content TEXT,
-    show_badge BOOLEAN NOT NULL DEFAULT 1,
-    show_header_name BOOLEAN NOT NULL DEFAULT 1,
-    show_post_title_section BOOLEAN NOT NULL DEFAULT 1,
-    show_comment_cta BOOLEAN NOT NULL DEFAULT 1,
-    show_subscription_details BOOLEAN NOT NULL DEFAULT 0,
-    show_latest_posts BOOLEAN NOT NULL DEFAULT 0,
-    show_share_button BOOLEAN NOT NULL DEFAULT 0,
+    show_badge INTEGER NOT NULL DEFAULT 1,
+    show_header_name INTEGER NOT NULL DEFAULT 1,
+    show_post_title_section INTEGER NOT NULL DEFAULT 1,
+    show_comment_cta INTEGER NOT NULL DEFAULT 1,
+    show_subscription_details INTEGER NOT NULL DEFAULT 0,
+    show_latest_posts INTEGER NOT NULL DEFAULT 0,
+    show_share_button INTEGER NOT NULL DEFAULT 0,
     background_color TEXT(50) NOT NULL DEFAULT 'light',
     post_title_color TEXT(50),
     header_background_color TEXT(50) NOT NULL DEFAULT 'transparent',
@@ -428,8 +428,8 @@ CREATE TABLE IF NOT EXISTS newsletters (
     divider_color TEXT(50),
     button_color TEXT(50) DEFAULT 'accent',
     link_color TEXT(50) DEFAULT 'accent',
-    created_at DATETIME NOT NULL,
-    updated_at DATETIME
+    created_at TEXT NOT NULL,
+    updated_at TEXT
 );
 
 CREATE TABLE IF NOT EXISTS members_newsletters (
@@ -456,13 +456,13 @@ CREATE TABLE IF NOT EXISTS emails (
     html TEXT,
     plaintext TEXT,
     source TEXT,
-    track_opens BOOLEAN NOT NULL DEFAULT 0,
-    track_clicks BOOLEAN NOT NULL DEFAULT 0,
-    feedback_enabled BOOLEAN NOT NULL DEFAULT 0,
-    submitted_at DATETIME,
+    track_opens INTEGER NOT NULL DEFAULT 0,
+    track_clicks INTEGER NOT NULL DEFAULT 0,
+    feedback_enabled INTEGER NOT NULL DEFAULT 0,
+    submitted_at TEXT,
     newsletter_id TEXT(24) REFERENCES newsletters(id),
-    created_at DATETIME NOT NULL,
-    updated_at DATETIME
+    created_at TEXT NOT NULL,
+    updated_at TEXT
 );
 
 CREATE TABLE IF NOT EXISTS email_batches (
@@ -470,8 +470,8 @@ CREATE TABLE IF NOT EXISTS email_batches (
     email_id TEXT(24) NOT NULL REFERENCES emails(id) ON DELETE CASCADE,
     provider_id TEXT(191),
     status TEXT(50) NOT NULL DEFAULT 'submitted',
-    created_at DATETIME NOT NULL,
-    updated_at DATETIME
+    created_at TEXT NOT NULL,
+    updated_at TEXT
 );
 
 CREATE TABLE IF NOT EXISTS email_recipients (
@@ -480,14 +480,14 @@ CREATE TABLE IF NOT EXISTS email_recipients (
     member_id TEXT(24),
     batch_id TEXT(24),
     status TEXT(50) NOT NULL DEFAULT 'pending',
-    delivered_at DATETIME,
-    opened_at DATETIME,
-    failed_at DATETIME,
+    delivered_at TEXT,
+    opened_at TEXT,
+    failed_at TEXT,
     error_code INTEGER,
     error TEXT(2000),
     email_address TEXT(191),
-    created_at DATETIME NOT NULL,
-    updated_at DATETIME
+    created_at TEXT NOT NULL,
+    updated_at TEXT
 );
 CREATE INDEX IF NOT EXISTS email_recipients_email_member_idx ON email_recipients (email_id, member_id);
 
@@ -497,7 +497,7 @@ CREATE TABLE IF NOT EXISTS email_recipient_failures (
     email_recipient_id TEXT(24),
     member_id TEXT(24),
     message TEXT(2000),
-    failed_at DATETIME
+    failed_at TEXT
 );
 
 CREATE TABLE IF NOT EXISTS comments (
@@ -508,10 +508,10 @@ CREATE TABLE IF NOT EXISTS comments (
     in_reply_to_id TEXT(24) REFERENCES comments(id) ON DELETE SET NULL,
     status TEXT(50) NOT NULL DEFAULT 'published',
     html TEXT,
-    edited_at DATETIME,
-    pinned_at DATETIME,
-    created_at DATETIME NOT NULL,
-    updated_at DATETIME NOT NULL
+    edited_at TEXT,
+    pinned_at TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS comments_post_id_idx ON comments (post_id, status);
 
@@ -519,7 +519,7 @@ CREATE TABLE IF NOT EXISTS comment_likes (
     id TEXT PRIMARY KEY NOT NULL,
     comment_id TEXT(24) NOT NULL REFERENCES comments(id) ON DELETE CASCADE,
     member_id TEXT(24) NOT NULL REFERENCES members(id) ON DELETE CASCADE,
-    created_at DATETIME NOT NULL
+    created_at TEXT NOT NULL
 );
 CREATE UNIQUE INDEX IF NOT EXISTS comment_likes_unique ON comment_likes (comment_id, member_id);
 
@@ -527,15 +527,15 @@ CREATE TABLE IF NOT EXISTS comment_reports (
     id TEXT PRIMARY KEY NOT NULL,
     comment_id TEXT(24) NOT NULL REFERENCES comments(id) ON DELETE CASCADE,
     member_id TEXT(24) NOT NULL REFERENCES members(id) ON DELETE CASCADE,
-    created_at DATETIME NOT NULL
+    created_at TEXT NOT NULL
 );
 CREATE UNIQUE INDEX IF NOT EXISTS comment_reports_unique ON comment_reports (comment_id, member_id);
 
 CREATE TABLE IF NOT EXISTS labels (
     id TEXT PRIMARY KEY NOT NULL,
     name TEXT(191) NOT NULL,
-    created_at DATETIME NOT NULL,
-    updated_at DATETIME
+    created_at TEXT NOT NULL,
+    updated_at TEXT
 );
 CREATE UNIQUE INDEX IF NOT EXISTS labels_name_unique ON labels (name);
 
@@ -552,7 +552,7 @@ CREATE TABLE IF NOT EXISTS mobiledoc_revisions (
     post_id TEXT(24) NOT NULL,
     mobiledoc TEXT,
     created_at_ts BIGINT NOT NULL,
-    created_at DATETIME NOT NULL
+    created_at TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS mobiledoc_revisions_post_idx ON mobiledoc_revisions (post_id);
 
@@ -561,7 +561,7 @@ CREATE TABLE IF NOT EXISTS post_revisions (
     post_id TEXT(24) NOT NULL,
     lexical TEXT,
     created_at_ts BIGINT NOT NULL,
-    created_at DATETIME NOT NULL,
+    created_at TEXT NOT NULL,
     author_id TEXT(24) REFERENCES users(id),
     reason TEXT(50),
     feature_image TEXT(2000),
@@ -574,7 +574,7 @@ CREATE TABLE IF NOT EXISTS milestones (
     type TEXT(50) NOT NULL,
     value TEXT(191) NOT NULL,
     unit TEXT(50) NOT NULL,
-    reached_at DATETIME NOT NULL
+    reached_at TEXT NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS recommendations (
@@ -582,31 +582,31 @@ CREATE TABLE IF NOT EXISTS recommendations (
     url TEXT(2000) NOT NULL,
     title TEXT(191) NOT NULL,
     description TEXT(2000),
-    one_click_subscribe BOOLEAN NOT NULL DEFAULT 0,
-    featured BOOLEAN NOT NULL DEFAULT 0,
-    created_at DATETIME NOT NULL,
-    updated_at DATETIME
+    one_click_subscribe INTEGER NOT NULL DEFAULT 0,
+    featured INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL,
+    updated_at TEXT
 );
 
 CREATE TABLE IF NOT EXISTS recommendation_click_events (
     id TEXT PRIMARY KEY NOT NULL,
     recommendation_id TEXT(24) NOT NULL REFERENCES recommendations(id) ON DELETE CASCADE,
     member_id TEXT(24),
-    created_at DATETIME NOT NULL
+    created_at TEXT NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS recommendation_subscribe_events (
     id TEXT PRIMARY KEY NOT NULL,
     recommendation_id TEXT(24) NOT NULL REFERENCES recommendations(id) ON DELETE CASCADE,
     member_id TEXT(24),
-    created_at DATETIME NOT NULL
+    created_at TEXT NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS members_created_events (
     id TEXT PRIMARY KEY NOT NULL,
     member_id TEXT(24) NOT NULL,
     source TEXT(50) NOT NULL DEFAULT 'admin',
-    created_at DATETIME NOT NULL
+    created_at TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS members_created_events_idx ON members_created_events (member_id, source);
 
@@ -614,8 +614,8 @@ CREATE TABLE IF NOT EXISTS members_stripe_customers (
     id TEXT PRIMARY KEY NOT NULL,
     member_id TEXT(24) NOT NULL REFERENCES members(id) ON DELETE CASCADE,
     customer_id TEXT(191) NOT NULL UNIQUE,
-    created_at DATETIME NOT NULL,
-    updated_at DATETIME
+    created_at TEXT NOT NULL,
+    updated_at TEXT
 );
 
 CREATE TABLE IF NOT EXISTS subscriptions (
@@ -623,9 +623,9 @@ CREATE TABLE IF NOT EXISTS subscriptions (
     customer_id TEXT(191) NOT NULL,
     subscription_id TEXT(191) NOT NULL UNIQUE,
     status TEXT(50),
-    cancel_at_period_end BOOLEAN,
-    current_period_end DATETIME,
-    start_date DATETIME,
+    cancel_at_period_end INTEGER,
+    current_period_end TEXT,
+    start_date TEXT,
     default_payment_card_last4 TEXT(4),
     stripe_price_id TEXT(255),
     plan_id TEXT(24) REFERENCES products(id),
@@ -634,28 +634,28 @@ CREATE TABLE IF NOT EXISTS subscriptions (
     plan_nickname TEXT(50),
     plan_amount INTEGER,
     mrr REAL,
-    created_at DATETIME NOT NULL,
-    updated_at DATETIME
+    created_at TEXT NOT NULL,
+    updated_at TEXT
 );
 
 CREATE TABLE IF NOT EXISTS stripe_products (
     id TEXT PRIMARY KEY NOT NULL,
     stripe_product_id TEXT(255) NOT NULL UNIQUE,
     product_id TEXT(24) NOT NULL REFERENCES products(id) ON DELETE CASCADE,
-    created_at DATETIME NOT NULL,
-    updated_at DATETIME
+    created_at TEXT NOT NULL,
+    updated_at TEXT
 );
 
 CREATE TABLE IF NOT EXISTS stripe_prices (
     id TEXT PRIMARY KEY NOT NULL,
     stripe_price_id TEXT(255) NOT NULL UNIQUE,
     stripe_product_id TEXT(255) NOT NULL,
-    active BOOLEAN NOT NULL DEFAULT 1,
+    active INTEGER NOT NULL DEFAULT 1,
     nickname TEXT(50),
     amount INTEGER,
     currency TEXT(50),
     interval TEXT(50),
     type TEXT(50),
-    created_at DATETIME NOT NULL,
-    updated_at DATETIME
+    created_at TEXT NOT NULL,
+    updated_at TEXT
 );

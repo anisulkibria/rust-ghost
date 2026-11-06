@@ -25,8 +25,8 @@ CREATE TABLE IF NOT EXISTS automations (
     -- automation has none, hence nullable rather than derived from the name.
     slug TEXT(191) UNIQUE,
     trigger_tier_scope TEXT(50),
-    created_at DATETIME NOT NULL,
-    updated_at DATETIME
+    created_at TEXT NOT NULL,
+    updated_at TEXT
 );
 CREATE INDEX IF NOT EXISTS automations_status_idx ON automations (status);
 
@@ -40,11 +40,11 @@ CREATE UNIQUE INDEX IF NOT EXISTS automation_trigger_tiers_unique
 
 CREATE TABLE IF NOT EXISTS automation_actions (
     id TEXT PRIMARY KEY NOT NULL,
-    created_at DATETIME NOT NULL,
-    updated_at DATETIME NOT NULL,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
     -- Soft delete: a finished run still references the revisions of a node
     -- the author has since removed from the chain.
-    deleted_at DATETIME,
+    deleted_at TEXT,
     automation_id TEXT(24) NOT NULL REFERENCES automations(id),
     type TEXT(50) NOT NULL
 );
@@ -53,7 +53,7 @@ CREATE INDEX IF NOT EXISTS automation_actions_automation_idx
 
 CREATE TABLE IF NOT EXISTS automation_action_revisions (
     id TEXT PRIMARY KEY NOT NULL,
-    created_at DATETIME NOT NULL,
+    created_at TEXT NOT NULL,
     action_id TEXT(24) NOT NULL REFERENCES automation_actions(id),
     wait_hours INTEGER UNSIGNED,
     email_subject TEXT(300),
@@ -84,8 +84,8 @@ CREATE INDEX IF NOT EXISTS automation_action_edges_target_idx
 -- One member's journey through one automation.
 CREATE TABLE IF NOT EXISTS automation_runs (
     id TEXT PRIMARY KEY NOT NULL,
-    created_at DATETIME NOT NULL,
-    updated_at DATETIME NOT NULL,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
     automation_id TEXT(24) NOT NULL REFERENCES automations(id),
     -- Null once the member is deleted; the run stays as history.
     member_id TEXT(24) REFERENCES members(id) ON DELETE SET NULL,
@@ -99,21 +99,21 @@ CREATE INDEX IF NOT EXISTS automation_runs_updated_idx ON automation_runs (updat
 
 CREATE TABLE IF NOT EXISTS automation_run_steps (
     id TEXT PRIMARY KEY NOT NULL,
-    created_at DATETIME NOT NULL,
-    updated_at DATETIME NOT NULL,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
     automation_run_id TEXT(24) NOT NULL REFERENCES automation_runs(id),
     automation_action_revision_id TEXT(24) NOT NULL REFERENCES automation_action_revisions(id),
-    ready_at DATETIME NOT NULL,
+    ready_at TEXT NOT NULL,
     step_attempts INTEGER UNSIGNED NOT NULL DEFAULT 0,
-    started_at DATETIME,
-    finished_at DATETIME,
+    started_at TEXT,
+    finished_at TEXT,
     -- pending | finished | failed | automation disabled
     --         | member changed status | member unsubscribed
     status TEXT(50) NOT NULL DEFAULT 'pending',
     -- Claimed by one worker for the duration of an attempt. A lock older than
     -- the timeout is treated as abandoned.
     locked_by TEXT(191),
-    locked_at DATETIME
+    locked_at TEXT
 );
 CREATE INDEX IF NOT EXISTS automation_run_steps_ready_idx
     ON automation_run_steps (status, ready_at, created_at, id);
@@ -134,13 +134,13 @@ CREATE TABLE IF NOT EXISTS automated_email_recipients (
     member_email TEXT(191) NOT NULL,
     member_name TEXT(191),
     mailgun_message_id TEXT(1000),
-    delivered_at DATETIME,
-    opened_at DATETIME,
-    clicked_at DATETIME,
-    track_opens BOOLEAN NOT NULL DEFAULT 0,
-    track_clicks BOOLEAN NOT NULL DEFAULT 0,
-    created_at DATETIME NOT NULL,
-    updated_at DATETIME
+    delivered_at TEXT,
+    opened_at TEXT,
+    clicked_at TEXT,
+    track_opens INTEGER NOT NULL DEFAULT 0,
+    track_clicks INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL,
+    updated_at TEXT
 );
 CREATE INDEX IF NOT EXISTS automated_email_recipients_member_idx
     ON automated_email_recipients (member_id);

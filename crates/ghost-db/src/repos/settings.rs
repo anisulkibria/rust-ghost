@@ -1,10 +1,10 @@
 //! Settings repository rows (cache lives in settings_cache.rs).
 use ghost_core::{dates, ids, models::Setting, Result};
-use sqlx::SqlitePool;
+use crate::Db;
 
-pub async fn all(pool: &SqlitePool) -> Result<Vec<Setting>> {
-    let rows = sqlx::query_as::<_, (String, String, String, Option<String>, Option<String>, Option<String>, Option<String>)>(
-        "SELECT id, `group`, key, value, type, flags, created_at FROM settings",
+pub async fn all(pool: &Db) -> Result<Vec<Setting>> {
+    let rows = sqlx::query_as::<_, (String, String, String, Option<crate::types::Text>, Option<String>, Option<String>, Option<String>)>(
+        "SELECT id, `group`, `key`, value, type, flags, created_at FROM settings",
     )
     .fetch_all(pool)
     .await
@@ -15,7 +15,8 @@ pub async fn all(pool: &SqlitePool) -> Result<Vec<Setting>> {
             id: r.0,
             group: r.1,
             key: r.2,
-            value: r.3.unwrap_or_default(),
+            // MEDIUMTEXT on MySQL, so read through `types::Text`.
+            value: r.3.map(|v| v.0).unwrap_or_default(),
             value_type: r.4.unwrap_or_else(|| "string".into()),
             flags: r.5,
             created_at: r.6,
@@ -24,15 +25,15 @@ pub async fn all(pool: &SqlitePool) -> Result<Vec<Setting>> {
         .collect())
 }
 
-pub async fn upsert(pool: &SqlitePool, key: &str, value: &str, typ: &str) -> Result<()> {
+pub async fn upsert(pool: &Db, key: &str, value: &str, typ: &str) -> Result<()> {
     let now = dates::now_db();
-    let exists: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM settings WHERE key = ?")
+    let exists: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM settings WHERE `key` = ?")
         .bind(key)
         .fetch_one(pool)
         .await
         .unwrap_or(0);
     if exists > 0 {
-        sqlx::query("UPDATE settings SET value = ?, type = ?, updated_at = ? WHERE key = ?")
+        sqlx::query("UPDATE settings SET value = ?, type = ?, updated_at = ? WHERE `key` = ?")
             .bind(value)
             .bind(typ)
             .bind(&now)
@@ -41,7 +42,7 @@ pub async fn upsert(pool: &SqlitePool, key: &str, value: &str, typ: &str) -> Res
             .await
             .map_err(|e| ghost_core::GhostError::Db(e.to_string()))?;
     } else {
-        sqlx::query("INSERT INTO settings (id, `group`, key, value, type, created_at, updated_at) VALUES (?, 'site', ?, ?, ?, ?, ?)")
+        sqlx::query("INSERT INTO settings (id, `group`, `key`, value, type, created_at, updated_at) VALUES (?, 'site', ?, ?, ?, ?, ?)")
             .bind(&ids::new_id())
             .bind(key)
             .bind(value)

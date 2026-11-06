@@ -28,6 +28,33 @@ pub fn is_private(state: &AppState) -> bool {
     state.settings.get_bool("is_private")
 }
 
+/// Whether the *host* is holding this site's public access closed.
+///
+/// A managed host sets `hostSettings.limits.publicSiteAccess.disabled` when a
+/// site is suspended — unpaid, or not yet paid for at all. It is not the
+/// site's own `is_private`: the owner did not choose it and cannot lift it,
+/// which is why [`has_access`] and [`grant`] refuse the access code while it
+/// holds. A site whose public half could be unlocked with a code the owner
+/// knows would not be suspended in any sense that mattered.
+///
+/// The admin API has enforced this since it shipped, by refusing to let
+/// `is_private` or `password` be changed while the limit is set. The public
+/// site did not enforce it at all, so a suspended site served its homepage to
+/// anyone with a `200` — the limit was written, read back by `/config`, and
+/// otherwise ignored.
+pub fn public_access_closed(state: &AppState) -> bool {
+    state.limits.is_disabled("publicSiteAccess")
+}
+
+/// What a visitor is told when the host has closed the site.
+fn closed_message(state: &AppState) -> String {
+    state
+        .limits
+        .error_message("publicSiteAccess")
+        .unwrap_or("This site is not currently published.")
+        .to_string()
+}
+
 /// The configured access code. An empty one means nobody can get in, so the
 /// gate treats it as "no code set" rather than "everyone matches".
 fn access_code(state: &AppState) -> String {
@@ -50,6 +77,11 @@ fn cookie_value(headers: &HeaderMap) -> Option<String> {
 
 /// Whether this request already carries a cookie matching the *current* code.
 pub fn has_access(state: &AppState, headers: &HeaderMap) -> bool {
+    // A host-closed site has no way in, so a cookie minted before the
+    // suspension stops working the moment it lands.
+    if public_access_closed(state) {
+        return false;
+    }
     let code = access_code(state);
     if code.trim().is_empty() {
         return false;
@@ -65,6 +97,12 @@ pub fn has_access(state: &AppState, headers: &HeaderMap) -> bool {
 /// Mint the cookie for a correct code. `None` when the code is wrong, so the
 /// caller renders the error instead.
 fn grant(state: &AppState, submitted: &str) -> Option<String> {
+    // The single choke point for minting the cookie, which is why the
+    // host-closed check belongs here as well as in the gate: even a correct
+    // code buys nothing while a site is suspended.
+    if public_access_closed(state) {
+        return None;
+    }
     let code = access_code(state);
     if code.trim().is_empty() || submitted.trim().is_empty() || code != submitted {
         return None;
@@ -107,6 +145,10 @@ pub enum Gate {
     /// Handle it as this path instead — the secret feed URL, which is really
     /// `/rss/` wearing the `public_hash` as a password.
     Rewrite(String),
+    /// The host has closed this site's public access. Rendered by [`guard`],
+    /// which can await the theme — the decision stays synchronous and
+    /// testable here, and only the page needs the async half.
+    Closed,
 }
 
 /// The check every public request goes through.
@@ -115,10 +157,29 @@ pub enum Gate {
 /// reachable, the `public_hash` RSS URL is the one feed that survives, and
 /// everything else needs the cookie.
 pub fn gate(state: &AppState, uri: &Uri, headers: &HeaderMap) -> Gate {
-    if !is_private(state) {
+    let closed = public_access_closed(state);
+    if !closed && !is_private(state) {
         return Gate::Allow;
     }
     let path = ghost_core::url::strip(uri.path());
+
+    // A host-closed site is stricter than a private one, so it is decided
+    // first and shares only the two exceptions that are not content: the
+    // static files a theme's error page needs in order to render at all, and
+    // robots.txt. There is no access code, no secret feed and no login page,
+    // because none of them should open a site that has not been paid for.
+    if closed {
+        if STATIC_PREFIXES.iter().any(|p| path.starts_with(p)) || path == "/favicon.ico" {
+            return Gate::Allow;
+        }
+        if path == "/robots.txt" {
+            return Gate::Respond(
+                ([(header::CONTENT_TYPE, "text/plain; charset=UTF-8")], PRIVATE_ROBOTS)
+                    .into_response(),
+            );
+        }
+        return Gate::Closed;
+    }
 
     // The login page itself, or it could never be reached.
     if path == "/private/" || path == "/private" {
@@ -180,6 +241,10 @@ pub async fn guard(
     match gate(&state, &req.uri().clone(), req.headers()) {
         Gate::Allow => next.run(req).await,
         Gate::Respond(r) => r,
+        Gate::Closed => {
+            let path = req.uri().path().to_string();
+            closed_page(&state, &path, req.headers().clone()).await
+        }
         Gate::Rewrite(path) => {
             match path.parse::<Uri>() {
                 Ok(uri) => *req.uri_mut() = uri,
@@ -190,6 +255,29 @@ pub async fn guard(
             next.run(req).await
         }
     }
+}
+
+/// The page a visitor gets while the host holds the site closed.
+///
+/// `503`, not `404` or `403`: the site exists and is coming back as soon as
+/// its billing is settled, and `503` is the one status that says "temporarily
+/// gone" to a crawler — a `404` would have search engines drop the site's
+/// pages over a late invoice. `no-store` because the suspension can be lifted
+/// at any moment and a cached copy would outlive it.
+async fn closed_page(state: &AppState, path: &str, headers: HeaderMap) -> Response {
+    let message = closed_message(state);
+    let mut response = crate::render::error_page_with_message(
+        state,
+        StatusCode::SERVICE_UNAVAILABLE,
+        Some(&message),
+        path,
+        headers,
+    )
+    .await;
+    response
+        .headers_mut()
+        .insert(header::CACHE_CONTROL, header::HeaderValue::from_static("no-store"));
+    response
 }
 
 #[derive(Debug, Deserialize, Default)]

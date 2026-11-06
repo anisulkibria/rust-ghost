@@ -6,7 +6,7 @@
 //! through here now, so a recommendation renders the same everywhere.
 use ghost_core::Result;
 use serde_json::{json, Value};
-use sqlx::SqlitePool;
+use crate::Db;
 
 /// Ghost's default: newest first. `featured` leads within that, which is the
 /// port's own column and the order the settings list is kept in.
@@ -36,8 +36,8 @@ type Row = (
     Option<String>, // excerpt
     Option<String>, // featured_image
     Option<String>, // favicon
-    bool,           // one_click_subscribe
-    bool,           // featured
+    i64,            // one_click_subscribe (0/1; `Any` gives no bool)
+    i64,            // featured (0/1)
     Option<String>, // created_at
     Option<String>, // updated_at
 );
@@ -65,7 +65,7 @@ const COLS: &str = "id, url, title, description, excerpt, featured_image, favico
 ///
 /// Returns the page plus the total number of matching records, so a caller can
 /// build real pagination metadata instead of an empty meta object.
-pub async fn browse(pool: &SqlitePool, q: &BrowseRecommendations) -> Result<(Vec<Value>, i64)> {
+pub async fn browse(pool: &Db, q: &BrowseRecommendations) -> Result<(Vec<Value>, i64)> {
     let rows = sqlx::query_as::<_, Row>(&format!(
         "SELECT {COLS} FROM recommendations ORDER BY {}",
         order_clause(q.order.as_deref()),
@@ -92,7 +92,7 @@ pub async fn browse(pool: &SqlitePool, q: &BrowseRecommendations) -> Result<(Vec
     Ok((items, total))
 }
 
-pub async fn find_by_id(pool: &SqlitePool, id: &str) -> Result<Option<Value>> {
+pub async fn find_by_id(pool: &Db, id: &str) -> Result<Option<Value>> {
     let row = sqlx::query_as::<_, Row>(&format!("SELECT {COLS} FROM recommendations WHERE id = ?"))
         .bind(id)
         .fetch_optional(pool)

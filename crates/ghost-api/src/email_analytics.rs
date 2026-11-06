@@ -145,7 +145,51 @@ pub async fn poll(state: &AppState) -> Result<()> {
     let Some(mg) = ghost_mail::MailgunConfig::from_settings(&state.settings, &cfg) else {
         return Ok(());
     };
-    let row=sqlx::query_as::<_,(String,String,String,String,Option<String>)>("UPDATE analytics_jobs SET status='running',updated_at=?,attempts=attempts+1 WHERE id=(SELECT id FROM analytics_jobs WHERE (status='pending' OR (status='running' AND datetime(updated_at)<datetime('now','-5 minutes'))) AND attempts<12 ORDER BY updated_at LIMIT 1) RETURNING id,email_id,begin_at,end_at,cursor").bind(dates::now_db()).fetch_optional(&state.db).await.map_err(db)?;
+    // Claiming a job, in three steps rather than one statement.
+    //
+    // The original was a single `UPDATE … WHERE id=(SELECT … ) RETURNING …`,
+    // which MySQL rejects twice over: it has no `RETURNING`, and it refuses an
+    // `UPDATE` whose subquery reads the table being updated (error 1093).
+    //
+    // The claim is still exclusive, and the `UPDATE`'s row count is what makes
+    // it so. Two workers may pick the same candidate, but the `UPDATE` repeats
+    // the eligibility test, so only the first one to commit changes a row; the
+    // other sees `rows_affected() == 0` and simply returns, as it would have
+    // if there were no work. Nothing is lost, and no job runs twice.
+    const CLAIMABLE: &str = "(status='pending' OR (status='running' AND \
+         datetime(updated_at)<datetime('now','-5 minutes'))) AND attempts<12";
+
+    let candidate: Option<String> = sqlx::query_scalar(&ghost_db::dialect::sql_owned(&format!(
+        "SELECT id FROM analytics_jobs WHERE {CLAIMABLE} ORDER BY updated_at LIMIT 1"
+    )))
+    .fetch_optional(&state.db)
+    .await
+    .map_err(db)?;
+    let Some(candidate) = candidate else {
+        return Ok(());
+    };
+
+    let claimed = sqlx::query(&ghost_db::dialect::sql_owned(&format!(
+        "UPDATE analytics_jobs SET status='running',updated_at=?,attempts=attempts+1 \
+         WHERE id=? AND {CLAIMABLE}"
+    )))
+    .bind(dates::now_db())
+    .bind(&candidate)
+    .execute(&state.db)
+    .await
+    .map_err(db)?;
+    if claimed.rows_affected() != 1 {
+        // Another worker got there first.
+        return Ok(());
+    }
+
+    let row = sqlx::query_as::<_, (String, String, String, String, Option<String>)>(
+        "SELECT id,email_id,begin_at,end_at,cursor FROM analytics_jobs WHERE id=?",
+    )
+    .bind(&candidate)
+    .fetch_optional(&state.db)
+    .await
+    .map_err(db)?;
     let Some((id, email, begin, end, cursor)) = row else {
         return Ok(());
     };
@@ -213,7 +257,7 @@ async fn reconcile(
             .and_then(Value::as_str)
             .unwrap_or("")
             .trim_matches(|c| c == '<' || c == '>');
-        let belongs:bool=sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM email_recipients WHERE email_id=? AND mailgun_message_id=?)").bind(email).bind(provider).fetch_one(&state.db).await.map_err(db)?;
+        let belongs: bool = sqlx::query_scalar::<_, i64>("SELECT EXISTS(SELECT 1 FROM email_recipients WHERE email_id=? AND mailgun_message_id=?)").bind(email).bind(provider).fetch_one(&state.db).await.map_err(db)? != 0;
         if belongs {
             let response = crate::newsletter_events::ingest_provider_event(state, event).await;
             if !response.status().is_success() {

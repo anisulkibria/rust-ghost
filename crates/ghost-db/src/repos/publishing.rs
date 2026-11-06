@@ -2,7 +2,7 @@
 use super::{posts, dberr};
 use ghost_core::{models::Post, GhostError, Result};
 use serde::{Serialize,Deserialize};
-use sqlx::SqlitePool;
+use crate::Db;
 
 #[derive(Serialize,Deserialize)]
 pub struct Snapshot {
@@ -26,19 +26,19 @@ impl Snapshot {
         }
     }
 }
-pub async fn snapshot(pool:&SqlitePool,post:Post)->Result<Snapshot> {
+pub async fn snapshot(pool:&Db,post:Post)->Result<Snapshot> {
     let authors=sqlx::query_scalar("SELECT author_id FROM posts_authors WHERE post_id=? ORDER BY sort_order").bind(&post.id).fetch_all(pool).await.map_err(dberr)?;
     let tags=sqlx::query_scalar("SELECT tag_id FROM posts_tags WHERE post_id=? ORDER BY sort_order").bind(&post.id).fetch_all(pool).await.map_err(dberr)?;
     Ok(Snapshot{post,author_ids:authors,tag_ids:tags})
 }
-pub async fn duplicate(pool:&SqlitePool,id:&str,author_id:&str)->Result<Post> {
+pub async fn duplicate(pool:&Db,id:&str,author_id:&str)->Result<Post> {
     let post=posts::find_by_id(pool,id).await?.ok_or(GhostError::NotFoundError{message:"Post not found".into(),context:None})?;
     let mut input=snapshot(pool,post).await?.input();
     input.title=format!("{} (Copy)",input.title);input.slug=None;input.status="draft".into();input.published_at=None;
     posts::insert(pool,&input,author_id).await
 }
-pub async fn restore(pool:&SqlitePool,post_id:&str,revision_id:&str)->Result<Post> {
-    let json:Option<String>=sqlx::query_scalar("SELECT snapshot FROM post_revisions WHERE id=? AND post_id=? AND snapshot IS NOT NULL")
+pub async fn restore(pool:&Db,post_id:&str,revision_id:&str)->Result<Post> {
+    let json:Option<crate::types::Text>=sqlx::query_scalar("SELECT snapshot FROM post_revisions WHERE id=? AND post_id=? AND snapshot IS NOT NULL")
         .bind(revision_id).bind(post_id).fetch_optional(pool).await.map_err(dberr)?;
     let Some(json)=json else{return Err(GhostError::NotFoundError{message:"Revision not found".into(),context:None})};
     let saved:Snapshot=serde_json::from_str(&json).map_err(|e|GhostError::Internal(e.to_string()))?;

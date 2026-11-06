@@ -29,12 +29,12 @@ CREATE TABLE IF NOT EXISTS mentions (
     payload TEXT,
     -- A mention the source page no longer makes. Kept rather than removed so
     -- a flapping source does not come back as a new mention each time.
-    deleted BOOLEAN NOT NULL DEFAULT 0,
+    deleted INTEGER NOT NULL DEFAULT 0,
     -- Whether the source page was fetched and really does link here. An
     -- unverified mention is somebody claiming a link that is not there.
-    verified BOOLEAN NOT NULL DEFAULT 0,
+    verified INTEGER NOT NULL DEFAULT 0,
     revalidation_failure_count INTEGER NOT NULL DEFAULT 0,
-    created_at DATETIME NOT NULL
+    created_at TEXT NOT NULL
 );
 -- One mention per source/target pair: a source that sends the same webmention
 -- twice is updating the one it already sent.
@@ -51,8 +51,8 @@ CREATE TABLE IF NOT EXISTS mention_sends (
     endpoint TEXT(2000),
     status TEXT(50) NOT NULL DEFAULT 'pending',
     error TEXT(2000),
-    created_at DATETIME NOT NULL,
-    updated_at DATETIME
+    created_at TEXT NOT NULL,
+    updated_at TEXT
 );
 CREATE UNIQUE INDEX IF NOT EXISTS mention_sends_pair_idx ON mention_sends (source, target);
 
@@ -60,7 +60,7 @@ CREATE TABLE IF NOT EXISTS signing_keys (
     id TEXT PRIMARY KEY NOT NULL,
     private_pem TEXT NOT NULL,
     public_pem TEXT NOT NULL,
-    created_at DATETIME NOT NULL
+    created_at TEXT NOT NULL
 );
 
 -- +1 for a like, -1 for a dislike. Existing rows are likes, which is what

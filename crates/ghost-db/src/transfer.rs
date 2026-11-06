@@ -2,7 +2,9 @@
 //! round trips; only an explicit list of content tables can be imported.
 use ghost_core::{dates, ids, GhostError, Result};
 use serde_json::{json, Map, Value};
-use sqlx::{Column, Row, SqlitePool, TypeInfo, ValueRef};
+use crate::Db;
+use sqlx::any::AnyTypeInfoKind;
+use sqlx::{Column, Row, ValueRef};
 use std::collections::HashMap;
 
 const TABLES: &[&str] = &[
@@ -159,7 +161,73 @@ fn db(e: sqlx::Error) -> GhostError {
     GhostError::Db(e.to_string())
 }
 
-pub async fn export(pool: &SqlitePool) -> Result<Value> {
+/// Whether `table` exists, asked of the engine rather than assumed.
+///
+/// The export lists tables it *may* carry — a backup list that runs ahead of
+/// the schema — so a missing one is skipped, not fatal. SQLite and MySQL each
+/// keep that fact somewhere only they can read.
+async fn table_exists(
+    tx: &mut sqlx::Transaction<'_, sqlx::Any>,
+    table: &str,
+) -> Result<bool> {
+    let exists: bool = match crate::pool::engine() {
+        ghost_core::database::Engine::Sqlite => {
+            sqlx::query_scalar::<_, i64>(
+                "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type='table' AND name=?)",
+            )
+            .bind(table)
+            .fetch_one(&mut **tx)
+            .await
+            .map_err(db)?
+                != 0
+        }
+        ghost_core::database::Engine::MySql => {
+            sqlx::query_scalar::<_, i64>(
+                "SELECT EXISTS(SELECT 1 FROM information_schema.tables \
+                 WHERE table_schema = DATABASE() AND table_name = ?)",
+            )
+            .bind(table)
+            .fetch_one(&mut **tx)
+            .await
+            .map_err(db)?
+                != 0
+        }
+    };
+    Ok(exists)
+}
+
+/// The column names of `table`, in declaration order; empty when the table
+/// does not exist.
+async fn columns_of(
+    tx: &mut sqlx::Transaction<'_, sqlx::Any>,
+    table: &str,
+) -> Result<Vec<String>> {
+    let columns: Vec<String> = match crate::pool::engine() {
+        ghost_core::database::Engine::Sqlite => {
+            let rows = sqlx::query(&format!("PRAGMA table_info(\"{table}\")"))
+                .fetch_all(&mut **tx)
+                .await
+                .map_err(db)?;
+            rows.iter().map(|r| r.get("name")).collect()
+        }
+        ghost_core::database::Engine::MySql => {
+            // `information_schema`, aliased into the shape the SQLite branch
+            // produces, so the caller reads one name either way.
+            sqlx::query_scalar(
+                "SELECT column_name AS name FROM information_schema.columns \
+                 WHERE table_schema = DATABASE() AND table_name = ? \
+                 ORDER BY ordinal_position",
+            )
+            .bind(table)
+            .fetch_all(&mut **tx)
+            .await
+            .map_err(db)?
+        }
+    };
+    Ok(columns)
+}
+
+pub async fn export(pool: &Db) -> Result<Value> {
     export_with(pool, &[]).await
 }
 
@@ -170,7 +238,7 @@ pub async fn export(pool: &SqlitePool) -> Result<Value> {
 /// state". Anything not on that list is ignored rather than honoured — the
 /// parameter must not become a way to read an arbitrary table out of the
 /// database through the export endpoint.
-pub async fn export_with(pool: &SqlitePool, include: &[String]) -> Result<Value> {
+pub async fn export_with(pool: &Db, include: &[String]) -> Result<Value> {
     let extra: Vec<&str> = BACKUP_TABLES
         .iter()
         .copied()
@@ -181,17 +249,25 @@ pub async fn export_with(pool: &SqlitePool, include: &[String]) -> Result<Value>
     let mut tx = pool.begin().await.map_err(db)?;
     let mut data = Map::new();
     for table in &tables {
-        let exists: bool = sqlx::query_scalar(
-            "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type='table' AND name=?)",
-        )
-        .bind(table)
-        .fetch_one(&mut *tx)
-        .await
-        .map_err(db)?;
-        if !exists {
+        if !table_exists(&mut tx, table).await? {
             continue;
         }
-        let rows = sqlx::query(&format!("SELECT * FROM \"{table}\" ORDER BY rowid"))
+        // SQLite's `rowid` is insertion order, which is the order the rows
+        // were created and the order a re-import inserts them in. MySQL has
+        // no equivalent — every table here has a random-text primary key —
+        // so its rows come back in whatever order the engine produces, and
+        // nothing downstream depends on that order: the import remaps ids by
+        // value, not position.
+        let order = match crate::pool::engine() {
+            ghost_core::database::Engine::Sqlite => " ORDER BY rowid",
+            ghost_core::database::Engine::MySql => "",
+        };
+        // Through `sql_owned`, not `sql`: the table name is interpolated, so
+        // this is runtime SQL — and on MySQL the double quotes must become
+        // backticks before the query leaves this crate.
+        let rows = sqlx::query(&crate::dialect::sql_owned(&format!(
+            "SELECT * FROM \"{table}\"{order}"
+        )))
             .fetch_all(&mut *tx)
             .await
             .map_err(db)?;
@@ -203,11 +279,24 @@ pub async fn export_with(pool: &SqlitePool, include: &[String]) -> Result<Value>
                 let value = if raw.is_null() {
                     Value::Null
                 } else {
-                    match raw.type_info().name() {
-                        "INTEGER" | "BOOLEAN" => {
+                    // Dispatched on the `Any` type *kind*, not on a type-name
+                    // string: the name differs per engine ("BIGINT" from
+                    // SQLite's INTEGER, "SMALLINT" from MySQL's), and matching
+                    // the wrong one silently falls through to `String` and
+                    // fails to decode.
+                    match raw.type_info().kind() {
+                        k if k.is_integer() || k == AnyTypeInfoKind::Bool => {
                             json!(row.try_get::<i64, _>(col.ordinal()).map_err(db)?)
                         }
-                        "REAL" => json!(row.try_get::<f64, _>(col.ordinal()).map_err(db)?),
+                        AnyTypeInfoKind::Real | AnyTypeInfoKind::Double => {
+                            json!(row.try_get::<f64, _>(col.ordinal()).map_err(db)?)
+                        }
+                        // MySQL reports a MEDIUMTEXT column as a blob; `Text`
+                        // accepts either representation.
+                        AnyTypeInfoKind::Blob => json!(row
+                            .try_get::<crate::types::Text, _>(col.ordinal())
+                            .map_err(db)?
+                            .0),
                         _ => json!(row.try_get::<String, _>(col.ordinal()).map_err(db)?),
                     }
                 };
@@ -259,7 +348,7 @@ pub async fn export_with(pool: &SqlitePool, include: &[String]) -> Result<Value>
 
 /// Merge supported content, mapping natural-key conflicts to existing ids.
 /// Imported profiles cannot replace the current owner's password or role.
-pub async fn import(pool: &SqlitePool, input: &Value, owner_id: &str) -> Result<()> {
+pub async fn import(pool: &Db, input: &Value, owner_id: &str) -> Result<()> {
     let mut data = input
         .as_object()
         .cloned()
@@ -314,10 +403,21 @@ pub async fn import(pool: &SqlitePool, input: &Value, owner_id: &str) -> Result<
         }
     }
     let mut tx = pool.begin().await.map_err(db)?;
-    sqlx::query("PRAGMA defer_foreign_keys=ON")
-        .execute(&mut *tx)
-        .await
-        .map_err(db)?;
+    // SQLite defers the schema's foreign keys until commit, so an archive
+    // whose rows arrive in any order still imports. MySQL has no deferred
+    // foreign keys: the choice is disabling the checks entirely — which would
+    // accept a dangling reference SQLite rejects, and leave a session
+    // variable set on a connection going back to the pool — or leaving them
+    // immediate. Immediate is right: tables import parents-first, and an
+    // archive that does reference a missing parent fails the import either
+    // way, here mid-transaction rather than at commit, with the same
+    // all-or-nothing rollback.
+    if crate::pool::engine() == ghost_core::database::Engine::Sqlite {
+        sqlx::query("PRAGMA defer_foreign_keys=ON")
+            .execute(&mut *tx)
+            .await
+            .map_err(db)?;
+    }
     let mut remap: HashMap<String, String> = HashMap::new();
     // Content first, then any extended backup tables the archive carries.
     // Order matters: the content tables are what the extended ones reference,
@@ -327,14 +427,10 @@ pub async fn import(pool: &SqlitePool, input: &Value, owner_id: &str) -> Result<
         let Some(rows) = data.get(*table).and_then(Value::as_array) else {
             continue;
         };
-        let schema = sqlx::query(&format!("PRAGMA table_info(\"{table}\")"))
-            .fetch_all(&mut *tx)
-            .await
-            .map_err(db)?;
-        if schema.is_empty() {
+        let columns = columns_of(&mut tx, table).await?;
+        if columns.is_empty() {
             continue;
         }
-        let columns: Vec<String> = schema.iter().map(|r| r.get("name")).collect();
         if [
             "posts_meta",
             "posts_authors",
@@ -364,7 +460,7 @@ pub async fn import(pool: &SqlitePool, input: &Value, owner_id: &str) -> Result<
                     continue;
                 }
                 // Old exports may supply a misleading group for an existing key.
-                let group: Option<String> = sqlx::query_scalar("SELECT `group` FROM settings WHERE key=? COLLATE NOCASE")
+                let group: Option<String> = sqlx::query_scalar(crate::dialect::sql("SELECT `group` FROM settings WHERE `key`=? COLLATE NOCASE"))
                     .bind(obj.get("key").and_then(Value::as_str))
                     .fetch_optional(&mut *tx).await.map_err(db)?;
                 if group.is_some_and(|group|group.eq_ignore_ascii_case("core")) {
@@ -389,7 +485,7 @@ pub async fn import(pool: &SqlitePool, input: &Value, owner_id: &str) -> Result<
             };
             let existing = if *table == "custom_theme_settings" {
                 sqlx::query_scalar::<_, String>(
-                    "SELECT id FROM custom_theme_settings WHERE theme=? AND key=?",
+                    "SELECT id FROM custom_theme_settings WHERE theme=? AND `key`=?",
                 )
                 .bind(obj.get("theme").and_then(Value::as_str))
                 .bind(obj.get("key").and_then(Value::as_str))
@@ -407,9 +503,9 @@ pub async fn import(pool: &SqlitePool, input: &Value, owner_id: &str) -> Result<
                 .map_err(db)?
             } else if let Some(key) = natural {
                 if let Some(value) = obj.get(key).and_then(Value::as_str) {
-                    sqlx::query_scalar::<_, String>(&format!(
+                    sqlx::query_scalar::<_, String>(&crate::dialect::sql_owned(&format!(
                         "SELECT id FROM \"{table}\" WHERE \"{key}\"=? COLLATE NOCASE LIMIT 1"
-                    ))
+                    )))
                     .bind(value)
                     .fetch_optional(&mut *tx)
                     .await
@@ -448,13 +544,16 @@ pub async fn import(pool: &SqlitePool, input: &Value, owner_id: &str) -> Result<
             // Existing staff credentials and roles are never replaced by a content import.
             if *table == "users" {
                 if target == owner_id
-                    || sqlx::query_scalar::<_, bool>(
+                    // `EXISTS` returns 0/1, and `Any` will not decode an
+                    // integer as a `bool` on either engine.
+                    || sqlx::query_scalar::<_, i64>(
                         "SELECT EXISTS(SELECT 1 FROM users WHERE id=?)",
                     )
                     .bind(&target)
                     .fetch_one(&mut *tx)
                     .await
                     .map_err(db)?
+                        != 0
                 {
                     let (password, status): (String, String) =
                         sqlx::query_as("SELECT password,status FROM users WHERE id=?")
@@ -483,13 +582,13 @@ pub async fn import(pool: &SqlitePool, input: &Value, owner_id: &str) -> Result<
                     continue;
                 }
                 let role = obj.get("role_id").and_then(Value::as_str).unwrap_or("");
-                let is_owner: bool = sqlx::query_scalar(
+                let is_owner: bool = sqlx::query_scalar::<_, i64>(
                     "SELECT EXISTS(SELECT 1 FROM roles WHERE id=? AND name='Owner')",
                 )
                 .bind(role)
                 .fetch_one(&mut *tx)
                 .await
-                .map_err(db)?;
+                .map_err(db)? != 0;
                 if is_owner {
                     let author: String =
                         sqlx::query_scalar("SELECT id FROM roles WHERE name='Author'")
@@ -519,17 +618,24 @@ pub async fn import(pool: &SqlitePool, input: &Value, owner_id: &str) -> Result<
                 // restored member should not arrive with live sessions.
                 obj.entry("transient_id").or_insert(json!(ids::uuid_v4()));
             }
-            for column in &schema {
-                let kind: String = column.get("type");
-                if kind.to_ascii_uppercase().contains("DATE") {
-                    let key: String = column.get("name");
-                    if let Some(value) = obj
-                        .get(&key)
-                        .and_then(Value::as_str)
-                        .and_then(dates::from_api_string)
-                    {
-                        obj.insert(key, json!(dates::to_db_string(&value)));
-                    }
+            // An imported date arrives in API form (`2026-10-01T12:34:56Z`)
+            // and is stored in database form (`2026-10-01 12:34:56`).
+            //
+            // Which columns those are used to come from the declared type:
+            // `PRAGMA table_info` reported `DATETIME`. The schema can no
+            // longer say that — sqlx's `Any` driver rejects a SQLite column
+            // declared `DATETIME` — so the list is generated instead. See
+            // `crate::schema_kinds`.
+            for key in &columns {
+                if !crate::schema_kinds::is_date(table, key) {
+                    continue;
+                }
+                if let Some(value) = obj
+                    .get(key)
+                    .and_then(Value::as_str)
+                    .and_then(dates::from_api_string)
+                {
+                    obj.insert(key.clone(), json!(dates::to_db_string(&value)));
                 }
             }
             obj.retain(|k, _| columns.contains(k));
@@ -540,7 +646,7 @@ pub async fn import(pool: &SqlitePool, input: &Value, owner_id: &str) -> Result<
                 .map(|k| format!("\"{k}\"=excluded.\"{k}\""))
                 .collect::<Vec<_>>()
                 .join(",");
-            let sql = format!(
+            let sql = crate::dialect::sql_owned(&format!(
                 "INSERT INTO \"{table}\" ({}) VALUES ({}) ON CONFLICT(id) DO {}",
                 keys.iter()
                     .map(|k| format!("\"{k}\""))
@@ -552,7 +658,7 @@ pub async fn import(pool: &SqlitePool, input: &Value, owner_id: &str) -> Result<
                 } else {
                     format!("UPDATE SET {updates}")
                 }
-            );
+            ));
             let mut query = sqlx::query(&sql);
             for key in keys {
                 query = match &obj[&key] {
@@ -604,13 +710,13 @@ pub async fn import(pool: &SqlitePool, input: &Value, owner_id: &str) -> Result<
 #[cfg(test)]
 mod tests {
     use super::*;
-    async fn fixture() -> (SqlitePool, String) {
-        let db = sqlx::sqlite::SqlitePoolOptions::new()
-            .max_connections(1)
-            .connect("sqlite::memory:")
-            .await
-            .unwrap();
-        sqlx::migrate!("../../migrations").run(&db).await.unwrap();
+    /// The database comes back *and* the `TestDb` that owns it, so a MySQL
+    /// fixture's database lives until the test using it is done — dropping
+    /// it inside this helper would remove the database out from under the
+    /// pool the test is still querying.
+    async fn fixture() -> (crate::pool::TestDb, Db, String) {
+        let test_db = crate::pool::connect_test().await.unwrap();
+        let db = test_db.pool();
         crate::seed::seed_if_empty(&db).await.unwrap();
         let owner = crate::repos::users::setup_owner(
             &db,
@@ -620,11 +726,11 @@ mod tests {
         )
         .await
         .unwrap();
-        (db, owner.id)
+        (test_db, db, owner.id)
     }
     #[tokio::test]
     async fn ghost_content_round_trip_preserves_source_metadata_and_relations() {
-        let (source, owner) = fixture().await;
+        let (_test_db, source, owner) = fixture().await;
         let lexical =
             r#"{"root":{"children":[{"type":"paragraph","children":[{"text":"Keep me"}]}]}}"#;
         let data = json!({
@@ -640,7 +746,7 @@ mod tests {
         });
         import(&source, &data, &owner).await.unwrap();
         let exported = export(&source).await.unwrap();
-        let (target, new_owner) = fixture().await;
+        let (_test_db, target, new_owner) = fixture().await;
         import(&target, &exported["db"][0]["data"], &new_owner)
             .await
             .unwrap();
@@ -648,7 +754,7 @@ mod tests {
         import(&target, &exported["db"][0]["data"], &new_owner)
             .await
             .unwrap();
-        let row: (String, String, String) =
+        let row: (crate::types::Text, String, String) =
             sqlx::query_as("SELECT lexical,published_at,status FROM posts WHERE id='post-import'")
                 .fetch_one(&target)
                 .await
@@ -656,7 +762,7 @@ mod tests {
         assert_eq!(
             row,
             (
-                lexical.into(),
+                crate::types::Text(lexical.to_string()),
                 "2026-10-01 12:34:56".into(),
                 "published".into()
             )
@@ -686,16 +792,16 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(secret, "original-password");
-        let settings: String =
-            sqlx::query_scalar("SELECT value FROM settings WHERE key='round_trip_setting'")
+        let settings: crate::types::Text =
+            sqlx::query_scalar("SELECT value FROM settings WHERE `key`='round_trip_setting'")
                 .fetch_one(&target)
                 .await
                 .unwrap();
-        assert_eq!(settings, "preserved");
+        assert_eq!(settings.0, "preserved");
     }
     #[tokio::test]
     async fn portable_exports_and_imports_preserve_host_secrets() {
-        let (source, owner) = fixture().await;
+        let (_test_db, source, owner) = fixture().await;
         let protected = [
             ("core", "instance_marker"),
             ("email", "mail_smtp_pass"),
@@ -708,7 +814,7 @@ mod tests {
             ("analytics", "service_access_token"),
         ];
         for (group, key) in protected {
-            sqlx::query("INSERT INTO settings(id,`group`,key,value,type,created_at) VALUES(?,?,?,'host-only','string',datetime('now')) ON CONFLICT(key) DO UPDATE SET value='host-only'")
+            sqlx::query(crate::dialect::sql("INSERT INTO settings(id,`group`,`key`,value,type,created_at) VALUES(?,?,?,'host-only','string',datetime('now')) ON CONFLICT(`key`) DO UPDATE SET value='host-only'"))
                 .bind(ids::new_id()).bind(group).bind(key).execute(&source).await.unwrap();
         }
         let exported = export(&source).await.unwrap();
@@ -727,19 +833,21 @@ mod tests {
         rows.push(json!({"id":ids::new_id(),"group":"site","key":"INSTANCE_MARKER","value":"foreign-host","type":"string"}));
         import(&source, &json!({"settings":rows}), &owner).await.unwrap();
         for (_, key) in protected {
-            let value: String = sqlx::query_scalar("SELECT value FROM settings WHERE key=?")
+            let value: crate::types::Text = sqlx::query_scalar("SELECT value FROM settings WHERE `key`=?")
                 .bind(key).fetch_one(&source).await.unwrap();
-            assert_eq!(value, "host-only", "overwrote {key}");
+            assert_eq!(value.0, "host-only", "overwrote {key}");
         }
-        let title: String = sqlx::query_scalar("SELECT value FROM settings WHERE key='title'").fetch_one(&source).await.unwrap();
-        assert_eq!(title, "Imported publication");
-        let core: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM settings WHERE key='new_core_key'").fetch_one(&source).await.unwrap();
+        // `settings.value` is a long column — `Text`, not `String`, or the
+        // read fails on MySQL where it arrives as a blob.
+        let title: crate::types::Text = sqlx::query_scalar("SELECT value FROM settings WHERE `key`='title'").fetch_one(&source).await.unwrap();
+        assert_eq!(title.0, "Imported publication");
+        let core: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM settings WHERE `key`='new_core_key'").fetch_one(&source).await.unwrap();
         assert_eq!(core, 0);
     }
 
     #[tokio::test]
     async fn malformed_relation_rolls_back_the_entire_import() {
-        let (db, owner) = fixture().await;
+        let (_test_db, db, owner) = fixture().await;
         let data = json!({"tags":[{"id":"rollback-tag","name":"Rollback","slug":"rollback"}],"posts_tags":[{"id":"bad-relation","post_id":"missing","tag_id":"rollback-tag"}]});
         assert!(import(&db, &data, &owner).await.is_err());
         let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM tags WHERE id='rollback-tag'")
@@ -751,7 +859,7 @@ mod tests {
 
     #[tokio::test]
     async fn the_default_export_leaves_operational_state_out() {
-        let (db, owner) = fixture().await;
+        let (_test_db, db, owner) = fixture().await;
         import(&db, &json!({
             "tags":[{"id":"t1","name":"T","slug":"t","visibility":"public"}],
         }), &owner).await.unwrap();
@@ -769,7 +877,7 @@ mod tests {
 
     #[tokio::test]
     async fn an_extended_export_carries_the_backup_tables() {
-        let (db, _owner) = fixture().await;
+        let (_test_db, db, _owner) = fixture().await;
         sqlx::query("INSERT INTO members (id, uuid, transient_id, email, status, created_at) VALUES ('m1','u1','tr1','a@b.test','free',?)")
             .bind(dates::now_db()).execute(&db).await.unwrap();
 
@@ -784,7 +892,7 @@ mod tests {
 
     #[tokio::test]
     async fn only_named_backup_tables_are_included() {
-        let (db, _owner) = fixture().await;
+        let (_test_db, db, _owner) = fixture().await;
         sqlx::query("INSERT INTO members (id, uuid, transient_id, email, status, created_at) VALUES ('m1','u1','tr1','a@b.test','free',?)")
             .bind(dates::now_db()).execute(&db).await.unwrap();
 
@@ -795,7 +903,7 @@ mod tests {
 
     #[tokio::test]
     async fn an_arbitrary_table_name_cannot_be_exported() {
-        let (db, _owner) = fixture().await;
+        let (_test_db, db, _owner) = fixture().await;
         // `include` reaches the export from an API query string, so a name
         // outside the backup list must be ignored rather than read.
         let data = &export_with(&db, &["sqlite_master".to_string(), "staff_password_resets".to_string()])
@@ -807,11 +915,11 @@ mod tests {
 
     #[tokio::test]
     async fn offer_redemptions_survive_a_round_trip() {
-        let (source, owner) = fixture().await;
+        let (_test_db, source, owner) = fixture().await;
         let now = dates::now_db();
         let tier: String = sqlx::query_scalar("SELECT id FROM products LIMIT 1")
             .fetch_one(&source).await.unwrap();
-        sqlx::query("INSERT INTO offers (id, name, code, discount_type, discount_amount, interval, duration, product_id, created_at) VALUES ('off1','Half off','half','percent',50,'month','once',?,?)")
+        sqlx::query("INSERT INTO offers (id, name, code, discount_type, discount_amount, `interval`, duration, product_id, created_at) VALUES ('off1','Half off','half','percent',50,'month','once',?,?)")
             .bind(&tier).bind(&now).execute(&source).await.unwrap();
         sqlx::query("INSERT INTO members (id, uuid, transient_id, email, status, offer_id, created_at) VALUES ('m1','u1','tr1','a@b.test','paid','off1',?)")
             .bind(&now).execute(&source).await.unwrap();
@@ -828,7 +936,7 @@ mod tests {
         assert!(ids::is_objectid(redemptions[0]["id"].as_str().unwrap()), "a Ghost-shaped id");
 
         // And reading one back sets the column again.
-        let (target, target_owner) = fixture().await;
+        let (_test_db, target, target_owner) = fixture().await;
         let mut incoming = data.as_object().cloned().unwrap();
         incoming.insert("members".into(), json!([
             {"id":"m1","uuid":"u1","email":"a@b.test","status":"paid","created_at":now}
@@ -842,11 +950,11 @@ mod tests {
 
     #[tokio::test]
     async fn the_projected_redemption_id_is_stable_across_exports() {
-        let (db, _owner) = fixture().await;
+        let (_test_db, db, _owner) = fixture().await;
         let now = dates::now_db();
         let tier: String = sqlx::query_scalar("SELECT id FROM products LIMIT 1")
             .fetch_one(&db).await.unwrap();
-        sqlx::query("INSERT INTO offers (id, name, code, discount_type, discount_amount, interval, duration, product_id, created_at) VALUES ('off1','N','n','percent',10,'month','once',?,?)")
+        sqlx::query("INSERT INTO offers (id, name, code, discount_type, discount_amount, `interval`, duration, product_id, created_at) VALUES ('off1','N','n','percent',10,'month','once',?,?)")
             .bind(&tier).bind(&now).execute(&db).await.unwrap();
         sqlx::query("INSERT INTO members (id, uuid, transient_id, email, status, offer_id, created_at) VALUES ('m1','u1','tr1','a@b.test','paid','off1',?)")
             .bind(&now).execute(&db).await.unwrap();
@@ -859,7 +967,7 @@ mod tests {
 
     #[tokio::test]
     async fn an_extended_import_restores_members() {
-        let (db, owner) = fixture().await;
+        let (_test_db, db, owner) = fixture().await;
         let now = dates::now_db();
         import(&db, &json!({
             "members":[{"id":"m1","uuid":"u1","email":"restored@b.test","status":"free","created_at":now}]

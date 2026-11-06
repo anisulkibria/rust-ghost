@@ -65,7 +65,7 @@ async fn request(
         .flatten()
         .filter(|u| u.status.as_deref() == Some("active"));
     if let Some(user) = user {
-        let recent:bool=sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM staff_password_resets WHERE user_id=? AND datetime(created_at)>datetime('now','-1 minute'))").bind(&user.id).fetch_one(&state.db).await.unwrap_or(true);
+        let recent: bool = sqlx::query_scalar::<_, i64>(ghost_db::dialect::sql("SELECT EXISTS(SELECT 1 FROM staff_password_resets WHERE user_id=? AND datetime(created_at)>datetime('now','-1 minute'))")).bind(&user.id).fetch_one(&state.db).await.unwrap_or(1) != 0;
         if !recent {
             let token = ids::random_hex(32);
             let hash = hex::encode(Sha256::digest(token.as_bytes()));
@@ -117,7 +117,33 @@ async fn reset(State(state): State<AppState>, Json(body): Json<Value>) -> Respon
         Ok(tx) => tx,
         Err(_) => return error("Could not reset password"),
     };
-    let user:Option<String>=sqlx::query_scalar("DELETE FROM staff_password_resets WHERE token_hash=? AND datetime(expires_at)>datetime('now') RETURNING user_id").bind(hash).fetch_optional(&mut *tx).await.ok().flatten();
+    // `DELETE … RETURNING` in one statement, which MySQL does not have. Split
+    // into a read and a delete inside the transaction already open above.
+    //
+    // The delete's row count is what makes this single-use, not the select: if
+    // two requests arrive with the same token both may read the row, but only
+    // one delete can affect it, and the loser is turned away below. That is
+    // the same guarantee `RETURNING` gave, without needing `FOR UPDATE` —
+    // which SQLite does not support.
+    let user: Option<String> = sqlx::query_scalar(ghost_db::dialect::sql(
+        "SELECT user_id FROM staff_password_resets \
+         WHERE token_hash=? AND datetime(expires_at)>datetime('now')",
+    ))
+    .bind(&hash)
+    .fetch_optional(&mut *tx)
+    .await
+    .ok()
+    .flatten();
+    let user = match user {
+        Some(user) => {
+            let claimed = sqlx::query("DELETE FROM staff_password_resets WHERE token_hash=?")
+                .bind(&hash)
+                .execute(&mut *tx)
+                .await;
+            claimed.is_ok_and(|r| r.rows_affected() == 1).then_some(user)
+        }
+        None => None,
+    };
     let Some(user) = user else {
         return error("This reset link is invalid or expired.");
     };

@@ -1,9 +1,9 @@
 //! Integrations: the builtin apps' keys, and custom integration CRUD.
 use ghost_core::models::Integration;
 use ghost_core::{dates, ids, Result};
-use sqlx::SqlitePool;
+use crate::Db;
 
-pub async fn list(pool: &SqlitePool) -> Result<Vec<Integration>> {
+pub async fn list(pool: &Db) -> Result<Vec<Integration>> {
     let rows = sqlx::query_as::<_, (String, String, String, Option<String>)>(
         "SELECT id, type, name, slug FROM integrations WHERE type = 'custom' ORDER BY name",
     )
@@ -25,7 +25,7 @@ pub async fn list(pool: &SqlitePool) -> Result<Vec<Integration>> {
         .collect())
 }
 
-pub async fn find_by_slug(pool: &SqlitePool, slug: &str) -> Result<Option<Integration>> {
+pub async fn find_by_slug(pool: &Db, slug: &str) -> Result<Option<Integration>> {
     let row = sqlx::query_as::<_, (String, String, String, Option<String>)>(
         "SELECT id, type, name, slug FROM integrations WHERE slug = ? LIMIT 1",
     )
@@ -47,7 +47,7 @@ pub async fn find_by_slug(pool: &SqlitePool, slug: &str) -> Result<Option<Integr
 
 /// The content API key secret used for the internal frontend integration
 /// (handy first-run credential shown in boot logs / admin UI).
-pub async fn internal_content_key(pool: &SqlitePool) -> Result<Option<String>> {
+pub async fn internal_content_key(pool: &Db) -> Result<Option<String>> {
     let secret: Option<String> = sqlx::query_scalar(
         "SELECT k.secret FROM api_keys k JOIN integrations i ON i.id = k.integration_id WHERE i.slug = 'ghost-core-content' AND k.type = 'content' LIMIT 1",
     )
@@ -65,7 +65,7 @@ pub async fn internal_content_key(pool: &SqlitePool) -> Result<Option<String>> {
 ///
 /// `list` above is kept for callers that only want the name/slug pair; this
 /// one carries the fields the integrations screen shows.
-pub async fn list_custom(pool: &SqlitePool) -> Result<Vec<Integration>> {
+pub async fn list_custom(pool: &Db) -> Result<Vec<Integration>> {
     let rows = sqlx::query_as::<_, (String, String, String, Option<String>, Option<String>, Option<String>)>(
         "SELECT id, type, name, slug, description, created_at FROM integrations \
          WHERE type = 'custom' ORDER BY created_at DESC, name",
@@ -88,7 +88,7 @@ pub async fn list_custom(pool: &SqlitePool) -> Result<Vec<Integration>> {
         .collect())
 }
 
-pub async fn find_by_id(pool: &SqlitePool, id: &str) -> Result<Option<Integration>> {
+pub async fn find_by_id(pool: &Db, id: &str) -> Result<Option<Integration>> {
     let row = sqlx::query_as::<_, (String, String, String, Option<String>, Option<String>, Option<String>, Option<String>, Option<String>)>(
         "SELECT id, type, name, slug, description, created_at, updated_at, icon_image FROM integrations WHERE id = ? LIMIT 1",
     )
@@ -105,7 +105,7 @@ pub async fn find_by_id(pool: &SqlitePool, id: &str) -> Result<Option<Integratio
 /// because which one a script needs depends on whether it only reads published
 /// content or also writes. Handing out both up front saves a round trip
 /// through this screen later.
-pub async fn create_custom(pool: &SqlitePool, name: &str, description: Option<&str>) -> Result<Integration> {
+pub async fn create_custom(pool: &Db, name: &str, description: Option<&str>) -> Result<Integration> {
     let name = name.trim();
     if name.is_empty() {
         return Err(ghost_core::GhostError::ValidationError {
@@ -173,7 +173,7 @@ pub async fn create_custom(pool: &SqlitePool, name: &str, description: Option<&s
 
 /// The slug has a UNIQUE constraint, so two integrations called "Zapier Copy"
 /// would otherwise fail the second insert rather than both being created.
-async fn unique_slug(pool: &SqlitePool, base: &str) -> Result<String> {
+async fn unique_slug(pool: &Db, base: &str) -> Result<String> {
     let base = if base.is_empty() { "integration" } else { base };
     for suffix in 0..100 {
         let candidate = match suffix {
@@ -192,7 +192,7 @@ async fn unique_slug(pool: &SqlitePool, base: &str) -> Result<String> {
     Ok(format!("{base}-{}", ids::random_hex(4)))
 }
 
-pub async fn update_custom(pool: &SqlitePool, id: &str, name: &str, description: Option<&str>) -> Result<()> {
+pub async fn update_custom(pool: &Db, id: &str, name: &str, description: Option<&str>) -> Result<()> {
     let name = name.trim();
     if name.is_empty() {
         return Err(ghost_core::GhostError::ValidationError {
@@ -216,7 +216,7 @@ pub async fn update_custom(pool: &SqlitePool, id: &str, name: &str, description:
 /// Only `custom` rows can go: the internal and builtin ones carry keys the
 /// server itself authenticates with, and removing those breaks the frontend's
 /// own Content API access.
-pub async fn delete_custom(pool: &SqlitePool, id: &str) -> Result<()> {
+pub async fn delete_custom(pool: &Db, id: &str) -> Result<()> {
     let kind: Option<String> = sqlx::query_scalar("SELECT type FROM integrations WHERE id = ?")
         .bind(id)
         .fetch_optional(pool)
@@ -259,7 +259,7 @@ pub async fn delete_custom(pool: &SqlitePool, id: &str) -> Result<()> {
 
 /// The admin key of a builtin integration, by slug — what Zapier's screen
 /// shows for pasting into Zapier itself.
-pub async fn admin_key_for_slug(pool: &SqlitePool, slug: &str) -> Result<Option<String>> {
+pub async fn admin_key_for_slug(pool: &Db, slug: &str) -> Result<Option<String>> {
     let row: Option<(String, String)> = sqlx::query_as(
         "SELECT k.id, k.secret FROM api_keys k JOIN integrations i ON i.id = k.integration_id \
          WHERE i.slug = ? AND k.type = 'admin' LIMIT 1",

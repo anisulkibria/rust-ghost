@@ -35,7 +35,7 @@ pub fn admin_router() -> Router<AppState> {
 /// Matched by name rather than position: the row is wider than the 16-column
 /// tuple sqlx can build, and a positional list this long is one insertion
 /// away from silently reading the wrong column into the wrong field.
-#[derive(Serialize, sqlx::FromRow)]
+#[derive(Serialize)]
 struct EmailRow {
     id: String,
     uuid: Option<String>,
@@ -51,7 +51,6 @@ struct EmailRow {
     opened_count: i64,
     failed_count: i64,
     subject: Option<String>,
-    #[sqlx(rename = "from")]
     from: Option<String>,
     reply_to: Option<String>,
     source_type: Option<String>,
@@ -63,6 +62,48 @@ struct EmailRow {
     newsletter_id: Option<String>,
     created_at: String,
     updated_at: Option<String>,
+}
+
+/// Read by hand rather than derived, because of the boolean columns.
+///
+/// `#[derive(sqlx::FromRow)]` would decode each `bool` field with
+/// `Decode<Any> for bool`, which fails on both engines: a boolean is stored as
+/// a 0/1 integer and `Any` will not turn an integer into a `bool`. See
+/// [`ghost_db::types::flag`]. Every other field is read exactly as the derive
+/// would have read it.
+impl<'r> sqlx::FromRow<'r, sqlx::any::AnyRow> for EmailRow {
+    fn from_row(row: &'r sqlx::any::AnyRow) -> sqlx::Result<Self> {
+        use sqlx::Row;
+        Ok(Self {
+            id: row.try_get("id")?,
+            uuid: row.try_get("uuid")?,
+            post_id: row.try_get("post_id")?,
+            status: row.try_get("status")?,
+            recipient_filter: ghost_db::types::long_opt(row, "recipient_filter")?,
+            error: row.try_get("error")?,
+            email_count: row.try_get("email_count")?,
+            candidate_count: row.try_get("candidate_count")?,
+            preflight_email_count: row.try_get("preflight_email_count")?,
+            preparation_excluded_count: row.try_get("preparation_excluded_count")?,
+            delivered_count: row.try_get("delivered_count")?,
+            opened_count: row.try_get("opened_count")?,
+            failed_count: row.try_get("failed_count")?,
+            subject: row.try_get("subject")?,
+            // The column is `from`, a reserved word, which is why the
+            // field is named differently.
+            from: row.try_get("from")?,
+            reply_to: row.try_get("reply_to")?,
+            source_type: row.try_get("source_type")?,
+            track_opens: ghost_db::types::flag(row, "track_opens"),
+            track_clicks: ghost_db::types::flag(row, "track_clicks"),
+            feedback_enabled: ghost_db::types::flag(row, "feedback_enabled"),
+            prepared_at: row.try_get("prepared_at")?,
+            submitted_at: row.try_get("submitted_at")?,
+            newsletter_id: row.try_get("newsletter_id")?,
+            created_at: row.try_get("created_at")?,
+            updated_at: row.try_get("updated_at")?,
+        })
+    }
 }
 
 const EMAIL_COLS: &str = "id,uuid,post_id,status,recipient_filter,error,email_count,candidate_count,\
@@ -170,7 +211,7 @@ pub(crate) async fn ingest_provider_event(state:&AppState,event:&Value)->Respons
     let event_id=event["id"].as_str().unwrap_or("");
     if email.is_empty() || event_id.is_empty() { return error(StatusCode::BAD_REQUEST,"Event id and recipient are required."); }
     let mut tx=match state.db.begin().await {Ok(tx)=>tx,Err(_)=>return error(StatusCode::SERVICE_UNAVAILABLE,"Could not store delivery event.")};
-    let inserted=sqlx::query("INSERT OR IGNORE INTO email_delivery_events (id,event_type,email,created_at) VALUES (?,?,?,?)")
+    let inserted=sqlx::query(ghost_db::dialect::sql("INSERT OR IGNORE INTO email_delivery_events (id,event_type,email,created_at) VALUES (?,?,?,?)"))
         .bind(event_id).bind(kind).bind(&email).bind(dates::now_db()).execute(&mut *tx).await;
     match inserted {
         Ok(result) if result.rows_affected()==0 => return StatusCode::OK.into_response(),
@@ -178,7 +219,7 @@ pub(crate) async fn ingest_provider_event(state:&AppState,event:&Value)->Respons
         Err(_) => return error(StatusCode::SERVICE_UNAVAILABLE,"Could not store delivery event."),
     }
     if permanent {
-        if sqlx::query("INSERT INTO email_suppressions (email,reason,provider,created_at) VALUES (?,?,'mailgun',?) ON CONFLICT(email) DO UPDATE SET reason=excluded.reason, created_at=excluded.created_at")
+        if sqlx::query(ghost_db::dialect::sql("INSERT INTO email_suppressions (email,reason,provider,created_at) VALUES (?,?,'mailgun',?) ON CONFLICT(email) DO UPDATE SET reason=excluded.reason, created_at=excluded.created_at"))
             .bind(&email).bind(if kind=="complained"{"spam complaint"}else{"permanent bounce"}).bind(dates::now_db()).execute(&mut *tx).await.is_err()
             || sqlx::query("UPDATE members SET email_disabled = 1 WHERE lower(email)=?").bind(&email).execute(&mut *tx).await.is_err() {
             return error(StatusCode::SERVICE_UNAVAILABLE,"Could not save suppression.");
@@ -319,9 +360,9 @@ pub struct Failure<'a> {
 
 pub async fn record_failure(state:&AppState,f:Failure<'_>)->Result<()> {
     sqlx::query(
-        "INSERT OR IGNORE INTO email_recipient_failures \
+        ghost_db::dialect::sql("INSERT OR IGNORE INTO email_recipient_failures \
          (id,email_id,batch_id,member_id,email_recipient_id,code,enhanced_code,message,severity,event_id,failed_at) \
-         VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+         VALUES (?,?,?,?,?,?,?,?,?,?,?)"),
     )
     .bind(ids::new_id()).bind(f.email_id).bind(f.batch_id).bind(f.member_id).bind(f.recipient_id)
     .bind(f.code).bind(f.enhanced_code).bind(f.message).bind(f.severity).bind(f.event_id)
@@ -467,7 +508,7 @@ pub async fn track_links(state:&AppState,post_id:&str,html:&str)->Result<String>
         let matched=cap.get(0).unwrap(); let url=cap[2].replace("&amp;","&");
         if url.contains("%%{") || url.contains("/unsubscribe/") || !valid_url(&url) { continue; }
         let id=ids::random_hex(16); let now=dates::now_db();
-        sqlx::query("INSERT INTO newsletter_links (id,post_id,from_url,to_url,created_at,updated_at) VALUES (?,?,?,?,?,?) ON CONFLICT(post_id,from_url) DO NOTHING")
+        sqlx::query(ghost_db::dialect::sql("INSERT INTO newsletter_links (id,post_id,from_url,to_url,created_at,updated_at) VALUES (?,?,?,?,?,?) ON CONFLICT(post_id,from_url) DO NOTHING"))
             .bind(&id).bind(post_id).bind(&url).bind(&url).bind(&now).bind(&now).execute(&state.db).await.map_err(|e|GhostError::Db(e.to_string()))?;
         let id:String=sqlx::query_scalar("SELECT id FROM newsletter_links WHERE post_id=? AND from_url=?")
             .bind(post_id).bind(&url).fetch_one(&state.db).await.map_err(|e|GhostError::Db(e.to_string()))?;
@@ -480,7 +521,7 @@ async fn redirect(State(state):State<AppState>,method:Method,Path(id):Path<Strin
     let url=sqlx::query_scalar::<_,String>("SELECT to_url FROM newsletter_links WHERE id=?").bind(&id).fetch_optional(&state.db).await.ok().flatten();
     let Some(url)=url.filter(|u|valid_url(u)) else{return StatusCode::NOT_FOUND.into_response()};
     if let Some(member)=params.get("m").filter(|_| method == Method::GET && state.settings.get_bool("email_track_clicks")) {
-        let exists:bool=sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM members WHERE uuid=?)").bind(member).fetch_one(&state.db).await.unwrap_or(false);
+        let exists: bool = sqlx::query_scalar::<_, i64>("SELECT EXISTS(SELECT 1 FROM members WHERE uuid=?)").bind(member).fetch_one(&state.db).await.unwrap_or(0) != 0;
         if exists { let _=sqlx::query("INSERT INTO newsletter_clicks (id,link_id,member_uuid,created_at) VALUES (?,?,?,?)")
             .bind(ids::new_id()).bind(id).bind(member).bind(dates::now_db()).execute(&state.db).await; }
     }

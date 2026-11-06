@@ -19,7 +19,7 @@
 //! step to take.
 use ghost_core::{dates, ids};
 use serde_json::json;
-use sqlx::SqlitePool;
+use ghost_db::Db;
 
 /// What a reset revoked, in upstream's shape.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -43,7 +43,7 @@ pub const LOCKED: &str = "locked";
 /// Runs in a transaction so a crash cannot leave the site half-rotated: keys
 /// changed but accounts still open, or the audit row missing.
 pub async fn reset_authentication(
-    pool: &SqlitePool,
+    pool: &Db,
     actor_id: Option<&str>,
 ) -> Result<ResetOutcome, ghost_core::GhostError> {
     let db = |e: sqlx::Error| ghost_core::GhostError::Db(e.to_string());

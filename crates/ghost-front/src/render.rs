@@ -229,20 +229,37 @@ pub async fn error_page(
     path: &str,
     headers: HeaderMap,
 ) -> Response {
+    error_page_with_message(state, status, None, path, headers).await
+}
+
+/// [`error_page`], with the sentence to show given explicitly.
+///
+/// The status code names the *class* of problem; sometimes the host or the
+/// caller knows the actual one. A site whose public access the host has closed
+/// is the case this exists for: "Service Unavailable" tells a visitor nothing,
+/// where "This site is not currently published" tells them it is not their
+/// browser and not worth reloading.
+pub async fn error_page_with_message(
+    state: &AppState,
+    status: StatusCode,
+    message: Option<&str>,
+    path: &str,
+    headers: HeaderMap,
+) -> Response {
     let code = status.as_u16();
     let theme = state.theme.read().await.clone();
     let nxx = format!("error-{}xx", code / 100);
     let candidates = vec![format!("error-{code}"), nxx, "error".to_string()];
 
-    let message = if code == 404 {
-        "Page not found".to_string()
-    } else {
-        status.canonical_reason().unwrap_or("Error").to_string()
+    let message = match message {
+        Some(m) => m.to_string(),
+        None if code == 404 => "Page not found".to_string(),
+        None => status.canonical_reason().unwrap_or("Error").to_string(),
     };
 
     let mut root = Map::new();
     root.insert("statusCode".into(), serde_json::json!(code));
-    root.insert("message".into(), Value::String(message));
+    root.insert("message".into(), Value::String(message.clone()));
     root.insert("errorDetails".into(), Value::Null);
     root.insert("path".into(), Value::String(path.to_string()));
 
@@ -259,12 +276,17 @@ pub async fn error_page(
         }
     }
 
-    // builtin fallback
+    // builtin fallback. The message is shown here too, not just the status
+    // reason: a site with no theme rendered yet is exactly the case where a
+    // visitor most needs telling what happened.
+    let escaped = message
+        .replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;");
     (
         status,
         Html(format!(
-            "<!DOCTYPE html><html><head><title>{code}</title></head><body style=\"font-family:sans-serif;text-align:center;padding:4rem\"><h1>{code}</h1><p>{}</p></body></html>",
-            status.canonical_reason().unwrap_or("Error")
+            "<!DOCTYPE html><html><head><title>{code}</title></head><body style=\"font-family:sans-serif;text-align:center;padding:4rem\"><h1>{code}</h1><p>{escaped}</p></body></html>"
         )),
     )
         .into_response()

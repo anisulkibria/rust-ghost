@@ -45,7 +45,7 @@ pub enum Feed {
 /// Counts come from one grouped query rather than three per row: a feed of
 /// thirty notes was otherwise ninety round trips to SQLite.
 pub async fn notes(
-    pool: &sqlx::SqlitePool,
+    pool: &ghost_db::Db,
     feed: Feed,
     parent: Option<&str>,
     page: i64,
@@ -55,7 +55,7 @@ pub async fn notes(
     let rows = match feed {
         Feed::Replies => {
             let Some(parent) = parent else { return Vec::new() };
-            sqlx::query_as::<_, (String, String, String, String, Option<String>, String, bool)>(
+            sqlx::query_as::<_, (String, String, String, String, Option<String>, String, i64)>(
                 "SELECT id,actor,content,url,in_reply_to,published_at,local FROM federation_objects \
                  WHERE deleted=0 AND in_reply_to=? ORDER BY published_at ASC,id ASC LIMIT ? OFFSET ?",
             )
@@ -114,13 +114,13 @@ pub async fn notes(
             url,
             in_reply_to,
             published_at,
-            local,
+            local: local != 0,
         })
         .collect()
 }
 
 /// Likes or boosts per object, for a set of objects.
-async fn counts(pool: &sqlx::SqlitePool, ids: &[String], kind: &str) -> HashMap<String, i64> {
+async fn counts(pool: &ghost_db::Db, ids: &[String], kind: &str) -> HashMap<String, i64> {
     if ids.is_empty() {
         return HashMap::new();
     }
@@ -137,7 +137,7 @@ async fn counts(pool: &sqlx::SqlitePool, ids: &[String], kind: &str) -> HashMap<
 }
 
 /// Replies per object.
-async fn reply_counts(pool: &sqlx::SqlitePool, ids: &[String]) -> HashMap<String, i64> {
+async fn reply_counts(pool: &ghost_db::Db, ids: &[String]) -> HashMap<String, i64> {
     if ids.is_empty() {
         return HashMap::new();
     }
@@ -154,8 +154,8 @@ async fn reply_counts(pool: &sqlx::SqlitePool, ids: &[String]) -> HashMap<String
 }
 
 /// One note by id, with its author and counts.
-pub async fn note(pool: &sqlx::SqlitePool, id: &str) -> Option<Note> {
-    let row = sqlx::query_as::<_, (String, String, String, String, Option<String>, String, bool)>(
+pub async fn note(pool: &ghost_db::Db, id: &str) -> Option<Note> {
+    let row = sqlx::query_as::<_, (String, String, String, String, Option<String>, String, i64)>(
         "SELECT id,actor,content,url,in_reply_to,published_at,local FROM federation_objects \
          WHERE id=? AND deleted=0",
     )
@@ -175,7 +175,7 @@ pub async fn note(pool: &sqlx::SqlitePool, id: &str) -> Option<Note> {
         url,
         in_reply_to,
         published_at,
-        local,
+        local: local != 0,
     })
 }
 
@@ -209,13 +209,14 @@ pub enum Relation {
 
 /// One page of a relationship list, with profiles resolved.
 pub async fn accounts(
-    pool: &sqlx::SqlitePool,
+    pool: &ghost_db::Db,
     relation: Relation,
     page: i64,
     per_page: i64,
 ) -> Vec<Account> {
     let offset = (page - 1).max(0) * per_page;
-    let rows: Vec<(String, bool, String)> = match relation {
+    // Booleans are 0/1 integers; `Any` does not decode one as a `bool`.
+    let rows: Vec<(String, i64, String)> = match relation {
         Relation::Followers => sqlx::query_as(
             "SELECT actor,1,created_at FROM federation_followers ORDER BY created_at DESC LIMIT ? OFFSET ?",
         ),
@@ -253,12 +254,13 @@ pub async fn accounts(
 
     rows.into_iter()
         .map(|(actor, accepted, since)| Account {
+            // 0/1 from the database; see the annotation above.
             profile: who
                 .get(&actor)
                 .cloned()
                 .unwrap_or_else(|| profiles::Profile::unknown(&actor)),
-            delivery_error: if accepted { None } else { trouble.get(&actor).cloned() },
-            accepted,
+            delivery_error: if accepted != 0 { None } else { trouble.get(&actor).cloned() },
+            accepted: accepted != 0,
             since,
         })
         .collect()
@@ -282,7 +284,7 @@ pub struct Notification {
 /// `kind` filters to one type — Ghost's notification screen has the same
 /// tabs, because a hundred likes otherwise bury the one reply worth reading.
 pub async fn notifications(
-    pool: &sqlx::SqlitePool,
+    pool: &ghost_db::Db,
     kind: Option<&str>,
     limit: i64,
 ) -> Vec<Notification> {
@@ -333,7 +335,7 @@ pub async fn notifications(
 }
 
 /// How many notifications have not been looked at.
-pub async fn unread(pool: &sqlx::SqlitePool) -> i64 {
+pub async fn unread(pool: &ghost_db::Db) -> i64 {
     sqlx::query_scalar(
         "SELECT COUNT(*) FROM federation_received WHERE read_at IS NULL AND undone=0 \
          AND activity_type IN ('Follow','Like','Announce','Create')",
@@ -344,7 +346,7 @@ pub async fn unread(pool: &sqlx::SqlitePool) -> i64 {
 }
 
 /// Counts for the publication's own profile header.
-pub async fn summary(pool: &sqlx::SqlitePool) -> (i64, i64, i64) {
+pub async fn summary(pool: &ghost_db::Db) -> (i64, i64, i64) {
     let one = |sql: &'static str| async move {
         sqlx::query_scalar::<_, i64>(sql).fetch_one(pool).await.unwrap_or(0)
     };
@@ -476,11 +478,11 @@ pub async fn follow(state: &AppState, handle: &str) -> Result<profiles::Profile>
         return Err(bad("Cannot follow the publication itself"));
     }
     let blocked: bool =
-        sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM federation_blocks WHERE actor=?)")
+        sqlx::query_scalar::<_, i64>("SELECT EXISTS(SELECT 1 FROM federation_blocks WHERE actor=?)")
             .bind(&actor.id)
             .fetch_one(&state.db)
             .await
-            .unwrap_or(true);
+            .unwrap_or(1) != 0;
     if blocked {
         return Err(bad("Unblock this account before following it"));
     }
@@ -488,11 +490,11 @@ pub async fn follow(state: &AppState, handle: &str) -> Result<profiles::Profile>
     // what every list will render them with.
     profiles::store(&state.db, &actor.id, &actor.profile).await;
     let exists: bool =
-        sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM federation_following WHERE actor=?)")
+        sqlx::query_scalar::<_, i64>("SELECT EXISTS(SELECT 1 FROM federation_following WHERE actor=?)")
             .bind(&actor.id)
             .fetch_one(&state.db)
             .await
-            .unwrap_or(false);
+            .unwrap_or(0) != 0;
     if exists {
         return Ok(profiles::one(&state.db, &actor.id).await);
     }
@@ -600,7 +602,7 @@ pub async fn interact(
 
 /// Which of our own Likes and Announces are currently standing, so the feed
 /// can show a liked note as liked rather than offering to like it again.
-pub async fn own_interactions(pool: &sqlx::SqlitePool) -> HashMap<(String, String), String> {
+pub async fn own_interactions(pool: &ghost_db::Db) -> HashMap<(String, String), String> {
     sqlx::query_as::<_, (String, String, String)>(
         "SELECT id,activity_type,object_id FROM federation_activities \
          WHERE undone=0 AND activity_type IN ('Like','Announce') AND object_id IS NOT NULL",
@@ -623,7 +625,7 @@ pub async fn set_block(state: &AppState, actor: &str, blocked: bool) -> Result<(
     }
     let mut tx = state.db.begin().await.map_err(db_error)?;
     if blocked {
-        sqlx::query("INSERT OR IGNORE INTO federation_blocks (actor,created_at) VALUES (?,?)")
+        sqlx::query(ghost_db::dialect::sql("INSERT OR IGNORE INTO federation_blocks (actor,created_at) VALUES (?,?)"))
             .bind(actor)
             .bind(dates::now_db())
             .execute(&mut *tx)
@@ -664,7 +666,7 @@ pub struct Suggestion {
 /// site has a real connection to and is not yet following: people who
 /// followed first, and people whose notes have already reached the feed by
 /// being replied to or boosted by somebody followed.
-pub async fn suggestions(pool: &sqlx::SqlitePool, local_actor: &str, limit: i64) -> Vec<Suggestion> {
+pub async fn suggestions(pool: &ghost_db::Db, local_actor: &str, limit: i64) -> Vec<Suggestion> {
     let mut out: Vec<Suggestion> = Vec::new();
     let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
     seen.insert(local_actor.to_string());
@@ -726,7 +728,7 @@ pub async fn suggestions(pool: &sqlx::SqlitePool, local_actor: &str, limit: i64)
 /// lookup is deliberately not done here: resolving a dozen of them would be a
 /// dozen remote fetches on every page load, so the screen offers each as a
 /// button and the fetch happens when one is pressed.
-pub async fn recommended_hosts(pool: &sqlx::SqlitePool) -> Vec<(String, String)> {
+pub async fn recommended_hosts(pool: &ghost_db::Db) -> Vec<(String, String)> {
     sqlx::query_as::<_, (String, String)>(
         "SELECT title,url FROM recommendations ORDER BY featured DESC, created_at DESC LIMIT 24",
     )

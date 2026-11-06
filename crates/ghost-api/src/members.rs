@@ -760,7 +760,7 @@ async fn gift_payment_completed(state: &AppState, token: &str) -> ghost_core::Re
     }
     if matches!(gift.status.as_str(),"paid"|"redeemed") {
         let deliver_at=gift.delivery_at.as_deref().or(gift.purchased_at.as_deref()).unwrap_or("");
-        sqlx::query("INSERT OR IGNORE INTO scheduled_gift_deliveries (token,deliver_at) VALUES (?,?)").bind(token).bind(deliver_at).execute(&mut *tx).await.map_err(|e|ghost_core::GhostError::Db(e.to_string()))?;
+        sqlx::query(ghost_db::dialect::sql("INSERT OR IGNORE INTO scheduled_gift_deliveries (token,deliver_at) VALUES (?,?)")).bind(token).bind(deliver_at).execute(&mut *tx).await.map_err(|e|ghost_core::GhostError::Db(e.to_string()))?;
     }
     tx.commit().await.map_err(|e|ghost_core::GhostError::Db(e.to_string()))?;
     deliver_due_gifts(state).await;
@@ -1427,7 +1427,8 @@ struct SubscriptionSnapshot {
 }
 
 async fn subscription_snapshot(state: &AppState, subscription_id: &str) -> SubscriptionSnapshot {
-    let row: Option<(String, Option<String>, Option<String>, bool, Option<i64>, Option<String>, Option<String>)> =
+    // Booleans are 0/1 integers; `Any` does not decode one as a `bool`.
+    let row: Option<(String, Option<String>, Option<String>, i64, Option<i64>, Option<String>, Option<String>)> =
         sqlx::query_as(
             "SELECT s.status, s.stripe_price_id, s.plan_currency, s.cancel_at_period_end, s.plan_amount, \
                     s.plan_interval, m.status \
@@ -1450,7 +1451,7 @@ async fn subscription_snapshot(state: &AppState, subscription_id: &str) -> Subsc
         stripe_status: Some(stripe_status),
         price_id,
         currency,
-        cancel_at_period_end,
+        cancel_at_period_end: cancel_at_period_end != 0,
         mrr: if paying { monthly_equivalent(amount.unwrap_or(0), interval.as_deref().unwrap_or("month")) } else { 0 },
     }
 }
@@ -1587,7 +1588,7 @@ type MemberRow = (
     Option<String>,
     String,
     String,
-    bool,
+    i64, // 0/1; `Any` does not decode an integer as a bool
     Option<String>,
 );
 
@@ -1601,7 +1602,7 @@ fn row_to_member(r: MemberRow) -> Member {
         expertise: r.5,
         status: r.6,
         created_at: r.7,
-        enable_comment_notifications: r.8,
+        enable_comment_notifications: r.8 != 0,
         commenting: crate::comments::Commenting::parse(r.9.as_deref()),
     }
 }
@@ -2071,9 +2072,9 @@ async fn add_feedback(
     let now = now_rfc3339();
     let id = ids::new_id();
     let saved = sqlx::query(
-        "INSERT INTO members_feedback (id, score, member_id, post_id, created_at, updated_at) \
+        ghost_db::dialect::sql("INSERT INTO members_feedback (id, score, member_id, post_id, created_at, updated_at) \
          VALUES (?, ?, ?, ?, ?, ?) \
-         ON CONFLICT (member_id, post_id) DO UPDATE SET score = excluded.score, updated_at = excluded.updated_at",
+         ON CONFLICT (member_id, post_id) DO UPDATE SET score = excluded.score, updated_at = excluded.updated_at"),
     )
     .bind(&id)
     .bind(score)
@@ -3202,10 +3203,10 @@ fn scheduled_gift_date(date:Option<&str>,timezone:&str)->std::result::Result<Opt
 /// Native worker with persistent retry state. A process restart does not lose a delivery.
 pub fn spawn_gift_delivery(state:AppState){tokio::spawn(async move{loop{deliver_due_gifts(&state).await;if let Err(e)=send_due_gift_reminders(&state).await{tracing::warn!("Gift reminders: {}",e.message());}tokio::time::sleep(std::time::Duration::from_secs(30)).await;}});}
 pub(crate) async fn deliver_due_gifts(state:&AppState){
-    let due=sqlx::query_scalar::<_,String>("SELECT token FROM scheduled_gift_deliveries WHERE sent_at IS NULL AND attempts<12 AND datetime(deliver_at)<=datetime('now') AND (last_attempt_at IS NULL OR datetime(last_attempt_at)<datetime('now','-5 minutes')) LIMIT 50")
+    let due=sqlx::query_scalar::<_,String>(ghost_db::dialect::sql("SELECT token FROM scheduled_gift_deliveries WHERE sent_at IS NULL AND attempts<12 AND datetime(deliver_at)<=datetime('now') AND (last_attempt_at IS NULL OR datetime(last_attempt_at)<datetime('now','-5 minutes')) LIMIT 50"))
         .fetch_all(&state.db).await.unwrap_or_default();
     for token in due{
-        let claimed=sqlx::query("UPDATE scheduled_gift_deliveries SET attempts=attempts+1,last_attempt_at=? WHERE token=? AND sent_at IS NULL AND (last_attempt_at IS NULL OR datetime(last_attempt_at)<datetime('now','-5 minutes'))")
+        let claimed=sqlx::query(ghost_db::dialect::sql("UPDATE scheduled_gift_deliveries SET attempts=attempts+1,last_attempt_at=? WHERE token=? AND sent_at IS NULL AND (last_attempt_at IS NULL OR datetime(last_attempt_at)<datetime('now','-5 minutes'))"))
             .bind(now_rfc3339()).bind(&token).execute(&state.db).await.is_ok_and(|r|r.rows_affected()==1);
         if !claimed{continue}
         let Some(gift)=find_gift(state,&token).await.filter(|g|g.status=="paid"||g.status=="redeemed")else{continue};
@@ -3221,21 +3222,21 @@ pub(crate) async fn deliver_due_gifts(state:&AppState){
 /// restarts cannot erase a successful send. Only redeemed, expiring gifts qualify.
 pub async fn send_due_gift_reminders(state:&AppState)->ghost_core::Result<u64>{
     let db_error=|e:sqlx::Error|ghost_core::GhostError::Db(e.to_string());
-    let gifts=sqlx::query_scalar::<_,String>("SELECT token FROM tokens WHERE json_valid(data) AND json_extract(data,'$.gift')=1 AND json_extract(data,'$.status')='redeemed'").fetch_all(&state.db).await.map_err(db_error)?;
+    let gifts=sqlx::query_scalar::<_,String>(ghost_db::dialect::sql("SELECT token FROM tokens WHERE json_valid(data) AND json_extract(data,'$.gift')=1 AND json_extract(data,'$.status')='redeemed'")).fetch_all(&state.db).await.map_err(db_error)?;
     for token in gifts {
         let Some(gift)=find_gift(state,&token).await else{continue};
         let Some(at)=gift.redeemed_at.as_deref().and_then(|s|ghost_core::dates::from_db_string(s).or_else(||chrono::DateTime::parse_from_rfc3339(s).ok().map(|d|d.with_timezone(&chrono::Utc))))else{continue};
         let end=months_after(at,gift.total_months);let due=end-chrono::Duration::days(7);
-        sqlx::query("INSERT INTO gift_reminders(token,due_at) VALUES(?,?) ON CONFLICT(token) DO NOTHING").bind(&token).bind(due.format("%Y-%m-%d %H:%M:%S").to_string()).execute(&state.db).await.map_err(db_error)?;
+        sqlx::query(ghost_db::dialect::sql("INSERT INTO gift_reminders(token,due_at) VALUES(?,?) ON CONFLICT(token) DO NOTHING")).bind(&token).bind(due.format("%Y-%m-%d %H:%M:%S").to_string()).execute(&state.db).await.map_err(db_error)?;
     }
-    let due=sqlx::query_scalar::<_,String>("SELECT token FROM gift_reminders WHERE sent_at IS NULL AND attempts<12 AND datetime(due_at)<=datetime('now') AND (claimed_at IS NULL OR datetime(claimed_at)<datetime('now','-1 hour')) LIMIT 50").fetch_all(&state.db).await.map_err(db_error)?;
+    let due=sqlx::query_scalar::<_,String>(ghost_db::dialect::sql("SELECT token FROM gift_reminders WHERE sent_at IS NULL AND attempts<12 AND datetime(due_at)<=datetime('now') AND (claimed_at IS NULL OR datetime(claimed_at)<datetime('now','-1 hour')) LIMIT 50")).fetch_all(&state.db).await.map_err(db_error)?;
     let mut sent=0;
     for token in due{
         let Some(gift)=find_gift(state,&token).await else{continue};
         let Some(member_id)=gift.redeemed_by.as_deref()else{continue};
         let member=sqlx::query_as::<_,(String,Option<String>,String)>("SELECT m.email,m.name,mp.expiry_at FROM members m JOIN members_products mp ON mp.member_id=m.id WHERE m.id=? AND mp.product_id=? AND mp.expiry_at IS NOT NULL AND datetime(mp.expiry_at)>datetime('now','+3 days') AND NOT EXISTS(SELECT 1 FROM members_stripe_customers c JOIN subscriptions s ON s.customer_id=c.customer_id WHERE c.member_id=m.id AND s.status IN ('active','trialing')) ORDER BY mp.expiry_at DESC LIMIT 1").bind(member_id).bind(&gift.tier_id).fetch_optional(&state.db).await.map_err(db_error)?;
         let Some((email,_name,end))=member else{continue};
-        let claimed=sqlx::query("UPDATE gift_reminders SET claimed_at=?,attempts=attempts+1 WHERE token=? AND sent_at IS NULL AND (claimed_at IS NULL OR datetime(claimed_at)<datetime('now','-1 hour'))").bind(ghost_core::dates::now_db()).bind(&token).execute(&state.db).await.map_err(db_error)?;
+        let claimed=sqlx::query(ghost_db::dialect::sql("UPDATE gift_reminders SET claimed_at=?,attempts=attempts+1 WHERE token=? AND sent_at IS NULL AND (claimed_at IS NULL OR datetime(claimed_at)<datetime('now','-1 hour'))")).bind(ghost_core::dates::now_db()).bind(&token).execute(&state.db).await.map_err(db_error)?;
         if claimed.rows_affected()!=1{continue}
         let link=format!("{}/#/portal/signup",state.site_url());
         let cfg=ghost_mail::MailConfig::from_settings(&state.settings,&state.settings.site_name(),&state.site_url());

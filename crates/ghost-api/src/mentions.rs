@@ -260,7 +260,7 @@ pub async fn store_verified(state: &AppState, source: &str, target: &str, html: 
     // A repeat webmention updates the one already stored rather than adding
     // a second: the source is telling this site the same thing again.
     sqlx::query(
-        "INSERT INTO mentions (id, source, source_title, source_site_title, source_excerpt, \
+        ghost_db::dialect::sql("INSERT INTO mentions (id, source, source_title, source_site_title, source_excerpt, \
          source_author, source_featured_image, source_favicon, target, resource_id, resource_type, \
          payload, deleted, verified, revalidation_failure_count, created_at) \
          VALUES (?,?,?,?,?,?,?,?,?,?,?,?,0,1,0,?) \
@@ -269,7 +269,7 @@ pub async fn store_verified(state: &AppState, source: &str, target: &str, html: 
            source_excerpt=excluded.source_excerpt, source_author=excluded.source_author, \
            source_featured_image=excluded.source_featured_image, source_favicon=excluded.source_favicon, \
            resource_id=excluded.resource_id, resource_type=excluded.resource_type, \
-           deleted=0, verified=1, revalidation_failure_count=0",
+           deleted=0, verified=1, revalidation_failure_count=0"),
     )
     .bind(ids::new_id())
     .bind(source)
@@ -583,10 +583,10 @@ async fn send_one(state: &AppState, source: &str, target: &str) -> Result<()> {
     };
     let now = dates::now_db();
     let _ = sqlx::query(
-        "INSERT INTO mention_sends (id, source, target, endpoint, status, error, created_at, updated_at) \
+        ghost_db::dialect::sql("INSERT INTO mention_sends (id, source, target, endpoint, status, error, created_at, updated_at) \
          VALUES (?,?,?,?,?,?,?,?) \
          ON CONFLICT(source, target) DO UPDATE SET endpoint=excluded.endpoint, status=excluded.status, \
-           error=excluded.error, updated_at=excluded.updated_at",
+           error=excluded.error, updated_at=excluded.updated_at"),
     )
     .bind(ids::new_id())
     .bind(source)
@@ -690,7 +690,7 @@ async fn browse(State(state): State<AppState>, headers: HeaderMap, Query(q): Que
     Json(json!({"mentions": rows})).into_response()
 }
 
-#[derive(serde::Serialize, sqlx::FromRow)]
+#[derive(serde::Serialize)]
 struct MentionRow {
     id: String,
     source: String,
@@ -706,6 +706,35 @@ struct MentionRow {
     verified: bool,
     created_at: String,
     resource_title: Option<String>,
+}
+
+/// Read by hand rather than derived, because of the boolean columns.
+///
+/// `#[derive(sqlx::FromRow)]` would decode each `bool` field with
+/// `Decode<Any> for bool`, which fails on both engines: a boolean is stored as
+/// a 0/1 integer and `Any` will not turn an integer into a `bool`. See
+/// [`ghost_db::types::flag`]. Every other field is read exactly as the derive
+/// would have read it.
+impl<'r> sqlx::FromRow<'r, sqlx::any::AnyRow> for MentionRow {
+    fn from_row(row: &'r sqlx::any::AnyRow) -> sqlx::Result<Self> {
+        use sqlx::Row;
+        Ok(Self {
+            id: row.try_get("id")?,
+            source: row.try_get("source")?,
+            source_title: row.try_get("source_title")?,
+            source_site_title: row.try_get("source_site_title")?,
+            source_excerpt: row.try_get("source_excerpt")?,
+            source_author: row.try_get("source_author")?,
+            source_featured_image: row.try_get("source_featured_image")?,
+            source_favicon: row.try_get("source_favicon")?,
+            target: row.try_get("target")?,
+            resource_id: row.try_get("resource_id")?,
+            resource_type: row.try_get("resource_type")?,
+            verified: ghost_db::types::flag(row, "verified"),
+            created_at: row.try_get("created_at")?,
+            resource_title: row.try_get("resource_title")?,
+        })
+    }
 }
 
 /// `GET /incoming_recommendations` — the sites that recommend this one.
@@ -728,13 +757,15 @@ async fn incoming_recommendations(State(state): State<AppState>, headers: Header
     let mut recommendations = Vec::new();
     for (id, source, site_title, title, excerpt, favicon, created_at) in rows {
         let url = source.trim_end_matches("/.well-known/recommendations.json").trim_end_matches('/').to_string();
+        // `EXISTS` is 0/1; `Any` does not decode an integer as a `bool`.
         let recommending_back: bool =
-            sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM recommendations WHERE url = ? OR url = ? || '/')")
+            sqlx::query_scalar::<_, i64>("SELECT EXISTS(SELECT 1 FROM recommendations WHERE url = ? OR url = ? || '/')")
                 .bind(&url)
                 .bind(&url)
                 .fetch_one(&state.db)
                 .await
-                .unwrap_or(false);
+                .unwrap_or(0)
+                != 0;
         recommendations.push(json!({"id": id, "url": url,
             "title": site_title.or(title), "excerpt": excerpt, "favicon": favicon,
             "recommending_back": recommending_back, "created_at": created_at}));

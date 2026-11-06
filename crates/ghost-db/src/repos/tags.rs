@@ -1,12 +1,12 @@
 //! Tags repository.
 use ghost_core::{dates, ids, models::Tag, slug, GhostError, Result};
 use ghost_nql::Expr;
-use sqlx::SqlitePool;
+use crate::Db;
 use std::collections::BTreeSet;
 
 use super::{dberr, TagRow, TAG_COLS};
 
-pub async fn find_by_ids(pool: &SqlitePool, tag_ids: &BTreeSet<String>) -> Result<Vec<Tag>> {
+pub async fn find_by_ids(pool: &Db, tag_ids: &BTreeSet<String>) -> Result<Vec<Tag>> {
     let mut out = Vec::new();
     // SQLite has a practical variable limit; chunk large id sets
     for chunk in tag_ids.iter().collect::<Vec<_>>().chunks(100) {
@@ -24,7 +24,7 @@ pub async fn find_by_ids(pool: &SqlitePool, tag_ids: &BTreeSet<String>) -> Resul
 }
 
 pub async fn browse(
-    pool: &SqlitePool,
+    pool: &Db,
     filter: Option<&Expr>,
     order: Option<&str>,
     limit: i64,
@@ -89,7 +89,7 @@ fn order_clause(order: Option<&str>) -> String {
     if parts.is_empty() { default } else { parts.join(", ") }
 }
 
-pub async fn find_by_slug(pool: &SqlitePool, slug_: &str) -> Result<Option<Tag>> {
+pub async fn find_by_slug(pool: &Db, slug_: &str) -> Result<Option<Tag>> {
     let tag = sqlx::query_as::<_, TagRow>(&format!("SELECT {TAG_COLS} FROM tags WHERE slug = ? LIMIT 1"))
         .bind(slug_)
         .fetch_optional(pool)
@@ -99,7 +99,7 @@ pub async fn find_by_slug(pool: &SqlitePool, slug_: &str) -> Result<Option<Tag>>
     Ok(tag)
 }
 
-pub async fn find_by_id(pool: &SqlitePool, id: &str) -> Result<Option<Tag>> {
+pub async fn find_by_id(pool: &Db, id: &str) -> Result<Option<Tag>> {
     let tag = sqlx::query_as::<_, TagRow>(&format!("SELECT {TAG_COLS} FROM tags WHERE id = ? LIMIT 1"))
         .bind(id)
         .fetch_optional(pool)
@@ -121,7 +121,7 @@ pub struct NewTag {
     pub meta_description: Option<String>,
 }
 
-pub async fn slug_exists(pool: &SqlitePool, slug_: &str, self_id: Option<&str>) -> Result<bool> {
+pub async fn slug_exists(pool: &Db, slug_: &str, self_id: Option<&str>) -> Result<bool> {
     let count: i64 = match self_id {
         Some(id) => sqlx::query_scalar("SELECT COUNT(*) FROM tags WHERE slug = ? AND id != ?")
             .bind(slug_)
@@ -137,7 +137,7 @@ pub async fn slug_exists(pool: &SqlitePool, slug_: &str, self_id: Option<&str>) 
     Ok(count > 0)
 }
 
-async fn unique_slug(pool: &SqlitePool, base: &str, self_id: Option<&str>) -> Result<String> {
+async fn unique_slug(pool: &Db, base: &str, self_id: Option<&str>) -> Result<String> {
     let mut s = slug::safe_string(base);
     if s.len() > 185 {
         s.truncate(185);
@@ -160,7 +160,7 @@ async fn unique_slug(pool: &SqlitePool, base: &str, self_id: Option<&str>) -> Re
     Ok(candidate)
 }
 
-pub async fn insert(pool: &SqlitePool, new: &NewTag) -> Result<Tag> {
+pub async fn insert(pool: &Db, new: &NewTag) -> Result<Tag> {
     // Internal tag: name starting with '#'
     let (name, visibility, slug_base) = if let Some(rest) = new.name.strip_prefix('#') {
         (format!("#{rest}"), "internal".to_string(), format!("hash-{rest}"))
@@ -217,7 +217,7 @@ pub struct TagChanges {
     pub codeinjection_foot: Option<String>,
 }
 
-pub async fn update(pool: &SqlitePool, id: &str, changes: &TagChanges) -> Result<Tag> {
+pub async fn update(pool: &Db, id: &str, changes: &TagChanges) -> Result<Tag> {
     let existing = find_by_id(pool, id).await?.ok_or(ghost_core::GhostError::NotFoundError { message: "not found".into(), context: None })?;
     let now = dates::now_db();
 
@@ -279,7 +279,7 @@ pub async fn update(pool: &SqlitePool, id: &str, changes: &TagChanges) -> Result
     find_by_id(pool, id).await?.ok_or_else(|| GhostError::Internal("tag vanished".into()))
 }
 
-pub async fn destroy(pool: &SqlitePool, id: &str) -> Result<()> {
+pub async fn destroy(pool: &Db, id: &str) -> Result<()> {
     sqlx::query("DELETE FROM posts_tags WHERE tag_id = ?").bind(id).execute(pool).await.map_err(|e| ghost_core::GhostError::Db(e.to_string()))?;
     let res = sqlx::query("DELETE FROM tags WHERE id = ?").bind(id).execute(pool).await.map_err(|e| ghost_core::GhostError::Db(e.to_string()))?;
     if res.rows_affected() == 0 {
@@ -288,7 +288,7 @@ pub async fn destroy(pool: &SqlitePool, id: &str) -> Result<()> {
     Ok(())
 }
 
-pub async fn all_public(pool: &SqlitePool) -> Result<Vec<Tag>> {
+pub async fn all_public(pool: &Db) -> Result<Vec<Tag>> {
     let rows = sqlx::query_as::<_, TagRow>(&format!(
         "SELECT {TAG_COLS} FROM tags WHERE visibility = 'public' ORDER BY name"
     ))
@@ -299,8 +299,10 @@ pub async fn all_public(pool: &SqlitePool) -> Result<Vec<Tag>> {
 }
 
 /// Staff tag pickers include internal tags; public theme queries use all_public.
-pub async fn all(pool: &SqlitePool) -> Result<Vec<Tag>> {
-    let rows = sqlx::query_as::<_, TagRow>(&format!("SELECT {TAG_COLS} FROM tags ORDER BY name COLLATE NOCASE"))
+pub async fn all(pool: &Db) -> Result<Vec<Tag>> {
+    let rows = sqlx::query_as::<_, TagRow>(&crate::dialect::sql_owned(&format!(
+        "SELECT {TAG_COLS} FROM tags ORDER BY name COLLATE NOCASE"
+    )))
         .fetch_all(pool).await.map_err(dberr)?;
     Ok(rows.into_iter().map(Into::into).collect())
 }
@@ -311,9 +313,8 @@ mod tests {
 
     #[tokio::test]
     async fn staff_picker_includes_internal_tags_while_public_queries_exclude_them() {
-        let pool = sqlx::sqlite::SqlitePoolOptions::new().max_connections(1)
-            .connect("sqlite::memory:").await.unwrap();
-        sqlx::migrate!("../../migrations").run(&pool).await.unwrap();
+        let test_db = crate::pool::connect_test().await.unwrap();
+        let pool = test_db.pool();
         for name in ["News", "#Internal"] {
             insert(&pool, &NewTag { name: name.into(), ..Default::default() }).await.unwrap();
         }

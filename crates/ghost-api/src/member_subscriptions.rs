@@ -23,12 +23,13 @@ async fn actor(state: &AppState, headers: &HeaderMap, body: &Value) -> Option<Me
 async fn owned(state: &AppState, member: &Member, id: &str) -> bool {
     // Do not interpolate request-controlled Stripe ids into paths.
     if !id.starts_with("sub_") || !id.bytes().all(|c| c.is_ascii_alphanumeric() || c == b'_') { return false; }
-    sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM subscriptions s JOIN members_stripe_customers c ON c.customer_id = s.customer_id WHERE s.subscription_id = ? AND c.member_id = ?)")
-        .bind(id).bind(&member.id).fetch_one(&state.db).await.unwrap_or(false)
+    // // `EXISTS` yields 0/1; `Any` does not decode an integer as a `bool`.
+    sqlx::query_scalar::<_, i64>("SELECT EXISTS(SELECT 1 FROM subscriptions s JOIN members_stripe_customers c ON c.customer_id = s.customer_id WHERE s.subscription_id = ? AND c.member_id = ?)")
+        .bind(id).bind(&member.id).fetch_one(&state.db).await.unwrap_or(0) != 0
 }
 
 pub(super) async fn list(state: &AppState, member_id: &str) -> Vec<Value> {
-    let rows = sqlx::query_as::<_, (String, Option<String>, Option<bool>, Option<String>, Option<String>, Option<String>, Option<i64>, Option<String>)>(
+    let rows = sqlx::query_as::<_, (String, Option<String>, Option<i64>, Option<String>, Option<String>, Option<String>, Option<i64>, Option<String>)>(
         "SELECT s.subscription_id, s.status, s.cancel_at_period_end, s.current_period_end, s.plan_interval, s.plan_currency, s.plan_amount, s.stripe_price_id FROM subscriptions s JOIN members_stripe_customers c ON c.customer_id = s.customer_id WHERE c.member_id = ? ORDER BY s.created_at DESC")
         .bind(member_id).fetch_all(&state.db).await.unwrap_or_default();
     let mut subscriptions = Vec::new();
@@ -36,7 +37,7 @@ pub(super) async fn list(state: &AppState, member_id: &str) -> Vec<Value> {
         let tier = sqlx::query_as::<_, (String, String)>("SELECT id, name FROM products WHERE monthly_price_id = ? OR yearly_price_id = ? LIMIT 1")
             .bind(&price_id).bind(&price_id).fetch_optional(&state.db).await.ok().flatten();
         subscriptions.push(json!({"id":id,"subscription_id":id,"status":status,
-            "cancel_at_period_end":cancelled.unwrap_or(false),"current_period_end":end,
+            "cancel_at_period_end":cancelled.unwrap_or(0) != 0,"current_period_end":end,
             "price":{"id":price_id,"amount":amount,"currency":currency,"interval":interval},
             "plan":{"id":price_id,"amount":amount,"currency":currency,"interval":interval},
             "tier":tier.map(|(id,name)| json!({"id":id,"name":name}))}));
@@ -68,8 +69,8 @@ pub(super) async fn update(State(state): State<AppState>, Path(id): Path<String>
                 .bind(supplied).bind(supplied).fetch_optional(&state.db).await.ok().flatten().or_else(|| supplied.starts_with("price_").then(||supplied.to_string()))
         };
         let Some(price) = price else { return api_error(StatusCode::NOT_FOUND,"Plan not found.","NotFoundError"); };
-        let allowed: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM products WHERE active = 1 AND type = 'paid' AND (monthly_price_id = ? OR yearly_price_id = ?))")
-            .bind(&price).bind(&price).fetch_one(&state.db).await.unwrap_or(false);
+        let allowed: bool = sqlx::query_scalar::<_, i64>("SELECT EXISTS(SELECT 1 FROM products WHERE active = 1 AND type = 'paid' AND (monthly_price_id = ? OR yearly_price_id = ?))")
+            .bind(&price).bind(&price).fetch_one(&state.db).await.unwrap_or(0) != 0;
         if !allowed { return api_error(StatusCode::BAD_REQUEST,"That plan is unavailable.","BadRequestError"); }
         let current = match ghost_stripe::get_subscription(&cfg, &id).await { Ok(v)=>v, Err(e)=>return api_error(StatusCode::BAD_GATEWAY,&e.message(),"StripeError") };
         let Some(item) = current.pointer("/items/data/0/id").and_then(Value::as_str) else { return api_error(StatusCode::BAD_GATEWAY,"Subscription item not found.","StripeError"); };
@@ -102,8 +103,8 @@ pub(super) async fn apply_offer(State(state): State<AppState>, Path(id): Path<St
     let Some(offer) = ghost_db::repos::offers::find_by_id(&state.db,offer_id).await.ok().flatten().filter(|o|o.active && o.redemption_type.as_deref() == Some("retention")) else {
         return api_error(StatusCode::NOT_FOUND,"Retention offer not found.","NotFoundError");
     };
-    let applicable: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM subscriptions s JOIN products p ON (s.stripe_price_id = p.monthly_price_id OR s.stripe_price_id = p.yearly_price_id) WHERE s.subscription_id = ? AND p.id = ? AND s.plan_interval = ? AND s.status IN ('active','trialing'))")
-        .bind(&id).bind(&offer.product_id).bind(&offer.interval).fetch_one(&state.db).await.unwrap_or(false);
+    let applicable: bool = sqlx::query_scalar::<_, i64>("SELECT EXISTS(SELECT 1 FROM subscriptions s JOIN products p ON (s.stripe_price_id = p.monthly_price_id OR s.stripe_price_id = p.yearly_price_id) WHERE s.subscription_id = ? AND p.id = ? AND s.plan_interval = ? AND s.status IN ('active','trialing'))")
+        .bind(&id).bind(&offer.product_id).bind(&offer.interval).fetch_one(&state.db).await.unwrap_or(0) != 0;
     if !applicable { return api_error(StatusCode::BAD_REQUEST,"This offer does not apply to your subscription.","BadRequestError"); }
     let Some(coupon) = offer.stripe_coupon_id else { return api_error(StatusCode::BAD_REQUEST,"This offer is unavailable.","BadRequestError"); };
     let Some(cfg) = stripe_cfg(&state) else { return stripe_unavailable().await; };

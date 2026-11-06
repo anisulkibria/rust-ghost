@@ -120,9 +120,12 @@ fn copy_tree(from: &std::path::Path, to: &std::path::Path) {
     }
 }
 
-async fn fixture(port: u16) -> (ghost_api::AppState, String) {
-    let db = sqlx::sqlite::SqlitePoolOptions::new().max_connections(1).connect("sqlite::memory:").await.unwrap();
-    sqlx::migrate!("../../migrations").run(&db).await.unwrap();
+async fn fixture(port: u16) -> (ghost_db::TestDb, ghost_api::AppState, String) {
+    // The TestDb is returned with the state so the database outlives this
+    // function: dropping it here would remove a MySQL database the test is
+    // about to query.
+    let test_db = ghost_db::pool::connect_test().await.unwrap();
+    let db = test_db.pool();
     ghost_db::seed::seed_if_empty(&db).await.unwrap();
     let owner = ghost_db::repos::users::setup_owner(&db, "Owner", "owner@example.test", "unused").await.unwrap();
     let settings = Arc::new(ghost_db::SettingsCache::from_values([
@@ -174,19 +177,19 @@ async fn fixture(port: u16) -> (ghost_api::AppState, String) {
         frontend_key: Arc::new(tokio::sync::RwLock::new(None)),
         limits: Arc::new(ghost_db::limits::Limits::default()),
     };
-    (state, owner.id)
+    (test_db, state, owner.id)
 }
 
 /// Members subscribed to `newsletter`, half of them without a name so the
 /// send has to split the batch on it.
 async fn seed(state: &ghost_api::AppState, owner: &str, addresses: &[(&str, &str)]) -> String {
-    sqlx::query("INSERT INTO newsletters (id,name,slug,status,created_at) VALUES ('nl','Weekly','weekly','active',datetime('now'))")
+    sqlx::query(ghost_db::dialect::sql("INSERT INTO newsletters (id,name,slug,status,created_at) VALUES ('nl','Weekly','weekly','active',datetime('now'))"))
         .execute(&state.db)
         .await
         .unwrap();
     for (address, name) in addresses {
         let id = ghost_core::ids::new_id();
-        sqlx::query("INSERT INTO members (id,uuid,transient_id,email,name,status,created_at) VALUES (?,?,?,?,?,'free',datetime('now'))")
+        sqlx::query(ghost_db::dialect::sql("INSERT INTO members (id,uuid,transient_id,email,name,status,created_at) VALUES (?,?,?,?,?,'free',datetime('now'))"))
             .bind(&id)
             .bind(format!("uuid-{address}"))
             .bind(&id)
@@ -225,7 +228,7 @@ async fn seed(state: &ghost_api::AppState, owner: &str, addresses: &[(&str, &str
 #[tokio::test]
 async fn a_send_records_every_recipient_batches_it_and_retries_only_the_failures() {
     let sink = Sink::start().await;
-    let (state, owner) = fixture(sink.port).await;
+    let (_test_db, state, owner) = fixture(sink.port).await;
     let post_id = seed(
         &state,
         &owner,
@@ -321,7 +324,7 @@ async fn a_send_records_every_recipient_batches_it_and_retries_only_the_failures
 #[tokio::test]
 async fn a_send_nobody_accepts_leaves_no_record_so_it_can_be_tried_again() {
     let sink = Sink::start().await;
-    let (state, owner) = fixture(sink.port).await;
+    let (_test_db, state, owner) = fixture(sink.port).await;
     let post_id = seed(&state, &owner, &[("only@example.test", "Only")]).await;
     sink.refuse(&["only@example.test"]);
 
@@ -348,14 +351,14 @@ async fn a_posts_analytics_page_reports_the_send_it_just_made() {
     use tower::ServiceExt;
 
     let sink = Sink::start().await;
-    let (state, owner) = fixture(sink.port).await;
+    let (_test_db, state, owner) = fixture(sink.port).await;
     let post_id = seed(&state, &owner, &[("a@example.test", "A"), ("b@example.test", "B")]).await;
     sink.refuse(&["b@example.test"]);
     assert_eq!(ghost_admin_ui::send_newsletter_for_test(&state, &post_id).await, Ok(1));
 
     // Two page views of the post, one of them from a search engine.
     for (viewer, source) in [("v1", Some("Google")), ("v2", None)] {
-        sqlx::query("INSERT INTO page_views (id,path,viewer,audience,created_at,referrer_source,referrer_medium) VALUES (?,?,?,'public',datetime('now'),?,?)")
+        sqlx::query(ghost_db::dialect::sql("INSERT INTO page_views (id,path,viewer,audience,created_at,referrer_source,referrer_medium) VALUES (?,?,?,'public',datetime('now'),?,?)"))
             .bind(ghost_core::ids::new_id())
             .bind("/batched/")
             .bind(viewer)
@@ -366,11 +369,11 @@ async fn a_posts_analytics_page_reports_the_send_it_just_made() {
             .unwrap();
     }
     // And a member who signed up from it.
-    sqlx::query("INSERT INTO members (id,uuid,transient_id,email,status,created_at) VALUES ('gm','gu','gt','grown@example.test','free',datetime('now'))")
+    sqlx::query(ghost_db::dialect::sql("INSERT INTO members (id,uuid,transient_id,email,status,created_at) VALUES ('gm','gu','gt','grown@example.test','free',datetime('now'))"))
         .execute(&state.db)
         .await
         .unwrap();
-    sqlx::query("INSERT INTO members_created_events (id,member_id,source,attribution_id,attribution_type,created_at) VALUES (?,'gm','member',?,'post',datetime('now'))")
+    sqlx::query(ghost_db::dialect::sql("INSERT INTO members_created_events (id,member_id,source,attribution_id,attribution_type,created_at) VALUES (?,'gm','member',?,'post',datetime('now'))"))
         .bind(ghost_core::ids::new_id())
         .bind(&post_id)
         .execute(&state.db)
@@ -441,7 +444,7 @@ async fn the_admin_api_can_manage_themes_and_export_content() {
     use tower::ServiceExt;
 
     let sink = Sink::start().await;
-    let (state, owner) = fixture(sink.port).await;
+    let (_test_db, state, owner) = fixture(sink.port).await;
     seed(&state, &owner, &[("reader@example.test", "R")]).await;
     let session = ghost_db::repos::sessions::create(&state.db, &owner).await.unwrap();
     let cookie = format!("ghost-admin-api-session={session}");
@@ -520,14 +523,14 @@ async fn the_admin_api_can_manage_themes_and_export_content() {
 #[tokio::test]
 async fn gift_reminders_send_once_and_survive_repeated_scheduler_passes(){
     let sink=Sink::start().await;
-    let (state,_)=fixture(sink.port).await;
-    sqlx::query("INSERT INTO products(id,name,slug,type,created_at)VALUES('gift-tier','Gift','gift-reminder-tier','paid',datetime('now'))").execute(&state.db).await.unwrap();
-    sqlx::query("INSERT INTO members(id,uuid,transient_id,email,status,created_at)VALUES('gift-member','gift-member-uuid','gift-transient','gift@example.test','gift',datetime('now'))").execute(&state.db).await.unwrap();
-    let redeemed:String=sqlx::query_scalar("SELECT datetime('now','-25 days')").fetch_one(&state.db).await.unwrap();
-    let end:String=sqlx::query_scalar("SELECT datetime('now','+5 days')").fetch_one(&state.db).await.unwrap();
+    let (_test_db,state,_)=fixture(sink.port).await;
+    sqlx::query(ghost_db::dialect::sql("INSERT INTO products(id,name,slug,type,created_at)VALUES('gift-tier','Gift','gift-reminder-tier','paid',datetime('now'))")).execute(&state.db).await.unwrap();
+    sqlx::query(ghost_db::dialect::sql("INSERT INTO members(id,uuid,transient_id,email,status,created_at)VALUES('gift-member','gift-member-uuid','gift-transient','gift@example.test','gift',datetime('now'))")).execute(&state.db).await.unwrap();
+    let redeemed:String=sqlx::query_scalar(ghost_db::dialect::sql("SELECT datetime('now','-25 days')")).fetch_one(&state.db).await.unwrap();
+    let end:String=sqlx::query_scalar(ghost_db::dialect::sql("SELECT datetime('now','+5 days')")).fetch_one(&state.db).await.unwrap();
     sqlx::query("INSERT INTO members_products(id,member_id,product_id,expiry_at)VALUES('gift-grant','gift-member','gift-tier',?)").bind(end).execute(&state.db).await.unwrap();
     let data=serde_json::json!({"gift":true,"token":"gift-reminder-token","tier_id":"gift-tier","tier_name":"Gift","cadence":"month","duration":1,"total_months":1,"currency":"usd","amount":100,"buyer_email":"buyer@example.test","delivery":"link","status":"redeemed","redeemed_by":"gift-member","redeemed_at":redeemed});
-    sqlx::query("INSERT INTO tokens(id,token,data,created_at)VALUES('gift-token','gift-reminder-token',?,datetime('now'))").bind(data.to_string()).execute(&state.db).await.unwrap();
+    sqlx::query(ghost_db::dialect::sql("INSERT INTO tokens(id,token,data,created_at)VALUES('gift-token','gift-reminder-token',?,datetime('now'))")).bind(data.to_string()).execute(&state.db).await.unwrap();
     assert_eq!(ghost_api::members::send_due_gift_reminders(&state).await.unwrap(),1);
     assert_eq!(ghost_api::members::send_due_gift_reminders(&state).await.unwrap(),0);
     assert_eq!(sink.accepted.load(Ordering::SeqCst),1);
@@ -538,7 +541,7 @@ async fn gift_reminders_send_once_and_survive_repeated_scheduler_passes(){
 #[tokio::test]
 async fn ghost_newsletter_preview_and_test_send_use_the_standard_api_payload(){
     use axum::{body::{Body,to_bytes},http::Request};use tower::ServiceExt;
-    let sink=Sink::start().await;let(state,owner)=fixture(sink.port).await;
+    let sink=Sink::start().await;let(_test_db,state,owner)=fixture(sink.port).await;
     let post=seed(&state,&owner,&[("preview-subscriber@example.test","Reader")]).await;
     let session=ghost_db::repos::sessions::create(&state.db,&owner).await.unwrap();
     let app=ghost_api::admin::admin_router().with_state(state.clone());
@@ -552,7 +555,7 @@ async fn ghost_newsletter_preview_and_test_send_use_the_standard_api_payload(){
 #[tokio::test]
 async fn ghost_json_import_uses_the_standard_multipart_field_and_preserves_content(){
     use axum::{body::{Body,to_bytes},http::Request};use tower::ServiceExt;
-    let sink=Sink::start().await;let(state,owner)=fixture(sink.port).await;
+    let sink=Sink::start().await;let(_test_db,state,owner)=fixture(sink.port).await;
     let session=ghost_db::repos::sessions::create(&state.db,&owner).await.unwrap();
     let lexical=serde_json::json!({"root":{"type":"root","children":[{"type":"paragraph","children":[{"type":"text","text":"Imported through Ghost API"}]}]}}).to_string();
     let data=serde_json::json!({"db":[{"data":{"posts":[{"id":"ghost-api-import","title":"API import","slug":"api-import","lexical":lexical,"type":"post","status":"published","visibility":"public","published_at":"2026-10-01T12:34:56Z","meta_title":"SEO survives"}],"posts_authors":[{"id":"import-author-relation","post_id":"ghost-api-import","author_id":owner}]}}]});

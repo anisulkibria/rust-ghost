@@ -20,7 +20,7 @@ pub fn router() -> Router<AppState> {
         .route("/snippets/{id}/", get(read).put(edit).delete(delete))
 }
 
-#[derive(Debug, Serialize, Deserialize, sqlx::FromRow)]
+#[derive(Debug, Serialize, Deserialize)]
 struct Snippet {
     id: String,
     name: String,
@@ -28,6 +28,24 @@ struct Snippet {
     lexical: Option<String>,
     created_at: String,
     updated_at: Option<String>,
+}
+
+/// Read by hand rather than derived, because of the long columns.
+///
+/// `#[derive(sqlx::FromRow)]` would decode them as `String`, which fails on
+/// MySQL: a `MEDIUMTEXT` arrives as a blob. See [`ghost_db::types::long`].
+impl<'r> sqlx::FromRow<'r, sqlx::any::AnyRow> for Snippet {
+    fn from_row(row: &'r sqlx::any::AnyRow) -> sqlx::Result<Self> {
+        use sqlx::Row;
+        Ok(Self {
+            id: row.try_get("id")?,
+            name: row.try_get("name")?,
+            mobiledoc: ghost_db::types::long(row, "mobiledoc")?,
+            lexical: ghost_db::types::long_opt(row, "lexical")?,
+            created_at: row.try_get("created_at")?,
+            updated_at: row.try_get("updated_at")?,
+        })
+    }
 }
 
 fn error(status: StatusCode, message: &str) -> Response {
@@ -152,14 +170,25 @@ async fn browse(
         Ok(v) => v,
         Err(e) => return db_error(e),
     };
-    let rows = match sqlx::query_as::<_, Snippet>(
-        "SELECT * FROM snippets ORDER BY name COLLATE NOCASE, id LIMIT ? OFFSET ?",
-    )
-    .bind(limit)
-    .bind(if limit < 0 { 0 } else { (page - 1) * limit })
-    .fetch_all(&state.db)
-    .await
-    {
+    // `limit=all` means no limit, spelled by *omitting* the clause rather
+    // than binding -1: SQLite reads a negative `LIMIT` as unlimited, but
+    // MySQL rejects it, and there is no non-negative number that means "all".
+    let rows = if limit < 0 {
+        sqlx::query_as::<_, Snippet>(ghost_db::dialect::sql(
+            "SELECT * FROM snippets ORDER BY name COLLATE NOCASE, id",
+        ))
+        .fetch_all(&state.db)
+        .await
+    } else {
+        sqlx::query_as::<_, Snippet>(ghost_db::dialect::sql(
+            "SELECT * FROM snippets ORDER BY name COLLATE NOCASE, id LIMIT ? OFFSET ?",
+        ))
+        .bind(limit)
+        .bind((page - 1) * limit)
+        .fetch_all(&state.db)
+        .await
+    };
+    let rows = match rows {
         Ok(v) => v,
         Err(e) => return db_error(e),
     };

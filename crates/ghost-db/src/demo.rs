@@ -9,7 +9,7 @@
 //! is safe to run after editing `assets/demo-content.json`.
 use ghost_core::{dates, ids, GhostError, Result};
 use serde::Deserialize;
-use sqlx::SqlitePool;
+use crate::Db;
 
 #[derive(Debug, Deserialize)]
 struct DemoContent {
@@ -75,7 +75,7 @@ fn db(e: sqlx::Error) -> GhostError {
 }
 
 /// Insert (or replace) the demo tags and posts.
-pub async fn seed_demo(pool: &SqlitePool) -> Result<DemoSummary> {
+pub async fn seed_demo(pool: &Db) -> Result<DemoSummary> {
     let content: DemoContent = serde_json::from_str(include_str!("../assets/demo-content.json"))?;
     let now = dates::now_db();
     let mut summary = DemoSummary::default();
@@ -192,7 +192,7 @@ pub async fn seed_demo(pool: &SqlitePool) -> Result<DemoSummary> {
 }
 
 /// Create the tag, or update the one already using that slug.
-async fn upsert_tag(pool: &SqlitePool, tag: &DemoTag, now: &str) -> Result<String> {
+async fn upsert_tag(pool: &Db, tag: &DemoTag, now: &str) -> Result<String> {
     let existing: Option<String> = sqlx::query_scalar("SELECT id FROM tags WHERE slug = ?")
         .bind(&tag.slug)
         .fetch_optional(pool)
@@ -237,7 +237,7 @@ async fn upsert_tag(pool: &SqlitePool, tag: &DemoTag, now: &str) -> Result<Strin
     Ok(id)
 }
 
-async fn owner_id(pool: &SqlitePool) -> Result<String> {
+async fn owner_id(pool: &Db) -> Result<String> {
     sqlx::query_scalar(
         "SELECT user_id FROM roles_users ru JOIN roles r ON r.id = ru.role_id \
          WHERE r.name = 'Owner' LIMIT 1",

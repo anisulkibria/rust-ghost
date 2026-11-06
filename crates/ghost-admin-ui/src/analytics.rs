@@ -398,7 +398,7 @@ fn audience_clause(audience: &str) -> &'static str {
 }
 
 /// Unique visitors and total views inside a window.
-pub async fn traffic(db: &sqlx::SqlitePool, w: &Window, audience: &str) -> (i64, i64) {
+pub async fn traffic(db: &ghost_db::Db, w: &Window, audience: &str) -> (i64, i64) {
     let sql = format!(
         "SELECT COUNT(DISTINCT viewer), COUNT(*) FROM page_views \
          WHERE created_at >= ? AND created_at < ?{}",
@@ -414,7 +414,7 @@ pub async fn traffic(db: &sqlx::SqlitePool, w: &Window, audience: &str) -> (i64,
 /// table that silently showed nothing would look broken rather than
 /// unconfigured.
 pub async fn locations(
-    db: &sqlx::SqlitePool,
+    db: &ghost_db::Db,
     w: &Window,
     audience: &str,
     limit: i64,
@@ -453,7 +453,7 @@ pub const CAMPAIGN_DIMENSIONS: &[(&str, &str, &str, &str)] = &[
 /// up from that table rather than taken from the caller, so the identifier
 /// interpolated into the SQL can only ever be one of the five.
 pub async fn campaigns(
-    db: &sqlx::SqlitePool,
+    db: &ghost_db::Db,
     w: &Window,
     dimension: &str,
     audience: &str,
@@ -489,7 +489,7 @@ fn path_placeholders(paths: &[String]) -> String {
 
 /// Visitors and views per country, for one post's paths.
 pub async fn locations_for_paths(
-    db: &sqlx::SqlitePool,
+    db: &ghost_db::Db,
     paths: &[String],
     limit: i64,
 ) -> Vec<(Option<String>, i64, i64)> {
@@ -510,7 +510,7 @@ pub async fn locations_for_paths(
 
 /// Campaign tags on the links that brought readers to one post.
 pub async fn campaigns_for_paths(
-    db: &sqlx::SqlitePool,
+    db: &ghost_db::Db,
     paths: &[String],
     dimension: &str,
     limit: i64,
@@ -540,7 +540,7 @@ pub async fn campaigns_for_paths(
 /// Days with no visits are absent rather than zero; the caller fills the gaps,
 /// because only it knows how wide the chart is meant to be.
 pub async fn daily_for_paths(
-    db: &sqlx::SqlitePool,
+    db: &ghost_db::Db,
     paths: &[String],
     since: &str,
 ) -> Vec<(String, i64)> {
@@ -563,7 +563,7 @@ pub async fn daily_for_paths(
 ///
 /// The Campaigns section leads with this: without it, five empty tables look
 /// like a broken report rather than a site nobody has tagged a link for.
-pub async fn tagged_views(db: &sqlx::SqlitePool, w: &Window, audience: &str) -> i64 {
+pub async fn tagged_views(db: &ghost_db::Db, w: &Window, audience: &str) -> i64 {
     let sql = format!(
         "SELECT COUNT(*) FROM page_views WHERE created_at >= ? AND created_at < ? \
          AND (utm_source IS NOT NULL AND utm_source <> '' \

@@ -18,7 +18,7 @@
 //! login key of `user_login` plus the caller's IP limits one network's
 //! guessing; `<email>reset` limits requests against one account from
 //! anywhere. Both are needed: neither alone stops both attack shapes.
-use sqlx::SqlitePool;
+use ghost_db::Db;
 
 /// One endpoint's budget. Waits are milliseconds, lifetime seconds, matching
 /// upstream's config so the numbers can be compared directly.
@@ -151,10 +151,10 @@ fn wait_for(budget: &Budget, count: i64) -> i64 {
 /// Call this *before* doing the work the attempt asks for. An attempt that
 /// turns out to be legitimate should then call [`reset`], which is what keeps
 /// a correct password from counting towards a lockout.
-pub async fn check(pool: &SqlitePool, key: &str, budget: &Budget) -> Result<(), Blocked> {
+pub async fn check(pool: &Db, key: &str, budget: &Budget) -> Result<(), Blocked> {
     let now = now_ms();
     let existing = sqlx::query_as::<_, (Option<i64>, Option<i64>, Option<i64>)>(
-        "SELECT firstRequest, lastRequest, count FROM brute WHERE key = ?",
+        "SELECT firstRequest, lastRequest, count FROM brute WHERE `key` = ?",
     )
     .bind(key)
     .fetch_optional(pool)
@@ -179,7 +179,7 @@ pub async fn check(pool: &SqlitePool, key: &str, budget: &Budget) -> Result<(), 
                 return Err(Blocked { retry_in_ms: ready_at - now });
             }
         }
-        let _ = sqlx::query("UPDATE brute SET count = count + 1, lastRequest = ? WHERE key = ?")
+        let _ = sqlx::query("UPDATE brute SET count = count + 1, lastRequest = ? WHERE `key` = ?")
             .bind(now)
             .bind(key)
             .execute(pool)
@@ -189,8 +189,8 @@ pub async fn check(pool: &SqlitePool, key: &str, budget: &Budget) -> Result<(), 
 
     // No live record: start, or restart, the window.
     let _ = sqlx::query(
-        "INSERT INTO brute (key, firstRequest, lastRequest, lifetime, count) VALUES (?, ?, ?, ?, 1) \
-         ON CONFLICT(key) DO UPDATE SET firstRequest = ?, lastRequest = ?, lifetime = ?, count = 1",
+        ghost_db::dialect::sql("INSERT INTO brute (`key`, firstRequest, lastRequest, lifetime, count) VALUES (?, ?, ?, ?, 1) \
+         ON CONFLICT(`key`) DO UPDATE SET firstRequest = ?, lastRequest = ?, lifetime = ?, count = 1"),
     )
     .bind(key)
     .bind(now)
@@ -205,8 +205,8 @@ pub async fn check(pool: &SqlitePool, key: &str, budget: &Budget) -> Result<(), 
 }
 
 /// Clear a key's record, after an attempt that turned out to be legitimate.
-pub async fn reset(pool: &SqlitePool, key: &str) {
-    let _ = sqlx::query("DELETE FROM brute WHERE key = ?").bind(key).execute(pool).await;
+pub async fn reset(pool: &Db, key: &str) {
+    let _ = sqlx::query("DELETE FROM brute WHERE `key` = ?").bind(key).execute(pool).await;
 }
 
 /// Is this key currently blocked? Reads only; counts nothing.
@@ -220,10 +220,10 @@ pub async fn reset(pool: &SqlitePool, key: &str) {
 /// `Ok(true)` means there is a record to clear if the request turns out to be
 /// legitimate, so the caller can skip the delete when there is nothing there —
 /// which is the overwhelmingly common case.
-pub async fn peek(pool: &SqlitePool, key: &str, budget: &Budget) -> Result<bool, Blocked> {
+pub async fn peek(pool: &Db, key: &str, budget: &Budget) -> Result<bool, Blocked> {
     let now = now_ms();
     let row = sqlx::query_as::<_, (Option<i64>, Option<i64>)>(
-        "SELECT lastRequest, count FROM brute WHERE key = ?",
+        "SELECT lastRequest, count FROM brute WHERE `key` = ?",
     )
     .bind(key)
     .fetch_optional(pool)
@@ -243,10 +243,10 @@ pub async fn peek(pool: &SqlitePool, key: &str, budget: &Budget) -> Result<bool,
 }
 
 /// Charge one failure against `key`.
-pub async fn record_failure(pool: &SqlitePool, key: &str, budget: &Budget) {
+pub async fn record_failure(pool: &Db, key: &str, budget: &Budget) {
     let now = now_ms();
     let fresh: Option<Option<i64>> =
-        sqlx::query_scalar("SELECT lastRequest FROM brute WHERE key = ?")
+        sqlx::query_scalar("SELECT lastRequest FROM brute WHERE `key` = ?")
             .bind(key)
             .fetch_optional(pool)
             .await
@@ -256,7 +256,7 @@ pub async fn record_failure(pool: &SqlitePool, key: &str, budget: &Budget) {
         .flatten()
         .is_some_and(|last| now.saturating_sub(last) < budget.lifetime.saturating_mul(1000));
     if live {
-        let _ = sqlx::query("UPDATE brute SET count = count + 1, lastRequest = ? WHERE key = ?")
+        let _ = sqlx::query("UPDATE brute SET count = count + 1, lastRequest = ? WHERE `key` = ?")
             .bind(now)
             .bind(key)
             .execute(pool)
@@ -264,8 +264,8 @@ pub async fn record_failure(pool: &SqlitePool, key: &str, budget: &Budget) {
         return;
     }
     let _ = sqlx::query(
-        "INSERT INTO brute (key, firstRequest, lastRequest, lifetime, count) VALUES (?, ?, ?, ?, 1) \
-         ON CONFLICT(key) DO UPDATE SET firstRequest = ?, lastRequest = ?, lifetime = ?, count = 1",
+        ghost_db::dialect::sql("INSERT INTO brute (`key`, firstRequest, lastRequest, lifetime, count) VALUES (?, ?, ?, ?, 1) \
+         ON CONFLICT(`key`) DO UPDATE SET firstRequest = ?, lastRequest = ?, lifetime = ?, count = 1"),
     )
     .bind(key)
     .bind(now)
@@ -279,7 +279,7 @@ pub async fn record_failure(pool: &SqlitePool, key: &str, budget: &Budget) {
 }
 
 /// Drop expired records, so the table does not grow without bound.
-pub async fn sweep(pool: &SqlitePool) {
+pub async fn sweep(pool: &Db) {
     let _ = sqlx::query(
         "DELETE FROM brute WHERE lastRequest IS NOT NULL AND lifetime IS NOT NULL \
            AND lastRequest + (lifetime * 1000) < ?",
@@ -338,10 +338,21 @@ impl<S: Send + Sync> axum::extract::FromRequestParts<S> for ClientAddr {
 mod tests {
     use super::*;
 
-    async fn pool() -> SqlitePool {
-        let pool = SqlitePool::connect("sqlite::memory:").await.unwrap();
+    async fn pool() -> Db {
+        // `Any` panics on first use unless a driver is registered. The real
+        // server goes through `ghost_db::pool`, which does it; a test that
+        // builds its own pool has to do it too.
+        sqlx::any::install_default_drivers();
+        // `max_connections(1)`: every connection to `:memory:` gets its own
+        // empty database, so a pool of more than one would create the table on
+        // one connection and look for it on another.
+        let pool = sqlx::any::AnyPoolOptions::new()
+            .max_connections(1)
+            .connect("sqlite::memory:")
+            .await
+            .unwrap();
         sqlx::query(
-            "CREATE TABLE brute (key TEXT PRIMARY KEY NOT NULL, firstRequest BIGINT, \
+            "CREATE TABLE brute (`key` TEXT PRIMARY KEY NOT NULL, firstRequest BIGINT, \
              lastRequest BIGINT, lifetime BIGINT, count INTEGER)",
         )
         .execute(&pool)
@@ -420,7 +431,7 @@ mod tests {
         assert!(check(&pool, "stale", &USER_LOGIN).await.is_err());
         // Age the record past its lifetime.
         let long_ago = now_ms() - (USER_LOGIN.lifetime * 1000) - 1;
-        sqlx::query("UPDATE brute SET lastRequest = ? WHERE key = 'stale'")
+        sqlx::query("UPDATE brute SET lastRequest = ? WHERE `key` = 'stale'")
             .bind(long_ago)
             .execute(&pool)
             .await
@@ -450,13 +461,13 @@ mod tests {
         let pool = pool().await;
         let _ = check(&pool, "fresh", &USER_LOGIN).await;
         let _ = check(&pool, "old", &USER_LOGIN).await;
-        sqlx::query("UPDATE brute SET lastRequest = ? WHERE key = 'old'")
+        sqlx::query("UPDATE brute SET lastRequest = ? WHERE `key` = 'old'")
             .bind(now_ms() - (USER_LOGIN.lifetime * 1000) - 1)
             .execute(&pool)
             .await
             .unwrap();
         sweep(&pool).await;
-        let keys: Vec<String> = sqlx::query_scalar("SELECT key FROM brute ORDER BY key")
+        let keys: Vec<String> = sqlx::query_scalar("SELECT `key` FROM brute ORDER BY `key`")
             .fetch_all(&pool)
             .await
             .unwrap();
@@ -566,7 +577,7 @@ mod tests {
             record_failure(&pool, key, &CONTENT_API_KEY).await;
         }
         assert!(peek(&pool, key, &CONTENT_API_KEY).await.is_err());
-        sqlx::query("UPDATE brute SET lastRequest = ? WHERE key = ?")
+        sqlx::query("UPDATE brute SET lastRequest = ? WHERE `key` = ?")
             .bind(now_ms() - (CONTENT_API_KEY.lifetime * 1000) - 1)
             .bind(key)
             .execute(&pool)

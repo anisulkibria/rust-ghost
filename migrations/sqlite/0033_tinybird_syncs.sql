@@ -11,8 +11,8 @@
 CREATE TABLE IF NOT EXISTS tinybird_syncs (
     id TEXT PRIMARY KEY NOT NULL,
     table_name TEXT(191) NOT NULL UNIQUE,
-    last_synced_updated_at DATETIME NOT NULL,
+    last_synced_updated_at TEXT NOT NULL,
     last_synced_id TEXT(24) NOT NULL,
-    created_at DATETIME NOT NULL,
-    updated_at DATETIME
+    created_at TEXT NOT NULL,
+    updated_at TEXT
 );

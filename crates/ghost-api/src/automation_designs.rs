@@ -145,7 +145,7 @@ async fn authorize(
     action: &str,
 ) -> std::result::Result<(), Response> {
     permissions::require(state, headers, Role::Administrator).await?;
-    let exists:bool=sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM automation_actions WHERE id=? AND automation_id=? AND deleted_at IS NULL AND type='send_email')").bind(action).bind(automation).fetch_one(&state.db).await.unwrap_or(false);
+    let exists: bool = sqlx::query_scalar::<_, i64>("SELECT EXISTS(SELECT 1 FROM automation_actions WHERE id=? AND automation_id=? AND deleted_at IS NULL AND type='send_email')").bind(action).bind(automation).fetch_one(&state.db).await.unwrap_or(0) != 0;
     if exists {
         Ok(())
     } else {

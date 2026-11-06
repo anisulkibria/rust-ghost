@@ -27,7 +27,7 @@
 //! anything, and the second question is the one that notices.
 use ghost_core::{GhostError, Result};
 use serde_json::Value;
-use sqlx::SqlitePool;
+use crate::Db;
 use std::collections::BTreeMap;
 
 /// Ghost's default help link when the host has not configured a billing URL.
@@ -67,7 +67,7 @@ impl Counted {
 
     /// Count what this limit measures. `since` is set only for the periodic
     /// one; the rest ignore it.
-    async fn count(self, pool: &SqlitePool, since: Option<&str>) -> i64 {
+    async fn count(self, pool: &Db, since: Option<&str>) -> i64 {
         let scalar = |sql: &'static str| async move {
             sqlx::query_scalar::<_, i64>(sql).fetch_one(pool).await.unwrap_or(0)
         };
@@ -280,13 +280,26 @@ impl Limits {
         self.limits.keys().map(String::as_str).collect()
     }
 
+    /// The host's own message for a limit, when it set one.
+    ///
+    /// Needed by the frontend for `publicSiteAccess`: a visitor to a site the
+    /// host has closed should read what the host wrote — "This site is not
+    /// currently published" — and not a generic prompt to upgrade a plan that
+    /// is not theirs to upgrade.
+    pub fn error_message(&self, name: &str) -> Option<&str> {
+        self.limits
+            .get(name)
+            .map(|l| l.error.as_str())
+            .filter(|message| !message.trim().is_empty())
+    }
+
     /// May the site add `check.added` more of these?
     ///
     /// For a flag limit the answer is "no, ever" when disabled: using a
     /// feature at all is over the line.
     pub async fn error_if_would_go_over(
         &self,
-        pool: &SqlitePool,
+        pool: &Db,
         name: &str,
         check: Check<'_>,
     ) -> Result<()> {
@@ -324,7 +337,7 @@ impl Limits {
     /// there is no count that could have been exceeded.
     pub async fn error_if_is_over(
         &self,
-        pool: &SqlitePool,
+        pool: &Db,
         name: &str,
         check: Check<'_>,
     ) -> Result<()> {
@@ -352,17 +365,17 @@ impl Limits {
 
     /// The same two questions as booleans, for a caller that wants to show a
     /// different screen rather than refuse a request.
-    pub async fn would_go_over(&self, pool: &SqlitePool, name: &str, check: Check<'_>) -> bool {
+    pub async fn would_go_over(&self, pool: &Db, name: &str, check: Check<'_>) -> bool {
         self.error_if_would_go_over(pool, name, check).await.is_err()
     }
 
-    pub async fn is_over(&self, pool: &SqlitePool, name: &str, check: Check<'_>) -> bool {
+    pub async fn is_over(&self, pool: &Db, name: &str, check: Check<'_>) -> bool {
         self.error_if_is_over(pool, name, check).await.is_err()
     }
 
     async fn current(
         &self,
-        pool: &SqlitePool,
+        pool: &Db,
         _limit: &Limit,
         counted: Counted,
         check: &Check<'_>,

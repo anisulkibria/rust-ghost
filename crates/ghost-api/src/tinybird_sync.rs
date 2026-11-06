@@ -174,7 +174,7 @@ fn batch_sql(target: &Target, has_cursor: bool) -> String {
     )
 }
 
-async fn read_watermark(pool: &sqlx::SqlitePool, table: &str) -> Option<Cursor> {
+async fn read_watermark(pool: &ghost_db::Db, table: &str) -> Option<Cursor> {
     let row: Option<(String, String)> = sqlx::query_as(
         "SELECT last_synced_updated_at, last_synced_id FROM tinybird_syncs WHERE table_name = ?",
     )
@@ -186,15 +186,15 @@ async fn read_watermark(pool: &sqlx::SqlitePool, table: &str) -> Option<Cursor> 
     row.map(|(updated_at, id)| Cursor { updated_at, id })
 }
 
-async fn write_watermark(pool: &sqlx::SqlitePool, table: &str, cursor: &Cursor) {
+async fn write_watermark(pool: &ghost_db::Db, table: &str, cursor: &Cursor) {
     let now = dates::now_db();
     let _ = sqlx::query(
-        "INSERT INTO tinybird_syncs (id, table_name, last_synced_updated_at, last_synced_id, created_at, updated_at) \
+        ghost_db::dialect::sql("INSERT INTO tinybird_syncs (id, table_name, last_synced_updated_at, last_synced_id, created_at, updated_at) \
          VALUES (?, ?, ?, ?, ?, ?) \
          ON CONFLICT(table_name) DO UPDATE SET \
            last_synced_updated_at = excluded.last_synced_updated_at, \
            last_synced_id = excluded.last_synced_id, \
-           updated_at = excluded.updated_at",
+           updated_at = excluded.updated_at"),
     )
     .bind(ids::new_id())
     .bind(table)
@@ -236,7 +236,7 @@ async fn post(config: &Config, lines: &[String]) -> Result<(), String> {
 /// Takes the pool rather than the whole application state: the sync reads
 /// rows and writes a watermark, and nothing else about the site concerns it.
 pub async fn sync_table(
-    pool: &sqlx::SqlitePool,
+    pool: &ghost_db::Db,
     config: &Config,
     target: &Target,
 ) -> Result<u64, String> {
@@ -286,8 +286,8 @@ pub async fn sync_table(
 }
 
 /// Turn a row into JSON, which is what the event envelope is built from.
-fn row_to_json(row: &sqlx::sqlite::SqliteRow) -> Value {
-    use sqlx::{Column, Row, TypeInfo, ValueRef};
+fn row_to_json(row: &sqlx::any::AnyRow) -> Value {
+    use sqlx::{Column, Row, ValueRef};
     let mut out = serde_json::Map::new();
     for column in row.columns() {
         let raw = match row.try_get_raw(column.ordinal()) {
@@ -297,14 +297,20 @@ fn row_to_json(row: &sqlx::sqlite::SqliteRow) -> Value {
         let value = if raw.is_null() {
             Value::Null
         } else {
-            match raw.type_info().name() {
-                "INTEGER" | "BOOLEAN" => row
+            // On the `Any` type kind, not a name string: the names differ
+            // per engine and a mismatch falls through to `String`.
+            match raw.type_info().kind() {
+                k if k.is_integer() || k == sqlx::any::AnyTypeInfoKind::Bool => row
                     .try_get::<i64, _>(column.ordinal())
                     .map(|v| json!(v))
                     .unwrap_or(Value::Null),
-                "REAL" => row
+                sqlx::any::AnyTypeInfoKind::Real | sqlx::any::AnyTypeInfoKind::Double => row
                     .try_get::<f64, _>(column.ordinal())
                     .map(|v| json!(v))
+                    .unwrap_or(Value::Null),
+                sqlx::any::AnyTypeInfoKind::Blob => row
+                    .try_get::<ghost_db::types::Text, _>(column.ordinal())
+                    .map(|v| json!(v.0))
                     .unwrap_or(Value::Null),
                 _ => row
                     .try_get::<String, _>(column.ordinal())

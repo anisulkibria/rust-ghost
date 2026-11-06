@@ -4,14 +4,14 @@ use ghost_db::SettingsCache;
 use ghost_render::ThemeState;
 use ghost_routing::redirects::Redirects;
 use ghost_routing::RouterTree;
-use sqlx::SqlitePool;
+use ghost_db::Db;
 use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 
 #[derive(Clone)]
 pub struct AppState {
-    pub db: SqlitePool,
+    pub db: Db,
     pub config: Arc<Config>,
     pub settings: Arc<SettingsCache>,
     pub theme: Arc<RwLock<Arc<ThemeState>>>,

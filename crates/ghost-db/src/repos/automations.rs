@@ -22,7 +22,8 @@
 
 use ghost_core::automations::{Action, ActionKind, Edge, Status, TriggerScope};
 use ghost_core::{dates, ids, GhostError, Result};
-use sqlx::{QueryBuilder, Sqlite, SqlitePool};
+use crate::Db;
+use sqlx::{Any, QueryBuilder};
 
 use super::dberr;
 
@@ -216,8 +217,8 @@ fn row_to_summary(r: SummaryRow, stats: RunStats) -> AutomationSummary {
 ///
 /// `statuses` filters the list the way the screen's Active / Archived / All
 /// selector does; an empty slice means no filter.
-pub async fn browse(pool: &SqlitePool, statuses: &[&str]) -> Result<Vec<AutomationSummary>> {
-    let mut qb = QueryBuilder::<Sqlite>::new("SELECT ");
+pub async fn browse(pool: &Db, statuses: &[&str]) -> Result<Vec<AutomationSummary>> {
+    let mut qb = QueryBuilder::<Any>::new("SELECT ");
     qb.push(SUMMARY_COLS);
     qb.push(" FROM automations");
     if !statuses.is_empty() {
@@ -246,7 +247,7 @@ pub async fn browse(pool: &SqlitePool, statuses: &[&str]) -> Result<Vec<Automati
 /// here. The classification is Ghost's: a run with any pending step is in
 /// progress, one whose steps all finished is complete, and anything else
 /// exited early.
-pub async fn run_stats(pool: &SqlitePool, automation_id: &str) -> Result<RunStats> {
+pub async fn run_stats(pool: &Db, automation_id: &str) -> Result<RunStats> {
     let row: (i64, i64, i64) = sqlx::query_as(
         "SELECT \
            COUNT(*), \
@@ -277,7 +278,7 @@ pub async fn run_stats(pool: &SqlitePool, automation_id: &str) -> Result<RunStat
 }
 
 /// When this automation last took someone in. `None` means nobody yet.
-pub async fn last_run_at(pool: &SqlitePool, automation_id: &str) -> Result<Option<String>> {
+pub async fn last_run_at(pool: &Db, automation_id: &str) -> Result<Option<String>> {
     sqlx::query_scalar("SELECT MAX(created_at) FROM automation_runs WHERE automation_id = ?")
         .bind(automation_id)
         .fetch_one(pool)
@@ -285,7 +286,7 @@ pub async fn last_run_at(pool: &SqlitePool, automation_id: &str) -> Result<Optio
         .map_err(dberr)
 }
 
-pub async fn count(pool: &SqlitePool) -> Result<i64> {
+pub async fn count(pool: &Db) -> Result<i64> {
     sqlx::query_scalar("SELECT COUNT(*) FROM automations")
         .fetch_one(pool)
         .await
@@ -293,7 +294,7 @@ pub async fn count(pool: &SqlitePool) -> Result<i64> {
 }
 
 /// One automation with its chain, in running order.
-pub async fn find(pool: &SqlitePool, id: &str) -> Result<Option<Automation>> {
+pub async fn find(pool: &Db, id: &str) -> Result<Option<Automation>> {
     let Some(row) = sqlx::query_as::<_, SummaryRow>(&format!(
         "SELECT {SUMMARY_COLS} FROM automations WHERE id = ?"
     ))
@@ -324,7 +325,7 @@ pub async fn find(pool: &SqlitePool, id: &str) -> Result<Option<Automation>> {
 
 /// The live actions of an automation — latest revision of each, soft-deleted
 /// ones excluded — in creation order.
-async fn load_actions(pool: &SqlitePool, automation_id: &str) -> Result<Vec<StoredAction>> {
+async fn load_actions(pool: &Db, automation_id: &str) -> Result<Vec<StoredAction>> {
     let rows: Vec<ActionRow> = sqlx::query_as(
         "SELECT a.id, a.type, r.wait_hours, r.email_subject, r.email_lexical, r.email_design_setting_id \
          FROM automation_actions a \
@@ -391,7 +392,7 @@ fn build_kind(
 }
 
 /// Edges between live actions only — a soft-deleted node's links are history.
-async fn load_edges(pool: &SqlitePool, automation_id: &str) -> Result<Vec<Edge>> {
+async fn load_edges(pool: &Db, automation_id: &str) -> Result<Vec<Edge>> {
     let rows: Vec<(String, String)> = sqlx::query_as(
         "SELECT e.source_action_id, e.target_action_id FROM automation_action_edges e \
          JOIN automation_actions s ON s.id = e.source_action_id AND s.deleted_at IS NULL \
@@ -426,7 +427,7 @@ pub struct AutomationInput<'a> {
     pub edges: &'a [Edge],
 }
 
-pub async fn create(pool: &SqlitePool, input: &AutomationInput<'_>) -> Result<String> {
+pub async fn create(pool: &Db, input: &AutomationInput<'_>) -> Result<String> {
     let id = ids::new_id();
     let now = dates::now_db();
     sqlx::query(
@@ -449,7 +450,7 @@ pub async fn create(pool: &SqlitePool, input: &AutomationInput<'_>) -> Result<St
     Ok(id)
 }
 
-pub async fn update(pool: &SqlitePool, id: &str, input: &AutomationInput<'_>) -> Result<bool> {
+pub async fn update(pool: &Db, id: &str, input: &AutomationInput<'_>) -> Result<bool> {
     let now = dates::now_db();
     let changed = sqlx::query(
         "UPDATE automations SET name = ?, description = ?, status = ?, trigger_tier_scope = ?, updated_at = ? \
@@ -482,7 +483,7 @@ pub async fn update(pool: &SqlitePool, id: &str, input: &AutomationInput<'_>) ->
 }
 
 /// Set only the status, for the list screen's pause/archive buttons.
-pub async fn set_status(pool: &SqlitePool, id: &str, status: Status) -> Result<bool> {
+pub async fn set_status(pool: &Db, id: &str, status: Status) -> Result<bool> {
     let changed = sqlx::query("UPDATE automations SET status = ?, updated_at = ? WHERE id = ?")
         .bind(status.as_str())
         .bind(dates::now_db())
@@ -507,7 +508,7 @@ pub async fn set_status(pool: &SqlitePool, id: &str, status: Status) -> Result<b
 /// and run steps reference revisions, revisions and edges reference actions,
 /// and actions, runs and tiers reference the automation. Returns `false` if
 /// the automation did not exist, like `set_status` does.
-pub async fn delete(pool: &SqlitePool, id: &str) -> Result<bool> {
+pub async fn delete(pool: &Db, id: &str) -> Result<bool> {
     let mut tx = pool.begin().await.map_err(dberr)?;
 
     // emails recorded against this automation's steps or revisions — test
@@ -578,7 +579,7 @@ pub async fn delete(pool: &SqlitePool, id: &str) -> Result<bool> {
 }
 
 async fn replace_trigger_tiers(
-    pool: &SqlitePool,
+    pool: &Db,
     automation_id: &str,
     scope: Option<TriggerScope>,
     tier_ids: &[String],
@@ -620,7 +621,7 @@ async fn replace_trigger_tiers(
 /// Actions no longer in the chain are soft-deleted, never removed: a finished
 /// run still points at their revisions.
 async fn replace_graph(
-    pool: &SqlitePool,
+    pool: &Db,
     automation_id: &str,
     actions: &[Action],
     edges: &[Edge],
@@ -686,7 +687,7 @@ async fn replace_graph(
     .map_err(dberr)?;
     for edge in edges {
         sqlx::query(
-            "INSERT OR IGNORE INTO automation_action_edges (source_action_id, target_action_id) VALUES (?, ?)",
+            crate::dialect::sql("INSERT OR IGNORE INTO automation_action_edges (source_action_id, target_action_id) VALUES (?, ?)"),
         )
         .bind(&edge.source_action_id)
         .bind(&edge.target_action_id)
@@ -699,13 +700,15 @@ async fn replace_graph(
 
 /// `(created_at, wait_hours, email_subject, email_lexical)` — one action
 /// revision's contents, for comparing against a submitted one.
-type RevisionRow = (String, Option<i64>, Option<String>, Option<String>);
+// `email_lexical` is MEDIUMTEXT on MySQL, which arrives as a blob; the
+// last element therefore reads through `types::Text`.
+type RevisionRow = (String, Option<i64>, Option<String>, Option<crate::types::Text>);
 
 /// Add a revision only when the contents actually differ from the latest one.
 ///
 /// Without this check every save would fork every run's revision pointer and
 /// multiply the rows that stats are summed over, for no change at all.
-async fn insert_revision_if_changed(pool: &SqlitePool, action: &Action, now: &str) -> Result<()> {
+async fn insert_revision_if_changed(pool: &Db, action: &Action, now: &str) -> Result<()> {
     let latest: Option<RevisionRow> = sqlx::query_as(
         "SELECT created_at, wait_hours, email_subject, email_lexical \
          FROM automation_action_revisions WHERE action_id = ? ORDER BY created_at DESC LIMIT 1",
@@ -750,18 +753,28 @@ fn next_timestamp(latest_at: &str, now: &str) -> String {
 }
 
 async fn insert_revision(
-    pool: &SqlitePool,
+    pool: &Db,
     action_id: &str,
     created_at: &str,
     wait_hours: Option<i64>,
     subject: Option<String>,
     lexical: Option<String>,
 ) -> Result<()> {
+    // The new revision inherits the design of the action's newest existing
+    // one. That read is of the same table this inserts into, which MySQL
+    // refuses (`ER_UPDATE_TABLES_USED`: a statement cannot read the table it
+    // modifies) — unless the read is wrapped in a derived table, which
+    // materialises it first. SQLite accepts either spelling, so this is
+    // written once, for both.
     sqlx::query(
         "INSERT INTO automation_action_revisions \
          (id, created_at, action_id, wait_hours, email_subject, email_lexical, email_design_setting_id, \
           email_sent_count, email_opened_count, email_clicked_count) \
-         VALUES (?, ?, ?, ?, ?, ?, (SELECT email_design_setting_id FROM automation_action_revisions WHERE action_id=? ORDER BY created_at DESC LIMIT 1), 0, 0, 0)",
+         VALUES (?, ?, ?, ?, ?, ?, \
+           (SELECT email_design_setting_id FROM \
+              (SELECT email_design_setting_id FROM automation_action_revisions \
+               WHERE action_id=? ORDER BY created_at DESC LIMIT 1) inherited_design), \
+           0, 0, 0)",
     )
     .bind(ids::new_id())
     .bind(created_at)
@@ -777,7 +790,7 @@ async fn insert_revision(
 }
 
 /// Stop the runs of an automation that has been paused or archived.
-async fn cancel_pending_steps(pool: &SqlitePool, automation_id: &str) -> Result<u64> {
+async fn cancel_pending_steps(pool: &Db, automation_id: &str) -> Result<u64> {
     let now = dates::now_db();
     let stale = stale_lock_cutoff();
     let res = sqlx::query(
@@ -820,7 +833,7 @@ struct FirstAction {
 /// paid, which is why the member's status and tiers come in as arguments
 /// rather than being read here: the caller knows what just changed.
 pub async fn trigger(
-    pool: &SqlitePool,
+    pool: &Db,
     member_id: &str,
     member_email: &str,
     member_status: &str,
@@ -831,7 +844,7 @@ pub async fn trigger(
     // Scope-matched automations, plus the selected-tier ones this member's
     // tiers satisfy. Only the head action counts — the node with no live
     // predecessor is where a run begins.
-    let mut qb = QueryBuilder::<Sqlite>::new(
+    let mut qb = QueryBuilder::<Any>::new(
         "SELECT a.id, r.id, act.type, r.wait_hours \
          FROM automations a \
          JOIN automation_actions act ON act.automation_id = a.id AND act.deleted_at IS NULL \
@@ -918,7 +931,7 @@ pub async fn trigger(
 }
 
 async fn insert_step(
-    pool: &SqlitePool,
+    pool: &Db,
     run_id: &str,
     revision_id: &str,
     ready_at: &str,
@@ -953,7 +966,7 @@ async fn insert_step(
 /// id onto the ones still eligible, and then reads back only what it won.
 /// Two concurrent pollers therefore split the batch rather than both running
 /// it.
-pub async fn claim_steps(pool: &SqlitePool, limit: i64) -> Result<ClaimedSteps> {
+pub async fn claim_steps(pool: &Db, limit: i64) -> Result<ClaimedSteps> {
     let now = dates::now_db();
     let stale = stale_lock_cutoff();
     let lock_id = ids::uuid_v4();
@@ -977,7 +990,7 @@ pub async fn claim_steps(pool: &SqlitePool, limit: i64) -> Result<ClaimedSteps> 
         });
     }
 
-    let mut qb = QueryBuilder::<Sqlite>::new(
+    let mut qb = QueryBuilder::<Any>::new(
         "UPDATE automation_run_steps SET locked_by = ",
     );
     qb.push_bind(lock_id.clone());
@@ -999,7 +1012,7 @@ pub async fn claim_steps(pool: &SqlitePool, limit: i64) -> Result<ClaimedSteps> 
     qb.push(")");
     qb.build().execute(pool).await.map_err(dberr)?;
 
-    let mut qb = QueryBuilder::<Sqlite>::new(
+    let mut qb = QueryBuilder::<Any>::new(
         "SELECT s.id, s.locked_by, s.step_attempts, s.automation_run_id, run.automation_id, \
                 a.status, a.trigger_tier_scope, run.member_id, act.id, rev.id, act.type, \
                 rev.wait_hours, rev.email_subject, rev.email_lexical \
@@ -1072,7 +1085,7 @@ pub async fn claim_steps(pool: &SqlitePool, limit: i64) -> Result<ClaimedSteps> 
     })
 }
 
-async fn next_pending_ready_at(pool: &SqlitePool, stale: &str) -> Result<Option<String>> {
+async fn next_pending_ready_at(pool: &Db, stale: &str) -> Result<Option<String>> {
     sqlx::query_scalar(
         "SELECT ready_at FROM automation_run_steps \
          WHERE status = 'pending' AND (locked_by IS NULL OR locked_at < ?) \
@@ -1089,7 +1102,7 @@ async fn next_pending_ready_at(pool: &SqlitePool, stale: &str) -> Result<Option<
 /// The lock check is what makes a lost lock safe: if the lock expired and
 /// another worker picked the step up, this update matches nothing and the
 /// late worker's result is discarded rather than overwriting the new one's.
-pub async fn finish_step(pool: &SqlitePool, step: &StepToRun, status: &str) -> Result<bool> {
+pub async fn finish_step(pool: &Db, step: &StepToRun, status: &str) -> Result<bool> {
     let now = dates::now_db();
     let changed = sqlx::query(
         "UPDATE automation_run_steps \
@@ -1110,7 +1123,7 @@ pub async fn finish_step(pool: &SqlitePool, step: &StepToRun, status: &str) -> R
 
 /// Put a failed step back in the queue. Returns false when the automation was
 /// switched off meanwhile, in which case the step is closed instead.
-pub async fn retry_step(pool: &SqlitePool, step: &StepToRun, retry_at: &str) -> Result<bool> {
+pub async fn retry_step(pool: &Db, step: &StepToRun, retry_at: &str) -> Result<bool> {
     let still_active: i64 = sqlx::query_scalar(
         "SELECT COUNT(*) FROM automation_run_steps s \
          JOIN automation_runs r ON r.id = s.automation_run_id \
@@ -1149,7 +1162,7 @@ pub async fn retry_step(pool: &SqlitePool, step: &StepToRun, retry_at: &str) -> 
 /// Returns the moment the next step comes due, so the poller can sleep until
 /// then instead of guessing. `None` means this run is over.
 pub async fn finish_and_enqueue_next(
-    pool: &SqlitePool,
+    pool: &Db,
     step: &StepToRun,
 ) -> Result<Option<String>> {
     if !finish_step(pool, step, "finished").await? {
@@ -1194,7 +1207,7 @@ pub async fn finish_and_enqueue_next(
 /// Record that an automation email went out: bump the revision's counter and
 /// keep a recipient row, which is what per-action stats are built from.
 pub async fn record_email_sent(
-    pool: &SqlitePool,
+    pool: &Db,
     step: &StepToRun,
     member_id: &str,
     member_uuid: &str,
@@ -1245,7 +1258,7 @@ pub async fn record_email_sent(
 /// Status is derived from the recorded steps, the same way the counts are —
 /// so a run's row and the cards above it can never disagree.
 pub async fn browse_runs(
-    pool: &SqlitePool,
+    pool: &Db,
     automation_id: &str,
     status_filter: Option<&str>,
     search: Option<&str>,
@@ -1266,7 +1279,7 @@ pub async fn browse_runs(
          WHERE EXISTS (SELECT 1 FROM automation_run_steps s WHERE s.automation_run_id = r.id) \
            AND r.automation_id = ";
 
-    let mut qb = QueryBuilder::<Sqlite>::new(
+    let mut qb = QueryBuilder::<Any>::new(
         "SELECT r.id, r.created_at, r.member_id, r.member_email, m.name, (m.id IS NOT NULL), \
                 (SELECT COUNT(*) FROM automation_run_steps s WHERE s.automation_run_id = r.id AND s.status = 'pending'), \
                 (SELECT COUNT(*) FROM automation_run_steps s WHERE s.automation_run_id = r.id \
@@ -1315,7 +1328,7 @@ pub async fn browse_runs(
         runs.retain(|r| r.status == filter);
     }
 
-    let mut cqb = QueryBuilder::<Sqlite>::new("SELECT COUNT(*) ");
+    let mut cqb = QueryBuilder::<Any>::new("SELECT COUNT(*) ");
     cqb.push(FROM_AND_WHERE);
     cqb.push_bind(automation_id.to_string());
     push_search(&mut cqb, search);
@@ -1327,7 +1340,7 @@ pub async fn browse_runs(
 ///
 /// `%` and `_` in the query are escaped, so searching for `a_b` finds the
 /// address containing `a_b` rather than every three-character run.
-fn push_search(qb: &mut QueryBuilder<'_, Sqlite>, search: Option<&str>) {
+fn push_search(qb: &mut QueryBuilder<'_, Any>, search: Option<&str>) {
     let Some(search) = search.map(str::trim).filter(|s| !s.is_empty()) else {
         return;
     };
@@ -1343,7 +1356,7 @@ fn push_search(qb: &mut QueryBuilder<'_, Sqlite>, search: Option<&str>) {
 }
 
 /// The recorded steps of one run, oldest first.
-pub async fn run_history(pool: &SqlitePool, run_id: &str) -> Result<Vec<RunStep>> {
+pub async fn run_history(pool: &Db, run_id: &str) -> Result<Vec<RunStep>> {
     let rows: Vec<RunStepRow> = sqlx::query_as(
             "SELECT s.id, s.created_at, s.ready_at, s.finished_at, s.status, act.type, \
                     rev.wait_hours, rev.email_subject, \
@@ -1379,7 +1392,7 @@ pub async fn run_history(pool: &SqlitePool, run_id: &str) -> Result<Vec<RunStep>
 
 /// Entry counts per day, for the chart on the automation screen.
 pub async fn entries_by_day(
-    pool: &SqlitePool,
+    pool: &Db,
     automation_id: &str,
     days: i64,
 ) -> Result<Vec<(String, i64)>> {

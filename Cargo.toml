@@ -35,7 +35,10 @@ tokio = { version = "1", features = ["full"] }
 axum = { version = "0.8", features = ["multipart", "macros", "query"] }
 tower = "0.5"
 tower-http = { version = "0.6", features = ["fs", "cors", "trace", "compression-gzip"] }
-sqlx = { version = "0.8", default-features = false, features = ["runtime-tokio", "sqlite", "macros", "migrate", "chrono", "json"] }
+# `any` is what lets one build run on either engine, chosen from the config
+# at runtime: SQLite for a single site, MySQL when a host provisions one.
+# See ghost_db::pool.
+sqlx = { version = "0.8", default-features = false, features = ["runtime-tokio", "sqlite", "mysql", "any", "macros", "migrate", "chrono", "json"] }
 handlebars = { version = "6", features = ["script_helper", "dir_source"] }
 comrak = { version = "0.42" }
 serde = { version = "1", features = ["derive"] }

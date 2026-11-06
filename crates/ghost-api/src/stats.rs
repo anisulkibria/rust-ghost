@@ -449,11 +449,11 @@ async fn post_stats(State(state): State<AppState>, headers: HeaderMap, Path(id):
 /// Shared with the admin's own post analytics page, so the page and the API
 /// cannot disagree about what a post did.
 pub async fn post_stats_value(state: &AppState, post_id: &str) -> Option<Value> {
-    let exists: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM posts WHERE id = ?)")
+    let exists: bool = sqlx::query_scalar::<_, i64>("SELECT EXISTS(SELECT 1 FROM posts WHERE id = ?)")
         .bind(post_id)
         .fetch_one(&state.db)
         .await
-        .unwrap_or(false);
+        .unwrap_or(0) != 0;
     if !exists {
         return None;
     }
@@ -778,7 +778,7 @@ async fn newsletter_click_stats(
         return private(json!({"stats": []}));
     }
     let newsletter = q.get("newsletter_id").cloned();
-    let mut query = sqlx::QueryBuilder::<sqlx::Sqlite>::new(
+    let mut query = sqlx::QueryBuilder::<sqlx::Any>::new(
         "SELECT p.id, \
                 (SELECT COUNT(DISTINCT k.member_uuid) FROM newsletter_clicks k \
                    JOIN newsletter_links l ON l.id = k.link_id WHERE l.post_id = p.id), \
