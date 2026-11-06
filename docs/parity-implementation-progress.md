@@ -48,7 +48,7 @@ Validation: content transfer tests cover redaction, import protection and round 
 headless tests cover gift lifecycle, legacy compatibility, permissions, audit actors,
 and HEAD/GET tracking. A file-backed test exercises eight concurrent ensures across
 four database connections. The media archive test checks bytes and restore paths.
-Completed and loaded on localhost:2368. The 63-test headless suite passed;
+Completed and loaded on localhost:1971. The 63-test headless suite passed;
 the two gift tests were rechecked after adding audit actor assertions. Three
 transfer tests, the four-connection concurrency test and the media archive test
 pass. The release build passed. Live smoke checks verified redacted exports,
@@ -205,7 +205,7 @@ The database was backed up before migration.
 new, covering the collision stamp moving forward on a save, staying put on a
 409, and autosave stopping only for a collision).
 
-Loaded on `localhost:2368` from a release build and checked live. The database
+Loaded on `localhost:1971` from a release build and checked live. The database
 was backed up with `.backup` and the copy verified against the original before
 migrations 0031 and 0032 applied.
 
@@ -322,7 +322,7 @@ through their validation and unconfigured branches.
 tests, 11 integration-permission tests). `node --test koenig-saving.cjs`: 14
 passed.
 
-Checked live on `localhost:2368` from a release build:
+Checked live on `localhost:1971` from a release build:
 
 - Automation editor: `koenigMounted: true` with a real email step, five upload
   file types, snippets, Unsplash, grouped link search; typed text reached the
@@ -401,7 +401,7 @@ Checked live on `localhost:2368` from a release build:
 signature tests, 10 Tinybird unit tests, 3 end-to-end pipeline tests, and
 additions to the permission matrix).
 
-Checked live on `localhost:2368` from a release build, after backing the
+Checked live on `localhost:1971` from a release build, after backing the
 database up and verifying the copy; migrations 0033 and 0034 applied cleanly.
 
 - Scheduler key: its publish path reaches the handler; posts, settings, users,
@@ -440,7 +440,10 @@ and read as stale. Four mentions were deliberately kept, because in each the
 number *is* stock Ghost's: the `DEFAULT_PORT` rationale comment, the test
 pinning the default away from 2368 and out of Ghost CLI's range, and the
 README's note on running alongside an existing Ghost. The validation records
-in this file keep the port they were checked on at the time.
+in this file and in `native-parity-worklog.md` were later rewritten to 1971 as
+well: they read as instructions for where to look, and an address nothing
+serves is worse than a small loss of historical accuracy about which port a
+check happened to run on.
 
 ## Stripe Connect, and the settings contract it belongs to
 

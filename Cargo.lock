@@ -3583,7 +3583,7 @@ dependencies = [
 
 [[package]]
 name = "ghost"
-version = "1.0.0"
+version = "6.75.0"
 dependencies = [
  "axum",
  "futures",
@@ -3616,7 +3616,7 @@ dependencies = [
 
 [[package]]
 name = "ghost-admin-ui"
-version = "1.0.0"
+version = "6.75.0"
 dependencies = [
  "axum",
  "bcrypt",
@@ -3647,7 +3647,7 @@ dependencies = [
 
 [[package]]
 name = "ghost-api"
-version = "1.0.0"
+version = "6.75.0"
 dependencies = [
  "axum",
  "base64 0.22.1",
@@ -3689,7 +3689,7 @@ dependencies = [
 
 [[package]]
 name = "ghost-core"
-version = "1.0.0"
+version = "6.75.0"
 dependencies = [
  "chrono",
  "chrono-tz",
@@ -3709,7 +3709,7 @@ dependencies = [
 
 [[package]]
 name = "ghost-db"
-version = "1.0.0"
+version = "6.75.0"
 dependencies = [
  "bcrypt",
  "chrono",
@@ -3728,7 +3728,7 @@ dependencies = [
 
 [[package]]
 name = "ghost-front"
-version = "1.0.0"
+version = "6.75.0"
 dependencies = [
  "avif-decode",
  "axum",
@@ -3759,7 +3759,7 @@ dependencies = [
 
 [[package]]
 name = "ghost-mail"
-version = "1.0.0"
+version = "6.75.0"
 dependencies = [
  "css-inline",
  "ghost-core",
@@ -3780,7 +3780,7 @@ dependencies = [
 
 [[package]]
 name = "ghost-nql"
-version = "1.0.0"
+version = "6.75.0"
 dependencies = [
  "ghost-core",
  "serde",
@@ -3791,7 +3791,7 @@ dependencies = [
 
 [[package]]
 name = "ghost-render"
-version = "1.0.0"
+version = "6.75.0"
 dependencies = [
  "chrono",
  "chrono-tz",
@@ -3817,7 +3817,7 @@ dependencies = [
 
 [[package]]
 name = "ghost-routing"
-version = "1.0.0"
+version = "6.75.0"
 dependencies = [
  "ghost-core",
  "ghost-nql",
@@ -3832,7 +3832,7 @@ dependencies = [
 
 [[package]]
 name = "ghost-stripe"
-version = "1.0.0"
+version = "6.75.0"
 dependencies = [
  "chrono",
  "ghost-core",

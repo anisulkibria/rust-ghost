@@ -7068,6 +7068,11 @@ struct Editor<'a> {
     /// What a scheduled post is already set to do when its date arrives, so
     /// re-opening it shows that choice rather than resetting it.
     delivery: repos::posts::Delivery,
+    /// Active newsletters, for the audience panel's picker, as (id, name).
+    all_newsletters: Vec<(String, String)>,
+    /// Which newsletter this post is aimed at, and at which slice of its
+    /// subscribers. Default for a post that has not chosen yet.
+    audience: ghost_api::newsletter_audience::Audience,
     /// False for Contributors, who may only save drafts.
     can_publish: bool,
     all_tiers: Vec<(String, String)>,
@@ -7239,6 +7244,52 @@ fn toggle_row(name: &str, title: &str, detail: &str, on: bool) -> String {
         detail = esc(detail),
         name = esc(name),
         on = if on { " checked" } else { "" },
+    )
+}
+
+/// Who the newsletter reaches: which newsletter, and which slice of its
+/// subscribers.
+///
+/// `publishing-workflows.js` used to build this one in the browser and append
+/// it after every other panel, out of bare browser widgets — a `<summary>`
+/// with no icon and no twist, an unstyled `<select>`, a raw checkbox, a
+/// `<fieldset>` in place of the panel body. It was the only card in the
+/// editor that did not look like the rest, because it was the only one not
+/// built from these helpers. Rendering it here costs nothing — the newsletter
+/// list and the saved audience are two queries the editor's context was
+/// already shaped to carry — and it cannot drift from its neighbours again,
+/// since it is now made of the same parts. It sits next to Email, the setting
+/// it qualifies, rather than at the bottom of the rail.
+///
+/// The hidden `_audience` marker is what tells the save path that this form
+/// carried the audience fields at all, so that a form posted without them
+/// leaves a post's existing choice alone.
+fn audience_panel(ed: &Editor<'_>) -> String {
+    let current = ed.audience.newsletter_id.as_deref().unwrap_or("");
+    let options: String = std::iter::once(option_row("", "Default newsletter", current.is_empty()))
+        .chain(ed.all_newsletters.iter().map(|(id, name)| option_row(id, name, id == current)))
+        .collect();
+    panel(
+        "send",
+        "green",
+        "Newsletter audience",
+        &format!(
+            r#"<input type="hidden" name="_audience" value="1">{newsletter}{filter}{preview}
+<p class="hint">Leave the filter empty to reach every eligible subscriber. Example: <code>labels:vip+status:paid</code>. Subscribers outside the chosen newsletter are left out either way.</p>"#,
+            newsletter = select_field("newsletter_id", "Newsletter", &options),
+            filter = text_field(
+                "audience_filter",
+                "Audience filter · optional NQL",
+                ed.audience.filter.as_deref().unwrap_or(""),
+            ),
+            preview = toggle_row(
+                "newsletter_include_preview",
+                "Send a paywalled preview",
+                "Subscribers without access get the public part rather than nothing.",
+                ed.audience.include_preview,
+            ),
+        ),
+        false,
     )
 }
 
@@ -7672,6 +7723,7 @@ fn editor_html(ed: &Editor<'_>) -> String {
             ),
         false,
         ));
+        side.push_str(&audience_panel(ed));
     }
 
     let author_options: Vec<(String, String)> =
@@ -7883,7 +7935,7 @@ html {{ font-size: 62.5%; }}
 /// editor (and a word count that never counts) until its cache expired.
 macro_rules! koenig_version {
     () => {
-        "1.8.26"
+        "1.8.27"
     };
 }
 const KOENIG_VERSION: &str = koenig_version!();
@@ -7992,6 +8044,12 @@ async fn editor_context<'a>(
         Some(p) => repos::posts::delivery(&state.db, &p.id).await,
         None => repos::posts::Delivery::default(),
     };
+    // A post that does not exist yet has made no choice, so it takes the
+    // default rather than the error `load` would return for a missing row.
+    let audience = match post {
+        Some(p) => ghost_api::newsletter_audience::load(state, &p.id).await.unwrap_or_default(),
+        None => ghost_api::newsletter_audience::Audience::default(),
+    };
     Editor {
         post_type,
         post,
@@ -8002,6 +8060,14 @@ async fn editor_context<'a>(
         templates: custom_templates(state).await,
         already_sent,
         delivery,
+        all_newsletters: repos::newsletters::list(&state.db)
+            .await
+            .unwrap_or_default()
+            .into_iter()
+            .filter(|n| n.status == "active")
+            .map(|n| (n.id, n.name))
+            .collect(),
+        audience,
         can_publish,
         all_tiers: sqlx::query_as("SELECT id, name FROM products WHERE type = 'paid' ORDER BY name").fetch_all(&state.db).await.unwrap_or_default(),
         members_enabled: state.settings.get_str("members_signup_access").as_deref() != Some("none"),

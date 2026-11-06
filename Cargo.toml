@@ -15,7 +15,10 @@ members = [
 ]
 
 [workspace.package]
-version = "1.0.0"
+# Tracks the Ghost release this port targets, so that the crate version and
+# `ghost_core::GHOST_VERSION` cannot say different things about which Ghost
+# this is. Both move together.
+version = "6.75.0"
 edition = "2021"
 license = "MIT"
 

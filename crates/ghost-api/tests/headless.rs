@@ -337,7 +337,9 @@ async fn content_api_cors_preflights_and_version_headers() {
     let response = f.app.clone().oneshot(Request::builder()
         .uri(format!("/content/posts/?key={}", f.content_key))
         .header("origin", "https://frontend.example.test").body(Body::empty()).unwrap()).await.unwrap();
-    assert_eq!(response.headers()["content-version"], "v6.73");
+    // Derived, like the config assertion below: what matters is that the
+    // header carries the safe version, not which release that happens to be.
+    assert_eq!(response.headers()["content-version"], format!("v{}", ghost_core::GHOST_VERSION_SAFE).as_str());
     assert_eq!(response.headers()["access-control-allow-origin"], "*");
 }
 

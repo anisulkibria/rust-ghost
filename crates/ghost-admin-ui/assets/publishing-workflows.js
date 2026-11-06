@@ -22,12 +22,12 @@
 
   var editor=document.getElementById('editor-form');
   var match=location.pathname.match(/\/(posts|pages)\/([^/]+)\/$/);
-  if(editor&&match&&match[1]==='posts') {
-    var audienceSide=editor.querySelector('.editor-side');
-    if(audienceSide){var details=el('details',null,audienceSide);details.className='card panel';el('summary','Newsletter audience',details);var fields=el('fieldset',null,details);fields.disabled=true;fields.style.cssText='border:0;padding:16px';var marker=el('input',null,fields);marker.type='hidden';marker.name='_audience';marker.value='1';var label=el('label',null,fields);label.textContent='Newsletter';var newsletter=el('select',null,label);newsletter.name='newsletter_id';newsletter.style.cssText='display:block;width:100%;margin:8px 0 16px';var defaultOption=el('option','Default newsletter',newsletter);defaultOption.value='';var filter=input('Audience filter · optional NQL',fields);filter.name='audience_filter';var previewLabel=el('label',null,fields);previewLabel.style.display='block';var includePreview=el('input',null,previewLabel);includePreview.type='checkbox';includePreview.name='newsletter_include_preview';includePreview.value='1';el('span',' Send a paywalled preview to subscribers without access',previewLabel);el('p','Leave the filter empty to use all eligible subscribers. Example: labels:vip+status:paid. Subscribers outside the selected newsletter are excluded.',fields).className='muted';
-      Promise.all([request('editor/newsletters/'),match[2]==='new'?Promise.resolve({audience:{}}):request('posts/'+match[2]+'/audience/')]).then(function(values){values[0].newsletters.forEach(function(item){var option=el('option',item.name,newsletter);option.value=item.id;});var saved=values[1].audience;newsletter.value=saved.newsletter_id||'';filter.value=saved.filter||'';includePreview.checked=!!saved.include_preview;fields.disabled=false;}).catch(function(error){el('p',error.message,details);});
-    }
-  }
+  // The newsletter audience panel used to be assembled here, from bare
+  // browser widgets appended after the rest of the rail. It is rendered by
+  // the server now, with the same helpers as every other panel, so that it
+  // looks like one of them — see `audience_panel` in lib.rs. The
+  // `editor/newsletters/` and `posts/{id}/audience/` endpoints it called are
+  // left in place; they are part of the Admin API, not just this script.
 
   if(editor && match && match[2]!=='new') {
     var resource=match[1],id=match[2],path=resource+'/'+encodeURIComponent(id)+'/';

@@ -19,25 +19,33 @@ pub use error::{GhostError, Result};
 /// The Ghost release this port tracks.
 ///
 /// Ghost reports two forms of its own version and they are not
-/// interchangeable: `@tryghost/version` exposes `full` (`6.73.0`), which is
-/// what the export file's meta is stamped with, and `safe` (`6.73`), which is
+/// interchangeable: `@tryghost/version` exposes `full` (`6.75.0`), which is
+/// what the export file's meta is stamped with, and `safe` (`6.75`), which is
 /// what `/members/api/site` publishes to Portal and what a theme or an
 /// integration branches on. Both live here, in the one crate every other one
 /// depends on, because they were previously declared in two places and had
 /// already drifted two dozen releases apart.
-pub const GHOST_VERSION: &str = "6.73.0";
+///
+/// Raising this is a claim, not a formality: it is what a theme, an
+/// integration or Portal branches on. The release-specific tables below and
+/// elsewhere — [`LABS_GA_FLAGS`], the webhook event list in
+/// `ghost_api::webhooks`, the app version pins in `ghost_render::apps` —
+/// were transcribed from 6.73 and have not been re-checked against 6.75, so
+/// anything added or renamed between the two is not reflected there yet.
+pub const GHOST_VERSION: &str = "6.75.0";
 
 /// `major.minor` of [`GHOST_VERSION`] — Ghost's `version.safe`.
-pub const GHOST_VERSION_SAFE: &str = "6.73";
+pub const GHOST_VERSION_SAFE: &str = "6.75";
 
-/// Labs flags that have shipped — Ghost 6.73's `GA_FEATURES`.
+/// Labs flags that have shipped — Ghost 6.73's `GA_FEATURES`, which is the
+/// last release these were read off; see the caveat on [`GHOST_VERSION`].
 ///
 /// `labs.getAll()` forces every one of these to `true` regardless of what is
 /// stored, and drops them from the writable allowlist, so they are no longer
 /// switches: a theme reading `{{#if @labs.editorReact}}` gets `true` on any
-/// 6.73 site. They are listed here so the `labs` object this port publishes
-/// says the same thing, and so the settings screen knows not to offer a
-/// toggle for something that cannot be turned off.
+/// site from that release on. They are listed here so the `labs` object this
+/// port publishes says the same thing, and so the settings screen knows not
+/// to offer a toggle for something that cannot be turned off.
 pub const LABS_GA_FLAGS: &[&str] = &[
     "automationsArchive",
     "automationsPerTier",

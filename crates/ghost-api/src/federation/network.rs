@@ -53,7 +53,9 @@ pub async fn client(raw: &str) -> ghost_core::Result<(reqwest::Client, reqwest::
         .timeout(std::time::Duration::from_secs(15))
         .redirect(reqwest::redirect::Policy::none())
         .resolve_to_addrs(host, &addresses)
-        .user_agent("NativeGhost/6.73 ActivityPub")
+        // Derived, not written out: as a literal this had already been left
+        // behind by a version bump once.
+        .user_agent(format!("NativeGhost/{} ActivityPub", ghost_core::GHOST_VERSION_SAFE))
         .build()
         .map_err(|e| bad(&e.to_string()))?;
     Ok((client, url))

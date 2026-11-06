@@ -81,7 +81,7 @@ the upload client does not change bucket permissions.
 
 ## Release verification
 
-The release binary was rebuilt and restarted at `http://localhost:2368`
+The release binary was rebuilt and restarted at `http://localhost:1971`
 (PID 22089). SQLite migrations 19–23 applied successfully, and `PRAGMA quick_check`
 returned `ok`. The homepage, sign-in/password-recovery pages and new admin assets
 returned 200. Unauthenticated Admin API requests returned 401. The disabled
