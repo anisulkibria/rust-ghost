@@ -84,7 +84,7 @@ pub async fn render_rss(state: AppState, kind: RssKind, name: String, path: &str
 <description>{}</description>
 <link>{}</link>
 <atom:link href="{}" rel="self" type="application/rss+xml" />
-<generator>Ghost-rust</generator>
+<generator>Vuuut</generator>
 <lastBuildDate>{}</lastBuildDate>
 {}
 </channel>

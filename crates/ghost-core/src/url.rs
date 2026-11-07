@@ -1,6 +1,6 @@
 //! Subdirectory-aware URL construction.
 //!
-//! Ghost-rust can be installed at the root of a domain (`https://site.com`) or
+//! Vuuut can be installed at the root of a domain (`https://site.com`) or
 //! under a path on one (`https://site.com/blog`). The path component of
 //! `config.url` is the *base path*, and it is the single source of truth for
 //! both where the app mounts and how it writes URLs.

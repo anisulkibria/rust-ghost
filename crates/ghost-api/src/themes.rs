@@ -632,7 +632,7 @@ async fn download_thumbnail(slug: &str) -> Result<Vec<u8>> {
     let url = format!("{THUMBNAIL_BASE}/{slug}.png");
     let client = reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(20))
-        .user_agent("Ghost-rust theme installer")
+        .user_agent("Vuuut theme installer")
         .build()
         .map_err(|e| GhostError::Internal(e.to_string()))?;
 
@@ -676,7 +676,7 @@ async fn download_zipball(repo: &str) -> Result<Vec<u8>> {
     let client = reqwest::Client::builder()
         .timeout(DOWNLOAD_TIMEOUT)
         // GitHub rejects requests with no user agent outright
-        .user_agent("Ghost-rust theme installer")
+        .user_agent("Vuuut theme installer")
         .build()
         .map_err(|e| GhostError::Internal(e.to_string()))?;
 

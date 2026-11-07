@@ -152,7 +152,7 @@ fn portable_setting(row: &Map<String, Value>) -> bool {
             "stripe_connect_publishable_key" | "stripe_connect_account_id" |
             "stripe_publishable_key" | "stripe_billing_portal_configuration_id" |
             "email_verification_required" | "indexnow_api_key" |
-            "mail_smtp_pass" | "mail_smtp_user" | "unsplash_access_key" | "password")
+            "ses_smtp_pass" | "ses_smtp_user" | "mail_smtp_pass" | "mail_smtp_user" | "unsplash_access_key" | "password")
         && !["secret", "private_key", "password", "api_key", "access_token", "refresh_token", "signing_key"]
             .iter().any(|part| key.contains(part))
 }
@@ -806,6 +806,8 @@ mod tests {
             ("core", "instance_marker"),
             ("email", "mail_smtp_pass"),
             ("email", "mail_smtp_user"),
+            ("email", "ses_smtp_user"),
+            ("email", "ses_smtp_pass"),
             ("email", "mailgun_api_key"),
             ("email", "mailgun_webhook_signing_key"),
             ("members", "stripe_connect_account_id"),

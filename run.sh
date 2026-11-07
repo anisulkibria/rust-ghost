@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Ghost-rust control script
+# Vuuut control script
 #   ./run.sh start|stop|restart|status|build|rebuild|log
 set -euo pipefail
 cd "$(dirname "$0")"

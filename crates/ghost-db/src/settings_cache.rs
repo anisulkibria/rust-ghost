@@ -9,6 +9,10 @@ use std::sync::RwLock;
 #[derive(Debug, Default)]
 pub struct SettingsCache {
     map: RwLock<HashMap<String, Value>>,
+    managed_mail: HashMap<String, Value>,
+    mail_defaults: HashMap<String, Value>,
+    mail_pool: Option<Db>,
+    mail_host: Value,
 }
 
 impl SettingsCache {
@@ -36,7 +40,7 @@ impl SettingsCache {
             };
             map.insert(key, typed);
         }
-        Ok(Self { map: RwLock::new(map) })
+        Ok(Self { map: RwLock::new(map), managed_mail: HashMap::new(), mail_defaults: HashMap::new(), mail_pool: Some(pool.clone()), mail_host: Value::Null })
     }
 
     pub async fn reload(&self, pool: &Db) -> Result<()> {
@@ -50,18 +54,101 @@ impl SettingsCache {
     /// particular, whose derived keys are worth asserting without standing up
     /// a pool and a full seed to get at three of them.
     pub fn from_values(values: impl IntoIterator<Item = (String, Value)>) -> Self {
-        Self { map: RwLock::new(values.into_iter().collect()) }
+        Self { map: RwLock::new(values.into_iter().collect()), managed_mail: HashMap::new(), mail_defaults: HashMap::new(), mail_pool: None, mail_host: Value::Null }
+    }
+
+    /// A deployment SMTP relay is the default until the site configures its own
+    /// relay. Keep credentials in memory and out of the tenant settings table.
+    pub fn with_mail_config(mut self, mail: &Value) -> Self {
+        let transport = mail["transport"].as_str().unwrap_or("");
+        let options = &mail["options"];
+        let host = options["host"].as_str().unwrap_or("").trim();
+        if !transport.eq_ignore_ascii_case("smtp") || host.is_empty() {
+            return self;
+        }
+        let port = options["port"].as_u64().or_else(|| options["port"].as_str().and_then(|v| v.parse().ok())).unwrap_or(587);
+        let security = if options["ignoreTLS"].as_bool() == Some(true) { "none" }
+            else if options["secure"].as_bool() == Some(true) || port == 465 { "tls" }
+            else { "starttls" };
+        self.mail_defaults.extend([
+            ("mail_transport".into(), Value::String("SMTP".into())),
+            ("mail_smtp_host".into(), Value::String(host.into())),
+            ("mail_smtp_port".into(), Value::String(port.to_string())),
+            ("mail_smtp_security".into(), Value::String(security.into())),
+            ("mail_smtp_user".into(), Value::String(options["auth"]["user"].as_str().unwrap_or("").into())),
+            ("mail_smtp_pass".into(), Value::String(options["auth"]["pass"].as_str().unwrap_or("").into())),
+        ]);
+        let from = mail["from"].as_str().filter(|v| !v.trim().is_empty())
+            .or_else(|| options["auth"]["user"].as_str().filter(|v| v.contains('@')));
+        if let Some(from) = from {
+            let from = from.trim();
+            let address = if let Some((name, address)) = from.strip_suffix('>').and_then(|v| v.rsplit_once('<')) {
+                self.mail_defaults.insert("mail_from_name".into(), Value::String(name.trim().trim_matches('"').into()));
+                address.trim()
+            } else { from };
+            self.mail_defaults.insert("mail_from_address".into(), Value::String(address.into()));
+        }
+        self
+    }
+
+    /// Apply the operator's credentials without persisting them into the tenant DB.
+    /// Missing mail keys are explicitly empty to prevent stale tenant credentials
+    /// from becoming fallback transports while platform management is active.
+    pub fn with_managed_mail(mut self, host_settings: &Value) -> Self {
+        self.mail_host = host_settings.clone();
+        if let Some(values) = host_settings.get("managedMail").and_then(Value::as_object) {
+            self.managed_mail = ghost_core::mail_settings::KEYS.iter()
+                .map(|key| (key.to_string(), values.get(*key).cloned().unwrap_or(Value::String(String::new()))))
+                .collect();
+        }
+        self
+    }
+
+    pub fn with_mail_pool(mut self, pool: &Db) -> Self { self.mail_pool = Some(pool.clone()); self }
+
+    pub fn mail_meter(&self) -> Option<crate::mail_usage::Meter> {
+        self.mail_pool.as_ref().map(|pool| crate::mail_usage::Meter::new(pool.clone(), self.mail_host.clone()))
+    }
+
+    pub fn is_locked(&self, key: &str) -> bool {
+        self.managed_mail.contains_key(key)
+    }
+
+    pub fn mail_is_managed(&self) -> bool {
+        !self.managed_mail.is_empty()
     }
 
     pub fn get(&self, key: &str) -> Option<Value> {
-        self.map.read().unwrap().get(key).cloned()
+        if let Some(value) = self.managed_mail.get(key) { return Some(value.clone()); }
+        let values = self.map.read().unwrap();
+        let own_relay = values.get("mail_transport").and_then(Value::as_str)
+            .is_some_and(|v| v.trim().eq_ignore_ascii_case("smtp") || v.trim().eq_ignore_ascii_case("ses"));
+        let sender = matches!(key, "mail_from_address" | "mail_from_name" | "mail_reply_to");
+        let own_value = values.get(key);
+        if sender && own_value.and_then(Value::as_str).is_some_and(|v| !v.trim().is_empty()) {
+            return own_value.cloned();
+        }
+        if !own_relay {
+            if let Some(value) = self.mail_defaults.get(key) { return Some(value.clone()); }
+        }
+        // Saving the email form leaves its password blank. Preserve the
+        // deployment credential only for the exact same SMTP host and user.
+        let same_smtp = values.get("mail_transport").and_then(Value::as_str).is_some_and(|v| v.eq_ignore_ascii_case("smtp"))
+            && ["mail_smtp_host", "mail_smtp_user"].iter().all(|k| {
+                self.mail_defaults.get(*k).is_some_and(|v| values.get(*k) == Some(v))
+            });
+        if same_smtp && (sender || key == "mail_smtp_pass")
+            && own_value.and_then(Value::as_str).is_none_or(|v| v.is_empty()) {
+            if let Some(value) = self.mail_defaults.get(key) { return Some(value.clone()); }
+        }
+        own_value.cloned()
     }
 
     /// A request-local settings copy for previews; never changes persisted or live settings.
     pub fn with_overrides(&self, values: impl IntoIterator<Item = (String, Value)>) -> Self {
         let mut map = self.map.read().unwrap().clone();
         map.extend(values);
-        Self { map: RwLock::new(map) }
+        Self { map: RwLock::new(map), managed_mail: self.managed_mail.clone(), mail_defaults: self.mail_defaults.clone(), mail_pool: self.mail_pool.clone(), mail_host: self.mail_host.clone() }
     }
 
     pub fn get_str(&self, key: &str) -> Option<String> {
@@ -126,6 +213,9 @@ impl SettingsCache {
     /// URL. Covers every writer at once: the settings screens, the navigation
     /// editor and the Admin API. A no-op at a domain root.
     pub async fn set(&self, pool: &Db, key: &str, value: &Value) -> Result<()> {
+        if self.is_locked(key) {
+            return Err(GhostError::NoPermissionError { message: "Email delivery is managed by your hosting provider".into(), context: None });
+        }
         let normalized = normalize_stored(value);
         let value = &normalized;
         let (stored, typ) = match value {
@@ -239,4 +329,62 @@ mod tests {
         let cache = SettingsCache::default();
         assert!(!cache.email_domain_is_blocked("hello@spam.xyz"));
     }
+
+    #[tokio::test]
+    async fn deployment_mail_defaults_survive_reload_without_copying_credentials_to_the_database() {
+        let test_db = crate::pool::connect_test().await.unwrap();
+        let db = test_db.pool();
+        crate::seed::seed_if_empty(&db).await.unwrap();
+        let file = serde_json::json!({"transport":"SMTP","from":"Publication <support@example.test>","options":{"host":"smtp.example.test","port":465,"auth":{"user":"file-user","pass":"file-secret"}}});
+        let settings = SettingsCache::load(&db).await.unwrap().with_mail_config(&file);
+        assert_eq!(settings.get_str("mail_transport").as_deref(), Some("SMTP"));
+        assert_eq!(settings.get_str("mail_smtp_security").as_deref(), Some("tls"));
+        assert_eq!(settings.get_str("mail_smtp_pass").as_deref(), Some("file-secret"));
+        assert_eq!(settings.get_str("mail_from_address").as_deref(), Some("support@example.test"));
+        assert_eq!(settings.get_str("mail_from_name").as_deref(), Some("Publication"));
+        settings.reload(&db).await.unwrap();
+        assert_eq!(settings.get_str("mail_smtp_pass").as_deref(), Some("file-secret"));
+        let stored: crate::types::Text = sqlx::query_scalar("SELECT value FROM settings WHERE `key`='mail_smtp_pass'").fetch_one(&db).await.unwrap();
+        assert!(stored.0.is_empty());
+        let saved_form = settings.with_overrides([
+            ("mail_transport".into(), serde_json::json!("SMTP")),
+            ("mail_smtp_host".into(), serde_json::json!("smtp.example.test")),
+            ("mail_smtp_user".into(), serde_json::json!("file-user")),
+            ("mail_smtp_pass".into(), serde_json::json!("")),
+        ]);
+        assert_eq!(saved_form.get_str("mail_smtp_pass").as_deref(), Some("file-secret"));
+        let changed_host = saved_form.with_overrides([("mail_smtp_host".into(), serde_json::json!("different.example.test"))]);
+        assert_eq!(changed_host.get_str("mail_smtp_pass").as_deref(), Some(""));
+        let own = settings.with_overrides([("mail_transport".into(), serde_json::json!("SES")), ("ses_smtp_user".into(), serde_json::json!("own-user"))]);
+        assert_eq!(own.get_str("mail_transport").as_deref(), Some("SES"));
+        let managed = own.with_managed_mail(&serde_json::json!({"managedMail":{"mail_transport":"SES","ses_smtp_user":"host-user"}}));
+        assert_eq!(managed.get_str("ses_smtp_user").as_deref(), Some("host-user"));
+    }
+
+    #[tokio::test]
+    async fn managed_mail_survives_reload_and_refuses_writes() {
+        let test_db = crate::pool::connect_test().await.unwrap();
+        let db = test_db.pool();
+        crate::seed::seed_if_empty(&db).await.unwrap();
+        let settings = SettingsCache::load(&db).await.unwrap().with_managed_mail(&serde_json::json!({
+            "managedMail": {"mail_transport":"SES", "ses_region":"eu-west-1", "ses_smtp_pass":"platform-secret", "title":"must-not-override"}
+        }));
+        let before = settings.get_str("title");
+        assert!(settings.set(&db, "ses_smtp_pass", &serde_json::json!("tenant-secret")).await.is_err());
+        assert!(settings.set(&db, "mailgun_api_key", &serde_json::json!("tenant-key")).await.is_err());
+        assert!(!settings.is_locked("title"));
+        assert_ne!(before.as_deref(), Some("must-not-override"));
+        assert_eq!(settings.get_str("mailgun_api_key").as_deref(), Some(""));
+        crate::repos::settings::upsert(&db, "ses_smtp_pass", "imported-secret", "string").await.unwrap();
+        settings.reload(&db).await.unwrap();
+        assert_eq!(settings.get_str("ses_smtp_pass").as_deref(), Some("platform-secret"));
+        let preview = settings.with_overrides([("ses_smtp_pass".into(), serde_json::json!("preview-secret"))]);
+        assert_eq!(preview.get_str("ses_smtp_pass").as_deref(), Some("platform-secret"));
+        // Removing hosting management exposes the original standalone settings.
+        let standalone = SettingsCache::load(&db).await.unwrap();
+        assert!(!standalone.mail_is_managed());
+        assert_eq!(standalone.get_str("ses_smtp_pass").as_deref(), Some("imported-secret"));
+        standalone.set(&db, "ses_smtp_pass", &serde_json::json!("own-secret")).await.unwrap();
+    }
+
 }

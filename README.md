@@ -1,4 +1,4 @@
-# Ghost-rust
+# Vuuut
 
 A Rust port of the [Ghost](https://ghost.org) publishing platform, converted
 from the Node.js source in `Ghost-main`. It runs real Ghost themes, exposes the Content and Admin REST APIs, and ships
@@ -52,7 +52,7 @@ The first build takes a few minutes. After that you should see:
 INFO ghost: database ready at .../content/data/ghost-dev.db
 INFO ghost: seeded initial data (roles, settings, fixture posts)
 INFO ghost: theme 'source' activated
-INFO ghost: Ghost-rust ready in 0.6s — http://localhost:1971 (admin at http://localhost:1971/ghost/)
+INFO ghost: Vuuut ready in 0.6s — http://localhost:1971 (admin at http://localhost:1971/ghost/)
 ```
 
 ### Step 3 — Create your account
@@ -538,7 +538,40 @@ from that screen before relying on it.
 |---|---|
 | **Direct** (default) | Delivers straight to the recipient's mail server. Needs no account, but mail from a new IP is usually spam-filtered — fine for testing, not for members. |
 | **SMTP** | Any mail provider: Fastmail, Postmark, SES, your own server. Needs host, port, user, password, and STARTTLS or TLS. **Use this in production.** |
+| **Amazon SES** | Transactional mail and newsletters using regional SES SMTP credentials, with STARTTLS on port 587. |
 | **Mailgun** | Bulk newsletter sending, configured separately under Settings → Newsletters. |
+
+A `mail.transport: "SMTP"` block in `config.<env>.json` supplies the default
+transactional relay until a site configures its own SMTP or SES relay. Deployment
+credentials stay out of the settings database, survive cache reloads, and remain
+available when saving the email form with an unchanged host/user and blank password.
+Hosted `managedMail` settings take precedence over these defaults.
+
+For a standalone installation, select **Amazon SES** in **Settings → Email**,
+enter the AWS region, SES SMTP username and password, optionally the SMTP endpoint from a Mail Manager credentials CSV, and a sender address verified
+in that region. Save and send a test. In **Settings → Newsletters**, choose
+**Amazon SES** or **Mailgun** explicitly to control newsletter delivery. Automatic
+prefers configured Mailgun, then the transactional relay. Selecting a provider
+explicitly reports missing credentials instead of falling back to another provider.
+Blank credential fields preserve saved values; a single `-` clears them.
+
+SES SMTP credentials are regional and differ from AWS API credentials; see
+[Amazon's SMTP setup guide](https://docs.aws.amazon.com/ses/latest/dg/send-email-smtp.html).
+SES account quotas and sandbox restrictions still apply. Newsletter bodies and
+unsubscribe links are personalized for each subscriber before sending. SES
+newsletters reuse SMTP connections, include a per-subscriber `List-Unsubscribe`
+header, and retry explicit temporary SMTP refusals with backoff. Set **Newsletter
+messages per second** in Email settings to the rate allocated to this site
+(default 1). This is a per-newsletter limit: when sites share a platform SES
+account, allocate the account quota across concurrent sends and reserve capacity
+for transactional mail. AWS account quotas remain the final limit.
+
+On Vuuut-pro, the operator can manage SES or Mailgun for all sites. The tenant
+screens show that delivery is managed, disable provider fields, and the Admin API
+rejects changes to locked settings. Platform credentials are resolved from
+`hostSettings.managedMail`, take precedence over stored tenant values, survive
+cache reloads and previews, and are excluded from public settings and portable
+exports. Removing the platform policy restores the tenant's saved configuration.
 
 ---
 
@@ -827,3 +860,12 @@ preprocessor rewrites, markdown pipeline, handlebars helper mechanics,
 base-path joining/stripping with the HTML rewrite in both directions,
 `url` + `ssl` resolving into a listening plan, install-time port selection,
 per-instance service naming, and Slack webhook validation.
+
+
+Hosted email volumes are enforced at send time through `hostSettings.emailQuota`
+and `hostSettings.limits.emails.maxPeriodic`. Transactional and newsletter sends
+share persistent monthly reservations across every transport. An operator may
+set `emailQuota.autoStop` to false to keep counting without stopping delivery.
+`GET /ghost/api/admin/email_usage/` is private to administrators and Admin API
+integrations and reports current-period usage, daily activity and provider totals.
+Standalone installs with no host ceiling keep sending without a volume limit.

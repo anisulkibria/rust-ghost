@@ -1,4 +1,4 @@
-//! Ghost-rust boot sequence.
+//! Vuuut boot sequence.
 //!
 //! config → db + migrate + seed → settings cache → routes.yaml → redirects
 //! → theme activation → build app → listen.
@@ -54,7 +54,7 @@ async fn main() {
 
     // 1. config
     let config = Arc::new(ghost_core::Config::load(None).expect("config"));
-    tracing::info!("Ghost-rust booting (env: {})", config.env);
+    tracing::info!("Vuuut booting (env: {})", config.env);
 
     // The base path from `config.url` decides both where the app mounts and
     // how every URL it writes is prefixed. Publish it before anything that
@@ -142,7 +142,7 @@ async fn main() {
     }
 
     // 4. settings cache
-    let settings = Arc::new(ghost_db::SettingsCache::load(&db).await.expect("settings"));
+    let settings = Arc::new(ghost_db::SettingsCache::load(&db).await.expect("settings").with_mail_config(&config.mail).with_managed_mail(&config.host_settings));
 
     // 5. routes.yaml
     let routes_path = config.content_path().join("routes.yaml");
@@ -243,7 +243,7 @@ async fn main() {
 
     // 9. listen
     tracing::info!(
-        "Ghost-rust ready in {:.2}s — {} (admin at {}/ghost/)",
+        "Vuuut ready in {:.2}s — {} (admin at {}/ghost/)",
         started.elapsed().as_secs_f64(),
         config.canonical_url(),
         config.canonical_url()

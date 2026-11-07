@@ -6,6 +6,7 @@ pub mod seed;
 pub mod settings_cache;
 pub mod repos;
 pub mod limits;
+pub mod mail_usage;
 
 pub use pool::{connect, connect_in_memory, connect_test, Db, TestDb};
 

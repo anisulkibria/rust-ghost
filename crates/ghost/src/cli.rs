@@ -142,7 +142,7 @@ pub fn setup(args: &Args) -> Result<(), String> {
     }
 
     let interactive = std::io::stdin().is_terminal();
-    println!("\nSetting up Ghost-rust ({env})\n");
+    println!("\nSetting up Vuuut ({env})\n");
 
     // --- url ---------------------------------------------------------------
     let url = match args.get("url") {
@@ -887,7 +887,7 @@ pub fn systemd(args: &Args) -> Result<(), String> {
 
     let unit = format!(
         r#"[Unit]
-Description=Ghost-rust publishing platform ({name})
+Description=Vuuut publishing platform ({name})
 Documentation=https://github.com/TryGhost/Ghost
 # network-online rather than network: binding a specific address, and
 # requesting certificates, both need routing to actually be up.

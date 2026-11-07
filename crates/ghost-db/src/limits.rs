@@ -201,6 +201,7 @@ impl Limits {
         let mut limits = BTreeMap::new();
         if let Some(configured) = host["limits"].as_object() {
             for (name, spec) in configured {
+                if name == "emails" && host.get("emailQuota").is_some_and(Value::is_object) { continue; }
                 let error = spec["error"].as_str().unwrap_or("").to_string();
                 // Order matters and is Ghost's: allowlist, then max, then
                 // periodic, then flag as the fallback. A spec with both an

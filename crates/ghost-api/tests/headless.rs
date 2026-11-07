@@ -82,7 +82,7 @@ impl Fixture {
         let settings = Arc::new(ghost_db::SettingsCache::from_values([
             ("site_url".into(), json!(url)),
             ("members_signup_access".into(), json!("all")),
-        ]));
+        ]).with_managed_mail(&host_settings));
         let mut config: ghost_core::Config = serde_json::from_value(json!({
             "url": url, "server": {},
             "database": {"connection": {"filename": ":memory:"}}, "paths": {},
@@ -2208,4 +2208,72 @@ async fn stripe_cannot_be_disconnected_while_a_member_still_pays() {
 
     sqlx::query("UPDATE members SET status = 'free'").execute(&f.state.db).await.unwrap();
     assert_eq!(f.request("DELETE", "/admin/settings/stripe/connect/", Value::Null, None).await.0, StatusCode::NO_CONTENT);
+}
+
+
+#[tokio::test]
+async fn managed_mail_is_masked_and_api_edits_are_atomically_forbidden() {
+    let f = Fixture::with_host_settings(json!({"managedMail": {
+        "mail_transport":"SES", "newsletter_transport":"ses", "ses_region":"eu-west-1",
+        "ses_smtp_user":"platform-user", "ses_smtp_pass":"platform-secret", "mailgun_api_key":"platform-mailgun"
+    }})).await;
+    let (status, body) = f.request("GET", "/admin/settings/", Value::Null, None).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let settings = body["settings"].as_array().unwrap();
+    for key in ["ses_smtp_user", "ses_smtp_pass", "mailgun_api_key"] {
+        let item = settings.iter().find(|v| v["key"] == key).unwrap();
+        assert_eq!(item["value"], "••••••••");
+        assert_eq!(item["locked"], true);
+    }
+    assert!(!body.to_string().contains("platform-secret"));
+    assert!(!body.to_string().contains("platform-user"));
+    for key in ["ses_smtp_pass", "mailgun_api_key", "newsletter_transport"] {
+        let (status, body) = f.request("PUT", "/admin/settings/", json!({"settings":[
+            {"key":"title","value":"must-not-save"}, {"key":key,"value":"tenant-choice"}
+        ]}), None).await;
+        assert_eq!(status, StatusCode::FORBIDDEN, "{body}");
+        let title: ghost_db::types::Text = sqlx::query_scalar("SELECT value FROM settings WHERE `key`='title'").fetch_one(&f.state.db).await.unwrap();
+        assert_ne!(title.0, "must-not-save");
+    }
+    let (status, body) = f.request("PUT", "/admin/settings/", json!({"settings":[{"key":"title","value":"My publication"}]}), None).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+}
+
+#[tokio::test]
+async fn standalone_ses_settings_save_and_mask_credentials() {
+    let f = Fixture::new().await;
+    let (status, body) = f.request("PUT", "/admin/settings/", json!({"settings":[
+        {"key":"mail_transport","value":"SES"}, {"key":"ses_region","value":"us-east-1"},
+        {"key":"ses_smtp_user","value":"own-ses-user"}, {"key":"ses_smtp_pass","value":"own-ses-password"},
+        {"key":"newsletter_transport","value":"ses"}
+    ]}), None).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let cfg = ghost_mail::MailConfig::from_settings(&f.state.settings, "Title", "https://example.test");
+    assert_eq!(cfg.transport_name(), "Amazon SES");
+    let (_, body) = f.request("GET", "/admin/settings/", Value::Null, None).await;
+    assert!(!body.to_string().contains("own-ses-user"));
+    assert!(!body.to_string().contains("own-ses-password"));
+}
+
+#[tokio::test]
+async fn email_usage_is_private_and_reports_both_message_categories() {
+    let f=Fixture::with_host_settings(json!({"subscription":{"start":"2020-01-01T00:00:00Z"},"limits":{"emails":{"maxPeriodic":3}},"emailQuota":{"autoStop":true},"managedMail":{"ses_smtp_pass":"never-publish-this"}})).await;
+    let meter=ghost_db::mail_usage::Meter::new(f.state.db.clone(),f.state.config.host_settings.clone());
+    meter.reserve("newsletter","ses",1).await.unwrap().finish(true).await.unwrap();
+    meter.reserve("transactional","smtp",1).await.unwrap().finish(true).await.unwrap();
+    let (status,body)=f.request("GET","/admin/email_usage/",Value::Null,None).await;
+    assert_eq!(status,StatusCode::OK,"{body}");
+    assert_eq!(body["email_usage"]["sent"],2);
+    assert_eq!(body["email_usage"]["remaining"],1);
+    assert_eq!(body["email_usage"]["newsletter_sent"],1);
+    assert_eq!(body["email_usage"]["transactional_sent"],1);
+    assert!(!body.to_string().contains("never-publish-this"));
+    let integration=f.integration().await;
+    let token=Fixture::jwt(&integration,None);
+    assert_eq!(f.request("GET","/admin/email_usage/",Value::Null,Some(&token)).await.0,StatusCode::OK);
+    assert_eq!(f.request("GET","/admin/email_usage/",Value::Null,Some("Ghost invalid")).await.0,StatusCode::UNAUTHORIZED);
+    let (_,cookie)=f.staff("Author","report-author").await;
+    let app=f.app.clone();
+    let response=app.oneshot(Request::builder().uri("/admin/email_usage/").header("cookie",cookie).body(Body::empty()).unwrap()).await.unwrap();
+    assert_eq!(response.status(),StatusCode::FORBIDDEN);
 }

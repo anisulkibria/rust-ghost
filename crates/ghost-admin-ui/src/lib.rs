@@ -8840,6 +8840,7 @@ async fn notify_slack_published(state: &AppState, post: &ghost_core::models::Pos
 /// testing exactly as you would expect.
 enum BulkTransport {
     Mailgun(ghost_mail::MailgunConfig),
+    Ses(ghost_mail::RelaySender),
     /// The relay from Settings → Email, one message per recipient.
     Smtp,
 }
@@ -8851,8 +8852,38 @@ impl BulkTransport {
     fn batch_size(&self) -> usize {
         match self {
             BulkTransport::Mailgun(_) => ghost_mail::MAILGUN_BATCH_SIZE,
-            BulkTransport::Smtp => 100,
+            BulkTransport::Smtp | BulkTransport::Ses(_) => 100,
         }
+    }
+}
+
+fn resolve_bulk_transport_for_ses(state: &AppState, mail: &ghost_mail::MailConfig) -> Result<BulkTransport, String> {
+    let cfg = ghost_mail::MailConfig::for_ses_newsletter(&state.settings, mail);
+    if let Some(error) = cfg.configuration_error() {
+        return Err(error);
+    }
+    let rate = state.settings.get_str("ses_max_send_rate").and_then(|s| s.parse::<u32>().ok()).unwrap_or(1).clamp(1, 10_000);
+    ghost_mail::RelaySender::new(cfg, rate).map(BulkTransport::Ses).map_err(|e| e.message())
+}
+
+/// Explicit provider selection never falls back to stale credentials for another provider.
+fn resolve_bulk_transport(state: &AppState, mail: &ghost_mail::MailConfig) -> Result<BulkTransport, String> {
+    let provider = state.settings.get_str("newsletter_transport").unwrap_or_default();
+    if provider == "smtp" && matches!(mail.transport, ghost_mail::Transport::Ses { .. }) {
+        return resolve_bulk_transport_for_ses(state, mail);
+    }
+    let mg = ghost_mail::MailgunConfig::from_settings(&state.settings, mail);
+    match provider.as_str() {
+        "ses" => resolve_bulk_transport_for_ses(state, mail),
+        "mailgun" => mg.map(BulkTransport::Mailgun).ok_or_else(|| "Configure Mailgun in Settings → Newsletters.".into()),
+        "smtp" if mail.uses_relay() => Ok(BulkTransport::Smtp),
+        "auto" | "" => match mg {
+            Some(mg) => Ok(BulkTransport::Mailgun(mg)),
+            None if matches!(mail.transport, ghost_mail::Transport::Ses { .. }) => resolve_bulk_transport_for_ses(state, mail),
+            None if mail.uses_relay() => Ok(BulkTransport::Smtp),
+            _ => Err("Configure Amazon SES or Mailgun for newsletters, or set up an SMTP relay.".into()),
+        },
+        _ => Err("The selected newsletter provider is not configured.".into()),
     }
 }
 
@@ -8918,11 +8949,7 @@ async fn newsletter_preflight(state: &AppState, post_id: &str) -> Result<usize, 
     };
     let title = state.settings.get_str("title").unwrap_or_else(|| "Ghost".into());
     let mail_cfg = ghost_mail::MailConfig::from_settings(&state.settings, &title, &state.site_url());
-    if ghost_mail::MailgunConfig::from_settings(&state.settings, &mail_cfg).is_none() && !mail_cfg.uses_relay() {
-        return Err("No bulk transport is configured. Set up Mailgun in \
-                    Settings → Newsletters, or an SMTP relay in Settings → Email."
-            .into());
-    }
+    resolve_bulk_transport(state, &mail_cfg)?;
     let recipients = newsletter_audience(state, &post, &newsletter).await?;
     if recipients.is_empty() {
         return Err("No subscribers to send to.".into());
@@ -8998,20 +9025,11 @@ async fn deliver_newsletter(state: &AppState, post_id: &str, retry: Option<&str>
     let title = state.settings.get_str("title").unwrap_or_else(|| "Ghost".into());
     let accent = state.settings.get_str("accent_color").unwrap_or_default();
     let mail_cfg = ghost_mail::MailConfig::from_settings(&state.settings, &title, &site_url);
-    let bulk = match ghost_mail::MailgunConfig::from_settings(&state.settings, &mail_cfg) {
-        Some(mg) => BulkTransport::Mailgun(mg),
-        // Direct is deliberately not accepted here: it delivers by looking up
-        // each recipient's MX records, which is both slow per message and the
-        // surest way to have a newsletter filed as spam.
-        None if mail_cfg.uses_relay() => {
-            tracing::info!("newsletter: Mailgun not configured, sending via the SMTP relay");
-            BulkTransport::Smtp
-        }
-        None => {
-            return Err("No bulk transport is configured. Set up Mailgun in \
-                        Settings → Newsletters, or an SMTP relay in Settings → Email."
-                .into())
-        }
+    let bulk = resolve_bulk_transport(state, &mail_cfg)?;
+    let bulk_from = match &bulk {
+        BulkTransport::Mailgun(cfg) => &cfg.from_address,
+        BulkTransport::Ses(sender) => &sender.config().from_address,
+        BulkTransport::Smtp => &mail_cfg.from_address,
     };
 
     let mut recipients = newsletter_audience(state, &post, &newsletter).await?;
@@ -9230,7 +9248,7 @@ async fn deliver_newsletter(state: &AppState, post_id: &str, retry: Option<&str>
     .bind(candidate_count as i64)
     .bind(&subject)
     // the envelope sender, whichever transport carried it
-    .bind(&mail_cfg.from_address)
+    .bind(bulk_from)
     // the email as it went out, not the post body — this is the record of
     // what subscribers actually received
     .bind(&template_html)
@@ -9371,8 +9389,11 @@ async fn deliver_newsletter(state: &AppState, post_id: &str, retry: Option<&str>
                 BulkTransport::Mailgun(mg) => {
                     send_mailgun_chunk(mg, &email_id, &subject, &batch_html, &batch_text, chunk, named, &send_options).await
                 }
+                BulkTransport::Ses(sender) => {
+                    send_smtp_chunk(sender.config(), Some(sender), &subject, &body, &text, chunk).await
+                }
                 BulkTransport::Smtp => {
-                    send_smtp_chunk(&mail_cfg, &subject, &body, &text, chunk).await
+                    send_smtp_chunk(&mail_cfg, None, &subject, &body, &text, chunk).await
                 }
             };
             let batch_error = outcome.error.clone();
@@ -9544,6 +9565,7 @@ async fn send_mailgun_chunk(
 /// rather than the whole send.
 async fn send_smtp_chunk(
     mail_cfg: &ghost_mail::MailConfig,
+    sender: Option<&ghost_mail::RelaySender>,
     subject: &str,
     html: &str,
     text: &str,
@@ -9558,7 +9580,11 @@ async fn send_smtp_chunk(
             html: ghost_mail::newsletter::personalize(html, &member.recipient),
             text: ghost_mail::newsletter::personalize(text, &member.recipient),
         };
-        match ghost_mail::send(mail_cfg, &msg).await {
+        let result = match sender {
+            Some(sender) => sender.send(&msg, Some(&member.recipient.unsubscribe_url)).await,
+            None => ghost_mail::send_newsletter(mail_cfg, &msg).await,
+        };
+        match result {
             Ok(()) => recipients.push((member.clone(), None, None)),
             Err(e) => {
                 tracing::warn!("newsletter: {} failed: {}", member.recipient.email, e.message());
@@ -11482,7 +11508,7 @@ const SETTINGS_GROUPS: &[SettingsGroup] = &[
     // can be charged for.
     SettingsGroup { slug: "machine-payments", title: "Machine payments", icon: "integrations", tint: "pink", items: &["Access", "Pricing", "Stripe cards & Link", "Stablecoins", "Payment activity"] },
     SettingsGroup { slug: "email", title: "Email", icon: "mail", tint: "blue", items: &["Transactional email", "SMTP server", "Sender identity", "Send a test"] },
-    SettingsGroup { slug: "newsletters", title: "Newsletters", icon: "send", tint: "purple", items: &["Newsletter sending", "Default recipients", "Mailgun", "Region"] },
+    SettingsGroup { slug: "newsletters", title: "Newsletters", icon: "send", tint: "purple", items: &["Newsletter sending", "Default recipients", "Amazon SES", "Mailgun", "Region"] },
     SettingsGroup { slug: "growth", title: "Growth", icon: "globe", tint: "slate", items: &["Network", "Ghost Explore", "Recommendations", "Signup forms", "Offers"] },
     SettingsGroup { slug: "features", title: "Features", icon: "tune", tint: "teal", items: &["Comments", "Automations", "Beta features", "Private features"] },
     SettingsGroup { slug: "integrations", title: "Integrations", icon: "integrations", tint: "red", items: &["Built-in apps", "Custom integrations", "Content API"] },
@@ -12535,7 +12561,7 @@ const METADATA_KEYS: &[&str] = &[
 /// the page (the field shows a "saved" placeholder instead), are masked by
 /// the Admin API, and are absent from the theme/Content API allowlist — so a
 /// password typed here cannot leak back out through any read path.
-pub const SECRET_SETTINGS: &[&str] = &["mail_smtp_pass", "mailgun_api_key", "mailgun_webhook_signing_key"];
+pub const SECRET_SETTINGS: &[&str] = &["mail_smtp_pass", "ses_smtp_user", "ses_smtp_pass", "mailgun_api_key", "mailgun_webhook_signing_key"];
 
 /// A posted credential field. An empty box means "leave what is stored"
 /// rather than "clear it", because the form never shows the current value —
@@ -12559,6 +12585,12 @@ fn secret_state(state: &AppState, key: &str) -> &'static str {
     }
 }
 
+fn mail_management_notice(state: &AppState) -> &'static str {
+    if state.settings.mail_is_managed() {
+        r#"<div class="banner info">Email delivery is managed by your hosting provider. Amazon SES and Mailgun settings are locked; no credentials are required from you.</div>"#
+    } else { "" }
+}
+
 async fn email_page(State(state): State<AppState>, headers: HeaderMap, Query(q): Query<HashMap<String, String>>) -> Response {
     let (user, actor_role) = match require_role(&state, &headers, Role::Administrator).await {
         Ok(a) => (a.user, a.role),
@@ -12572,6 +12604,9 @@ async fn email_page(State(state): State<AppState>, headers: HeaderMap, Query(q):
         .get_str("mail_transport")
         .filter(|v| !v.trim().is_empty())
         .unwrap_or_else(|| "Direct".into());
+    let transport = match transport.to_ascii_lowercase().as_str() {
+        "ses" => "SES", "smtp" => "SMTP", _ => "Direct",
+    };
     let security = state
         .settings
         .get_str("mail_smtp_security")
@@ -12583,11 +12618,14 @@ async fn email_page(State(state): State<AppState>, headers: HeaderMap, Query(q):
         &state.settings.get_str("title").unwrap_or_else(|| "Ghost".into()),
         &site_url,
     );
-    let status = if cfg.uses_relay() {
+    let status = if let Some(error) = cfg.configuration_error() {
+        format!(r#"<div class="banner error">{}</div>"#, esc(&error))
+    } else if cfg.uses_relay() {
         format!(
-            r#"<div class="banner ok rise" style="--i:1">{check}<span class="msg">Sending as <code>{from}</code> over SMTP</span></div>"#,
+            r#"<div class="banner ok rise" style="--i:1">{check}<span class="msg">Sending as <code>{from}</code> over {transport_name}</span></div>"#,
             check = svg("check"),
             from = esc(&cfg.from_address),
+            transport_name = cfg.transport_name(),
         )
     } else {
         format!(
@@ -12602,8 +12640,9 @@ async fn email_page(State(state): State<AppState>, headers: HeaderMap, Query(q):
         "settings",
         Some(&user),
         &format!(
-            r#"{head}{banner}{status}
+            r#"{head}{banner}{status}{managed_notice}
 <form method="post" action="/ghost/settings/email/" id="email-form">
+<fieldset {managed_disabled} style="border:0;padding:0;margin:0;min-width:0">
 <div class="section">Transactional email</div>
 <div class="card rows rise" style="--i:2">
 <div class="row" style="align-items:center"><span class="ic tint-blue">{mail}</span>
@@ -12624,6 +12663,17 @@ async fn email_page(State(state): State<AppState>, headers: HeaderMap, Query(q):
 <p class="muted" style="margin:6px 0 0">Testing locally? A mail catcher takes everything and delivers nothing: MailHog and Mailpit both listen on <code>127.0.0.1</code> port <code>1025</code> with encryption <strong>None</strong> and no username or password.</p>
 </div></div>
 </div>
+<div class="section">Amazon SES</div>
+<div class="card padded">
+<div class="grid2" style="gap:12px">
+<label class="field"><input name="ses_max_send_rate" type="number" min="1" max="10000" value="{ses_rate}" placeholder=" "><span>Newsletter messages per second</span></label>
+<label class="field"><input name="ses_region" value="{ses_region}" placeholder=" "><span>AWS region · e.g. us-east-1</span></label>
+<label class="field"><input name="ses_smtp_endpoint" value="{ses_endpoint}" placeholder=" "><span>SMTP endpoint · optional, from AWS CSV</span></label>
+<label class="field"><input name="ses_smtp_user" type="password" value="" autocomplete="new-password" placeholder=" "><span>SES SMTP username</span></label>
+<label class="field"><input name="ses_smtp_pass" type="password" value="" autocomplete="new-password" placeholder=" "><span>SES SMTP password</span></label>
+</div>
+<p class="muted">Use the SMTP endpoint and credentials from your AWS CSV, or leave the endpoint blank for regional SES. Configure a verified sender. AWS API secret keys cannot be used as SMTP passwords. SES uses STARTTLS on port 587. Leave credentials blank to keep them; enter “-” to clear.</p>
+</div>
 <div class="section">Sender identity</div>
 <div class="card rows rise" style="--i:4">
 <div class="row" style="align-items:flex-start"><span class="ic tint-blue">{person}</span>
@@ -12635,7 +12685,7 @@ async fn email_page(State(state): State<AppState>, headers: HeaderMap, Query(q):
 <p class="muted" style="margin:10px 0 0">Defaults to <code>{default_from}</code>. Most providers reject a From address on a domain you have not verified.</p>
 </div></div>
 </div>
-</form>
+</fieldset></form>
 <div class="section">Send a test</div>
 <div class="card rows rise" style="--i:5">
 <div class="row" style="align-items:flex-start"><span class="ic tint-green">{send}</span>
@@ -12655,11 +12705,16 @@ async fn email_page(State(state): State<AppState>, headers: HeaderMap, Query(q):
             person = svg("ghost"),
             send = svg("send"),
             car = SELECT_CARET,
-            transport_opts = select_options(&[("Direct", "Direct · no relay, straight to the recipient"), ("SMTP", "SMTP · send through a relay")], &transport),
+            transport_opts = select_options(&[("Direct", "Direct · no relay, straight to the recipient"), ("SMTP", "SMTP · send through a relay"), ("SES", "Amazon SES · regional SMTP")], &transport),
             security_opts = select_options(
                 &[("starttls", "STARTTLS · port 587"), ("tls", "TLS/SSL · port 465"), ("none", "None · local relay only")],
                 &security
             ),
+            managed_notice = mail_management_notice(&state),
+            managed_disabled = if state.settings.mail_is_managed() { "disabled" } else { "" },
+            ses_region = s("ses_region"),
+            ses_endpoint = s("ses_smtp_endpoint"),
+            ses_rate = state.settings.get_str("ses_max_send_rate").and_then(|s| s.parse::<u32>().ok()).unwrap_or(1).clamp(1, 10_000),
             host = s("mail_smtp_host"),
             port = s("mail_smtp_port"),
             user = s("mail_smtp_user"),
@@ -12679,15 +12734,27 @@ async fn email_save(State(state): State<AppState>, headers: HeaderMap, Form(form
     if let Err(r) = require_role(&state, &headers, Role::Administrator).await {
         return r;
     }
+    if state.settings.mail_is_managed() {
+        return settings_flash("email", "error", "Email delivery is managed by your hosting provider.");
+    }
+    let rate = form.get("ses_max_send_rate").map(|value| value.parse::<u32>());
+    if rate.as_ref().is_some_and(|value| !matches!(value, Ok(1..=10_000))) {
+        return settings_flash("email", "error", "SES send rate must be between 1 and 10000 messages per second.");
+    }
     let mut ok = true;
+    if let Some(Ok(rate)) = rate {
+        ok &= state.settings.set(&state.db, "ses_max_send_rate", &serde_json::json!(rate.to_string())).await.is_ok();
+    }
     for key in [
-        "mail_transport", "mail_smtp_host", "mail_smtp_port", "mail_smtp_security",
+        "ses_region", "ses_smtp_endpoint", "mail_transport", "mail_smtp_host", "mail_smtp_port", "mail_smtp_security",
         "mail_smtp_user", "mail_from_address", "mail_from_name", "mail_reply_to",
     ] {
         let value = form.get(key).cloned().unwrap_or_default().trim().to_string();
         ok &= state.settings.set(&state.db, key, &serde_json::json!(value)).await.is_ok();
     }
     ok &= save_secret(&state, "mail_smtp_pass", form.get("mail_smtp_pass")).await;
+    ok &= save_secret(&state, "ses_smtp_user", form.get("ses_smtp_user")).await;
+    ok &= save_secret(&state, "ses_smtp_pass", form.get("ses_smtp_pass")).await;
     if ok {
         settings_flash("email", "ok", "Email settings saved.")
     } else {
@@ -13447,18 +13514,12 @@ async fn newsletters_settings_page(State(state): State<AppState>, headers: Heade
     let title = state.settings.get_str("title").unwrap_or_else(|| "Ghost".into());
     let site_url = state.site_url();
     let mail_cfg = ghost_mail::MailConfig::from_settings(&state.settings, &title, &site_url);
-    let configured = ghost_mail::MailgunConfig::from_settings(&state.settings, &mail_cfg).is_some();
-    let status = if configured {
-        format!(
-            r#"<div class="banner ok rise" style="--i:1">{check}<span class="msg">Mailgun is configured for <code>{domain}</code></span></div>"#,
-            check = svg("check"),
-            domain = s("mailgun_domain"),
-        )
-    } else {
-        format!(
-            r#"<div class="banner info rise" style="--i:1">{send}Not configured. Newsletters need a bulk provider — Mailgun is what Ghost uses, because sending thousands of messages through a normal SMTP relay gets a domain blocked.</div>"#,
-            send = svg("send"),
-        )
+    let status = match resolve_bulk_transport(&state, &mail_cfg) {
+        Ok(transport) => {
+            let name = match transport { BulkTransport::Mailgun(_) => "Mailgun", BulkTransport::Ses(_) => "Amazon SES", BulkTransport::Smtp => mail_cfg.transport_name() };
+            format!(r#"<div class="banner ok">Newsletters use {name}.</div>"#)
+        }
+        Err(message) => format!(r#"<div class="banner info">{}</div>"#, esc(&message)),
     };
 
     // The newsletters themselves. Each row opens the design editor, which is
@@ -13603,6 +13664,12 @@ async fn newsletters_settings_page(State(state): State<AppState>, headers: Heade
 </form>
 <p class="muted" style="margin:10px 0 0">A new newsletter starts from Ghost's defaults. Open it to set the design — colours, typography, header and footer.</p></div>
 <form method="post" action="/ghost/settings/newsletters/" id="newsletters-form">
+{managed_notice}
+<fieldset {managed_disabled} style="border:0;padding:0;margin:0;min-width:0">
+<div class="section">Newsletter provider</div>
+<div class="card padded"><label class="field fixed"><select name="newsletter_transport">{provider_opts}</select><span>Provider</span>{car}</label>
+<label class="field" style="margin:0"><input name="bulk_email_from_address" value="{bulk_from}" placeholder=" "><span>From address · defaults to the transactional one</span></label>
+<p class="muted">Configure Amazon SES credentials in <a href="/ghost/settings/email/">Email settings</a>. Automatic uses Mailgun when configured, then the transactional relay.</p></div>
 <div class="section">Mailgun</div>
 <div class="card rows rise" style="--i:4">
 <div class="row" style="align-items:flex-start"><span class="ic tint-purple">{send}</span>
@@ -13611,12 +13678,11 @@ async fn newsletters_settings_page(State(state): State<AppState>, headers: Heade
 <label class="field" style="margin:0"><input name="mailgun_webhook_signing_key" type="password" value="" placeholder=" " autocomplete="off"><span>Webhook signing key</span></label>
 <label class="field" style="margin:0"><input name="mailgun_domain" value="{domain}" placeholder=" " autocomplete="off"><span>Sending domain · e.g. mg.example.com</span></label>
 <label class="field fixed" style="margin:0"><select name="mailgun_base_url">{region_opts}</select><span>Region</span>{car}</label>
-<label class="field" style="margin:0"><input name="bulk_email_from_address" value="{bulk_from}" placeholder=" "><span>From address · defaults to the transactional one</span></label>
 </div>
 <p class="muted" style="margin:10px 0 0">{key_hint} Use the <strong>Sending</strong> API key, not the private account key. The region must match where the domain was created — an EU domain on the US endpoint fails with a 401 that looks like a bad key.</p>
 </div></div>
 </div>
-</form>
+</fieldset></form>
 <div class="banner info rise" style="--i:4">{bulb}Newsletters are sent from the editor: choose <b>Publish and email</b> when publishing a post. Without Mailgun, a configured SMTP relay is used instead, one message per subscriber.</div>"#,
             head = group_head(group, Some("newsletters-form")),
             banner = flash_banner(&q),
@@ -13629,6 +13695,9 @@ async fn newsletters_settings_page(State(state): State<AppState>, headers: Heade
             newsletter_rows = newsletter_rows,
             new_name = text_field("name", "Newsletter name", ""),
             add = svg("add"),
+            managed_notice = mail_management_notice(&state),
+            managed_disabled = if state.settings.mail_is_managed() { "disabled" } else { "" },
+            provider_opts = select_options(&[("auto", "Automatic"), ("ses", "Amazon SES"), ("mailgun", "Mailgun"), ("smtp", "Transactional relay")], &state.settings.get_str("newsletter_transport").unwrap_or_else(|| "auto".into())),
             key_hint = secret_state(&state, "mailgun_api_key"),
             domain = s("mailgun_domain"),
             region_opts = select_options(
@@ -13649,13 +13718,24 @@ async fn newsletters_settings_save(State(state): State<AppState>, headers: Heade
     if let Err(r) = require_role(&state, &headers, Role::Administrator).await {
         return r;
     }
+    if state.settings.mail_is_managed() && ghost_core::mail_settings::KEYS.iter().any(|key| form.contains_key(*key)) {
+        return settings_flash("newsletters", "error", "Email delivery is managed by your hosting provider.");
+    }
     let mut ok = true;
+    if !state.settings.mail_is_managed() {
+    if let Some(provider) = form.get("newsletter_transport") {
+        if !["auto", "ses", "mailgun", "smtp"].contains(&provider.as_str()) {
+            return settings_flash("newsletters", "error", "Choose a valid newsletter provider.");
+        }
+        ok &= state.settings.set(&state.db, "newsletter_transport", &serde_json::json!(provider)).await.is_ok();
+    }
     for key in ["mailgun_domain", "mailgun_base_url", "bulk_email_from_address"] {
         let value = form.get(key).cloned().unwrap_or_default().trim().to_string();
         ok &= state.settings.set(&state.db, key, &serde_json::json!(value)).await.is_ok();
     }
     ok &= save_secret(&state, "mailgun_api_key", form.get("mailgun_api_key")).await;
     ok &= save_secret(&state, "mailgun_webhook_signing_key", form.get("mailgun_webhook_signing_key")).await;
+    }
 
     // Newsletter sending and the default audience share two settings, the way
     // Ghost encodes them: `disabled` turns sending off, anything else names
@@ -18287,11 +18367,11 @@ async fn about_page(State(state): State<AppState>, headers: HeaderMap) -> Respon
 <div class="card rows rise" style="--i:1">
 {version_row}{port_row}{env_row}{db_row}{mail_row}{theme_row}
 </div>
-<p class="muted" style="margin:14px 0 0 16px">Ghost-rust is an independent reimplementation of Ghost in Rust. It tracks the Ghost
+<p class="muted" style="margin:14px 0 0 16px">Vuuut is an independent reimplementation of Ghost in Rust. It tracks the Ghost
 release above for its admin, Content API and theme behaviour; it is not affiliated with the Ghost Foundation.</p>"#,
             back = svg("chevron"),
             version_row = row("Ghost version", GHOST_VERSION),
-            port_row = row("Ghost-rust", env!("CARGO_PKG_VERSION")),
+            port_row = row("Vuuut", env!("CARGO_PKG_VERSION")),
             env_row = row("Environment", &state.config.env),
             db_row = row("Database", &format!("{} · {}", state.config.database.client, db_where)),
             mail_row = row("Mail", &mail),

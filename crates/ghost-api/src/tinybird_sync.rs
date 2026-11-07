@@ -216,7 +216,7 @@ async fn post(config: &Config, lines: &[String]) -> Result<(), String> {
         .post(&config.endpoint)
         .header("Authorization", format!("Bearer {}", config.token))
         .header("Content-Type", "application/x-ndjson")
-        .header("User-Agent", "Ghost-rust")
+        .header("User-Agent", "Vuuut")
         .header("x-site-uuid", &config.site_uuid)
         .body(lines.join("\n"))
         .send()

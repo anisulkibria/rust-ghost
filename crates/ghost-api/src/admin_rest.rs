@@ -36,6 +36,7 @@ pub fn admin_router() -> Router<AppState> {
             .route(&format!("/search-index/users{suffix}"), get(search_index_users))
             // --- settings -------------------------------------------------
             .route(&format!("/config{suffix}"), get(config))
+            .route(&format!("/email_usage{suffix}"), get(email_usage))
             .route(&format!("/custom_theme_settings{suffix}"), get(read_theme_settings).put(edit_theme_settings))
             .route(&format!("/settings/verifications{suffix}"), axum::routing::put(verifications))
             .route(&format!("/slack/test{suffix}"), post(slack_test))
@@ -80,6 +81,15 @@ pub fn admin_router() -> Router<AppState> {
             .route(&format!("/schedules/{{resource}}/{{id}}{suffix}"), axum::routing::put(publish_scheduled));
     }
     router
+}
+
+async fn email_usage(State(state): State<AppState>, headers: HeaderMap) -> Response {
+    if let Err(response) = crate::permissions::require(&state, &headers, crate::permissions::Role::Administrator).await { return response; }
+    let meter = ghost_db::mail_usage::Meter::new(state.db.clone(), state.config.host_settings.clone());
+    match meter.report().await {
+        Ok(report) => private(json!({"email_usage": report})),
+        Err(error) => (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"errors":[{"message":error.to_string()}]}))).into_response(),
+    }
 }
 
 fn error(status: StatusCode, message: &str) -> Response {

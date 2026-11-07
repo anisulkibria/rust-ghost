@@ -22,6 +22,9 @@ struct Sink {
     port: u16,
     refuse: Arc<Mutex<Vec<String>>>,
     accepted: Arc<AtomicUsize>,
+    connections: Arc<AtomicUsize>,
+    messages: Arc<Mutex<Vec<String>>>,
+    temporary_failures: Arc<AtomicUsize>,
 }
 
 impl Sink {
@@ -30,15 +33,21 @@ impl Sink {
         let port = listener.local_addr().unwrap().port();
         let refuse: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(Vec::new()));
         let accepted = Arc::new(AtomicUsize::new(0));
+        let connections = Arc::new(AtomicUsize::new(0));
+        let messages = Arc::new(Mutex::new(Vec::new()));
+        let temporary_failures = Arc::new(AtomicUsize::new(0));
+        let (task_connections, task_messages, task_temporary) = (connections.clone(), messages.clone(), temporary_failures.clone());
         let (task_refuse, task_accepted) = (refuse.clone(), accepted.clone());
         tokio::spawn(async move {
             loop {
                 let Ok((stream, _)) = listener.accept().await else { return };
                 let (refuse, accepted) = (task_refuse.clone(), task_accepted.clone());
-                tokio::spawn(async move { session(stream, refuse, accepted).await });
+                task_connections.fetch_add(1, Ordering::SeqCst);
+                let (messages, temporary_failures) = (task_messages.clone(), task_temporary.clone());
+                tokio::spawn(async move { session(stream, refuse, accepted, messages, temporary_failures).await });
             }
         });
-        Sink { port, refuse, accepted }
+        Sink { port, refuse, accepted, connections, messages, temporary_failures }
     }
 
     fn refuse(&self, addresses: &[&str]) {
@@ -48,7 +57,7 @@ impl Sink {
 
 /// Just enough of RFC 5321 for lettre to hand over a message, including
 /// several messages on one pooled connection.
-async fn session(stream: tokio::net::TcpStream, refuse: Arc<Mutex<Vec<String>>>, accepted: Arc<AtomicUsize>) {
+async fn session(stream: tokio::net::TcpStream, refuse: Arc<Mutex<Vec<String>>>, accepted: Arc<AtomicUsize>, messages: Arc<Mutex<Vec<String>>>, temporary_failures: Arc<AtomicUsize>) {
     let (read, mut write) = stream.into_split();
     let mut lines = BufReader::new(read).lines();
     if write.write_all(b"220 sink ready\r\n").await.is_err() {
@@ -71,7 +80,10 @@ async fn session(stream: tokio::net::TcpStream, refuse: Arc<Mutex<Vec<String>>>,
                 .and_then(|(_, rest)| rest.split_once('>'))
                 .map(|(address, _)| address.to_string())
                 .unwrap_or_default();
-            if refuse.lock().unwrap().iter().any(|a| a.eq_ignore_ascii_case(&address)) {
+            if temporary_failures.compare_exchange(1, 0, Ordering::SeqCst, Ordering::SeqCst).is_ok() {
+                rejected = true;
+                "454 Throttling failure: Maximum sending rate exceeded\r\n".into()
+            } else if refuse.lock().unwrap().iter().any(|a| a.eq_ignore_ascii_case(&address)) {
                 rejected = true;
                 "550 no such mailbox\r\n".into()
             } else {
@@ -81,12 +93,14 @@ async fn session(stream: tokio::net::TcpStream, refuse: Arc<Mutex<Vec<String>>>,
             if write.write_all(b"354 go ahead\r\n").await.is_err() {
                 return;
             }
+            let mut message = String::new();
             while let Ok(Some(body)) = lines.next_line().await {
-                if body == "." {
-                    break;
-                }
+                if body == "." { break; }
+                message.push_str(&body);
+                message.push_str("\r\n");
             }
             if !rejected {
+                messages.lock().unwrap().push(message);
                 accepted.fetch_add(1, Ordering::SeqCst);
             }
             "250 queued\r\n".into()
@@ -566,4 +580,111 @@ async fn ghost_json_import_uses_the_standard_multipart_field_and_preserves_conte
     let (html,date):(String,String)=sqlx::query_as("SELECT html,published_at FROM posts WHERE id='ghost-api-import'").fetch_one(&state.db).await.unwrap();assert!(html.contains("Imported through Ghost API"));assert_eq!(date,"2026-10-01 12:34:56");
     let title:String=sqlx::query_scalar("SELECT meta_title FROM posts_meta WHERE post_id='ghost-api-import'").fetch_one(&state.db).await.unwrap();assert_eq!(title,"SEO survives");
     let _=std::fs::remove_dir_all(state.config.content_path());
+}
+
+#[tokio::test]
+async fn managed_mail_forms_are_locked_and_keep_platform_secrets_hidden() {
+    use axum::{body::{Body, to_bytes}, http::Request};
+    use tower::ServiceExt;
+    let (_db, mut state, owner) = fixture(1).await;
+    let policy = serde_json::json!({"managedMail": {
+        "mail_transport":"SES", "newsletter_transport":"ses", "ses_region":"us-east-1",
+        "ses_smtp_user":"platform-ses-user", "ses_smtp_pass":"platform-ses-password",
+        "mailgun_api_key":"platform-mailgun-key", "mail_from_address":"verified@example.test"
+    }});
+    state.settings = Arc::new(state.settings.with_overrides(Vec::new()).with_managed_mail(&policy));
+    let session = ghost_db::repos::sessions::create(&state.db, &owner).await.unwrap();
+    let app = ghost_admin_ui::admin_ui_router(state.clone()).with_state(state.clone());
+    for uri in ["/settings/email/", "/settings/newsletters/"] {
+        let response = app.clone().oneshot(Request::builder().uri(uri).header("cookie", format!("ghost-admin-api-session={session}")).body(Body::empty()).unwrap()).await.unwrap();
+        assert_eq!(response.status(), 200);
+        let html = String::from_utf8(to_bytes(response.into_body(), 2_000_000).await.unwrap().to_vec()).unwrap();
+        assert!(html.contains("<fieldset disabled"));
+        assert!(html.contains("managed by your hosting provider"));
+        for secret in ["platform-ses-user", "platform-ses-password", "platform-mailgun-key"] { assert!(!html.contains(secret)); }
+        let response = app.clone().oneshot(Request::builder().method("POST").uri(uri).header("cookie", format!("ghost-admin-api-session={session}")).header("content-type", "application/x-www-form-urlencoded").body(Body::from("ses_smtp_pass=tenant-secret&mailgun_api_key=tenant-key")).unwrap()).await.unwrap();
+        assert!(response.status().is_redirection());
+    }
+    assert_eq!(state.settings.get_str("ses_smtp_pass").as_deref(), Some("platform-ses-password"));
+    assert_eq!(state.settings.get_str("mailgun_api_key").as_deref(), Some("platform-mailgun-key"));
+    let stored: ghost_db::types::Text = sqlx::query_scalar("SELECT value FROM settings WHERE `key`='ses_smtp_pass'").fetch_one(&state.db).await.unwrap();
+    assert_eq!(stored.0, "", "platform credentials must not be copied into the tenant DB");
+}
+
+#[tokio::test]
+async fn selected_ses_never_falls_back_to_saved_mailgun_or_smtp() {
+    let sink = Sink::start().await;
+    let (_db, mut state, owner) = fixture(sink.port).await;
+    state.settings = Arc::new(state.settings.with_overrides([
+        ("newsletter_transport".into(), serde_json::json!("ses")),
+        ("ses_region".into(), serde_json::json!("us-east-1")),
+        ("mailgun_api_key".into(), serde_json::json!("stale-key")),
+        ("mailgun_domain".into(), serde_json::json!("stale.example.test")),
+    ]));
+    let post = seed(&state, &owner, &[("reader@example.test", "Reader")]).await;
+    let error = ghost_admin_ui::send_newsletter_for_test(&state, &post).await.unwrap_err();
+    assert!(error.contains("SES"), "{error}");
+    assert_eq!(sink.accepted.load(Ordering::SeqCst), 0);
+}
+
+
+#[tokio::test]
+async fn newsletter_relay_reuses_connections_paces_sends_and_keeps_recipients_separate() {
+    let sink = Sink::start().await;
+    let (_db, state, _owner) = fixture(sink.port).await;
+    let cfg = ghost_mail::MailConfig::from_settings(&state.settings, "Publication", "https://example.test");
+    let sender = ghost_mail::RelaySender::new(cfg, 4).unwrap();
+    let start = tokio::time::Instant::now();
+    for name in ["Ada", "Grace"] {
+        let msg = ghost_mail::Message { to: format!("{name}@example.test"), subject: "Personalized newsletter".into(), html: format!("<p>Hello {name}</p>"), text: format!("Hello {name}") };
+        sender.send(&msg, Some(&format!("https://example.test/unsubscribe/?uuid={name}"))).await.unwrap();
+    }
+    assert!(start.elapsed() >= std::time::Duration::from_millis(200));
+    assert_eq!(sink.accepted.load(Ordering::SeqCst), 2);
+    assert_eq!(sink.connections.load(Ordering::SeqCst), 1, "one SMTP connection must carry the whole newsletter");
+    let messages = sink.messages.lock().unwrap();
+    assert!(messages[0].contains("Hello Ada"));
+    assert!(!messages[0].contains("Grace@example.test"));
+    assert!(messages[0].contains("List-Unsubscribe: <https://example.test/unsubscribe/?uuid=Ada>"));
+    assert!(messages[1].contains("Hello Grace"));
+    assert!(!messages[1].contains("Ada@example.test"));
+}
+
+#[tokio::test]
+async fn newsletter_relay_retries_temporary_refusals_and_reports_permanent_failures() {
+    let sink = Sink::start().await;
+    sink.temporary_failures.store(1, Ordering::SeqCst);
+    let (_db, state, _owner) = fixture(sink.port).await;
+    let cfg = ghost_mail::MailConfig::from_settings(&state.settings, "Publication", "https://example.test");
+    let sender = ghost_mail::RelaySender::new(cfg, 100).unwrap();
+    let msg = ghost_mail::Message { to: "reader@example.test".into(), subject: "Newsletter".into(), html: "Hello".into(), text: "Hello".into() };
+    sender.send(&msg, None).await.unwrap();
+    assert_eq!(sink.accepted.load(Ordering::SeqCst), 1);
+    sink.refuse(&["reader@example.test"]);
+    assert!(sender.send(&msg, None).await.is_err());
+    assert_eq!(sink.accepted.load(Ordering::SeqCst), 1, "never retry an accepted message or permanent refusal");
+}
+
+#[tokio::test]
+async fn newsletters_and_transactional_messages_share_a_hard_send_time_budget() {
+    use serde_json::json;
+    let sink=Sink::start().await;
+    let (_database,mut state,owner)=fixture(sink.port).await;
+    let host=json!({"subscription":{"start":"2020-01-01T00:00:00Z"},"limits":{"emails":{"maxPeriodic":2}},"emailQuota":{"autoStop":true}});
+    state.settings=Arc::new(state.settings.with_overrides(Vec::new()).with_managed_mail(&host).with_mail_pool(&state.db));
+    state.limits=Arc::new(ghost_db::limits::Limits::load(&host));
+    let cfg=ghost_mail::MailConfig::from_settings(&state.settings,"Title","https://example.test");
+    let message=ghost_mail::Message{to:"transactional@example.test".into(),subject:"Regular email".into(),html:"Hello".into(),text:"Hello".into()};
+    ghost_mail::send(&cfg,&message).await.unwrap();
+    let post=seed(&state,&owner,&[("first@example.test","First"),("second@example.test","Second")]).await;
+    assert_eq!(ghost_admin_ui::send_newsletter_for_test(&state,&post).await.unwrap(),1);
+    assert!(ghost_mail::send(&cfg,&message).await.is_err());
+    assert_eq!(sink.accepted.load(Ordering::SeqCst),2);
+    let report=ghost_db::mail_usage::Meter::new(state.db.clone(),host.clone()).report().await.unwrap();
+    assert_eq!(report["sent"],2);assert_eq!(report["newsletter_sent"],1);assert_eq!(report["transactional_sent"],1);
+    let mut upgraded=host;upgraded["limits"]["emails"]["maxPeriodic"]=json!(3);
+    state.settings=Arc::new(state.settings.with_overrides(Vec::new()).with_managed_mail(&upgraded));
+    let cfg=ghost_mail::MailConfig::from_settings(&state.settings,"Title","https://example.test");
+    ghost_mail::send(&cfg,&message).await.unwrap();
+    assert_eq!(sink.accepted.load(Ordering::SeqCst),3,"an increased allowance preserves previous usage and frees only the extra volume");
 }

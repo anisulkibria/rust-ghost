@@ -1501,7 +1501,7 @@ async fn change_password(State(state): State<AppState>, headers: HeaderMap, Json
 /// Matched by suffix as well as by name so a future `*_api_key` or
 /// `*_secret` is covered without having to remember to list it.
 pub fn is_secret_setting(key: &str) -> bool {
-    key.ends_with("_pass")
+    ghost_core::mail_settings::is_secret(key) || key.ends_with("_pass")
         || key.ends_with("_password")
         || key.ends_with("_api_key")
         || key.ends_with("_secret")
@@ -1523,13 +1523,18 @@ async fn admin_browse_settings(State(state): State<AppState>, headers: HeaderMap
                     // Credentials are write-only over the API too: an admin
                     // token is for administering the site, not for reading
                     // back the SMTP password or Mailgun key it was given.
+                    let effective_value = if state.settings.is_locked(&s.key) {
+                        state.settings.get(&s.key).unwrap_or_else(|| s.typed_value())
+                    } else {
+                        s.typed_value()
+                    };
                     let value = if is_secret_setting(&s.key) {
-                        match s.typed_value() {
+                        match effective_value {
                             Value::String(v) if !v.is_empty() => json!(OBFUSCATED),
                             other => other,
                         }
                     } else {
-                        s.typed_value()
+                        effective_value
                     };
                     json!({
                         "id": s.id,
@@ -1538,6 +1543,7 @@ async fn admin_browse_settings(State(state): State<AppState>, headers: HeaderMap
                         "value": value,
                         "type": s.value_type,
                         "flags": s.flags,
+                        "locked": state.settings.is_locked(&s.key),
                     })
                 })
                 .collect();
@@ -1560,6 +1566,10 @@ async fn admin_edit_settings(State(state): State<AppState>, headers: HeaderMap, 
     let Some(list) = body.get("settings").and_then(|s| s.as_array()).cloned() else {
         return err(StatusCode::UNPROCESSABLE_ENTITY, "settings[] required", "ValidationError");
     };
+
+    if list.iter().any(|item| item.get("key").and_then(Value::as_str).is_some_and(|key| state.settings.is_locked(key))) {
+        return err(StatusCode::FORBIDDEN, "Email delivery is managed by your hosting provider", "NoPermissionError");
+    }
 
     // What the site already knows about, by key. Needed before anything is
     // written, because two of upstream's three refusals below are decided by

@@ -14,6 +14,8 @@
 pub mod comments;
 pub mod newsletter;
 pub mod templates;
+mod relay;
+pub use relay::RelaySender;
 
 use ghost_core::{GhostError, Result};
 use ghost_db::SettingsCache;
@@ -53,6 +55,8 @@ impl SmtpSecurity {
 /// knowledge carries across: `"Direct"` and `"SMTP"`.
 #[derive(Debug, Clone)]
 pub enum Transport {
+    /// Amazon SES over authenticated SMTP with mandatory STARTTLS.
+    Ses { region: String, endpoint: String, user: String, pass: String },
     /// Ghost's default. Looks up the recipient domain's MX records and
     /// delivers straight to their mail server, with no relay and no
     /// credentials.
@@ -79,6 +83,7 @@ pub struct MailConfig {
     pub from_address: String,
     pub from_name: String,
     pub reply_to: Option<String>,
+    pub meter: Option<ghost_db::mail_usage::Meter>,
 }
 
 impl MailConfig {
@@ -91,7 +96,9 @@ impl MailConfig {
     pub fn from_settings(settings: &SettingsCache, site_title: &str, site_url: &str) -> Self {
         let s = |k: &str| settings.get_str(k).unwrap_or_default().trim().to_string();
         let host = s("mail_smtp_host");
-        let transport = if s("mail_transport").eq_ignore_ascii_case("smtp") && !host.is_empty() {
+        let transport = if s("mail_transport").eq_ignore_ascii_case("ses") {
+            Transport::Ses { region: s("ses_region"), endpoint: s("ses_smtp_endpoint"), user: s("ses_smtp_user"), pass: s("ses_smtp_pass") }
+        } else if s("mail_transport").eq_ignore_ascii_case("smtp") && !host.is_empty() {
             Transport::Smtp {
                 host,
                 port: s("mail_smtp_port").parse().unwrap_or(587),
@@ -124,19 +131,44 @@ impl MailConfig {
             _ => site_title.to_string(),
         };
         let reply_to = Some(s("mail_reply_to")).filter(|r| !r.is_empty());
-        MailConfig { transport, from_address, from_name, reply_to }
+        MailConfig { transport, from_address, from_name, reply_to, meter: settings.mail_meter() }
+    }
+
+    /// Resolve SES independently of the transactional provider, preserving sender identity.
+    pub fn for_ses_newsletter(settings: &SettingsCache, fallback: &Self) -> Self {
+        let mut cfg = fallback.clone();
+        let s = |key| settings.get_str(key).unwrap_or_default().trim().to_string();
+        cfg.transport = Transport::Ses { region: s("ses_region"), endpoint: s("ses_smtp_endpoint"), user: s("ses_smtp_user"), pass: s("ses_smtp_pass") };
+        if let Some(from) = settings.get_str("bulk_email_from_address").filter(|s| !s.trim().is_empty()) {
+            cfg.from_address = from.trim().to_string();
+        }
+        cfg
+    }
+
+    /// A selected SES transport must fail explicitly when incomplete.
+    pub fn configuration_error(&self) -> Option<String> {
+        if let Transport::Ses { region, endpoint, user, pass } = &self.transport {
+            if ghost_core::mail_settings::ses_smtp_endpoint(region, endpoint).is_none() {
+                return Some("Set a valid Amazon SES region or SMTP endpoint in Settings → Email".into());
+            }
+            if user.is_empty() || pass.is_empty() {
+                return Some("Amazon SES requires SMTP credentials for the selected endpoint in Settings → Email".into());
+            }
+        }
+        None
     }
 
     /// Whether a relay is configured. Direct is always "available" but is
     /// not a configured relay — the UI uses this to decide whether to warn.
     pub fn uses_relay(&self) -> bool {
-        matches!(self.transport, Transport::Smtp { .. })
+        matches!(self.transport, Transport::Smtp { .. } | Transport::Ses { .. })
     }
 
     pub fn transport_name(&self) -> &'static str {
         match self.transport {
             Transport::Direct => "Direct",
             Transport::Smtp { .. } => "SMTP",
+            Transport::Ses { .. } => "Amazon SES",
         }
     }
 }
@@ -165,7 +197,37 @@ pub struct Message {
 /// Send a transactional message. Errors carry the transport's own reason,
 /// which is what makes a misconfiguration diagnosable.
 pub async fn send(cfg: &MailConfig, msg: &Message) -> Result<()> {
+    metered(cfg.meter.as_ref(), "transactional", provider(cfg), 1, send_unmetered(cfg, msg)).await
+}
+
+pub async fn send_newsletter(cfg: &MailConfig, msg: &Message) -> Result<()> {
+    metered(cfg.meter.as_ref(), "newsletter", provider(cfg), 1, send_unmetered(cfg, msg)).await
+}
+
+pub(crate) fn provider(cfg: &MailConfig) -> &'static str {
+    match cfg.transport { Transport::Ses {..} => "ses", Transport::Smtp {..} => "smtp", Transport::Direct => "direct" }
+}
+
+pub(crate) async fn metered<T>(meter: Option<&ghost_db::mail_usage::Meter>, kind: &str, provider: &str, count: i64, future: impl std::future::Future<Output=Result<T>>) -> Result<T> {
+    let reservation = match meter { Some(meter) if count > 0 => Some(meter.reserve(kind, provider, count).await?), _ => None };
+    let result = future.await;
+    if let Some(reservation) = reservation {
+        // Acceptance must never become a retryable failure if accounting is unavailable.
+        // A retained reservation still consumes quota, so failure is conservative.
+        if let Err(error) = reservation.finish(result.is_ok()).await { tracing::error!("email accounting could not finish: {error}"); }
+    }
+    result
+}
+
+async fn send_unmetered(cfg: &MailConfig, msg: &Message) -> Result<()> {
     match &cfg.transport {
+        Transport::Ses { region, endpoint, user, pass } => {
+            if let Some(error) = cfg.configuration_error() {
+                return Err(GhostError::EmailError(error));
+            }
+            let host = ghost_core::mail_settings::ses_smtp_endpoint(region, endpoint).expect("validated SES region");
+            send_smtp(cfg, msg, &host, 587, SmtpSecurity::StartTls, user, pass).await
+        }
         Transport::Direct => send_direct(cfg, msg).await,
         Transport::Smtp { host, port, security, user, pass } => {
             send_smtp(cfg, msg, host, *port, *security, user, pass).await
@@ -366,6 +428,7 @@ pub struct MailgunConfig {
     pub base_url: String,
     pub from_address: String,
     pub from_name: String,
+    pub meter: Option<ghost_db::mail_usage::Meter>,
 }
 
 impl MailgunConfig {
@@ -390,6 +453,7 @@ impl MailgunConfig {
             base_url,
             from_address,
             from_name: fallback.from_name.clone(),
+            meter: fallback.meter.clone(),
         })
     }
 
@@ -458,7 +522,7 @@ pub const MESSAGE_ID_VARIABLE: &str = "message_id";
 /// `recipients` must be no longer than [`MAILGUN_BATCH_SIZE`] and must hold
 /// no duplicate addresses: `recipient-variables` is keyed by address, so a
 /// duplicate would silently reduce the send.
-pub async fn send_mailgun_batch(
+async fn send_mailgun_batch_unmetered(
     cfg: &MailgunConfig,
     msg: &BatchMessage,
     recipients: &[BatchRecipient],
@@ -542,12 +606,20 @@ pub async fn send_mailgun_batch(
     Ok(BatchOutcome { provider_id, accepted: recipients.len() })
 }
 
+pub async fn send_mailgun_batch(cfg: &MailgunConfig, msg: &BatchMessage, recipients: &[BatchRecipient]) -> Result<BatchOutcome> {
+    metered(cfg.meter.as_ref(), "newsletter", "mailgun", recipients.len() as i64, send_mailgun_batch_unmetered(cfg,msg,recipients)).await
+}
+
 /// Send one message through Mailgun. Returns Mailgun's message id.
 pub async fn send_mailgun(cfg: &MailgunConfig, msg: &Message) -> Result<String> {
     send_mailgun_with_reply(cfg,msg,None).await
 }
 
 pub async fn send_mailgun_with_reply(cfg:&MailgunConfig,msg:&Message,reply_to:Option<&str>)->Result<String>{
+    metered(cfg.meter.as_ref(), "transactional", "mailgun", 1, send_mailgun_unmetered(cfg,msg,reply_to)).await
+}
+
+async fn send_mailgun_unmetered(cfg:&MailgunConfig,msg:&Message,reply_to:Option<&str>)->Result<String>{
     let mut form = reqwest::multipart::Form::new()
         .text("from", format!("{} <{}>", cfg.from_name, cfg.from_address))
         .text("to", msg.to.clone())
@@ -608,6 +680,7 @@ mod tests {
             from_address: "noreply@example.com".into(),
             from_name: "Example".into(),
             reply_to: None,
+            meter: None,
         }
     }
 
@@ -638,6 +711,7 @@ mod tests {
             domain: "mg.example.com".into(),
             base_url: "https://api.eu.mailgun.net/v3".into(),
             from_address: "a@b.c".into(),
+            meter: None,
             from_name: "N".into(),
         };
         assert_eq!(cfg.messages_url(), "https://api.eu.mailgun.net/v3/mg.example.com/messages");
@@ -668,4 +742,53 @@ mod direct_tests {
         let err = lookup_mx("invalid-domain-that-does-not-exist-xyzzy.test").await;
         assert!(err.is_err());
     }
+
+    #[test]
+    fn deployment_smtp_mail_defaults_are_used_before_any_site_relay_is_configured() {
+        let settings = SettingsCache::from_values([("mail_transport".into(), serde_json::json!("Direct"))])
+            .with_mail_config(&serde_json::json!({"transport":"SMTP","options":{"host":"smtp.example.test","port":465,"auth":{"user":"support@example.test","pass":"file-secret"}}}));
+        let cfg = MailConfig::from_settings(&settings, "Hello", "http://hello.localhost:8080");
+        assert_eq!(cfg.from_address, "support@example.test");
+        assert!(matches!(cfg.transport, Transport::Smtp { ref host, port: 465, security: SmtpSecurity::Tls, ref pass, .. } if host == "smtp.example.test" && pass == "file-secret"));
+        let local = SettingsCache::default().with_mail_config(&serde_json::json!({"transport":"SMTP","options":{"host":"127.0.0.1","port":1025,"ignoreTLS":true}}));
+        assert!(matches!(MailConfig::from_settings(&local, "Hello", "http://hello.localhost").transport, Transport::Smtp { security: SmtpSecurity::None, ref user, ref pass, .. } if user.is_empty() && pass.is_empty()));
+    }
+
+    #[test]
+    fn mail_manager_settings_apply_to_transactional_and_newsletter_mail() {
+        let endpoint = "example.fips.region.mail-manager-smtp.amazonaws.com";
+        let settings = SettingsCache::from_values([
+            ("mail_transport".into(), serde_json::json!("SES")),
+            ("ses_smtp_endpoint".into(), serde_json::json!(endpoint)),
+            ("ses_smtp_user".into(), serde_json::json!("ingress-identifier")),
+            ("ses_smtp_pass".into(), serde_json::json!("sample-password")),
+        ]);
+        let cfg = MailConfig::from_settings(&settings, "Publication", "https://example.test");
+        assert!(cfg.configuration_error().is_none());
+        let bulk = MailConfig::for_ses_newsletter(&settings, &cfg);
+        assert!(bulk.configuration_error().is_none());
+        assert!(matches!(bulk.transport, Transport::Ses { endpoint: ref e, .. } if e == endpoint));
+        let invalid = settings.with_overrides([("ses_smtp_endpoint".into(), serde_json::json!("https://evil.test"))]);
+        assert!(MailConfig::from_settings(&invalid, "Publication", "https://example.test").configuration_error().is_some());
+    }
+
+    #[tokio::test]
+    async fn ses_uses_regional_credentials_and_never_falls_back_to_direct() {
+        let settings = SettingsCache::from_values([
+            ("mail_transport".into(), serde_json::json!("SES")),
+            ("ses_region".into(), serde_json::json!("eu-west-1")),
+            ("ses_smtp_user".into(), serde_json::json!("ses-user")),
+            ("mail_smtp_host".into(), serde_json::json!("stale-relay.invalid")),
+        ]);
+        let cfg = MailConfig::from_settings(&settings, "Publication", "https://example.test");
+        assert_eq!(cfg.transport_name(), "Amazon SES");
+        assert!(cfg.uses_relay());
+        let error = send(&cfg, &Message { to: "reader@example.test".into(), subject: "Test".into(), html: "Hi".into(), text: "Hi".into() }).await.unwrap_err();
+        assert!(error.message().contains("SMTP credentials"));
+        let settings = settings.with_overrides([("bulk_email_from_address".into(), serde_json::json!("bulk@example.test"))]);
+        let bulk = MailConfig::for_ses_newsletter(&settings, &cfg);
+        assert_eq!(bulk.from_address, "bulk@example.test");
+        assert!(matches!(bulk.transport, Transport::Ses { .. }));
+    }
+
 }
