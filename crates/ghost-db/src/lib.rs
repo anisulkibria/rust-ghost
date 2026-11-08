@@ -1,6 +1,7 @@
 //! ghost-db: SQLite pool, migrations, seeding and repositories.
 pub mod demo;
 pub mod pool;
+mod repair;
 pub mod schema_kinds;
 pub mod seed;
 pub mod settings_cache;

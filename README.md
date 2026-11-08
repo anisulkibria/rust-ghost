@@ -41,8 +41,8 @@ Nothing else is required: no Node, no database server, no system OpenSSL.
 ### Step 2 — Download the code and run it
 
 ```bash
-git clone https://github.com/anisulkibria/rust-ghost.git ghost-rust
-cd ghost-rust
+git clone https://github.com/anisulkibria/rust-ghost.git vuuut
+cd vuuut
 cargo run
 ```
 
@@ -172,8 +172,8 @@ Nothing else is needed — no Node, no database server, no system OpenSSL.
 ### Step 3 — Download the CMS
 
 ```bash
-git clone https://github.com/anisulkibria/rust-ghost.git ~/ghost-rust
-cd ~/ghost-rust
+git clone https://github.com/anisulkibria/rust-ghost.git ~/vuuut
+cd ~/vuuut
 ```
 
 That is the whole CMS: server, admin UI, two themes, and the migrations. There
@@ -231,8 +231,8 @@ one, and `source` is the default):
 
 ```bash
 sudo -u ghost mkdir -p /var/www/example.com/content/themes
-sudo cp -r ~/ghost-rust/content/themes/source /var/www/example.com/content/themes/
-sudo cp -r ~/ghost-rust/content/themes/casper /var/www/example.com/content/themes/
+sudo cp -r ~/vuuut/content/themes/source /var/www/example.com/content/themes/
+sudo cp -r ~/vuuut/content/themes/casper /var/www/example.com/content/themes/
 sudo chown -R ghost:ghost /var/www/example.com/content
 ```
 
@@ -566,7 +566,7 @@ messages per second** in Email settings to the rate allocated to this site
 account, allocate the account quota across concurrent sends and reserve capacity
 for transactional mail. AWS account quotas remain the final limit.
 
-On Vuuut-pro, the operator can manage SES or Mailgun for all sites. The tenant
+On vuuut-pro, the operator can manage SES or Mailgun for all sites. The tenant
 screens show that delivery is managed, disable provider fields, and the Admin API
 rejects changes to locked settings. Platform credentials are resolved from
 `hostSettings.managedMail`, take precedence over stored tenant values, survive
@@ -709,7 +709,7 @@ installs rather than for disaster recovery.
 ## Upgrading
 
 ```bash
-cd ghost-rust && git pull && cargo build --release
+cd vuuut && git pull && cargo build --release
 sudo systemctl stop ghost
 sudo install -m 755 target/release/ghost /usr/local/bin/ghost
 sudo systemctl start ghost

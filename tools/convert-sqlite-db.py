@@ -35,6 +35,15 @@ Usage:
     python3 -I tools/convert-sqlite-db.py --no-backup <db>
 
 Safe to re-run: on an already-converted database it reports no changes.
+
+Usually unnecessary: `ghost_db::repair` does the same conversion automatically
+the first time the server opens such a database. This remains for converting
+one without starting a server against it -- a backup being restored, or a
+tenant database being checked over before the platform is let near it.
+
+A database that is *also* behind on migrations is fine. The reference schema
+is built from the migrations it has applied, so being behind is not a reason
+to refuse; the server applies the remainder on its next start.
 """
 
 from __future__ import annotations
@@ -81,12 +90,22 @@ def migration_files() -> list[tuple[int, str, bytes]]:
     return out
 
 
-def reference_schema(tmp: Path) -> dict[tuple[str, str], str]:
-    """The schema the current migrations produce, built from scratch."""
+def reference_schema(tmp: Path, versions: set[int] | None = None) -> dict[tuple[str, str], str]:
+    """The schema the migrations produce, built from scratch.
+
+    `versions` limits it to the migrations a particular database has applied.
+    That is what makes a database which is merely *behind* convertible: the
+    two faults deadlock otherwise, because sqlx will not apply migration 35
+    while the checksums of 1-34 look modified, and this script would not
+    convert 1-34 while 35 was missing. Converted first, the server applies the
+    rest itself.
+    """
     db = tmp / "reference.db"
     con = sqlite3.connect(db)
     try:
         for version, _, sql in migration_files():
+            if versions is not None and version not in versions:
+                continue
             try:
                 con.executescript(sql.decode())
             except sqlite3.Error as e:
@@ -116,12 +135,23 @@ def main() -> int:
     if not db.is_file():
         sys.exit(f"{db}: no such database")
 
-    with tempfile.TemporaryDirectory() as td:
-        reference = reference_schema(Path(td))
-
     con = sqlite3.connect(db)
     con.isolation_level = None  # explicit transactions; PRAGMAs must not be wrapped
     try:
+        # Which migrations this database has applied decides the reference it
+        # is compared against, so it is read before the reference is built.
+        try:
+            applied = {v for (v,) in con.execute("SELECT version FROM _sqlx_migrations")}
+        except sqlite3.Error as e:
+            sys.exit(f"{db} has no _sqlx_migrations table, so it is not a Ghost database: {e}")
+        known = {v for v, _, _ in migration_files()}
+        if unknown := applied - known:
+            sys.exit(
+                f"{db} has applied migration(s) {sorted(unknown)} that this tree does not "
+                "have.\nIt is newer than this checkout, or belongs to another project."
+            )
+        with tempfile.TemporaryDirectory() as td:
+            reference = reference_schema(Path(td), applied)
         return convert(con, db, reference, args)
     finally:
         con.close()
@@ -161,16 +191,13 @@ def convert(con, db: Path, reference, args) -> int:
 
     # --- the migration log ---
 
-    files = migration_files()
     applied = {v: (d, c) for v, d, c in con.execute(
         "SELECT version, description, checksum FROM _sqlx_migrations"
     )}
-    if set(applied) != {v for v, _, _ in files}:
-        sys.exit(
-            f"{db} has applied migrations {sorted(applied)}, but the tree has "
-            f"{sorted(v for v, _, _ in files)}.\nThis script only re-checksums a database "
-            "that is already fully migrated."
-        )
+    # Only what this database has applied is this script's business. The rest
+    # are applied by the server afterwards, in the current dialect, by sqlx.
+    files = [m for m in migration_files() if m[0] in applied]
+    behind = [v for v, _, _ in migration_files() if v not in applied]
 
     rechecksum = []
     for version, description, sql in files:
@@ -192,6 +219,8 @@ def convert(con, db: Path, reference, args) -> int:
     print(f"{db}")
     print(f"  {len(stale)} table definition(s) to convert to TEXT/INTEGER declared types")
     print(f"  {len(rechecksum)} migration checksum(s) to refresh")
+    if behind:
+        print(f"  {len(behind)} migration(s) not yet applied: the server applies those on start")
     if args.dry_run:
         for _, name in stale:
             print(f"    table {name}")
@@ -256,7 +285,9 @@ def convert(con, db: Path, reference, args) -> int:
             bad = sorted(k for k in reference if reference[k] != after.get(k))
             sys.exit(f"schema still differs after conversion: {bad}")
 
-        for version, _, sql in migration_files():
+        # Only the migrations this database has applied; the ones it is
+        # behind on have no row to check, and the server adds them later.
+        for version, _, sql in files:
             (stored,) = check.execute(
                 "SELECT checksum FROM _sqlx_migrations WHERE version = ?", (version,)
             ).fetchone()

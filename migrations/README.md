@@ -49,20 +49,46 @@ through `ghost_db::types::long`, because MySQL sends it as a blob.
 ## A database created before the port
 
 Rewriting `DATETIME` to `TEXT` and `BOOLEAN` to `INTEGER` edited migrations
-that were already applied, so an older SQLite database fails to start twice
-over: sqlx sees the changed checksums and refuses —
+that were already applied, so an older SQLite database is inconsistent with
+the binary twice over: sqlx sees the changed checksums and refuses to run —
 
     migration failed: migration 1 was previously applied but has been modified
 
 — and underneath that, its tables still declare the two types `Any` rejects on
-read. Convert it once:
+read.
+
+**The server fixes this itself.** On that specific failure, and only that one,
+`ghost_db::repair` checks whether the database is an old-dialect copy of this
+schema and, if it is, converts it and carries on: declared types rewritten,
+checksums refreshed, a copy of the database as it was left beside it as
+`<name>.pre-port`. It is reported at `WARN`, so the log says what happened and
+where the copy is. Nothing has to be run by hand, which matters because the two
+conditions deadlock every manual route: sqlx will not apply a pending migration
+while the checksums look modified, and the offline converter below only touches
+a database that is already fully migrated. A database that was pre-port *and*
+behind could not be started or converted at all.
+
+The repair is narrow by construction. It rebuilds the schema the *applied*
+migrations should have produced, in a scratch database, and refuses to touch
+anything unless the live schema is identical to it once the two renames and a
+decorative `TEXT(n)` width are normalised away. A missing table, an extra
+index, a changed constraint — any of those and the original error stands, so a
+database that is not merely an old copy of this schema is never rewritten.
+No stored value is changed in any case, because none was ever wrong: a date
+was already held as `'YYYY-MM-DD HH:mm:ss'` text and a boolean as integer 0/1
+— only the declarations disagreed.
+
+`cargo test -p ghost-db --test pre_port_repair` covers it, including the
+refusal.
+
+### Converting without starting the server
+
+`tools/convert-sqlite-db.py` does the same conversion offline, for a database
+whose server you do not want to start first:
 
     python3 -I tools/convert-sqlite-db.py content/data/ghost-dev.db
 
-That rewrites the declared types in place and re-checksums `_sqlx_migrations`.
-No stored value changes, because none was ever wrong: a date was already held
-as `'YYYY-MM-DD HH:mm:ss'` text and a boolean as integer 0/1 — only the
-declarations disagreed. The script builds a reference schema from `sqlite/`
-first and aborts unless the target matches it once declared types are
-normalised away, so it cannot paper over a database that is genuinely behind.
-Pass `--dry-run` to see what it would touch. A new database needs none of this.
+It builds a reference schema from the migrations the database has applied and
+aborts unless the target matches it once declared types are normalised away, so
+it cannot paper over a database that is genuinely different. Pass `--dry-run`
+to see what it would touch. A new database needs none of this.
