@@ -15,6 +15,7 @@ pub mod checkout_design;
 pub mod comments_mail;
 pub mod content;
 pub mod identity;
+pub mod click;
 pub mod integration_permissions;
 pub mod images;
 pub mod jwt;

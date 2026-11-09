@@ -14,6 +14,7 @@ use std::sync::Arc;
 use ghost_api::AppState;
 
 pub mod analytics;
+mod click;
 pub mod automations;
 pub mod comments;
 pub mod posts;
@@ -88,6 +89,7 @@ pub fn admin_ui_router(state: AppState) -> Router<AppState> {
         .route("/signout/", get(logout))
         .route("/appearance/", post(appearance_save))
         .route("/analytics/", get(analytics_page))
+        .route("/analytics/click/", get(click::page).post(click::action))
         .route("/modules/", get(modules_page))
         .route("/social/", get(social_page))
         .route("/social/thread/", get(social_thread_page))
@@ -4292,6 +4294,14 @@ async fn analytics_page(State(state): State<AppState>, headers: HeaderMap, Query
         Ok(a) => (a.user, a.role),
         Err(r) => return r,
     };
+    // A connected site has one reporting source. Never substitute local
+    // counts on a Click outage or silently mix its periods with local traffic.
+    match ghost_api::click::connection(&state).await {
+        Ok(Some(_)) => return click::analytics_home(&state, &headers, &q).await,
+        Err(e) => return page_for_role(actor_role, "Analytics", "analytics", Some(&user),
+            &format!("<p role=\"alert\">{}</p><a href=\"/ghost/analytics/click/\">Connection settings</a>", esc(&e.message())), true).into_response(),
+        Ok(None) => {},
+    }
     let range = AnalyticsRange::from_query(&q);
     let tab = q.get("tab").map(String::as_str).unwrap_or("overview");
     let tab = ANALYTICS_TABS.iter().find(|(s, _)| *s == tab).map(|(s, _)| *s).unwrap_or("overview");
@@ -4406,7 +4416,7 @@ async fn analytics_page(State(state): State<AppState>, headers: HeaderMap, Query
         "analytics",
         Some(&user),
         &format!(
-            r#"<header class="page-head rise"><div><h1>Analytics</h1><p class="sub">{sub}</p></div>
+            r#"<p><a class="btn tonal" href="/ghost/analytics/click/">Vuuut Click reports &amp; connection</a></p><header class="page-head rise"><div><h1>Analytics</h1><p class="sub">{sub}</p></div>
 <div class="actions"><div class="range-tabs">{ranges}</div></div></header>
 <div class="seg-bar">{tabs}</div>
 {notice}{body}
@@ -5908,6 +5918,12 @@ async fn post_analytics_page(
     // Every per-post figure is asked across the set of paths the post is
     // reachable at, read once here rather than per section.
     let paths = post_paths_for(&state, &post).await;
+    {
+        if let Ok(Some(_)) = ghost_api::click::connection(&state).await {
+            return click::post_analytics(&state, actor_role, &user, &id, &post.title.clone().unwrap_or_else(|| "Untitled".into()), &paths, free, paid, &email_card).await;
+        }
+    }
+    let click_post_report=if actor_role>=Role::Administrator {click::post_report_link(&state,&paths).await} else {String::new()};
 
     // The shape of its readership over its first 30 days, or the last 30 if
     // it is older — a post's traffic is a curve, and four totals do not show
@@ -5972,6 +5988,7 @@ async fn post_analytics_page(
             r#"<header class="page-head rise"><a class="icon-btn" style="transform:rotate(180deg)" href="/ghost/posts/" title="Back to posts">{back}</a>
 <div><h1>{title}</h1><p class="sub">{status} · {published}</p></div>
 <div class="actions"><a class="btn tonal" href="/ghost/posts/{id}/">Edit</a></div></header>
+{click_post_report}
 <div class="section">Web</div>
 <div class="tiles rise" style="--i:1">
 {views_tile}{visitors_tile}{free_tile}{paid_tile}
@@ -9302,7 +9319,7 @@ async fn deliver_newsletter(state: &AppState, post_id: &str, retry: Option<&str>
             variant.html=ghost_core::url::absolutize_html(&site_url,&ghost_core::models::segment_html(raw,Some(&sub.status)));
             variant.plaintext=ghost_mail::newsletter::plaintext(&variant.html);variant.paywall=!access;
             let body=or_abort!(ghost_mail::newsletter::NewsletterEmail{site:&site_ctx,newsletter:&newsletter,post:&variant,latest_posts:&latest,comments_enabled:rendered.comments_enabled}.render().map_err(|e|e.message()));
-            let body=or_abort!(ghost_api::newsletter_events::track_links(state,&post.id,&body).await.map_err(|e|e.message()));
+            let body=or_abort!(ghost_api::newsletter_events::track_edition_links(state,&post.id,&email_id,&body).await.map_err(|e|e.message()));
             // Plaintext is taken before the pixel goes in: an invisible image
             // has nothing to say in a text-only reader.
             let text=ghost_mail::newsletter::plaintext(&body);
@@ -13837,6 +13854,7 @@ async fn analytics_settings_page(State(state): State<AppState>, headers: HeaderM
             r#"{head}{banner}
 <form method="post" action="/ghost/settings/analytics/" id="analytics-form">
 <div class="section">Analytics</div>
+<p><a class="btn tonal" href="/ghost/analytics/click/">Vuuut Click connection &amp; measurement settings</a></p>
 <div class="card rows rise" style="--i:1">
 {web}{opens}{clicks}{sources}{outbound}
 </div>

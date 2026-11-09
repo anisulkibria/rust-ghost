@@ -73,8 +73,22 @@ start)
     fi
 
     if [ ! -x "$BIN" ]; then echo "no binary — building first…"; cargo build --release; fi
-    nohup "$BIN" >"$LOG" 2>&1 &
-    started=$!
+    if command -v python3 >/dev/null 2>&1; then
+        # Keep the server alive when an editor/automation ends its process
+        # group. Ignoring SIGHUP alone does not detach that group.
+        started=$(python3 - "$BIN" "$LOG" <<'PYTHON'
+import subprocess, sys
+with open(sys.argv[2], "ab", buffering=0) as log:
+    child = subprocess.Popen([sys.argv[1]], stdin=subprocess.DEVNULL,
+                             stdout=log, stderr=subprocess.STDOUT,
+                             start_new_session=True, close_fds=True)
+print(child.pid)
+PYTHON
+        )
+    else
+        nohup "$BIN" </dev/null >"$LOG" 2>&1 &
+        started=$!
+    fi
     echo "$started" >"$PIDFILE"
 
     # Wait for it to serve rather than assuming it will. Most startup failures

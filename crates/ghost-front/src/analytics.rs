@@ -21,6 +21,16 @@ pub async fn track_views(State(state): State<AppState>, req: Request, next: Next
     if !state.settings.get_bool("web_analytics") || state.limits.is_disabled("limitAnalytics") {
         return next.run(req).await;
     }
+    // Native collection follows browser consent. Keeping the legacy server
+    // collector active beside it would record visitors before that consent
+    // and create a second, incompatible traffic history.
+    if !state.config.host_settings["click"].is_null() {
+        return next.run(req).await;
+    }
+    match ghost_api::click::connection(&state).await {
+        Ok(None) => {},
+        Ok(Some(_)) | Err(_) => return next.run(req).await,
+    }
     let path = req.uri().path().to_string();
     let method_get = req.method() == axum::http::Method::GET;
     let headers = req.headers().clone();

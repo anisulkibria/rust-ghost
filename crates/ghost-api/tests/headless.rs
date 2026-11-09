@@ -37,7 +37,7 @@ async fn fail_inserts(
             ),
         },
     };
-    sqlx::query(&sql).execute(db).await.unwrap();
+    sqlx::raw_sql(&sql).execute(db).await.unwrap();
 }
 
 struct Fixture {
@@ -2276,4 +2276,75 @@ async fn email_usage_is_private_and_reports_both_message_categories() {
     let app=f.app.clone();
     let response=app.oneshot(Request::builder().uri("/admin/email_usage/").header("cookie",cookie).body(Body::empty()).unwrap()).await.unwrap();
     assert_eq!(response.status(),StatusCode::FORBIDDEN);
+}
+
+#[tokio::test]
+async fn native_payment_webhooks_are_durable_idempotent_and_do_not_double_count_checkout() {
+    use sha2::{Digest,Sha256};
+    let f=Fixture::new().await;
+    sqlx::query("INSERT INTO members(id,uuid,transient_id,email,status,created_at) VALUES('native-pay','native-uuid','native-transient','native-pay@example.test','free',?)").bind(ghost_core::dates::now_db()).execute(&f.state.db).await.unwrap();
+    sqlx::query("INSERT INTO members_stripe_customers(id,member_id,customer_id,created_at) VALUES('native-customer','native-pay','cus_native',?)").bind(ghost_core::dates::now_db()).execute(&f.state.db).await.unwrap();
+    sqlx::query("UPDATE click_connection SET capture=1 WHERE id=1").execute(&f.state.db).await.unwrap();
+    let mut state=f.state.clone();state.settings=Arc::new(state.settings.with_overrides([("stripe_secret_key".into(),json!("sk_test_fixture")),("members_stripe_webhook_secret".into(),json!("whsec_fixture"))]));
+    let app=ghost_api::members::members_router().with_state(state);
+    let send=|kind:&str,object:Value| {
+        let body=json!({"type":kind,"data":{"object":object}}).to_string();let now=chrono::Utc::now().timestamp();
+        let mut key=[0u8;64];key[..13].copy_from_slice(b"whsec_fixture");
+        let mut inner=Sha256::new();inner.update(key.map(|b|b^0x36));inner.update(format!("{now}.{body}"));
+        let mut outer=Sha256::new();outer.update(key.map(|b|b^0x5c));outer.update(inner.finalize());
+        app.clone().oneshot(Request::builder().method("POST").uri("/members/webhooks/stripe/").header("stripe-signature",format!("t={now},v1={}",hex::encode(outer.finalize()))).body(Body::from(body)).unwrap())
+    };
+    let invoice=json!({"id":"in_native","customer":"cus_native","amount_paid":2000,"currency":"usd"});
+    for kind in ["invoice.payment_succeeded","invoice.paid","invoice.paid"] {assert_eq!(send(kind,invoice.clone()).await.unwrap().status(),StatusCode::OK);}
+    let checkout=json!({"id":"cs_native","mode":"subscription","customer":"cus_native","amount_total":2000,"currency":"usd","metadata":{"member_uuid":"native-uuid"}});
+    assert_eq!(send("checkout.session.completed",checkout).await.unwrap().status(),StatusCode::OK);
+    let refunds=json!({"id":"ch_native","customer":"cus_native","refunds":{"data":[{"id":"re_native","status":"succeeded","amount":500,"currency":"usd"},{"id":"re_pending","status":"pending","amount":300,"currency":"usd"}]}});
+    for _ in 0..2 {assert_eq!(send("charge.refunded",refunds.clone()).await.unwrap().status(),StatusCode::OK);}
+    let amounts:Vec<i64>=sqlx::query_scalar("SELECT amount FROM members_payment_events WHERE member_id='native-pay'").fetch_all(&f.state.db).await.unwrap();
+    assert_eq!((amounts.len(),amounts.iter().sum::<i64>()),(2,1500));
+    assert_eq!(sqlx::query_scalar::<_,i64>("SELECT COUNT(*) FROM click_outbox").fetch_one(&f.state.db).await.unwrap(),2);
+    // If the transactional outbox cannot commit, the provider receives a
+    // retryable failure and the source payment fact must not survive alone.
+    fail_inserts(&f.state.db,"fail_native_payment","click_outbox",Some("NEW.kind='payment'"),"native outbox unavailable").await;
+    let retry=json!({"id":"in_retry_native","customer":"cus_native","amount_paid":1000,"currency":"usd"});
+    assert_eq!(send("invoice.paid",retry.clone()).await.unwrap().status(),StatusCode::SERVICE_UNAVAILABLE);
+    assert_eq!(sqlx::query_scalar::<_,i64>("SELECT COUNT(*) FROM members_payment_events WHERE member_id='native-pay'").fetch_one(&f.state.db).await.unwrap(),2);
+    sqlx::raw_sql("DROP TRIGGER fail_native_payment").execute(&f.state.db).await.unwrap();
+    assert_eq!(send("invoice.paid",retry).await.unwrap().status(),StatusCode::OK);
+    assert!(ghost_stripe::WEBHOOK_EVENTS.contains(&"invoice.payment_succeeded"));
+    assert!(ghost_stripe::WEBHOOK_EVENTS.contains(&"charge.refunded"));
+}
+
+#[tokio::test]
+async fn native_newsletter_editions_require_signed_recipient_links_and_keep_uncaptured_legacy_clicks_unassigned(){
+    use hmac::{Hmac,Mac};use sha2::Sha256;
+    let f=Fixture::new().await;let mut state=f.state.clone();
+    state.settings=Arc::new(state.settings.with_overrides([("email_track_clicks".into(),json!(true)),("members_email_auth_secret".into(),json!("fixture-edition-secret"))]));
+    let now=ghost_core::dates::now_db();
+    sqlx::query("UPDATE click_connection SET capture=1 WHERE id=1").execute(&state.db).await.unwrap();
+    sqlx::query("INSERT INTO members(id,uuid,transient_id,email,status,created_at) VALUES('edition-member','edition-uuid','edition-transient','reader@edition.test','free',?)").bind(&now).execute(&state.db).await.unwrap();
+    sqlx::query("INSERT INTO posts(id,uuid,title,slug,status,type,created_at) VALUES('edition-post','edition-post','Edition title','edition-post','published','post',?)").bind(&now).execute(&state.db).await.unwrap();
+    for (edition,post) in [("edition-one","edition-post"),("edition-two","edition-post-two")]{
+        if post=="edition-post-two" {sqlx::query("INSERT INTO posts(id,uuid,title,slug,status,type,created_at) VALUES('edition-post-two','edition-post-two','Second edition','edition-post-two','published','post',?)").bind(&now).execute(&state.db).await.unwrap();}
+        sqlx::query("INSERT INTO emails(id,post_id,status,created_at) VALUES(?,?,'submitted',?)").bind(edition).bind(post).bind(&now).execute(&state.db).await.unwrap();
+        ghost_api::newsletter_events::record_recipient(&state,ghost_api::newsletter_events::RecipientRecord{email_id:edition,batch_id:None,member_id:"edition-member",member_uuid:"edition-uuid",email:"reader@edition.test",provider_id:None,error:None}).await.unwrap();
+    }
+    assert!(ghost_api::newsletter_events::record_open(&state,"edition-one","edition-uuid").await.unwrap());
+    let rate:Option<i64>=sqlx::query_scalar("SELECT email_open_rate FROM members WHERE uuid='edition-uuid'").fetch_one(&state.db).await.unwrap();assert_eq!(rate,Some(50));
+    let html=ghost_api::newsletter_events::track_edition_links(&state,"edition-post","edition-one","<a href=\"https://example.org/article\">Read</a>").await.unwrap();assert!(html.contains("e=edition-one&amp;k=%%{key}%%"));
+    let link:String=sqlx::query_scalar("SELECT id FROM newsletter_links WHERE post_id='edition-post'").fetch_one(&state.db).await.unwrap();
+    let mut mac=Hmac::<Sha256>::new_from_slice(b"fixture-edition-secret").unwrap();mac.update(b"edition-uuid");let key=hex::encode(mac.finalize().into_bytes());
+    let app=ghost_api::newsletter_events::public_router().with_state(state.clone());
+    let get=|uri:String|app.clone().oneshot(Request::builder().uri(uri).body(Body::empty()).unwrap());
+    let bad=get(format!("/r/{link}/?m=edition-uuid&e=edition-one&k=invalid")).await.unwrap();assert_eq!(bad.status(),StatusCode::TEMPORARY_REDIRECT);
+    assert_eq!(sqlx::query_scalar::<_,i64>("SELECT COUNT(*) FROM newsletter_clicks").fetch_one(&state.db).await.unwrap(),0);
+    ghost_api::newsletter_events::track_edition_links(&state,"edition-post-two","edition-two","<a href=\"https://example.org/article\">Read</a>").await.unwrap();
+    let link_two:String=sqlx::query_scalar("SELECT id FROM newsletter_links WHERE post_id='edition-post-two'").fetch_one(&state.db).await.unwrap();
+    for (edition,link) in [("edition-one",&link),("edition-one",&link),("edition-two",&link_two)]{get(format!("/r/{link}/?m=edition-uuid&e={edition}&k={key}")).await.unwrap();}
+    let grouped:Vec<(String,String)>=sqlx::query_as("SELECT edition_id,recipient_id FROM click_outbox WHERE kind='newsletter_click' ORDER BY edition_id").fetch_all(&state.db).await.unwrap();
+    assert_eq!(grouped.len(),2);assert_eq!(grouped[0].0,"edition-one");assert_eq!(grouped[1].0,"edition-two");assert_eq!(grouped[0].1,"edition-uuid");assert_eq!(grouped[1].1,"edition-uuid");
+    sqlx::query("INSERT INTO members(id,uuid,transient_id,email,status,created_at) VALUES('orphan-member','orphan-uuid','orphan-transient','orphan@edition.test','free',?)").bind(&now).execute(&state.db).await.unwrap();
+    get(format!("/r/{link}/?m=orphan-uuid")).await.unwrap();
+    let unassigned:i64=sqlx::query_scalar("SELECT COUNT(*) FROM click_outbox WHERE kind='newsletter_click' AND edition_id='' AND recipient_id=''").fetch_one(&state.db).await.unwrap();assert_eq!(unassigned,1);
+    let private=ghost_api::click::edition_hash("website-one","edition-one");assert_eq!(private.len(),64);assert_ne!(private,ghost_api::click::edition_hash("website-two","edition-one"));
 }

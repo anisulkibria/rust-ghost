@@ -425,6 +425,8 @@ pub const WEBHOOK_EVENTS: &[&str] = &[
     "customer.subscription.updated",
     "customer.subscription.deleted",
     "invoice.payment_failed",
+    "invoice.payment_succeeded",
+    "charge.refunded",
 ];
 
 /// Register a webhook endpoint and return `(id, signing_secret)`.
@@ -438,6 +440,35 @@ pub async fn create_webhook(cfg: &StripeConfig, url: &str) -> Result<(String, St
         v.get("id").and_then(|x| x.as_str()).unwrap_or_default().to_string(),
         v.get("secret").and_then(|x| x.as_str()).unwrap_or_default().to_string(),
     ))
+}
+
+/// Upgrade an existing CMS webhook to the current event contract. The signing
+/// secret is preserved; this is an explicit owner action in native Admin.
+pub async fn update_webhook_events(cfg:&StripeConfig,id:&str)->Result<()> {
+    if !id.starts_with("we_") || !id.bytes().all(|b|b.is_ascii_alphanumeric() || b==b'_') {return Err(GhostError::BadRequest("Invalid webhook endpoint ID".into()));}
+    let form:Vec<_>=WEBHOOK_EVENTS.iter().enumerate().map(|(i,e)|(format!("enabled_events[{i}]"),e.to_string())).collect();
+    post(cfg,&format!("/webhook_endpoints/{id}"),&form).await?;
+    Ok(())
+}
+/// Retrieve all refunds when a charge webhook embeds only a truncated list.
+/// Stable refund IDs make a retry after any partial local write harmless.
+pub async fn charge_refunds(cfg:&StripeConfig,charge:&str)->Result<Vec<serde_json::Value>> {
+    if !charge.starts_with("ch_") || !charge.bytes().all(|b|b.is_ascii_alphanumeric() || b==b'_') {return Err(GhostError::BadRequest("Invalid charge ID".into()));}
+    let mut out=Vec::new();let mut after=String::new();
+    for _ in 0..100 {
+        let mut q=vec![("charge",charge),("limit","100")];
+        if !after.is_empty(){q.push(("starting_after",&after));}
+        let response=client().get(format!("{API}/refunds")).basic_auth(&cfg.secret_key,None::<&str>).header("Stripe-Version",STRIPE_API_VERSION)
+            .query(&q).send().await.map_err(|_|GhostError::BadRequest("Refund lookup is unavailable; retry the webhook".into()))?;
+        let page=parse(response).await?;
+        let rows=page["data"].as_array().ok_or_else(||GhostError::BadRequest("Invalid refund list".into()))?;
+        out.extend(rows.iter().cloned());
+        if page["has_more"].as_bool()!=Some(true){return Ok(out);}
+        let next=rows.last().and_then(|r|r["id"].as_str()).ok_or_else(||GhostError::BadRequest("Missing refund cursor".into()))?;
+        if next==after {return Err(GhostError::BadRequest("Repeated refund cursor".into()));}
+        after=next.to_string();
+    }
+    Err(GhostError::BadRequest("Refund pagination limit exceeded; retry the webhook".into()))
 }
 
 pub async fn delete_webhook(cfg: &StripeConfig, id: &str) -> Result<()> {

@@ -2189,6 +2189,14 @@ impl HelperDef for GhostFoot {
         if let Some(ci) = this.get("codeinjection_foot").and_then(|c| c.as_str()).filter(|c| !c.is_empty()) {
             parts.push(ci.to_string());
         }
+        let tracker=root_get(rc,ctx,"config.click_tracker");
+        if let (Some(base),Some(collection))=(tracker.get("base").and_then(|v|v.as_str()),tracker.get("collection").and_then(|v|v.as_str())) {
+            parts.push(format!(r#"<script defer src="{}/tracker.js" data-website="{}"{}{}{}></script>"#,
+                handlebars::html_escape(base),handlebars::html_escape(collection),
+                if tracker.get("consent").and_then(|v|v.as_bool())==Some(true) {" data-consent=\"required\""} else {" data-consent=\"anonymous\""},
+                if tracker.get("engagement").and_then(|v|v.as_bool())==Some(true) {" data-engagement=\"true\""} else {""},
+                if tracker.get("persistent").and_then(|v|v.as_bool())==Some(true) {" data-identity=\"persistent\""} else {""}));
+        }
         let parts: Vec<String> = parts.into_iter().filter(|p| !p.is_empty()).collect();
         write_out(rc, out, &parts.join("\n"), false)
     }

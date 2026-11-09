@@ -237,6 +237,7 @@ async fn main() {
     // Ships operational rows to the analytics warehouse, if one is
     // configured. A self-hosted site has none and this does nothing.
     ghost_api::tinybird_sync::spawn(state.clone());
+    ghost_api::click::spawn(state.clone());
     ghost_api::explore::spawn(state.clone());
     ghost_api::federation::spawn(state.clone());
     let app = mount(build_app(state), subdir);

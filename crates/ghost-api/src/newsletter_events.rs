@@ -420,9 +420,10 @@ pub async fn record_open(state:&AppState,email_id:&str,member_uuid:&str)->Result
     // `email_open_rate` NQL filters read. The rate is only meaningful once
     // something has been sent, so it stays null until then.
     sqlx::query(
-        "UPDATE members SET email_opened_count=email_opened_count+1, \
-         email_open_rate=CASE WHEN email_count>0 THEN CAST(ROUND((email_opened_count+1)*100.0/email_count) AS INTEGER) ELSE NULL END, \
-         updated_at=? WHERE uuid=?",
+        // MySQL evaluates assignments left to right; calculate before incrementing.
+        // Both engines coerce the rounded value into the integer rate column.
+        "UPDATE members SET email_open_rate=CASE WHEN email_count>0 THEN ROUND((email_opened_count+1)*100.0/email_count) ELSE NULL END, \
+         email_opened_count=email_opened_count+1, updated_at=? WHERE uuid=?",
     )
     .bind(&now).bind(member_uuid).execute(&mut *tx).await.map_err(|e|GhostError::Db(e.to_string()))?;
     tx.commit().await.map_err(|e|GhostError::Db(e.to_string()))?;
@@ -501,6 +502,12 @@ pub fn track_opens(state:&AppState,email_id:&str,html:&str)->String {
 
 /// Register each HTTP link once per post; placeholders personalize after rendering.
 pub async fn track_links(state:&AppState,post_id:&str,html:&str)->Result<String> {
+    track_links_for(state,post_id,None,html).await
+}
+pub async fn track_edition_links(state:&AppState,post_id:&str,email_id:&str,html:&str)->Result<String> {
+    track_links_for(state,post_id,Some(email_id),html).await
+}
+async fn track_links_for(state:&AppState,post_id:&str,edition:Option<&str>,html:&str)->Result<String> {
     if !state.settings.get_bool("email_track_clicks") { return Ok(html.into()); }
     let re=regex::Regex::new(r#"(?i)href\s*=\s*(["'])(https?://[^"'<>]+)["']"#).unwrap();
     let mut output=String::with_capacity(html.len()); let mut previous=0;
@@ -513,7 +520,8 @@ pub async fn track_links(state:&AppState,post_id:&str,html:&str)->Result<String>
         let id:String=sqlx::query_scalar("SELECT id FROM newsletter_links WHERE post_id=? AND from_url=?")
             .bind(post_id).bind(&url).fetch_one(&state.db).await.map_err(|e|GhostError::Db(e.to_string()))?;
         output.push_str(&html[previous..matched.start()]);
-        output.push_str(&format!("href=\"{}/r/{id}/?m=%%{{uuid}}%%\"",state.site_url())); previous=matched.end();
+        let suffix=edition.map(|id|{let mut u=reqwest::Url::parse("http://localhost/").unwrap();u.query_pairs_mut().append_pair("e",id);format!("&amp;{}&amp;k=%%{{key}}%%",u.query().unwrap_or_default())}).unwrap_or_default();
+        output.push_str(&format!("href=\"{}/r/{id}/?m=%%{{uuid}}%%{suffix}\"",state.site_url())); previous=matched.end();
     }
     output.push_str(&html[previous..]); Ok(output)
 }
@@ -522,8 +530,13 @@ async fn redirect(State(state):State<AppState>,method:Method,Path(id):Path<Strin
     let Some(url)=url.filter(|u|valid_url(u)) else{return StatusCode::NOT_FOUND.into_response()};
     if let Some(member)=params.get("m").filter(|_| method == Method::GET && state.settings.get_bool("email_track_clicks")) {
         let exists: bool = sqlx::query_scalar::<_, i64>("SELECT EXISTS(SELECT 1 FROM members WHERE uuid=?)").bind(member).fetch_one(&state.db).await.unwrap_or(0) != 0;
-        if exists { let _=sqlx::query("INSERT INTO newsletter_clicks (id,link_id,member_uuid,created_at) VALUES (?,?,?,?)")
-            .bind(ids::new_id()).bind(id).bind(member).bind(dates::now_db()).execute(&state.db).await; }
+        let edition=params.get("e");
+        let valid_edition=if let Some(email_id)=edition {
+            let signed=params.get("k").is_some_and(|key|crate::members::secure_eq(&crate::members::newsletter_key(&state,member),key));
+            signed && sqlx::query_scalar::<_,i64>("SELECT EXISTS(SELECT 1 FROM email_recipients r JOIN emails e ON e.id=r.email_id JOIN newsletter_links l ON l.post_id=e.post_id WHERE r.email_id=? AND r.member_uuid=? AND r.status='sent' AND l.id=?)").bind(email_id).bind(member).bind(&id).fetch_one(&state.db).await.unwrap_or(0)!=0
+        } else {true};
+        if exists && valid_edition { let _=sqlx::query("INSERT INTO newsletter_clicks (id,link_id,member_uuid,created_at,email_id) VALUES (?,?,?,?,?)")
+            .bind(ids::new_id()).bind(id).bind(member).bind(dates::now_db()).bind(edition).execute(&state.db).await; }
     }
     ([("cache-control","private, no-store")],Redirect::temporary(&url)).into_response()
 }

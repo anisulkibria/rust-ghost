@@ -378,6 +378,17 @@ pub async fn record_payment(
     Ok(())
 }
 
+/// Provider-backed facts use the provider object's stable ID. The unique
+/// insert and Click outbox trigger commit together, including webhook replay.
+pub async fn record_payment_once(state: &AppState, member_id: &str, amount: i64, currency: Option<&str>, source: &str, provider_id: &str) -> Result<()> {
+    use sha2::{Digest,Sha256};
+    if provider_id.is_empty() || amount==0 {return Err(GhostError::BadRequest("Payment requires a stable provider ID and nonzero amount".into()));}
+    let id=hex::encode(Sha256::digest(format!("{source}:{provider_id}").as_bytes()))[..24].to_owned();
+    sqlx::query(ghost_db::dialect::sql("INSERT OR IGNORE INTO members_payment_events (id,member_id,amount,currency,source,created_at) VALUES(?,?,?,?,?,?)"))
+        .bind(id).bind(member_id).bind(amount).bind(currency).bind(source).bind(dates::now_db()).execute(&state.db).await.map_err(|e|GhostError::Db(e.to_string()))?;
+    Ok(())
+}
+
 /// A tier being granted or taken away. `action` is `added` or `removed`.
 pub async fn record_product_change(
     state: &AppState,

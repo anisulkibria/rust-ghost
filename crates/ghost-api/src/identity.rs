@@ -146,6 +146,18 @@ async fn identities(State(state): State<AppState>, headers: HeaderMap) -> Respon
     }
 }
 
+/// Dedicated Click assertion: stable internal staff subject, explicit role,
+/// website and audience. It is exchanged only by the CMS backend.
+pub async fn click_assertion(state: &AppState, staff_id: &str, role: &str, website: &str, audience: &str) -> Result<String> {
+    let (private, public)=keys(state).await?;
+    let now=chrono::Utc::now().timestamp();
+    sign(&private,&key_id(&public),&json!({
+        "sub":staff_id,"iss":format!("{}/ghost/api/admin/",state.site_url()),
+        "aud":audience,"iat":now,"exp":now+60,"jti":ghost_core::ids::new_id(),
+        "website_id":website,"role":role
+    }))
+}
+
 /// `GET /members/api/entitlements` — what the signed-in reader is entitled to.
 ///
 /// Signed so that whatever reads it does not have to trust the caller. A

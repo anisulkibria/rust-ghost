@@ -869,3 +869,7 @@ set `emailQuota.autoStop` to false to keep counting without stopping delivery.
 `GET /ghost/api/admin/email_usage/` is private to administrators and Admin API
 integrations and reports current-period usage, daily activity and provider totals.
 Standalone installs with no host ceiling keep sending without a volume limit.
+
+Native Vuuut Click reporting and privacy-preserving CMS delivery are optional.
+See [native connector setup](docs/native-click.md) for standalone/managed setup,
+consent, credentials, staff access and transactional event delivery.

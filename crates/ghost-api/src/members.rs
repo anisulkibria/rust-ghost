@@ -1147,6 +1147,7 @@ async fn stripe_webhook(State(state): State<AppState>, headers: HeaderMap, body:
             handle_subscription_change(&state, &object).await
         }
         "invoice.payment_succeeded" | "invoice.paid" => handle_invoice_paid(&state, &object).await,
+        "charge.refunded" => handle_refunds(&state, &cfg, &object).await,
         _ => Ok(())
     };
     if let Err(error)=result {
@@ -1274,19 +1275,15 @@ async fn handle_checkout_completed(state: &AppState, cfg: &ghost_stripe::StripeC
         }
     }
 
-    // What they paid, whichever flow this was. A one-off support payment has
-    // no subscription behind it, so without this it would leave no trace on
-    // the member beyond a Stripe customer row.
-    if let Some(amount) = obj.get("amount_total").and_then(Value::as_i64).filter(|a| *a > 0) {
-        let source = if obj.get("mode").and_then(Value::as_str) == Some("payment") { "donation" } else { "stripe" };
-        let _ = crate::member_events::record_payment(
-            state,
-            &member.id,
-            amount,
-            obj.get("currency").and_then(Value::as_str),
-            source,
-        )
-        .await;
+    // Recurring invoices, including the first payment, are recorded by the
+    // invoice webhook. Checkout is the authoritative fact for one-off gifts
+    // and donations only; counting both overstates subscription revenue.
+    if obj.get("mode").and_then(Value::as_str)==Some("payment") {
+        if let Some(amount)=obj.get("amount_total").and_then(Value::as_i64).filter(|a|*a>0) {
+            let reference=obj.get("payment_intent").and_then(Value::as_str)
+                .or_else(||obj.get("id").and_then(Value::as_str)).unwrap_or("");
+            crate::member_events::record_payment_once(state,&member.id,amount,obj.get("currency").and_then(Value::as_str),"stripe",reference).await?;
+        }
     }
 
     // The session carries only the subscription id, so fetch the real thing
@@ -1309,7 +1306,6 @@ async fn handle_invoice_paid(state: &AppState, invoice: &Value) -> ghost_core::R
         .unwrap_or("");
     let amount = invoice
         .get("amount_paid")
-        .or_else(|| invoice.get("amount_due"))
         .and_then(Value::as_i64)
         .unwrap_or(0);
     if customer.is_empty() || amount <= 0 {
@@ -1322,14 +1318,28 @@ async fn handle_invoice_paid(state: &AppState, invoice: &Value) -> ghost_core::R
             .await
             .map_err(|e| ghost_core::GhostError::Db(e.to_string()))?;
     if let Some(member) = member {
-        let _ = crate::member_events::record_payment(
-            state,
-            &member,
-            amount,
-            invoice.get("currency").and_then(Value::as_str),
-            "stripe",
-        )
-        .await;
+        let reference=invoice.get("id").and_then(Value::as_str).unwrap_or("");
+        crate::member_events::record_payment_once(state,&member,amount,invoice.get("currency").and_then(Value::as_str),"stripe",reference).await?;
+    }
+    Ok(())
+}
+
+/// A charge reports cumulative refunds; each individual successful refund
+/// is a separate idempotent fact. Replaying the cumulative list is harmless.
+async fn handle_refunds(state:&AppState,cfg:&ghost_stripe::StripeConfig,charge:&Value)->ghost_core::Result<()> {
+    let customer=charge.get("customer").and_then(Value::as_str).unwrap_or("");
+    let member:Option<String>=sqlx::query_scalar("SELECT member_id FROM members_stripe_customers WHERE customer_id=? LIMIT 1")
+        .bind(customer).fetch_optional(&state.db).await.map_err(|e|ghost_core::GhostError::Db(e.to_string()))?;
+    let refunds=if charge.pointer("/refunds/has_more").and_then(Value::as_bool)==Some(true) {
+        ghost_stripe::charge_refunds(cfg,charge.get("id").and_then(Value::as_str).unwrap_or("")).await?
+    } else {charge.pointer("/refunds/data").and_then(Value::as_array).cloned().unwrap_or_default()};
+    if let Some(member)=member {
+        for refund in &refunds {
+            if refund.get("status").and_then(Value::as_str)!=Some("succeeded") {continue;}
+            if let Some(amount)=refund.get("amount").and_then(Value::as_i64).filter(|a|*a>0) {
+                crate::member_events::record_payment_once(state,&member,-amount,refund.get("currency").and_then(Value::as_str),"stripe",refund.get("id").and_then(Value::as_str).unwrap_or("")).await?;
+            }
+        }
     }
     Ok(())
 }

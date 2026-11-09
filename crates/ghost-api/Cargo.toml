@@ -42,3 +42,5 @@ base64 = "0.22"
 tower-http = { workspace = true }
 
 csv = { workspace = true }
+
+hmac = { workspace = true }

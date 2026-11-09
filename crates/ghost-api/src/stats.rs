@@ -34,22 +34,55 @@ pub fn admin_router() -> Router<AppState> {
         router = router
             .route(&format!("/stats/member_count{suffix}"), get(member_count))
             .route(&format!("/stats/mrr{suffix}"), get(mrr))
-            .route(&format!("/stats/subscriber-count{suffix}"), get(subscriber_count))
+            .route(
+                &format!("/stats/subscriber-count{suffix}"),
+                get(subscriber_count),
+            )
             .route(&format!("/stats/subscriptions{suffix}"), get(subscriptions))
             .route(&format!("/stats/top-posts{suffix}"), get(top_posts))
-            .route(&format!("/stats/top-posts-views{suffix}"), get(top_posts_views))
+            .route(
+                &format!("/stats/top-posts-views{suffix}"),
+                get(top_posts_views),
+            )
             .route(&format!("/stats/top-content{suffix}"), get(top_content))
             .route(&format!("/stats/referrers{suffix}"), get(referrers))
-            .route(&format!("/stats/top-sources-growth{suffix}"), get(top_sources_growth))
-            .route(&format!("/stats/newsletter-stats{suffix}"), get(newsletter_stats))
-            .route(&format!("/stats/newsletter-basic-stats{suffix}"), get(newsletter_basic_stats))
-            .route(&format!("/stats/newsletter-click-stats{suffix}"), get(newsletter_click_stats))
+            .route(
+                &format!("/stats/top-sources-growth{suffix}"),
+                get(top_sources_growth),
+            )
+            .route(
+                &format!("/stats/newsletter-stats{suffix}"),
+                get(newsletter_stats),
+            )
+            .route(
+                &format!("/stats/newsletter-basic-stats{suffix}"),
+                get(newsletter_basic_stats),
+            )
+            .route(
+                &format!("/stats/newsletter-click-stats{suffix}"),
+                get(newsletter_click_stats),
+            )
             .route(&format!("/stats/locations{suffix}"), get(locations))
-            .route(&format!("/stats/posts/{{id}}/stats{suffix}"), get(post_stats))
-            .route(&format!("/stats/posts/{{id}}/growth{suffix}"), get(post_growth))
-            .route(&format!("/stats/posts/{{id}}/top-referrers{suffix}"), get(post_top_referrers))
-            .route(&format!("/stats/posts-member-counts{suffix}"), post(posts_member_counts))
-            .route(&format!("/stats/posts-visitor-counts{suffix}"), post(posts_visitor_counts))
+            .route(
+                &format!("/stats/posts/{{id}}/stats{suffix}"),
+                get(post_stats),
+            )
+            .route(
+                &format!("/stats/posts/{{id}}/growth{suffix}"),
+                get(post_growth),
+            )
+            .route(
+                &format!("/stats/posts/{{id}}/top-referrers{suffix}"),
+                get(post_top_referrers),
+            )
+            .route(
+                &format!("/stats/posts-member-counts{suffix}"),
+                post(posts_member_counts),
+            )
+            .route(
+                &format!("/stats/posts-visitor-counts{suffix}"),
+                post(posts_visitor_counts),
+            )
             // Ghost's older member-scoped aliases, which its admin still calls.
             .route(&format!("/members/stats/count{suffix}"), get(member_count))
             .route(&format!("/members/stats/mrr{suffix}"), get(mrr));
@@ -81,10 +114,17 @@ impl Range {
                 // `days` is Ghost's other shape. Bounded at five years: these
                 // are grouped-by-day queries and an unbounded range is a way
                 // to ask the server to build a very long list.
-                let days = q.get("days").and_then(|d| d.parse::<i64>().ok()).unwrap_or(30).clamp(1, 1826);
+                let days = q
+                    .get("days")
+                    .and_then(|d| d.parse::<i64>().ok())
+                    .unwrap_or(30)
+                    .clamp(1, 1826);
                 to - chrono::Duration::days(days - 1)
             });
-        Range { from: from.to_string(), to: to.to_string() }
+        Range {
+            from: from.to_string(),
+            to: to.to_string(),
+        }
     }
 }
 
@@ -113,12 +153,63 @@ async fn post_paths(state: &AppState, post_id: &str) -> Vec<String> {
 }
 
 async fn authorize(state: &AppState, headers: &HeaderMap) -> Result<(), Response> {
-    permissions::require(state, headers, Role::Editor).await.map(|_| ())
+    permissions::require(state, headers, Role::Editor)
+        .await
+        .map(|_| ())
 }
 
 /// These are all private to the signed-in staff member who asked for them.
 fn private(body: Value) -> Response {
     ([("cache-control", "private, no-store")], Json(body)).into_response()
+}
+
+/// Connected traffic APIs share the same source as the native Admin screens.
+/// A failed remote report returns an error; historical local rows are never
+/// substituted for Click data. Editorial member/email facts remain local.
+async fn click_traffic(
+    state: &AppState,
+    headers: &HeaderMap,
+    range: &Range,
+    metric: &str,
+    path: Option<&str>,
+) -> std::result::Result<Option<Value>, Response> {
+    match crate::click::connection(state).await {
+        Ok(None) => return Ok(None),
+        Err(_) => {
+            return Err((
+                StatusCode::BAD_GATEWAY,
+                Json(json!({"errors":[{"message":"Analytics connection is invalid"}]})),
+            )
+                .into_response())
+        }
+        Ok(Some(_)) => {}
+    }
+    let actor = permissions::require(state, headers, Role::Administrator).await?;
+    let role = if permissions::role(state, &actor).await? == Role::Owner {
+        "Owner"
+    } else {
+        "Administrator"
+    };
+    crate::click::cms_stats(state, &actor.id, role, metric, &range.from, &range.to, path)
+        .await
+        .map(Some)
+        .map_err(|e| {
+            (
+                StatusCode::BAD_GATEWAY,
+                Json(json!({"errors":[{"message":e.message()}]})),
+            )
+                .into_response()
+        })
+}
+fn retained_range() -> Range {
+    let today = chrono::Utc::now().date_naive();
+    Range {
+        from: (today - chrono::Duration::days(1826)).to_string(),
+        to: today.to_string(),
+    }
+}
+fn cms_rows(report: &Value) -> impl Iterator<Item = &Value> {
+    report["stats"].as_array().into_iter().flatten()
 }
 
 // ---------------------------------------------------------------------------
@@ -130,7 +221,11 @@ fn private(body: Value) -> Response {
 /// Built from the status timeline rather than from `members.created_at`, so a
 /// member who upgraded shows as a paid member from the day they upgraded and
 /// not from the day they signed up.
-async fn member_count(State(state): State<AppState>, headers: HeaderMap, Query(q): Query<HashMap<String, String>>) -> Response {
+async fn member_count(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Query(q): Query<HashMap<String, String>>,
+) -> Response {
     if let Err(r) = authorize(&state, &headers).await {
         return r;
     }
@@ -149,10 +244,11 @@ async fn member_count(State(state): State<AppState>, headers: HeaderMap, Query(q
 
     // The totals as they stand now, which is what the tiles above the chart
     // show; the series beside them is the movement within the window.
-    let totals = sqlx::query_as::<_, (String, i64)>("SELECT status, COUNT(*) FROM members GROUP BY status")
-        .fetch_all(&state.db)
-        .await
-        .unwrap_or_default();
+    let totals =
+        sqlx::query_as::<_, (String, i64)>("SELECT status, COUNT(*) FROM members GROUP BY status")
+            .fetch_all(&state.db)
+            .await
+            .unwrap_or_default();
     let mut by_status: HashMap<String, i64> = HashMap::new();
     for (status, count) in totals {
         by_status.insert(status, count);
@@ -190,7 +286,11 @@ async fn member_count(State(state): State<AppState>, headers: HeaderMap, Query(q
 /// a cumulative sum of deltas. That is the only way the number stays right
 /// for a subscription that has since been cancelled: recomputing from today's
 /// live subscriptions would show history that never happened.
-async fn mrr(State(state): State<AppState>, headers: HeaderMap, Query(q): Query<HashMap<String, String>>) -> Response {
+async fn mrr(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Query(q): Query<HashMap<String, String>>,
+) -> Response {
     if let Err(r) = authorize(&state, &headers).await {
         return r;
     }
@@ -230,11 +330,17 @@ async fn mrr(State(state): State<AppState>, headers: HeaderMap, Query(q): Query<
             json!({"date": date, "mrr": running.max(0), "currency": currency})
         })
         .collect();
-    private(json!({"stats": stats, "meta": {"totals": [{"currency": currency, "mrr": running.max(0)}]}}))
+    private(
+        json!({"stats": stats, "meta": {"totals": [{"currency": currency, "mrr": running.max(0)}]}}),
+    )
 }
 
 /// Newsletter subscribers by day, and the current total.
-async fn subscriber_count(State(state): State<AppState>, headers: HeaderMap, Query(q): Query<HashMap<String, String>>) -> Response {
+async fn subscriber_count(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Query(q): Query<HashMap<String, String>>,
+) -> Response {
     if let Err(r) = authorize(&state, &headers).await {
         return r;
     }
@@ -250,14 +356,17 @@ async fn subscriber_count(State(state): State<AppState>, headers: HeaderMap, Que
     .fetch_all(&state.db)
     .await
     .unwrap_or_default();
-    let total: i64 = sqlx::query_scalar("SELECT COUNT(DISTINCT member_id) FROM members_newsletters")
-        .fetch_one(&state.db)
-        .await
-        .unwrap_or(0);
-    private(json!({"stats": rows.into_iter().map(|(date, subscribed, unsubscribed)|
+    let total: i64 =
+        sqlx::query_scalar("SELECT COUNT(DISTINCT member_id) FROM members_newsletters")
+            .fetch_one(&state.db)
+            .await
+            .unwrap_or(0);
+    private(
+        json!({"stats": rows.into_iter().map(|(date, subscribed, unsubscribed)|
         json!({"date": date, "subscribed": subscribed, "unsubscribed": unsubscribed,
                "net": subscribed - unsubscribed})).collect::<Vec<_>>(),
-        "meta": {"totals": {"subscribers": total}}}))
+        "meta": {"totals": {"subscribers": total}}}),
+    )
 }
 
 /// Paid subscriptions by tier and billing period.
@@ -274,8 +383,10 @@ async fn subscriptions(State(state): State<AppState>, headers: HeaderMap) -> Res
     .fetch_all(&state.db)
     .await
     .unwrap_or_default();
-    private(json!({"stats": rows.into_iter().map(|(tier, cadence, status, count)|
-        json!({"tier": tier, "cadence": cadence, "status": status, "count": count})).collect::<Vec<_>>()}))
+    private(
+        json!({"stats": rows.into_iter().map(|(tier, cadence, status, count)|
+        json!({"tier": tier, "cadence": cadence, "status": status, "count": count})).collect::<Vec<_>>()}),
+    )
 }
 
 // ---------------------------------------------------------------------------
@@ -286,7 +397,11 @@ async fn subscriptions(State(state): State<AppState>, headers: HeaderMap) -> Res
 ///
 /// This is the question the Analytics screen exists to answer, and it is only
 /// answerable because a signup records which post it was attributed to.
-async fn top_posts(State(state): State<AppState>, headers: HeaderMap, Query(q): Query<HashMap<String, String>>) -> Response {
+async fn top_posts(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Query(q): Query<HashMap<String, String>>,
+) -> Response {
     if let Err(r) = authorize(&state, &headers).await {
         return r;
     }
@@ -306,23 +421,56 @@ async fn top_posts(State(state): State<AppState>, headers: HeaderMap, Query(q): 
          FROM posts p WHERE p.status = 'published' AND p.type = 'post' \
          ORDER BY 4 + 5 DESC, p.published_at DESC LIMIT 20",
     )
-    .bind(&range.from).bind(&range.to)
-    .bind(&range.from).bind(&range.to)
-    .bind(&range.from).bind(&range.to)
+    .bind(&range.from)
+    .bind(&range.to)
+    .bind(&range.from)
+    .bind(&range.to)
+    .bind(&range.from)
+    .bind(&range.to)
     .fetch_all(&state.db)
     .await
     .unwrap_or_default();
-    private(json!({"stats": rows.into_iter().map(|(id, title, slug, free, paid, mrr)|
+    private(
+        json!({"stats": rows.into_iter().map(|(id, title, slug, free, paid, mrr)|
         json!({"post_id": id, "title": title, "slug": slug, "free_members": free,
-               "paid_members": paid, "mrr": mrr})).collect::<Vec<_>>()}))
+               "paid_members": paid, "mrr": mrr})).collect::<Vec<_>>()}),
+    )
 }
 
 /// Posts ranked by how much they were read.
-async fn top_posts_views(State(state): State<AppState>, headers: HeaderMap, Query(q): Query<HashMap<String, String>>) -> Response {
+async fn top_posts_views(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Query(q): Query<HashMap<String, String>>,
+) -> Response {
     if let Err(r) = authorize(&state, &headers).await {
         return r;
     }
     let range = Range::parse(&q);
+    match click_traffic(&state, &headers, &range, "content", None).await {
+        Err(r) => return r,
+        Ok(Some(report)) => {
+            let posts: Vec<(String, Option<String>, Option<String>)> = sqlx::query_as(
+                "SELECT id,title,slug FROM posts WHERE status='published' AND type='post'",
+            )
+            .fetch_all(&state.db)
+            .await
+            .unwrap_or_default();
+            let mut by_path = HashMap::new();
+            for (id, title, slug) in posts {
+                for path in post_paths(&state, &id).await {
+                    by_path.insert(
+                        format!("{}/", path.trim_end_matches('/')),
+                        (id.clone(), title.clone(), slug.clone()),
+                    );
+                }
+            }
+            let rows=cms_rows(&report).filter_map(|r| {let (id,title,slug)=by_path.get(r["label"].as_str()?)?;Some(json!({"post_id":id,"title":title,"slug":slug,"views":r["views"],"visitors":r["visitors"]}))}).take(20).collect::<Vec<_>>();
+            return private(json!({"stats":rows}));
+        }
+        Ok(None) => {}
+    }
+
     // Joined on the slug inside the path rather than on a rebuilt permalink,
     // because this ranks every post at once and rebuilding each one's URL
     // would mean a router pass per row.
@@ -338,16 +486,32 @@ async fn top_posts_views(State(state): State<AppState>, headers: HeaderMap, Quer
     .fetch_all(&state.db)
     .await
     .unwrap_or_default();
-    private(json!({"stats": rows.into_iter().map(|(id, title, slug, views, visitors)|
-        json!({"post_id": id, "title": title, "slug": slug, "views": views, "visitors": visitors})).collect::<Vec<_>>()}))
+    private(
+        json!({"stats": rows.into_iter().map(|(id, title, slug, views, visitors)|
+        json!({"post_id": id, "title": title, "slug": slug, "views": views, "visitors": visitors})).collect::<Vec<_>>()}),
+    )
 }
 
 /// Any path on the site, ranked by views — posts, pages, tag archives alike.
-async fn top_content(State(state): State<AppState>, headers: HeaderMap, Query(q): Query<HashMap<String, String>>) -> Response {
+async fn top_content(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Query(q): Query<HashMap<String, String>>,
+) -> Response {
     if let Err(r) = authorize(&state, &headers).await {
         return r;
     }
     let range = Range::parse(&q);
+    match click_traffic(&state, &headers, &range, "content", None).await {
+        Err(r) => return r,
+        Ok(Some(report)) => {
+            return private(
+                json!({"stats":cms_rows(&report).map(|r|json!({"path":r["label"],"views":r["views"],"visitors":r["visitors"]})).collect::<Vec<_>>()}),
+            )
+        }
+        Ok(None) => {}
+    }
+
     let rows = sqlx::query_as::<_, (String, i64, i64)>(
         "SELECT path, COUNT(*), COUNT(DISTINCT viewer) FROM page_views \
          WHERE substr(created_at,1,10) BETWEEN ? AND ? \
@@ -358,16 +522,32 @@ async fn top_content(State(state): State<AppState>, headers: HeaderMap, Query(q)
     .fetch_all(&state.db)
     .await
     .unwrap_or_default();
-    private(json!({"stats": rows.into_iter().map(|(path, views, visitors)|
-        json!({"path": path, "views": views, "visitors": visitors})).collect::<Vec<_>>()}))
+    private(
+        json!({"stats": rows.into_iter().map(|(path, views, visitors)|
+        json!({"path": path, "views": views, "visitors": visitors})).collect::<Vec<_>>()}),
+    )
 }
 
 /// Where the traffic came from.
-async fn referrers(State(state): State<AppState>, headers: HeaderMap, Query(q): Query<HashMap<String, String>>) -> Response {
+async fn referrers(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Query(q): Query<HashMap<String, String>>,
+) -> Response {
     if let Err(r) = authorize(&state, &headers).await {
         return r;
     }
     let range = Range::parse(&q);
+    match click_traffic(&state, &headers, &range, "sources", None).await {
+        Err(r) => return r,
+        Ok(Some(report)) => {
+            return private(
+                json!({"stats":cms_rows(&report).map(|r|json!({"source":r["label"],"medium":null,"views":r["views"],"visitors":r["visitors"]})).collect::<Vec<_>>()}),
+            )
+        }
+        Ok(None) => {}
+    }
+
     let rows = sqlx::query_as::<_, (Option<String>, Option<String>, i64, i64)>(
         "SELECT COALESCE(referrer_source, referrer) AS source, referrer_medium, COUNT(*), COUNT(DISTINCT viewer) \
          FROM page_views WHERE substr(created_at,1,10) BETWEEN ? AND ? \
@@ -378,13 +558,19 @@ async fn referrers(State(state): State<AppState>, headers: HeaderMap, Query(q): 
     .fetch_all(&state.db)
     .await
     .unwrap_or_default();
-    private(json!({"stats": rows.into_iter().map(|(source, medium, views, visitors)|
+    private(
+        json!({"stats": rows.into_iter().map(|(source, medium, views, visitors)|
         json!({"source": source.unwrap_or_else(|| "Direct".into()), "medium": medium,
-               "views": views, "visitors": visitors})).collect::<Vec<_>>()}))
+               "views": views, "visitors": visitors})).collect::<Vec<_>>()}),
+    )
 }
 
 /// Which sources are actually producing members, as against traffic.
-async fn top_sources_growth(State(state): State<AppState>, headers: HeaderMap, Query(q): Query<HashMap<String, String>>) -> Response {
+async fn top_sources_growth(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Query(q): Query<HashMap<String, String>>,
+) -> Response {
     if let Err(r) = authorize(&state, &headers).await {
         return r;
     }
@@ -411,11 +597,25 @@ async fn top_sources_growth(State(state): State<AppState>, headers: HeaderMap, Q
 /// Where in the world the readers are. Only as complete as the proxy in
 /// front of the site: a view with no country header is counted as unknown
 /// rather than guessed at.
-async fn locations(State(state): State<AppState>, headers: HeaderMap, Query(q): Query<HashMap<String, String>>) -> Response {
+async fn locations(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Query(q): Query<HashMap<String, String>>,
+) -> Response {
     if let Err(r) = authorize(&state, &headers).await {
         return r;
     }
     let range = Range::parse(&q);
+    match click_traffic(&state, &headers, &range, "countries", None).await {
+        Err(r) => return r,
+        Ok(Some(report)) => {
+            return private(
+                json!({"stats":cms_rows(&report).map(|r|json!({"country":r["label"],"views":r["views"],"visitors":r["visitors"]})).collect::<Vec<_>>()}),
+            )
+        }
+        Ok(None) => {}
+    }
+
     let rows = sqlx::query_as::<_, (Option<String>, i64, i64)>(
         "SELECT country, COUNT(*), COUNT(DISTINCT viewer) FROM page_views \
          WHERE substr(created_at,1,10) BETWEEN ? AND ? \
@@ -426,8 +626,10 @@ async fn locations(State(state): State<AppState>, headers: HeaderMap, Query(q): 
     .fetch_all(&state.db)
     .await
     .unwrap_or_default();
-    private(json!({"stats": rows.into_iter().map(|(country, views, visitors)|
-        json!({"country": country, "views": views, "visitors": visitors})).collect::<Vec<_>>()}))
+    private(
+        json!({"stats": rows.into_iter().map(|(country, views, visitors)|
+        json!({"country": country, "views": views, "visitors": visitors})).collect::<Vec<_>>()}),
+    )
 }
 
 // ---------------------------------------------------------------------------
@@ -436,36 +638,61 @@ async fn locations(State(state): State<AppState>, headers: HeaderMap, Query(q): 
 
 /// Everything known about how one post did: on the web, in the inbox, and
 /// in members gained.
-async fn post_stats(State(state): State<AppState>, headers: HeaderMap, Path(id): Path<String>) -> Response {
+async fn post_stats(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+) -> Response {
     if let Err(r) = authorize(&state, &headers).await {
         return r;
     }
-    let Some(stats) = post_stats_value(&state, &id).await else {
+    let Some(mut stats) = post_stats_value(&state, &id).await else {
         return StatusCode::NOT_FOUND.into_response();
     };
+    let paths = post_paths(&state, &id).await;
+    match click_traffic(
+        &state,
+        &headers,
+        &retained_range(),
+        "content",
+        paths.first().map(String::as_str),
+    )
+    .await
+    {
+        Err(r) => return r,
+        Ok(Some(report)) => {
+            stats["views"] = report["page"]["pageviews"].clone();
+            stats["visitors"] = report["page"]["visitors"].clone();
+            stats["traffic_source"] = json!("vuuut-click");
+        }
+        Ok(None) => {}
+    }
     private(json!({"stats": [stats]}))
 }
 
 /// Shared with the admin's own post analytics page, so the page and the API
 /// cannot disagree about what a post did.
 pub async fn post_stats_value(state: &AppState, post_id: &str) -> Option<Value> {
-    let exists: bool = sqlx::query_scalar::<_, i64>("SELECT EXISTS(SELECT 1 FROM posts WHERE id = ?)")
-        .bind(post_id)
-        .fetch_one(&state.db)
-        .await
-        .unwrap_or(0) != 0;
+    let exists: bool =
+        sqlx::query_scalar::<_, i64>("SELECT EXISTS(SELECT 1 FROM posts WHERE id = ?)")
+            .bind(post_id)
+            .fetch_one(&state.db)
+            .await
+            .unwrap_or(0)
+            != 0;
     if !exists {
         return None;
     }
     let paths = post_paths(state, post_id).await;
     let (mut views, mut visitors) = (0i64, 0i64);
     for path in &paths {
-        let row: (i64, i64) =
-            sqlx::query_as("SELECT COUNT(*), COUNT(DISTINCT viewer) FROM page_views WHERE path = ?")
-                .bind(path)
-                .fetch_one(&state.db)
-                .await
-                .unwrap_or((0, 0));
+        let row: (i64, i64) = sqlx::query_as(
+            "SELECT COUNT(*), COUNT(DISTINCT viewer) FROM page_views WHERE path = ?",
+        )
+        .bind(path)
+        .fetch_one(&state.db)
+        .await
+        .unwrap_or((0, 0));
         views += row.0;
         visitors += row.1;
     }
@@ -507,17 +734,25 @@ pub async fn post_stats_value(state: &AppState, post_id: &str) -> Option<Value> 
     let email_json = email.map(|(id, status, sent, delivered, opened, failed)| {
         // A rate over nothing is not zero, it is unknown — so it is null
         // until something has been delivered.
-        let rate = |part: i64, whole: i64| (whole > 0).then(|| (part as f64 * 100.0 / whole as f64).round() as i64);
+        let rate = |part: i64, whole: i64| {
+            (whole > 0).then(|| (part as f64 * 100.0 / whole as f64).round() as i64)
+        };
         json!({"id": id, "status": status, "sent": sent, "delivered": delivered,
                "opened": opened, "failed": failed, "clicked": clicked,
                "open_rate": rate(opened, delivered), "click_rate": rate(clicked, delivered)})
     });
-    Some(json!({"post_id": post_id, "views": views, "visitors": visitors,
-                "free_members": free, "paid_members": paid, "email": email_json}))
+    Some(
+        json!({"post_id": post_id, "views": views, "visitors": visitors,
+                "free_members": free, "paid_members": paid, "email": email_json}),
+    )
 }
 
 /// What this post added to the membership and to revenue.
-async fn post_growth(State(state): State<AppState>, headers: HeaderMap, Path(id): Path<String>) -> Response {
+async fn post_growth(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+) -> Response {
     if let Err(r) = authorize(&state, &headers).await {
         return r;
     }
@@ -538,17 +773,40 @@ async fn post_growth(State(state): State<AppState>, headers: HeaderMap, Path(id)
     .fetch_one(&state.db)
     .await
     .unwrap_or((0, 0));
-    private(json!({"stats": [{"post_id": id, "free_members": free, "paid_members": paid, "mrr": mrr}]}))
+    private(
+        json!({"stats": [{"post_id": id, "free_members": free, "paid_members": paid, "mrr": mrr}]}),
+    )
 }
 
 /// The sources that sent readers to this post.
-async fn post_top_referrers(State(state): State<AppState>, headers: HeaderMap, Path(id): Path<String>) -> Response {
+async fn post_top_referrers(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+) -> Response {
     if let Err(r) = authorize(&state, &headers).await {
         return r;
     }
     let paths = post_paths(&state, &id).await;
     if paths.is_empty() {
         return StatusCode::NOT_FOUND.into_response();
+    }
+    match click_traffic(
+        &state,
+        &headers,
+        &retained_range(),
+        "sources",
+        paths.first().map(String::as_str),
+    )
+    .await
+    {
+        Err(r) => return r,
+        Ok(Some(report)) => {
+            return private(
+                json!({"stats":cms_rows(&report).map(|r|json!({"source":r["label"],"views":r["views"],"visitors":r["visitors"]})).collect::<Vec<_>>()}),
+            )
+        }
+        Ok(None) => {}
     }
     let mut totals: HashMap<String, (i64, i64)> = HashMap::new();
     for path in &paths {
@@ -561,7 +819,9 @@ async fn post_top_referrers(State(state): State<AppState>, headers: HeaderMap, P
         .await
         .unwrap_or_default();
         for (source, views, visitors) in rows {
-            let entry = totals.entry(source.unwrap_or_else(|| "Direct".into())).or_insert((0, 0));
+            let entry = totals
+                .entry(source.unwrap_or_else(|| "Direct".into()))
+                .or_insert((0, 0));
             entry.0 += views;
             entry.1 += visitors;
         }
@@ -577,7 +837,11 @@ async fn post_top_referrers(State(state): State<AppState>, headers: HeaderMap, P
 /// `POST` with `{"ids": [...]}`, answering with a count per post. Ghost's
 /// admin asks for a whole list's figures in one request rather than one at a
 /// time, which is also why these two are POSTs: the list is the body.
-async fn posts_member_counts(State(state): State<AppState>, headers: HeaderMap, Json(body): Json<Value>) -> Response {
+async fn posts_member_counts(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(body): Json<Value>,
+) -> Response {
     if let Err(r) = authorize(&state, &headers).await {
         return r;
     }
@@ -597,24 +861,52 @@ async fn posts_member_counts(State(state): State<AppState>, headers: HeaderMap, 
         .fetch_one(&state.db)
         .await
         .unwrap_or(0);
-        counts.insert(id, json!({"free": free, "paid": paid, "total": free + paid}));
+        counts.insert(
+            id,
+            json!({"free": free, "paid": paid, "total": free + paid}),
+        );
     }
     private(json!({"stats": [counts]}))
 }
 
-async fn posts_visitor_counts(State(state): State<AppState>, headers: HeaderMap, Json(body): Json<Value>) -> Response {
+async fn posts_visitor_counts(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(body): Json<Value>,
+) -> Response {
     if let Err(r) = authorize(&state, &headers).await {
         return r;
+    }
+    match click_traffic(&state, &headers, &retained_range(), "content", None).await {
+        Err(r) => return r,
+        Ok(Some(report)) => {
+            let by_path: HashMap<&str, u64> = cms_rows(&report)
+                .filter_map(|r| Some((r["label"].as_str()?, r["visitors"].as_u64()?)))
+                .collect();
+            let mut counts = serde_json::Map::new();
+            for id in requested_ids(&body) {
+                let paths = post_paths(&state, &id).await;
+                let path = paths
+                    .first()
+                    .map(|p| format!("{}/", p.trim_end_matches('/')))
+                    .unwrap_or_default();
+                counts.insert(id, json!(by_path.get(path.as_str()).copied().unwrap_or(0)));
+            }
+            return private(json!({"stats":[counts]}));
+        }
+        Ok(None) => {}
     }
     let mut counts = serde_json::Map::new();
     for id in requested_ids(&body) {
         let mut visitors = 0i64;
         for path in post_paths(&state, &id).await {
-            visitors += sqlx::query_scalar::<_, i64>("SELECT COUNT(DISTINCT viewer) FROM page_views WHERE path = ?")
-                .bind(&path)
-                .fetch_one(&state.db)
-                .await
-                .unwrap_or(0);
+            visitors += sqlx::query_scalar::<_, i64>(
+                "SELECT COUNT(DISTINCT viewer) FROM page_views WHERE path = ?",
+            )
+            .bind(&path)
+            .fetch_one(&state.db)
+            .await
+            .unwrap_or(0);
         }
         counts.insert(id, json!(visitors));
     }
@@ -626,17 +918,39 @@ async fn posts_visitor_counts(State(state): State<AppState>, headers: HeaderMap,
 fn requested_ids(body: &Value) -> Vec<String> {
     body.get("ids")
         .and_then(Value::as_array)
-        .map(|ids| ids.iter().filter_map(Value::as_str).map(str::to_owned).take(100).collect())
+        .map(|ids| {
+            ids.iter()
+                .filter_map(Value::as_str)
+                .map(str::to_owned)
+                .take(100)
+                .collect()
+        })
         .unwrap_or_default()
 }
 
 /// One row per newsletter that went out, with how it was received.
-async fn newsletter_stats(State(state): State<AppState>, headers: HeaderMap, Query(q): Query<HashMap<String, String>>) -> Response {
+async fn newsletter_stats(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Query(q): Query<HashMap<String, String>>,
+) -> Response {
     if let Err(r) = authorize(&state, &headers).await {
         return r;
     }
     let range = Range::parse(&q);
-    let rows = sqlx::query_as::<_, (String, Option<String>, Option<String>, String, i64, i64, i64, i64)>(
+    let rows = sqlx::query_as::<
+        _,
+        (
+            String,
+            Option<String>,
+            Option<String>,
+            String,
+            i64,
+            i64,
+            i64,
+            i64,
+        ),
+    >(
         "SELECT e.id, p.title, e.subject, substr(e.created_at,1,10), \
                 e.email_count, e.delivered_count, e.opened_count, \
                 (SELECT COUNT(DISTINCT k.member_uuid) FROM newsletter_clicks k \
@@ -650,12 +964,14 @@ async fn newsletter_stats(State(state): State<AppState>, headers: HeaderMap, Que
     .fetch_all(&state.db)
     .await
     .unwrap_or_default();
-    private(json!({"stats": rows.into_iter().map(|(id, title, subject, date, sent, delivered, opened, clicked)| {
+    private(
+        json!({"stats": rows.into_iter().map(|(id, title, subject, date, sent, delivered, opened, clicked)| {
         let rate = |part: i64, whole: i64| (whole > 0).then(|| (part as f64 * 100.0 / whole as f64).round() as i64);
         json!({"email_id": id, "title": title.or(subject), "date": date, "sent": sent,
                "delivered": delivered, "opened": opened, "clicked": clicked,
                "open_rate": rate(opened, delivered), "click_rate": rate(clicked, delivered)})
-    }).collect::<Vec<_>>()}))
+    }).collect::<Vec<_>>()}),
+    )
 }
 
 /// One row per post a newsletter sent, which is what the Newsletters screen
@@ -709,7 +1025,12 @@ async fn newsletter_basic_stats(
                 .into_response()
         }
     };
-    let limit = q.get("limit").and_then(|l| l.parse::<i64>().ok()).filter(|l| *l > 0).unwrap_or(20).min(500);
+    let limit = q
+        .get("limit")
+        .and_then(|l| l.parse::<i64>().ok())
+        .filter(|l| *l > 0)
+        .unwrap_or(20)
+        .min(500);
 
     // `newsletter_id` is optional: without it this reports on every
     // newsletter, which is what the single-newsletter sites that are most of
@@ -733,15 +1054,27 @@ async fn newsletter_basic_stats(
            AND (? IS NULL OR p.newsletter_id = ?) \
          ORDER BY {column} {direction} LIMIT ?"
     );
-    let rows = sqlx::query_as::<_, (String, Option<String>, Option<String>, i64, i64, i64, f64, f64)>(&sql)
-        .bind(&range.from)
-        .bind(&range.to)
-        .bind(&newsletter)
-        .bind(&newsletter)
-        .bind(limit)
-        .fetch_all(&state.db)
-        .await
-        .unwrap_or_default();
+    let rows = sqlx::query_as::<
+        _,
+        (
+            String,
+            Option<String>,
+            Option<String>,
+            i64,
+            i64,
+            i64,
+            f64,
+            f64,
+        ),
+    >(&sql)
+    .bind(&range.from)
+    .bind(&range.to)
+    .bind(&newsletter)
+    .bind(&newsletter)
+    .bind(limit)
+    .fetch_all(&state.db)
+    .await
+    .unwrap_or_default();
     private(json!({"stats": rows.into_iter().map(
         |(post_id, post_title, send_date, sent_to, total_opens, total_clicks, open_rate, click_rate)| json!({
             "post_id": post_id,
@@ -772,7 +1105,13 @@ async fn newsletter_click_stats(
     }
     let ids: Vec<String> = q
         .get("post_ids")
-        .map(|raw| raw.split(',').map(str::trim).filter(|s| !s.is_empty()).map(str::to_owned).collect())
+        .map(|raw| {
+            raw.split(',')
+                .map(str::trim)
+                .filter(|s| !s.is_empty())
+                .map(str::to_owned)
+                .collect()
+        })
         .unwrap_or_default();
     if ids.is_empty() {
         return private(json!({"stats": []}));
@@ -798,12 +1137,14 @@ async fn newsletter_click_stats(
         .fetch_all(&state.db)
         .await
         .unwrap_or_default();
-    private(json!({"stats": rows.into_iter().map(|(post_id, total_clicks, email_count)| json!({
+    private(
+        json!({"stats": rows.into_iter().map(|(post_id, total_clicks, email_count)| json!({
         "post_id": post_id,
         "total_clicks": total_clicks,
         "email_count": email_count,
         "click_rate": if email_count > 0 { total_clicks as f64 / email_count as f64 } else { 0.0 },
-    })).collect::<Vec<_>>()}))
+    })).collect::<Vec<_>>()}),
+    )
 }
 
 #[cfg(test)]
@@ -812,24 +1153,41 @@ mod tests {
 
     #[test]
     fn a_range_takes_explicit_bounds_or_counts_back_from_today() {
-        let explicit =
-            Range::parse(&HashMap::from([("date_from".into(), "2026-01-01".into()), ("date_to".into(), "2026-01-31".into())]));
-        assert_eq!((explicit.from.as_str(), explicit.to.as_str()), ("2026-01-01", "2026-01-31"));
+        let explicit = Range::parse(&HashMap::from([
+            ("date_from".into(), "2026-01-01".into()),
+            ("date_to".into(), "2026-01-31".into()),
+        ]));
+        assert_eq!(
+            (explicit.from.as_str(), explicit.to.as_str()),
+            ("2026-01-01", "2026-01-31")
+        );
 
         // `days` counts inclusively, so one day is today twice over.
         let single = Range::parse(&HashMap::from([("days".into(), "1".into())]));
         assert_eq!(single.from, single.to);
 
-        let week = Range::parse(&HashMap::from([("days".into(), "7".into()), ("date_to".into(), "2026-01-08".into())]));
-        assert_eq!((week.from.as_str(), week.to.as_str()), ("2026-01-02", "2026-01-08"));
+        let week = Range::parse(&HashMap::from([
+            ("days".into(), "7".into()),
+            ("date_to".into(), "2026-01-08".into()),
+        ]));
+        assert_eq!(
+            (week.from.as_str(), week.to.as_str()),
+            ("2026-01-02", "2026-01-08")
+        );
 
         // Nonsense falls back rather than failing, and an unbounded range is
         // not something a caller gets to ask for.
         let junk = Range::parse(&HashMap::from([("days".into(), "-5".into())]));
         assert_eq!(junk.from, junk.to);
-        let huge = Range::parse(&HashMap::from([("days".into(), "999999".into()), ("date_to".into(), "2026-01-01".into())]));
+        let huge = Range::parse(&HashMap::from([
+            ("days".into(), "999999".into()),
+            ("date_to".into(), "2026-01-01".into()),
+        ]));
         assert_eq!(huge.from.as_str(), "2021-01-02");
-        assert_eq!(Range::parse(&HashMap::new()).to, chrono::Utc::now().date_naive().to_string());
+        assert_eq!(
+            Range::parse(&HashMap::new()).to,
+            chrono::Utc::now().date_naive().to_string()
+        );
     }
 
     #[test]

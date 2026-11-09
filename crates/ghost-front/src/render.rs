@@ -136,6 +136,11 @@ pub async fn render_template(
         config["storage_image_prefix"]=serde_json::json!(format!("{}/images/",prefix.trim_end_matches('/')));
     }
 
+    // Only public tracker attributes enter the theme context.
+    if let Ok(Some(tracker))=ghost_api::click::tracker(state).await {
+        config["click_tracker"]=tracker;
+    }
+
     // `@custom`: the theme's declared settings at their defaults, with any
     // the site owner has changed applied on top
     let overrides = state

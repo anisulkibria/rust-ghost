@@ -3665,6 +3665,7 @@ dependencies = [
  "ghost-routing",
  "ghost-stripe",
  "hex",
+ "hmac 0.12.1",
  "httpdate",
  "jsonwebtoken",
  "mpp",
