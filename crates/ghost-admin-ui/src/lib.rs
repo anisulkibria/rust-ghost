@@ -47,11 +47,15 @@ fn admin_site_name() -> String {
     ADMIN_SETTINGS.try_with(|settings| settings.site_name()).unwrap_or_else(|_| "Ghost".into())
 }
 
+/// The platform's own mark: the italic `v` on a tile with a north-east arrow,
+/// as the Click dashboard draws it, so the three products share one glyph.
+const BRAND_GLYPH: &str = "v<span>↗</span>";
+
 /// What the rail's brand link shows. A logo already carries the publication's
 /// name in it, so setting one next to the site name read as the same title
 /// twice: the logo stands alone, as large as the rail allows. With no logo the
-/// name (or, failing that, the title) takes the slot, and a site that has set
-/// neither falls back to the admin icon.
+/// platform's tile leads the name (or, failing that, the title), and a site
+/// that has set neither shows the tile with the platform's own name.
 fn admin_brand_mark() -> String {
     let (logo, name) = ADMIN_SETTINGS.try_with(|settings| {
         let pick = |key: &str| {
@@ -70,10 +74,16 @@ fn admin_brand_mark() -> String {
             esc(name.as_deref().unwrap_or("")),
         );
     }
-    match name {
-        Some(name) => format!(r#"<span class="brand-name"><b>{}</b></span>"#, esc(&name)),
-        None => format!(r#"<span class="mark brand-admin">{}</span>"#, include_str!("../assets/admin-panel.svg")),
-    }
+    // The Click dashboard's lockup — tile, "vuuut", and a tracked-out caption
+    // beneath — with the publication's name as the caption, so the rail says
+    // which site this is without a second title.
+    format!(
+        r#"<span class="brand-mark" aria-hidden="true">{glyph}</span><span class="brand-name"><b>vuuut</b>{tag}</span>"#,
+        glyph = BRAND_GLYPH,
+        tag = name
+            .map(|n| format!(r#"<span class="tag">{}</span>"#, esc(&n)))
+            .unwrap_or_default(),
+    )
 }
 
 pub fn admin_ui_router(state: AppState) -> Router<AppState> {
@@ -521,6 +531,7 @@ const CSS: &str = r#"
   --display: 'Fraunces', 'Iowan Old Style', Georgia, 'Times New Roman', serif;
   --mono: 'Roboto Mono', ui-monospace, 'SF Mono', Menlo, monospace;
   --ease: cubic-bezier(.2,0,0,1);
+  --dur: .18s;
   --shadow-1: 0 1px 2px rgba(0,0,0,.08), 0 1px 3px 1px rgba(0,0,0,.04);
   --shadow-2: 0 1px 2px rgba(0,0,0,.1), 0 2px 6px 2px rgba(0,0,0,.05);
 }
@@ -564,37 +575,61 @@ body { font-family: var(--font); margin: 0; background: var(--surface); color: v
 a { color: inherit; }
 svg.i { width: 22px; height: 22px; flex: none; display: block; }
 
-/* ---- shell: nav rail + content ---- */
-.shell { display: flex; min-height: 100vh; }
-.rail { width: 240px; flex: none; padding: 8px 10px 12px; display: flex; flex-direction: column; gap: 2px;
-  background: var(--sc-low); position: sticky; top: 0; height: 100vh; overflow-y: auto;
-  scrollbar-width: thin; scrollbar-color: var(--outline-variant) transparent;
+/* ---- shell: nav rail + content ----
+   The rail is a 246px column with the same proportions as the Click
+   dashboard's sidebar: generous top padding, the brand given real room
+   beneath it, pill-shaped tabs. It is sticky and never scrolls itself — the
+   nav list inside it does — so the appearance popover in its foot can reach
+   past its edge instead of growing the rail a scrollbar. */
+.shell { display: flex; min-height: 100vh; --rail-w: 246px; }
+.rail { width: var(--rail-w); flex: none; padding: 28px 16px 16px; display: flex; flex-direction: column;
+  background: var(--sc-low); position: sticky; top: 0; height: 100vh; z-index: 30;
   border-right: 1px solid color-mix(in srgb, var(--outline-variant) 55%, transparent); }
+.rail .nav-scroll { flex: 1 1 auto; min-height: 0; overflow-y: auto; overflow-x: hidden;
+  scrollbar-width: thin; scrollbar-color: var(--outline-variant) transparent;
+  margin: 0 -6px; padding: 0 6px; }
 /* One mark only: a logo, else the site name, else the admin icon. Whichever
    lands here gets the whole slot, so it can run much larger than it could
-   beside a label. */
-.brand { display: flex; align-items: center; justify-content: center; min-height: 72px;
-  padding: 12px 8px 16px; color: inherit; text-decoration: none; border-radius: 12px; }
+   beside a label. The 40px beneath is what separates it from the first tab,
+   so the column reads as masthead, then navigation, rather than one list. */
+.brand { display: flex; align-items: center; justify-content: flex-start; gap: 12px; min-height: 64px;
+  padding: 10px 12px; margin: 0 0 40px; color: inherit; text-decoration: none; border-radius: 16px; }
 .brand:hover { background: color-mix(in srgb, var(--on-surface) 6%, transparent); }
 .brand:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
 .brand .brand-logo { display: block; max-width: 100%; }
 .brand .brand-logo img { display: block; max-width: 100%; width: auto; height: auto;
   max-height: 56px; object-fit: contain; }
-.brand .mark { color: var(--primary); display: grid; place-items: center; flex: none; }
-.brand .brand-admin svg { width: 48px; height: 48px; }
-.brand .brand-name { min-width: 0; overflow-wrap: anywhere; color: inherit; text-align: center; }
-.brand b { font-size: 19px; font-weight: 600; letter-spacing: -.1px; display: block; line-height: 1.25; }
-.nav-item { display: flex; align-items: center; gap: 10px; padding: 6px 10px; border-radius: 10px;
+/* The platform's tile: an italic serif `v` on a rounded square with one
+   corner squared off, the arrow riding its top-right — the Click
+   dashboard's mark, drawn at this rail's scale. */
+.brand-mark { font-family: Georgia, 'Iowan Old Style', serif; font-style: italic; font-weight: 400;
+  width: 40px; height: 43px; border-radius: 14px 14px 14px 4px; display: grid; place-items: center;
+  background: var(--primary); color: var(--on-primary); font-size: 37px; line-height: 1;
+  position: relative; flex: none; }
+.brand-mark span { position: absolute; font-family: var(--font); font-style: normal; font-weight: 600;
+  font-size: 16px; line-height: 1; right: 3px; top: 2px; }
+/* The wordmark and its sub-label at the Click dashboard's scale: a tight,
+   heavy name with a tiny tracked-out caption in the accent beneath it. */
+.brand .brand-name { min-width: 0; color: inherit; text-align: left; }
+.brand b { font-size: 26px; font-weight: 650; letter-spacing: -1.2px; display: block; line-height: 1; }
+.brand .tag { display: block; font-size: 9px; font-weight: 700; text-transform: uppercase;
+  letter-spacing: 4px; color: var(--primary); margin: 5px 0 0 2px; line-height: 1.5;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* Tabs: 44px pills, which is the Click sidebar's row, and a 4px rhythm
+   between them so the selected one reads as a shape, not a stripe. */
+.nav-item { display: flex; align-items: center; gap: 14px; padding: 9px 14px; margin: 4px 0; border-radius: 999px;
   text-decoration: none; color: var(--on-surface-variant); font-size: 13.5px; font-weight: 500;
-  transition: background .15s var(--ease), color .15s var(--ease); position: relative; }
-.nav-item:hover { background: color-mix(in srgb, var(--on-surface) 6%, transparent); }
+  transition: background var(--dur) var(--ease), color var(--dur) var(--ease); position: relative; }
+.nav-item:hover { background: color-mix(in srgb, var(--on-surface) 6%, transparent); color: var(--on-surface); }
 .nav-item.active { background: var(--secondary-container); color: var(--on-secondary-container); font-weight: 600; }
+.nav-item:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
 .nav-item .nav-label { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 /* The rail runs at its own, tighter scale: the tinted squares elsewhere in
    the admin lead 56px-tall list rows, where 40px is right, but as navigation
-   they only have to read at a glance. */
-.rail .ic { width: 28px; height: 28px; border-radius: 8px; }
-.rail .ic svg { width: 17px; height: 17px; }
+   they only have to read at a glance. 26px inside a 9px-padded pill makes
+   the 44px row. */
+.rail .ic { width: 26px; height: 26px; border-radius: 8px; }
+.rail .ic svg { width: 16px; height: 16px; }
 .ic { width: 40px; height: 40px; border-radius: 14px; display: grid; place-items: center; flex: none; }
 .ic svg { width: 21px; height: 21px; }
 .tint-blue { background: var(--blue-bg); color: var(--blue-fg); }
@@ -605,9 +640,9 @@ svg.i { width: 22px; height: 22px; flex: none; display: block; }
 .tint-teal { background: var(--teal-bg); color: var(--teal-fg); }
 .tint-red { background: var(--red-bg); color: var(--red-fg); }
 .tint-slate { background: var(--slate-bg); color: var(--slate-fg); }
-.rail-foot { margin-top: auto; padding-top: 10px;
+.rail-foot { margin-top: auto; padding-top: 14px;
   border-top: 1px solid color-mix(in srgb, var(--outline-variant) 55%, transparent); }
-.who { display: flex; align-items: center; gap: 8px; padding: 8px 6px 2px; }
+.who { display: flex; align-items: center; gap: 8px; padding: 6px 4px 0; }
 .avatar { width: 30px; height: 30px; border-radius: 50%; background: var(--primary); color: var(--on-primary);
   display: grid; place-items: center; font-weight: 600; font-size: 13px; flex: none; }
 .avatar.lg { width: 64px; height: 64px; font-size: 26px; object-fit: cover; }
@@ -639,8 +674,8 @@ svg.i { width: 22px; height: 22px; flex: none; display: block; }
 html.dark .theme-menu > summary .t-moon { display: block; }
 html.dark .theme-menu > summary .t-sun { display: none; }
 /* the popover anchors to the rail foot — the whole row, not the 32px button —
-   so it can span the rail's width and still open inside it; the rail scrolls,
-   and a box hanging past its edge would grow a scrollbar */
+   so it spans the rail's width and opens upward from its foot; the icon rail
+   gives it a fixed width instead, since 80px holds no menu */
 .theme-menu .pop { position: absolute; left: 0; right: 0; bottom: calc(100% + 10px); z-index: 45;
   background: var(--sc-lowest); border: 1px solid var(--outline-variant); border-radius: 14px;
   box-shadow: var(--shadow-2); padding: 6px; }
@@ -654,8 +689,11 @@ html.dark .theme-menu > summary .t-sun { display: none; }
 .theme-menu .menu-item > svg.i { width: 17px; height: 17px; color: var(--on-surface-variant); }
 .theme-menu .menu-item.on > svg.i { color: inherit; }
 
+/* Content runs to 1500px — the Click dashboard's measure — with a gutter
+   that grows with the viewport, so a 27" display gets a wide, evenly
+   framed page rather than an 1120px column marooned in blank surface. */
 .main { flex: 1; min-width: 0; }
-.content { max-width: 1120px; margin: 0 auto; padding: 0 24px 64px; }
+.content { --gutter: clamp(24px, 3vw, 48px); max-width: 1500px; margin: 0 auto; padding: 0 var(--gutter) 64px; }
 
 /* Material 3 filled cards for the publication's modules. */
 .module-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 20px; margin-top: 20px; }
@@ -1375,15 +1413,21 @@ a.sw-count:hover { color: var(--on-surface); }
 
 /* ---- post/page editor: Koenig canvas + an always-open settings rail ----
    Ghost hides the post settings behind a slide-over panel; here they are a
-   second column that is simply always there, so the editor needs more room
-   than the 860px the rest of the admin reads best at. */
-.content:has(.editor-shell) { max-width: 1400px; }
+   second column that is simply always there. The editor takes the full
+   content measure, the same 1500px every other page gets. */
+.content:has(.editor-shell) { max-width: 1500px; }
 .editor-shell { display: grid; grid-template-columns: minmax(0, 1fr) 316px; gap: 24px; align-items: start; }
-/* The left gutter is where Koenig parks the ＋ card button, which it
-   positions outside the text column. Without the room it would hang off the
-   edge of the editor; with it, the button sits inside and the title stays
-   aligned with the body text. */
-.editor-main { min-width: 0; padding-left: 72px; position: relative; }
+/* The title and body start flush with the page's left edge: the editor is
+   pulled left over `.content`'s gutter, so no padding stands between its
+   text and the window edge. Koenig parks its ＋ card button to the left of
+   the text column, and with no margin left to park it in, it floats over
+   the start of the line instead — 4px in, over the caret. The button only
+   ever shows on an empty line, so covering the caret's position costs
+   nothing. Koenig's own offset is a utility class injected after this
+   sheet, hence the `!important`. */
+.editor-main { min-width: 0; position: relative; margin-left: calc(-1 * var(--gutter)); }
+#koenig-mount [data-kg-plus-button] { left: 4px !important; }
+#koenig-mount [data-kg-plus-button] > button { width: 32px !important; height: 32px !important; }
 .editor-title { width: 100%; border: none; outline: none; background: transparent; resize: none; overflow: hidden;
   font-family: var(--font); font-size: 30px; font-weight: 700; line-height: 1.2; letter-spacing: -.3px;
   color: var(--on-surface); padding: 0; margin: 2px 0 10px; caret-color: var(--primary); display: block; }
@@ -1462,7 +1506,12 @@ a.sw-count:hover { color: var(--on-surface); }
 #koenig-mount [data-kg-card] img,
 #koenig-mount [data-kg-card] video,
 #koenig-mount [data-kg-card] iframe { max-width: 100%; }
-#koenig-mount .koenig-lexical { overflow-x: clip; }
+/* Clipped at the outer wrapper only. Koenig renders a `.koenig-lexical` of
+   its own, flush with the text column; clipping that one used to take the ＋
+   button with it, back when the button sat in the padding to the left of
+   the column — it floats over the column's start now, and this outer clip
+   is the line that keeps breakout cards inside the page. */
+#koenig-mount > .koenig-react-editor { overflow-x: clip; }
 /* The "Begin writing…" placeholder is a separate element with its own font. */
 #koenig-mount .koenig-lexical .font-serif { font-family: var(--font); }
 #koenig-mount .editor-body-placeholder { color: color-mix(in srgb, var(--on-surface-variant) 42%, var(--surface)); font-weight: 400; }
@@ -1649,7 +1698,6 @@ dialog.unsplash button:focus-visible, .u-chip:focus-visible { outline: 2px solid
 @media (max-width: 1199px) {
   .editor-shell, body:has(#side-toggle:checked) .editor-shell { grid-template-columns: minmax(0, 1fr); }
   .editor-side { position: static; max-height: none; overflow: visible; padding-right: 0; }
-  .editor-main { padding-left: 0; }
   .editor-title { font-size: 26px; }
 }
 
@@ -1661,9 +1709,11 @@ dialog.unsplash button:focus-visible, .u-chip:focus-visible { outline: 2px solid
 .auth .b2 { width: 380px; height: 380px; background: var(--blue-bg); bottom: -140px; right: -100px; }
 .auth .b3 { width: 300px; height: 300px; background: var(--purple-bg); bottom: -80px; left: 18%; opacity: .35; }
 .auth-box { width: min(400px, 100%); position: relative; animation: rise .5s var(--ease) both; }
-.auth-logo { width: 60px; height: 60px; border-radius: 20px; background: var(--primary-container);
-  color: var(--on-primary-container); display: grid; place-items: center; margin: 0 auto 20px; }
-.auth-logo svg { width: 38px; height: 38px; }
+.auth-logo { font-family: Georgia, 'Iowan Old Style', serif; font-style: italic; font-size: 54px; line-height: 1;
+  position: relative; width: 60px; height: 64px; border-radius: 20px 20px 20px 6px;
+  background: var(--primary); color: var(--on-primary); display: grid; place-items: center; margin: 0 auto 20px; }
+.auth-logo span { position: absolute; font-family: var(--font); font-style: normal; font-weight: 600;
+  font-size: 22px; line-height: 1; right: 5px; top: 4px; }
 .auth-box h1 { text-align: center; font-size: 26px; font-weight: 600; margin: 0 0 6px; }
 .auth-box .sub { text-align: center; color: var(--on-surface-variant); font-size: 14px; margin: 0 0 28px; }
 .auth-box .card { padding: 26px; }
@@ -2144,27 +2194,71 @@ dialog .d-actions { display: flex; justify-content: flex-end; gap: 8px; }
   *, *::before, *::after { animation: none !important; transition: none !important; }
 }
 
-/* ---- responsive: rail becomes a top strip ---- */
-@media (max-width: 919px) {
+/* ---- responsive: the rail narrows in three stages ----
+   Same stages as the Click dashboard. Under 1200px the column tightens;
+   under 950px it drops to an 80px icon rail; under 650px it becomes a top
+   strip. The content rules at 919px stay where they were: losing the rail's
+   width is a gain for the content, not a loss, so they only answer to the
+   viewport. */
+@media (max-width: 1200px) {
+  .shell { --rail-w: 216px; }
+  .rail { padding: 24px 12px 14px; }
+  .brand { padding: 8px 10px; margin-bottom: 32px; min-height: 60px; gap: 10px; }
+  .brand .brand-logo img { max-height: 48px; }
+  .brand-mark { width: 36px; height: 39px; font-size: 33px; border-radius: 12px 12px 12px 4px; }
+  .brand-mark span { font-size: 14px; right: 2px; top: 2px; }
+  .brand b { font-size: 23px; }
+  .brand .tag { letter-spacing: 3px; }
+  .nav-item { padding: 9px 12px; gap: 12px; }
+}
+/* Icon rail: the tabs keep their 44px footprint as round targets, and the
+   labels stay in the accessibility tree — only sighted users lose them. A
+   site named in text rather than a logo shrinks to one clipped line, since
+   there is no glyph to fall back to. */
+@media (min-width: 651px) and (max-width: 950px) {
+  .shell { --rail-w: 80px; }
+  .rail { padding: 22px 10px 14px; align-items: center; }
+  .rail .nav-scroll { width: 100%; margin: 0; padding: 0; overflow-x: visible; }
+  .brand { padding: 6px; margin: 0 0 24px; min-height: 0; width: 100%; justify-content: flex-start; }
+  .brand .brand-logo img { max-height: 40px; }
+  .brand-mark { width: 38px; height: 41px; font-size: 35px; }
+  .brand-mark + .brand-name { display: none; }
+  .nav-item { width: 44px; height: 44px; padding: 0; margin: 4px auto; gap: 0; justify-content: center; }
+  .nav-item .nav-label { position: absolute; width: 1px; height: 1px; overflow: hidden;
+    clip: rect(0 0 0 0); white-space: nowrap; }
+  .rail-foot { width: 100%; padding: 14px 0 0; }
+  .who { flex-direction: column; gap: 10px; padding: 6px 0 0; }
+  .who-link { margin: 0; padding: 2px; }
+  .who > div, .who-link > div { display: none; }
+  /* The popover is wider than the rail here. It opens upward from the
+     foot, as on the full rail, but at its own width over the content. */
+  .theme-menu .pop { left: 0; right: auto; width: 220px; }
+}
+/* Top strip. */
+@media (max-width: 650px) {
   .shell { flex-direction: column; }
-  .rail { width: 100%; height: auto; position: static; flex-direction: column; overflow: visible; padding-bottom: 0; }
+  .rail { width: 100%; height: auto; position: static; flex-direction: column; overflow: visible;
+    padding: 0; border-right: none;
+    border-bottom: 1px solid color-mix(in srgb, var(--outline-variant) 55%, transparent); }
   /* The rail is the full page width here, so centring the mark would strand
      it in the middle of the strip. It sits at the start instead. */
-  .brand { padding: 14px 8px 10px; justify-content: flex-start; min-height: 0; }
-  .rail .nav-scroll { display: flex; gap: 4px; overflow-x: auto; padding: 4px 8px 12px; scrollbar-width: none;
-    scroll-snap-type: x proximity; scroll-padding-inline: 8px; }
+  .brand { padding: 14px 10px 10px; margin: 0 6px; justify-content: flex-start; min-height: 0; }
+  .rail .nav-scroll { display: flex; flex: none; gap: 4px; margin: 0; overflow-x: auto; overflow-y: hidden;
+    padding: 4px 12px 12px; scrollbar-width: none; scroll-snap-type: x proximity; scroll-padding-inline: 12px; }
   .rail .nav-scroll::-webkit-scrollbar { display: none; }
-  .nav-item { flex: none; padding: 8px 14px 8px 10px; scroll-snap-align: start; }
+  .nav-item { flex: none; margin: 0; padding: 8px 14px 8px 10px; gap: 8px; scroll-snap-align: start; }
   .nav-item .ic { display: none; }
-  .rail-foot { margin: 0; padding: 0 8px 10px; }
-  .who { padding: 6px 6px; }
+  .rail-foot { margin: 0; padding: 0 12px 10px; }
+  .who { padding: 6px 0; }
   /* The appearance menu opens upward, which is right when the rail is a tall
      column and its foot sits at the bottom of the screen. As a top strip the
      same rule threw the popup off the top of the page — it opened at y=-61
      with Light and half of Dark above the viewport and no way to scroll to
      them. Anchored below the strip it opens over the content instead. */
   .theme-menu .pop { top: calc(100% + 10px); bottom: auto; }
-  .content { padding: 0 16px 48px; }
+}
+@media (max-width: 919px) {
+  .content { --gutter: 16px; padding-bottom: 48px; }
   .page-head { flex-wrap: wrap; }
   .grid2 { grid-template-columns: 1fr; }
   .nav-grid { grid-template-columns: 1fr; }
@@ -2209,10 +2303,12 @@ dialog .d-actions { display: flex; justify-content: flex-end; gap: 8px; }
      column worth filling. On a phone the same 56px lockup turned the top of
      every page into a 200px masthead before a word of content. It drops to
      an app-bar height instead. */
-  .brand { padding: 10px 8px 6px; }
+  .brand { padding: 10px 8px 6px; gap: 10px; }
   .brand .brand-logo img { max-height: 34px; }
-  .brand .brand-admin svg { width: 34px; height: 34px; }
-  .brand b { font-size: 17px; }
+  .brand-mark { width: 32px; height: 35px; font-size: 30px; border-radius: 10px 10px 10px 3px; }
+  .brand-mark span { font-size: 12px; right: 2px; top: 1px; }
+  .brand b { font-size: 21px; }
+  .brand .tag { font-size: 8px; letter-spacing: 3px; margin-top: 3px; }
 }
 
 /* ---- responsive: list rows fold onto two lines ----
@@ -3434,7 +3530,7 @@ async fn setup_page(State(state): State<AppState>) -> Response {
 <button class="btn" type="submit">Create account</button>
 </form></div>
 </div></div>"#,
-            logo = svg("ghost"),
+            logo = BRAND_GLYPH,
             title = esc(&title),
             title_v = esc(&title),
         ),
@@ -3519,7 +3615,7 @@ async fn login_page(State(state): State<AppState>, headers: HeaderMap, Query(q):
 <a class="btn text" href="/ghost/forgot-password/">Forgot password?</a>
 </form></div>
 </div></div>"#,
-            logo = svg("ghost"),
+            logo = BRAND_GLYPH,
             title = esc(&state.settings.get_str("title").unwrap_or_else(|| "Ghost".into())),
             err = err
         ),
@@ -3703,7 +3799,7 @@ async fn verify_page(State(state): State<AppState>, headers: HeaderMap, Query(q)
 <button class="btn text" type="submit">Sign in as someone else</button>
 </form></div>
 </div></div>"#,
-            logo = svg("ghost"),
+            logo = BRAND_GLYPH,
             banner = banner,
         ),
         false,
@@ -19192,7 +19288,7 @@ async fn invite_accept_page(State(state): State<AppState>, Path(token): Path<Str
 <label class="field"><input name="password" type="password" minlength="10" required autocomplete="new-password"><span>Password · min 10 characters</span></label>
 <button class="btn" type="submit">Create account</button>
 </form></div></div></div>"#,
-            logo = svg("ghost"),
+            logo = BRAND_GLYPH,
             title = esc(&title),
             role = esc(&i.role),
             token = esc(&token),
@@ -19203,7 +19299,7 @@ async fn invite_accept_page(State(state): State<AppState>, Path(token): Path<Str
 <h1>Invitation not valid</h1>
 <p class="sub">This invitation has expired or has already been used. Ask whoever invited you to send a new one.</p>
 <div class="card"><a class="btn tonal" href="/ghost/signin/">Go to sign in</a></div></div></div>"#,
-            logo = svg("ghost"),
+            logo = BRAND_GLYPH,
         ),
     };
     page_u("Accept invitation", "", None, &body, false).into_response()
