@@ -25,12 +25,23 @@ use std::process::Command;
 /// pnpm's store path carries a content hash, so it is globbed rather than
 /// written out — pinning the hash would break on the next Ghost update and
 /// read as a test failure rather than as a moved dependency.
+/// The reference Node Ghost installation these parity checks compare
+/// against, if this machine has one. It is named by `GHOST_REFERENCE_DIR`
+/// (the install root; `current/` and `content/themes` live under it) rather
+/// than a path in the source, so the checkout works wherever it is placed and
+/// the test simply skips where no reference install exists.
+fn reference_ghost() -> Option<PathBuf> {
+    let root = PathBuf::from(std::env::var_os("GHOST_REFERENCE_DIR")?);
+    let current = root.join("current");
+    Some(if current.is_dir() { current } else { root })
+}
+
 fn find_gscan() -> Option<PathBuf> {
     if let Some(from_env) = std::env::var_os("GSCAN_PATH") {
         let path = PathBuf::from(from_env);
         return path.join("lib/specs/v6.js").exists().then_some(path);
     }
-    let ghost = Path::new("/Users/anisulkibria/Documents/Ghost/Ghost/current");
+    let ghost = reference_ghost()?;
     let direct = ghost.join("node_modules/gscan");
     if direct.join("lib/specs/v6.js").exists() {
         return Some(direct);
@@ -267,7 +278,10 @@ fn the_installed_themes_agree() {
         eprintln!("skipping: node is not on PATH");
         return;
     }
-    let themes = Path::new("/Users/anisulkibria/Documents/Ghost/Ghost/content/themes");
+    let Some(themes) = reference_ghost().map(|ghost| ghost.join("content/themes")) else {
+        eprintln!("skipping: GHOST_REFERENCE_DIR is not set");
+        return;
+    };
     let Ok(entries) = std::fs::read_dir(themes) else {
         eprintln!("skipping: no theme directory on this machine");
         return;

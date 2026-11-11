@@ -15,6 +15,7 @@ content/files/
 
 # local config (contains your local db path / secrets)
 config.local*.json
+.env
 
 # editor
 .claude/

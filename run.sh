@@ -1,8 +1,31 @@
 #!/usr/bin/env bash
 # Vuuut control script
-#   ./run.sh start|stop|restart|status|build|rebuild|log
+#   ./run.sh start|stop|restart|status|build|rebuild|test|log
 set -euo pipefail
 cd "$(dirname "$0")"
+
+# Private per-machine settings, never committed (see .env.example). Plain
+# KEY=value lines, '#' comments, optional quotes. A variable already set in the
+# shell wins over the file, so a one-off `GHOST_SERVER__PORT=2000 ./run.sh …` still works.
+load_env_file() {
+    local line key value
+    while IFS= read -r line || [ -n "$line" ]; do
+        line=${line#"${line%%[![:space:]]*}"}
+        case $line in ''|'#'*) continue ;; esac
+        line=${line#export }
+        key=${line%%=*}; value=${line#*=}
+        case $key in ''|*[!A-Za-z0-9_]*) echo "ignoring malformed line in $1: $line" >&2; continue ;; esac
+        [ -n "${!key+x}" ] && continue
+        case $value in \"*\") value=${value#\"}; value=${value%\"} ;; \'*\') value=${value#\'}; value=${value%\'} ;; esac
+        export "$key=$value"
+    done < "$1"
+}
+# The port, the content directory, a reference Ghost install for the parity
+# tests: every GHOST_* variable is read by the server itself (GHOST_SERVER__PORT
+# sets server.port, GHOST_PATHS__CONTENT_PATH sets paths.contentPath, and so
+# on), so this is the one place a checkout learns about the machine it landed
+# on and nothing in the tree has to name a directory.
+[ -f .env ] && load_env_file .env
 
 BIN=./target/release/ghost
 # The server binds the configured port and fails if it is taken — it does not
@@ -160,6 +183,9 @@ status)
     ;;
 build) cargo build --release ;;
 rebuild) cargo clean && cargo build --release ;;
+# With .env loaded, so GHOST_REFERENCE_DIR / GSCAN_PATH / GHOST_TEST_MYSQL_URL
+# reach the tests without being typed each time.
+test) shift; cargo test --workspace "$@" ;;
 log) tail -f "$LOG" ;;
-*) echo "usage: $0 start|stop|restart|status|build|rebuild|log" ;;
+*) echo "usage: $0 start|stop|restart|status|build|rebuild|test|log   (settings: .env, see .env.example)" ;;
 esac
