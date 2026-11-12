@@ -1,0 +1,55 @@
+/* Form card. Inherits the theme's type and colours, and takes its accent
+   from Ghost's own --ghost-accent-color, so a form looks like part of
+   whichever theme it lands in. */
+.kg-form-card { margin: 1.5em 0; }
+.kg-form-card .vf-form { display: grid; gap: 1.1em; margin: 0; position: relative; }
+.kg-form-card .vf-field { display: grid; gap: .4em; margin: 0; padding: 0; border: 0; min-width: 0; }
+.kg-form-card .vf-label,
+.kg-form-card legend.vf-label { font-size: .95em; font-weight: 600; line-height: 1.4; padding: 0; margin: 0; }
+.kg-form-card .vf-req { color: var(--ghost-accent-color, #ff1a75); margin-left: .15em; }
+.kg-form-card .vf-input {
+  box-sizing: border-box; width: 100%; max-width: 100%; margin: 0;
+  padding: .7em .85em; font: inherit; font-size: 1em; line-height: 1.4; color: inherit;
+  background: transparent; border: 1px solid color-mix(in srgb, currentColor 28%, transparent);
+  border-radius: 8px; appearance: none; -webkit-appearance: none;
+  transition: border-color .15s ease, box-shadow .15s ease;
+}
+.kg-form-card select.vf-input {
+  padding-right: 2.2em;
+  background-image: linear-gradient(45deg, transparent 50%, currentColor 50%), linear-gradient(135deg, currentColor 50%, transparent 50%);
+  background-position: calc(100% - 1.15em) 55%, calc(100% - .8em) 55%;
+  background-size: .35em .35em, .35em .35em; background-repeat: no-repeat;
+}
+.kg-form-card textarea.vf-input { min-height: 8.5em; resize: vertical; }
+.kg-form-card .vf-input::placeholder { color: color-mix(in srgb, currentColor 45%, transparent); }
+.kg-form-card .vf-input:focus-visible {
+  outline: none; border-color: var(--ghost-accent-color, #ff1a75);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--ghost-accent-color, #ff1a75) 22%, transparent);
+}
+.kg-form-card .vf-field.is-invalid .vf-input { border-color: #d92d20; }
+.kg-form-card .vf-choices { display: grid; gap: .45em; }
+.kg-form-card .vf-choice { display: flex; align-items: flex-start; gap: .6em; font-size: 1em; line-height: 1.45; cursor: pointer; }
+.kg-form-card .vf-choice input { flex: none; width: 1.1em; height: 1.1em; margin: .18em 0 0; accent-color: var(--ghost-accent-color, #ff1a75); }
+.kg-form-card .vf-help { margin: 0; font-size: .85em; line-height: 1.45; opacity: .7; }
+.kg-form-card .vf-error { margin: 0; font-size: .85em; line-height: 1.45; color: #d92d20; }
+.kg-form-card .vf-actions { display: flex; align-items: center; gap: 1em; flex-wrap: wrap; }
+.kg-form-card .vf-submit {
+  appearance: none; -webkit-appearance: none; margin: 0; padding: .75em 1.5em;
+  font: inherit; font-size: 1em; font-weight: 600; line-height: 1.2; color: #fff;
+  background: var(--ghost-accent-color, #ff1a75); border: 0; border-radius: 8px; cursor: pointer;
+  transition: opacity .15s ease, transform .15s ease;
+}
+.kg-form-card .vf-submit:hover { opacity: .9; }
+.kg-form-card .vf-submit:active { transform: translateY(1px); }
+.kg-form-card .vf-submit:focus-visible { outline: 3px solid color-mix(in srgb, var(--ghost-accent-color, #ff1a75) 40%, transparent); outline-offset: 2px; }
+.kg-form-card .vf-submit[disabled] { opacity: .55; cursor: progress; }
+.kg-form-card .vf-status { margin: 0; padding: .8em 1em; border-radius: 8px; font-size: .95em; line-height: 1.5; }
+.kg-form-card .vf-status.is-ok { background: color-mix(in srgb, #12b76a 14%, transparent); color: inherit; border: 1px solid color-mix(in srgb, #12b76a 45%, transparent); }
+.kg-form-card .vf-status.is-error { background: color-mix(in srgb, #d92d20 10%, transparent); border: 1px solid color-mix(in srgb, #d92d20 40%, transparent); }
+.kg-form-card .vf-link { display: inline-block; margin-top: .6em; padding: .55em 1.1em; border-radius: 8px; font-weight: 600;
+  color: #fff; background: var(--ghost-accent-color, #ff1a75); text-decoration: none; }
+.kg-form-card .vf-link:hover { opacity: .9; }
+.kg-form-card .vf-closed { margin: 0; padding: 1em 1.1em; border-radius: 8px; font-size: .95em; border: 1px dashed color-mix(in srgb, currentColor 30%, transparent); opacity: .8; }
+/* The decoy field. Also hidden inline, so it stays hidden if this file fails to load. */
+.kg-form-card .vf-hp { position: absolute !important; left: -10000px !important; top: auto !important; width: 1px !important; height: 1px !important; overflow: hidden !important; }
+@media (prefers-reduced-motion: reduce) { .kg-form-card .vf-input, .kg-form-card .vf-submit { transition: none; } }

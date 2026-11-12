@@ -224,7 +224,9 @@ pub async fn render_template(
     let html = tokio::task::spawn_blocking(move || theme.render(&template_name, &root))
         .await
         .map_err(|e| ghost_core::GhostError::Internal(e.to_string()))??;
-    Ok(html)
+    // Form cards are stored as a placeholder and filled in here, per
+    // request: the form is always the current one, and its token is fresh.
+    Ok(ghost_api::forms::expand_html(state, html).await)
 }
 
 /// Render the theme's error page (error-<code> → error-<N>xx → error → builtin).

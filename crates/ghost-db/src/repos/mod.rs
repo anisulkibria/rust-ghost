@@ -16,6 +16,7 @@ pub mod sessions;
 pub mod actions;
 pub mod automations;
 pub mod comments;
+pub mod forms;
 pub mod integrations;
 pub mod metafields;
 pub mod newsletters;

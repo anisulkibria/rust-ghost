@@ -17,6 +17,7 @@ pub mod analytics;
 mod click;
 pub mod automations;
 pub mod comments;
+pub mod forms;
 pub mod posts;
 pub mod social;
 pub mod rest;
@@ -134,6 +135,19 @@ pub fn admin_ui_router(state: AppState) -> Router<AppState> {
         .route("/comments/{id}/hide/", post(comments::comment_hide))
         .route("/comments/{id}/show/", post(comments::comment_show))
         .route("/comments/{id}/delete/", post(comments::comment_delete))
+        // Forms: the builder and the responses. `new` and `responses` are
+        // static segments and must precede `{id}`, as must `export` under
+        // `responses`.
+        .route("/forms/", get(forms::forms_page))
+        .route("/forms/new/", post(forms::form_create))
+        .route("/forms/responses/", get(forms::responses_page))
+        .route("/forms/responses/export/", get(forms::responses_export))
+        .route("/forms/responses/{id}/", get(forms::response_page))
+        .route("/forms/responses/{id}/status/", post(forms::response_status))
+        .route("/forms/responses/{id}/delete/", post(forms::response_delete))
+        .route("/forms/{id}/", get(forms::form_page).post(forms::form_save))
+        .route("/forms/{id}/delete/", post(forms::form_delete))
+        .route("/settings/forms/", get(forms::settings_page).post(forms::settings_save))
         // Automations. `new` is a static segment and must precede `{id}`.
         .route("/automations/", get(automations::automations_page))
         .route("/automations/new/", post(automations::automation_create))
@@ -458,6 +472,8 @@ fn icon(name: &str) -> &'static str {
         // a node wired to two others: the shape of an automation flow
         // an eye, for page views
         "eye" => r#"<path d="M12 4.5C7 4.5 2.73 7.61 1 12c1.73 4.39 6 7.5 11 7.5s9.27-3.11 11-7.5c-1.73-4.39-6-7.5-11-7.5zm0 12.5a5 5 0 1 1 0-10 5 5 0 0 1 0 10zm0-8a3 3 0 1 0 0 6 3 3 0 0 0 0-6z"/>"#,
+        // a sheet with a ticked box and two lines: a form to fill in
+        "form" => r#"<path d="M19 3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm0 16H5V5h14v14zM7 7h4v4H7V7zm1.3 1.3v1.4h1.4V8.3H8.3zM13 8h4v2h-4V8zm-6 5h10v2H7v-2zm0 3h7v1.5H7V16z"/>"#,
         "flow" => r#"<path d="M5 3a2.5 2.5 0 0 1 2.45 2H11a3 3 0 0 1 3 3v1.05A2.5 2.5 0 1 1 14 14v1a3 3 0 0 1-3 3H7.45a2.5 2.5 0 1 1 0-2H11a1 1 0 0 0 1-1v-1.05A2.5 2.5 0 0 1 12 9.5V8a1 1 0 0 0-1-1H7.45A2.5 2.5 0 1 1 5 3zm0 2a.5.5 0 1 0 0 1 .5.5 0 0 0 0-1zm0 11a.5.5 0 1 0 0 1 .5.5 0 0 0 0-1zm11.5-5a.5.5 0 1 0 0 1 .5.5 0 0 0 0-1z"/>"#,
         "hide" => r#"<path d="M12 7c2.76 0 5 2.24 5 5 0 .65-.13 1.26-.36 1.83l2.92 2.92c1.51-1.26 2.7-2.89 3.43-4.75-1.73-4.39-6-7.5-11-7.5-1.4 0-2.74.25-3.98.7l2.16 2.16C10.74 7.13 11.35 7 12 7zM2 4.27l2.28 2.28.46.46C3.08 8.3 1.78 10.02 1 12c1.73 4.39 6 7.5 11 7.5 1.55 0 3.03-.3 4.38-.84l.42.42L19.73 22 21 20.73 3.27 3 2 4.27zM7.53 9.8l1.55 1.55c-.05.21-.08.43-.08.65 0 1.66 1.34 3 3 3 .22 0 .44-.03.65-.08l1.55 1.55c-.67.33-1.41.53-2.2.53-2.76 0-5-2.24-5-5 0-.79.2-1.53.53-2.2z"/>"#,
         "close" => r#"<path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/>"#,
@@ -712,6 +728,48 @@ html.dark .theme-menu > summary .t-sun { display: none; }
 .module-open svg { width: 18px; height: 18px; }
 @media (max-width: 1100px) { .module-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 @media (max-width: 700px) { .module-grid { grid-template-columns: minmax(0, 1fr); gap: 16px; } }
+
+/* ---- forms: the builder's field cards, and a response's answers ---- */
+.fb-list { display: grid; gap: 12px; }
+.fb-field { background: var(--sc-lowest); border-radius: 24px; padding: 16px 20px 6px; }
+.fb-head { display: flex; align-items: center; gap: 12px; margin-bottom: 14px; }
+.fb-num { flex: none; width: 32px; height: 32px; border-radius: 50%; display: grid; place-items: center;
+  font-size: 13px; font-weight: 600; background: var(--amber-bg); color: var(--amber-fg); }
+.fb-kind { font-size: 15px; font-weight: 600; flex: 1; min-width: 0; }
+.fb-tools { display: flex; gap: 2px; margin-left: auto; }
+.fb-tools .icon-btn[disabled] { opacity: .3; pointer-events: none; }
+.fb-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 0 14px; }
+.fb-grid .wide { grid-column: 1 / -1; }
+.fb-required { display: flex; align-items: center; gap: 12px; margin: 0 0 14px; font-size: 14.5px; }
+.fb-add { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-top: 14px; }
+.fb-url { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.fb-empty { padding: 22px; text-align: center; color: var(--on-surface-variant); background: var(--sc-lowest);
+  border-radius: 24px; }
+@media (max-width: 700px) { .fb-grid { grid-template-columns: minmax(0, 1fr); } }
+.fm-answer { padding: 12px 0; }
+.fm-answer + .fm-answer { border-top: 1px solid var(--outline-variant); }
+.fm-answer:first-child { padding-top: 0; }
+.fm-q { font-size: 12px; font-weight: 600; letter-spacing: .4px; text-transform: uppercase;
+  color: var(--on-surface-variant); margin-bottom: 4px; }
+/* pre-wrap keeps a visitor's own line breaks; the text itself is escaped */
+.fm-a { font-size: 15.5px; line-height: 1.55; white-space: pre-wrap; overflow-wrap: anywhere; }
+/* the form card inside the editor */
+.vfc { font-family: var(--font); padding: 18px 20px; border-radius: 16px; background: var(--sc-low, var(--sc-lowest));
+  border: 1px solid var(--outline-variant); color: var(--on-surface); }
+.vfc-head { display: flex; align-items: center; gap: 10px; font-size: 14px; font-weight: 600; margin-bottom: 12px; }
+.vfc-head svg { width: 20px; height: 20px; flex: none; color: var(--amber-fg); }
+.vfc-head .vfc-closed { margin-left: auto; font-size: 12px; font-weight: 600; padding: 2px 10px; border-radius: 999px;
+  background: var(--amber-bg); color: var(--amber-fg); }
+.vfc select { width: 100%; height: 42px; padding: 0 12px; font: inherit; font-size: 14.5px; color: var(--on-surface);
+  background: var(--sc-lowest); border: 1px solid var(--outline); border-radius: 10px; }
+.vfc-preview { display: grid; gap: 10px; margin-top: 14px; pointer-events: none; }
+.vfc-preview .vfc-label { font-size: 12.5px; font-weight: 600; color: var(--on-surface-variant); margin-bottom: 4px; }
+.vfc-preview .vfc-box { height: 36px; border-radius: 8px; border: 1px solid var(--outline-variant); background: var(--sc-lowest); }
+.vfc-preview .vfc-box.tall { height: 72px; }
+.vfc-preview .vfc-button { justify-self: start; padding: 8px 18px; border-radius: 8px; font-size: 13.5px; font-weight: 600;
+  background: var(--primary); color: var(--on-primary); }
+.vfc-note { margin: 12px 0 0; font-size: 13px; line-height: 1.5; color: var(--on-surface-variant); }
+.vfc-note a { color: var(--primary); }
 
 /* ---- page head (sticky top app bar per page) ---- */
 .page-head { position: sticky; top: 0; z-index: 20; display: flex; align-items: center; gap: 16px;
@@ -3196,7 +3254,7 @@ fn merge_night_shift(existing: Option<&str>, theme: &str) -> String {
 /// `user` supplies the account block at the bottom of the rail.
 fn rail(active: &str, user: Option<&ghost_core::models::User>, role: Role) -> String {
     let active = match active {
-        "analytics" | "comments" | "automations" => "modules",
+        "analytics" | "comments" | "automations" | "forms" => "modules",
         other => other,
     };
     // Showing a link that only leads to "Not allowed" is worse than not
@@ -3980,6 +4038,7 @@ const MODULES: &[(&str, &str, &str, &str, &str)] = &[
     ("Analytics", "/ghost/analytics/", "chart", "green", "Track visitors, content performance, and member growth."),
     ("Comments", "/ghost/comments/", "comment", "purple", "Review discussions and manage comments across your posts."),
     ("Automations", "/ghost/automations/", "flow", "blue", "Manage automated workflows and their activity."),
+    ("Forms", "/ghost/forms/", "form", "amber", "Build contact forms and read the responses visitors send."),
     ("Social web", "/ghost/social/", "share", "teal", "Read, publish notes and connect with the fediverse."),
 ];
 
@@ -7274,6 +7333,11 @@ struct Editor<'a> {
     /// is off or has no access key. Koenig uses this object verbatim.
     unsplash_headers: serde_json::Value,
     pintura_config: serde_json::Value,
+    /// The forms the form card can embed: id, name and a field summary.
+    forms: serde_json::Value,
+    /// Whether the card may link to the builder: it is Administrator-only,
+    /// and a link that leads to "Not allowed" is worse than none.
+    can_manage_forms: bool,
     site_url: String,
     site_title: String,
     site_description: String,
@@ -7671,6 +7735,10 @@ fn editor_html(ed: &Editor<'_>) -> String {
         // a key exists; otherwise Koenig shows its bundled sample gallery.
         "unsplash": ed.unsplash_headers,
         "pinturaConfig": ed.pintura_config,
+        // What the form card's picker lists. Names and field labels only —
+        // never a response.
+        "forms": ed.forms,
+        "canManageForms": ed.can_manage_forms,
     });
 
     let content = format!(
@@ -8068,6 +8136,7 @@ html {{ font-size: 62.5%; }}
 <script src="{assets}/koenig-lexical.js" defer></script>
 <script src="{assets}/unsplash-picker.js" defer></script>
 <script src="{assets}/koenig-integrations.js" defer></script>
+<script src="{assets}/koenig-forms.js" defer></script>
 <script src="{assets}/koenig-bridge.js" defer></script>
 <script>
 /* Hide the Markdown fallback before anything is painted, and disable it so a
@@ -8127,7 +8196,7 @@ html {{ font-size: 62.5%; }}
 /// editor (and a word count that never counts) until its cache expired.
 macro_rules! koenig_version {
     () => {
-        "1.8.27"
+        "1.8.29"
     };
 }
 const KOENIG_VERSION: &str = koenig_version!();
@@ -8162,6 +8231,8 @@ async fn admin_asset(Path((version, file)): Path<(String, String)>) -> Response 
         "koenig-lexical.js" => include_str!("../assets/koenig-lexical.umd.js"),
         "koenig-bridge.js" => include_str!("../assets/koenig-bridge.js"),
         "koenig-integrations.js" => include_str!("../assets/koenig-integrations.js"),
+        "koenig-forms.js" => include_str!("../assets/koenig-forms.js"),
+        "forms-builder.js" => include_str!("../assets/forms-builder.js"),
         "unsplash-picker.js" => include_str!("../assets/unsplash-picker.js"),
         "publishing-workflows.js" => include_str!("../assets/publishing-workflows.js"),
         "automation-editor.js" => include_str!("../assets/automation-editor.js"),
@@ -8266,6 +8337,8 @@ async fn editor_context<'a>(
         stripe_enabled: state.settings.get_bool("paid_members_enabled"),
         unsplash_headers: unsplash_headers(state),
         pintura_config: pintura_config(&state.settings),
+        forms: forms::editor_choices(state).await,
+        can_manage_forms: false,
         site_url: state.site_url(),
         site_title: state.settings.get_str("title").unwrap_or_default(),
         site_description: state.settings.get_str("description").unwrap_or_default(),
@@ -8277,7 +8350,8 @@ async fn editor_new_impl(state: &AppState, headers: &HeaderMap, post_type: &str)
         Ok(a) => a,
         Err(r) => return r,
     };
-    let ed = editor_context(state, post_type, None, vec![], vec![], actor.role.can_publish()).await;
+    let mut ed = editor_context(state, post_type, None, vec![], vec![], actor.role.can_publish()).await;
+    ed.can_manage_forms = actor.role.is_admin();
     page_for(
         "New",
         if post_type == "page" { "pages" } else { "posts" },
@@ -8321,7 +8395,8 @@ async fn editor_page(
         .unwrap_or_default();
     let tags = rel.tags_for(&post.id);
     let authors = rel.authors_for(&post.id);
-    let ed = editor_context(&state, &post.post_type, Some(&post), tags, authors, actor.role.can_publish()).await;
+    let mut ed = editor_context(&state, &post.post_type, Some(&post), tags, authors, actor.role.can_publish()).await;
+    ed.can_manage_forms = actor.role.is_admin();
     page_for(
         "Edit",
         if post.post_type == "page" { "pages" } else { "posts" },
@@ -11861,6 +11936,9 @@ const SETTINGS_GROUPS: &[SettingsGroup] = &[
     SettingsGroup { slug: "newsletters", title: "Newsletters", icon: "send", tint: "purple", items: &["Newsletter sending", "Default recipients", "Amazon SES", "Mailgun", "Region"] },
     SettingsGroup { slug: "growth", title: "Growth", icon: "globe", tint: "slate", items: &["Network", "Ghost Explore", "Recommendations", "Signup forms", "Offers"] },
     SettingsGroup { slug: "features", title: "Features", icon: "tune", tint: "teal", items: &["Comments", "Automations", "Beta features", "Private features"] },
+    // This port's own module. Its builder and responses live under Modules;
+    // what is here is what applies to every form at once.
+    SettingsGroup { slug: "forms", title: "Forms", icon: "form", tint: "amber", items: &["Notifications", "Spam protection", "Privacy & retention"] },
     SettingsGroup { slug: "integrations", title: "Integrations", icon: "integrations", tint: "red", items: &["Built-in apps", "Custom integrations", "Content API"] },
     SettingsGroup { slug: "migration", title: "Migration tools", icon: "import", tint: "blue", items: &["Import content", "Export all data", "Members", "Post analytics", "Themes"] },
     SettingsGroup { slug: "advanced", title: "Advanced", icon: "code", tint: "red", items: &["Redirects & routes"] },
@@ -18543,6 +18621,9 @@ const SITE_TABLES: &[&str] = &[
     "comments", "comment_likes", "comment_reports",
     "integrations", "api_keys", "webhooks", "custom_theme_settings",
     "brute", "tokens", "milestones",
+    // Responses are visitors' personal data, so deleting the site deletes
+    // them; children first, so it holds whether or not the engine cascades.
+    "form_submissions", "forms",
 ];
 
 pub(crate) async fn wipe_tables(db: &ghost_db::Db, tables: &[&str]) -> usize {
@@ -21501,10 +21582,10 @@ mod tests {
 
     #[test]
     fn module_pages_share_one_admin_only_sidebar_entry() {
-        for active in ["modules", "analytics", "comments", "automations"] {
+        for active in ["modules", "analytics", "comments", "automations", "forms"] {
             let nav = super::rail(active, None, super::Role::Administrator);
             assert!(nav.contains(r#"class="nav-item active" href="/ghost/modules/""#));
-            for href in ["analytics", "comments", "automations"] {
+            for href in ["analytics", "comments", "automations", "forms"] {
                 assert!(!nav.contains(&format!(r#"class="nav-item" href="/ghost/{href}/""#)));
                 assert!(!nav.contains(&format!(r#"class="nav-item active" href="/ghost/{href}/""#)));
             }
@@ -22105,7 +22186,7 @@ mod tests {
             ["General settings", "Staff", "Analytics",
              "Design & branding", "Navigation", "Code injection", "Announcement",
              "Membership", "Machine payments", "Email", "Newsletters", "Growth",
-             "Features", "Integrations",
+             "Features", "Forms", "Integrations",
              "Migration tools", "Advanced", "History", "Danger zone"]
         );
         // every group has a working page at its slug

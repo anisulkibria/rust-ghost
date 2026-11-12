@@ -30,6 +30,9 @@ pub fn site_router(state: AppState) -> Router {
     Router::new()
         .merge(ghost_api::newsletter_events::public_router())
         .merge(ghost_api::federation::public_router())
+        // form responses; inside this router so a private site's gate covers
+        // them like any page
+        .merge(ghost_api::forms::public_router())
         .route("/assets/{*path}", get(routes::theme_asset))
         .route("/content/images/{*path}", get(images::serve))
         .route("/content/media/{*path}", get(routes::content_media))

@@ -281,6 +281,17 @@
 
   var integrations = window.GhostKoenig.create(config, banner);
 
+  // The Form card (koenig-forms.js). Null when that script is absent or the
+  // bundle's shape is not one it recognises, in which case the editor runs
+  // with the built-in cards only.
+  var formCard = null;
+  try {
+    formCard = window.GhostKoenigForms ? window.GhostKoenigForms.create(Koenig, React, config) : null;
+  } catch (error) {
+    console.error(error);
+    formCard = null;
+  }
+
   // Snapshot the live editor independently of the hidden inputs. A settings
   // save may have cleared those inputs, and previewing must never trigger save.
   form.ghostPreviewData = function () {
@@ -305,6 +316,8 @@
         Koenig.KoenigComposer,
         {
           initialEditorState: config.lexical || undefined,
+          // undefined leaves Koenig's own default node list in place
+          nodes: formCard ? formCard.nodes : undefined,
           fileUploader: integrations.fileUploader,
           cardConfig: integrations.useCardConfig(),
           onError: function (error) { console.error(error); },
@@ -314,7 +327,10 @@
         e(Koenig.KoenigEditor, {
           placeholderText: config.placeholder || 'Begin writing your post...',
           placeholderClassName: 'editor-body-placeholder',
-          registerAPI: function (editorApi) { api = editorApi; },
+          registerAPI: function (editorApi) {
+            api = editorApi;
+            if (formCard && editorApi) { formCard.register(editorApi.editorInstance); }
+          },
           // Every keystroke in the body. This is what starts the autosave
           // clock — the serialize() calls only happen when a save does.
           onChange: function () { contentEdited(); },

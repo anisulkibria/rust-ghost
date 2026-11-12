@@ -21,6 +21,7 @@ pub mod images;
 pub mod jwt;
 pub mod explore;
 pub mod federation;
+pub mod forms;
 pub mod member_events;
 pub mod members;
 pub mod mentions;

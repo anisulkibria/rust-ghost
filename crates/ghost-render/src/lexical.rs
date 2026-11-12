@@ -298,6 +298,7 @@ fn card_html(node: &Value) -> String {
         // email-only content is dropped from the web rendering, as in Ghost
         "email" | "email-cta" => String::new(),
         "transistor" => transistor_html(node),
+        "vuuut-form" => form_placeholder(&str_of(node, "formId")).unwrap_or_default(),
         // Unknown cards are omitted.
         _ => String::new(),
     }
@@ -1170,6 +1171,20 @@ fn attr(s: &str) -> String {
 mod tests {
     use super::*;
 
+    #[test]
+    fn a_form_card_renders_as_a_placeholder_and_only_for_a_real_id() {
+        let card = |id: &str| doc(&format!(r#"{{"type":"vuuut-form","version":1,"formId":{}}}"#, serde_json::json!(id)));
+        assert_eq!(
+            to_html(&card("0123456789abcdef01234567")),
+            r#"<div class="kg-card kg-form-card" data-form-id="0123456789abcdef01234567"></div>"#
+        );
+        // anything that is not an id renders as nothing, so no attribute
+        // value ever comes from the document
+        for bad in ["", "abc", r#"0123456789abcdef0123456" onload="x"#, "0123456789ABCDEF01234567"] {
+            assert_eq!(to_html(&card(bad)), "", "{bad:?}");
+        }
+    }
+
     fn doc(children: &str) -> String {
         format!(r#"{{"root":{{"children":[{children}],"direction":"ltr","format":"","indent":0,"type":"root","version":1}}}}"#)
     }
@@ -1408,6 +1423,18 @@ mod tests {
         let other = r#"{"type":"paragraph","version":1,"children":[{"text":"two","type":"text","format":0,"version":1}]}"#;
         assert_eq!(to_plaintext(&doc(&format!("{para},{other}"))), "one\n\ntwo");
     }
+}
+
+/// What the form card leaves in a post: an empty element naming a form.
+///
+/// The form itself is not rendered here. It is put in when the page is
+/// served, from the form as it is defined at that moment, by
+/// `ghost_api::forms::expand_html` — which matches this exact string, so the
+/// two must change together. `None` unless `form_id` is a real id, which is
+/// what keeps anything else out of the attribute.
+pub fn form_placeholder(form_id: &str) -> Option<String> {
+    let is_id = form_id.len() == 24 && form_id.bytes().all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b));
+    is_id.then(|| format!(r#"<div class="kg-card kg-form-card" data-form-id="{form_id}"></div>"#))
 }
 
 fn transistor_html(node:&Value)->String {

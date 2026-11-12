@@ -102,6 +102,9 @@ LONG = {
     ("mentions", "payload"),
     ("posts", "email_recipient_filter"), ("posts", "newsletter_audience_filter"),
     ("users", "accessibility"), ("users", "tour"),
+    # A form's field definitions and a response's answers are JSON documents
+    # that can outgrow the ~16,000 characters MySQL will return as text.
+    ("forms", "fields"), ("form_submissions", "data"),
 }
 
 # Bigger than the default but bounded, and — crucially — under the ~16,000

@@ -6,6 +6,7 @@ pub mod database;
 pub mod dialect;
 pub mod dates;
 pub mod error;
+pub mod forms;
 pub mod ids;
 pub mod metafields;
 pub mod mail_settings;
