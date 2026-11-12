@@ -725,6 +725,11 @@ html.dark .theme-menu > summary .t-sun { display: none; }
 /* ---- groups + cards + rows ---- */
 .section { font-size: 13px; font-weight: 600; color: var(--on-surface-variant);
   padding: 20px 16px 10px; letter-spacing: .2px; }
+/* A section that heads a whole gallery rather than a card or two: sized as
+   a heading, in the text colour, so the two theme collections read as the
+   page's main divisions. */
+.section.big { font-size: 20px; font-weight: 700; color: var(--on-surface); letter-spacing: -.2px;
+  padding: 28px 16px 12px; }
 .card { background: var(--sc-lowest); border-radius: 24px; margin-bottom: 12px; overflow: hidden;
   box-shadow: var(--shadow-1); }
 .card.padded { padding: 20px; }
@@ -1396,6 +1401,42 @@ a.sw-count:hover { color: var(--on-surface); }
 .gallery .actions { display: flex; align-items: center; gap: 8px; padding: 0 16px 14px; }
 .gallery .actions form { display: contents; }
 .gallery .actions .btn { flex: 1; }
+/* Premium cards, four to a line. The store's screenshots are landscape crops
+   of a homepage, so the box is 4:3 rather than the marketplace's 4:5, and
+   the price rides on the picture the way it does on the store. */
+.gallery.premium { grid-template-columns: repeat(4, 1fr); gap: 12px; }
+.gallery.premium .card { border-radius: 20px; }
+.gallery.premium .shot { aspect-ratio: 4 / 3; }
+.gallery .shot .price { position: absolute; top: 10px; right: 10px; z-index: 1; height: 24px; padding: 0 10px;
+  display: inline-flex; align-items: center; border-radius: 999px; font-size: 12px; font-weight: 600;
+  background: var(--sc-lowest); color: var(--on-surface);
+  box-shadow: 0 1px 3px color-mix(in srgb, #000 22%, transparent); }
+.gallery .shot .price.free { background: var(--primary); color: var(--on-primary); }
+.gallery.premium .meta { padding: 12px 14px 10px; align-items: flex-start; }
+.gallery.premium .meta .title { font-size: 14.5px; }
+.gallery.premium .meta .detail { font-size: 12px; line-height: 1.4; margin-top: 2px; }
+/* Pinned to the bottom, so a two-line pitch next to a three-line one does
+   not leave the buttons of one row at different heights. */
+.gallery.premium .card { display: flex; flex-direction: column; }
+.gallery.premium .actions { margin-top: auto; gap: 6px; padding: 0 14px 14px; }
+.gallery.premium .actions .btn { height: 32px; padding: 0 8px; font-size: 12.5px; white-space: nowrap; }
+/* Free themes: the same card a size further down, six to a line, so eighteen
+   of them take three rows. Padding and type shrink with the card so the
+   name and both buttons still fit. */
+.gallery.compact { grid-template-columns: repeat(6, 1fr); gap: 10px; }
+.gallery.compact .card { border-radius: 16px; }
+.gallery.compact .meta { padding: 9px 10px 7px; }
+.gallery.compact .meta .title { display: flex; align-items: center; justify-content: space-between; gap: 6px; font-size: 13.5px; }
+.gallery.compact .meta .title .chip { height: 18px; padding: 0 7px; font-size: 10.5px; font-weight: 500; }
+.gallery.compact .meta .detail { font-size: 11.5px; }
+.gallery.compact .actions { gap: 5px; padding: 0 10px 10px; }
+.gallery.compact .actions .btn { height: 28px; padding: 0 4px; font-size: 12px; white-space: nowrap; }
+/* Each step down drops one column, keeping the cards near the same size
+   rather than letting them balloon back to the old portraits. */
+@media (max-width: 1200px) { .gallery.compact { grid-template-columns: repeat(5, 1fr); } }
+@media (max-width: 1000px) { .gallery.premium { grid-template-columns: repeat(3, 1fr); } .gallery.compact { grid-template-columns: repeat(4, 1fr); } }
+@media (max-width: 719px) { .gallery.premium { grid-template-columns: 1fr 1fr; } .gallery.compact { grid-template-columns: repeat(3, 1fr); } }
+@media (max-width: 479px) { .gallery.premium { grid-template-columns: 1fr; } .gallery.compact { grid-template-columns: 1fr 1fr; } }
 @media (max-width: 1100px) { .gallery { grid-template-columns: 1fr 1fr; } }
 /* Two columns are held all the way down to the narrowest tablets. Dropping
    to one at 719px handed every 4:5 thumbnail the full page width — a 560px
@@ -2178,6 +2219,44 @@ dialog.preview > div:first-child h2 { font-size: 15px; font-weight: 600; margin:
 /* Pressed state on the segmented controls, so the current tab and device are
    visible at a glance rather than only to a screen reader. */
 dialog.preview .btn[aria-pressed="true"] { background: var(--primary); color: var(--on-primary); }
+/* ---- the theme demo preview ----
+   A theme's live demo in a frame, so looking at one does not mean leaving
+   the themes page. Like the publishing preview it restates every clamp the
+   shared `dialog` rule sets. Two rows: a toolbar, and the demo taking the
+   rest. */
+dialog.theme-preview { width: min(1680px, calc(100vw - 16px)); height: calc(100vh - 16px);
+  height: calc(100dvh - 16px); min-width: 0; max-width: none; max-height: none;
+  padding: 0; overflow: hidden; }
+dialog.theme-preview[open] { display: grid; grid-template-rows: auto minmax(0, 1fr); }
+dialog.theme-preview::backdrop { background: rgba(0,0,0,.6); }
+.tp-bar { display: flex; align-items: center; gap: 8px; padding: 10px 12px 10px 20px;
+  border-bottom: 1px solid var(--outline-variant); }
+.tp-bar .tp-name { font-size: 16px; font-weight: 600; margin: 0 auto 0 0; min-width: 0;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tp-bar .tp-name small { font-size: 12.5px; font-weight: 400; color: var(--on-surface-variant); margin-left: 8px; }
+.tp-devices { display: flex; gap: 2px; padding: 3px; border-radius: 999px; background: var(--sc); }
+.tp-devices button { border: none; background: none; font: inherit; font-size: 12.5px; font-weight: 500;
+  height: 28px; padding: 0 12px; border-radius: 999px; color: var(--on-surface-variant); cursor: pointer; }
+.tp-devices button[aria-pressed="true"] { background: var(--sc-lowest); color: var(--on-surface);
+  box-shadow: 0 1px 2px color-mix(in srgb, #000 16%, transparent); }
+/* The stage is tinted so a tablet- or phone-width frame reads as a device
+   standing on something, and so "Loading…" has somewhere to show before the
+   demo paints over it. */
+.tp-stage { position: relative; display: flex; justify-content: center; min-height: 0; background: var(--sc); }
+.tp-stage::before { content: "Loading demo…"; position: absolute; top: 50%; left: 0; right: 0;
+  text-align: center; font-size: 13px; color: var(--on-surface-variant); }
+.tp-stage iframe { position: relative; display: block; width: 100%; height: 100%; border: none;
+  background: #fff; opacity: 0; transition: opacity .2s, width .25s var(--ease); }
+.tp-stage iframe.ready { opacity: 1; }
+dialog.theme-preview[data-device="tablet"] .tp-stage iframe { width: min(820px, 100%); }
+dialog.theme-preview[data-device="mobile"] .tp-stage iframe { width: min(390px, 100%); }
+dialog.theme-preview[data-device="tablet"] .tp-stage iframe,
+dialog.theme-preview[data-device="mobile"] .tp-stage iframe {
+  box-shadow: 0 0 0 1px var(--outline-variant), var(--shadow-2); }
+@media (max-width: 719px) {
+  .tp-devices, .tp-bar .tp-name small { display: none; }
+  .tp-bar { padding-left: 16px; }
+}
 dialog h3 { margin: 0 0 8px; font-size: 20px; font-weight: 600; }
 dialog p { margin: 0 0 22px; font-size: 14px; color: var(--on-surface-variant); }
 dialog .d-actions { display: flex; justify-content: flex-end; gap: 8px; }
@@ -10596,6 +10675,7 @@ async fn themes_page(State(state): State<AppState>, headers: HeaderMap, Query(q)
 
     let installed = ghost_api::themes::list(&state);
     let gallery = official_theme_gallery(&installed);
+    let premium = premium_theme_gallery(&installed);
 
     let rows: String = installed
         .iter()
@@ -10683,25 +10763,182 @@ async fn themes_page(State(state): State<AppState>, headers: HeaderMap, Query(q)
 </form><p class="muted" style="margin:10px 0 0">A Ghost theme zip. Uploading a theme that is already installed replaces it.</p></div>
 <div class="section">Installed</div>
 <div class="card rows rise" style="--i:3">{rows}</div>
-<div class="section">Official themes</div>
+<div class="section big">Premium themes</div>
+<p class="muted" style="margin:-6px 0 14px">Hand-crafted themes from <a href="https://ghost-theme.com/themes/" target="_blank" rel="noopener noreferrer">ghost-theme.com</a>. Get the zip from the store, then upload it above.</p>
+<div class="gallery premium rise" style="--i:4">{premium}</div>
+<script src="https://assets.lemonsqueezy.com/lemon.js" defer></script>
+<div class="section big">More free themes</div>
 <p class="muted" style="margin:-6px 0 14px">Free themes built by Ghost. Installing downloads the latest version from GitHub; it does not change the active theme.</p>
-<div class="gallery rise" style="--i:4">{gallery}</div>"#,
+<div class="gallery compact rise" style="--i:5">{gallery}</div>
+{preview_dialog}"#,
             banner = banner,
             up = svg("upload"),
             rows = rows,
-            gallery = gallery
+            premium = premium,
+            gallery = gallery,
+            preview_dialog = theme_preview_dialog()
         ),
         true,
     )
     .into_response()
 }
 
-/// Ghost's official theme gallery, as cards: a live preview of the demo site,
-/// and one button whose job depends on whether the theme is already here.
+/// The modal a gallery card's Preview opens: the theme's live demo in a
+/// frame, with a width toggle, a way out to a real tab, and the card's own
+/// button (Install, Activate, Get theme) repeated so a decision made while
+/// looking at the demo does not mean closing it and finding the card again.
 ///
-/// `installed` is the themes already under `content/themes/`, so a gallery
-/// entry that is installed offers Activate (or reads Active) instead of
-/// downloading it a second time.
+/// One dialog serves every card. The links that open it are ordinary
+/// `target="_blank"` links carrying `data-theme-preview`, so with the script
+/// absent — or on a modified click — they open the demo in a tab as before.
+fn theme_preview_dialog() -> String {
+    format!(
+        r#"<dialog class="theme-preview" id="theme-preview" data-device="desktop" aria-labelledby="tp-name">
+<div class="tp-bar">
+<h2 class="tp-name" id="tp-name"></h2>
+<div class="tp-devices" role="group" aria-label="Preview width">
+<button type="button" data-device="desktop" aria-pressed="true">Desktop</button>
+<button type="button" data-device="tablet" aria-pressed="false">Tablet</button>
+<button type="button" data-device="mobile" aria-pressed="false">Mobile</button>
+</div>
+<button type="button" class="btn small tp-action" hidden></button>
+<a class="icon-btn tp-open" href="about:blank" target="_blank" rel="noopener noreferrer" title="Open in a new tab" aria-label="Open in a new tab">{open}</a>
+<button type="button" class="icon-btn tp-close" title="Close" aria-label="Close preview">{close}</button>
+</div>
+<div class="tp-stage"><iframe title="Theme demo" src="about:blank" referrerpolicy="no-referrer" sandbox="allow-scripts allow-same-origin allow-forms allow-popups"></iframe></div>
+</dialog>
+<script>{js}</script>"#,
+        open = svg("open"),
+        close = svg("close"),
+        js = THEME_PREVIEW_JS,
+    )
+}
+
+const THEME_PREVIEW_JS: &str = r#"
+(function () {
+  var dlg = document.getElementById('theme-preview');
+  if (!dlg || !dlg.showModal) return;
+  var frame = dlg.querySelector('iframe');
+  var nameEl = dlg.querySelector('.tp-name');
+  var openEl = dlg.querySelector('.tp-open');
+  var actionEl = dlg.querySelector('.tp-action');
+  // The card button the toolbar's action stands in for.
+  var original = null;
+
+  document.addEventListener('click', function (e) {
+    var link = e.target.closest && e.target.closest('a[data-theme-preview]');
+    if (!link) return;
+    // A modified or middle click is someone asking for a tab; let them.
+    if (e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+    e.preventDefault();
+
+    nameEl.textContent = link.getAttribute('data-theme-preview');
+    var kind = link.getAttribute('data-theme-kind');
+    if (kind) {
+      var small = document.createElement('small');
+      small.textContent = kind;
+      nameEl.appendChild(small);
+    }
+    openEl.href = link.href;
+
+    // Repeat the card's own button, whatever it currently is. An active
+    // theme has a chip there instead, and so nothing to repeat.
+    var card = link.closest('.card');
+    original = card && card.querySelector('.actions .btn:not([data-theme-preview])');
+    actionEl.hidden = !original;
+    if (original) actionEl.textContent = original.textContent;
+
+    frame.classList.remove('ready');
+    frame.src = link.href;
+    dlg.showModal();
+  });
+
+  frame.addEventListener('load', function () {
+    if (frame.getAttribute('src') !== 'about:blank') frame.classList.add('ready');
+  });
+
+  dlg.querySelector('.tp-close').addEventListener('click', function () { dlg.close(); });
+  // A click that lands on the dialog itself is on its backdrop: the toolbar
+  // and the stage cover every pixel inside it.
+  dlg.addEventListener('click', function (e) { if (e.target === dlg) dlg.close(); });
+  // Unload the demo on the way out, so it stops playing, polling and holding
+  // memory behind a closed dialog.
+  dlg.addEventListener('close', function () {
+    frame.classList.remove('ready');
+    frame.src = 'about:blank';
+  });
+
+  // Close first, then press the card's button: the checkout overlay and the
+  // confirm dialogs would otherwise open underneath a modal dialog.
+  actionEl.addEventListener('click', function () {
+    var target = original;
+    dlg.close();
+    if (target) target.click();
+  });
+
+  dlg.querySelector('.tp-devices').addEventListener('click', function (e) {
+    var btn = e.target.closest('button[data-device]');
+    if (!btn) return;
+    dlg.setAttribute('data-device', btn.getAttribute('data-device'));
+    Array.prototype.forEach.call(this.querySelectorAll('button'), function (b) {
+      b.setAttribute('aria-pressed', b === btn ? 'true' : 'false');
+    });
+  });
+})();
+"#;
+
+/// The ghost-theme.com collection, as large cards: the store's screenshot
+/// with the price on it, the pitch, and a way to the demo and the store.
+///
+/// These cannot be installed from here — the zip is bought (or, for the free
+/// ones, downloaded) on the store and comes in through the upload form — so
+/// the main button opens the store's checkout for that theme as an overlay
+/// (Lemon Squeezy's `lemon.js`, loaded by the page, picks up the
+/// `lemonsqueezy-button` class) until the theme is found installed,
+/// after which it activates it.
+fn premium_theme_gallery(installed: &[ghost_api::themes::InstalledTheme]) -> String {
+    ghost_api::themes::PREMIUM_THEMES
+        .iter()
+        .map(|t| {
+            let action = match installed.iter().find(|i| i.name == t.slug) {
+                Some(i) if i.active => r#"<span class="chip published" style="flex:1;justify-content:center">Active</span>"#.to_string(),
+                Some(_) => format!(
+                    r#"<form method="post" action="/ghost/themes/{slug}/activate/"><button class="btn tonal small" type="submit">Activate</button></form>"#,
+                    slug = esc(t.slug)
+                ),
+                None => format!(
+                    r#"<a class="btn small lemonsqueezy-button" href="{store}" target="_blank" rel="noopener noreferrer">{label}</a>"#,
+                    store = esc(&t.checkout_url()),
+                    label = if t.is_free() { "Get free" } else { "Get theme" },
+                ),
+            };
+
+            format!(
+                r#"<div class="card rise" data-filterable>
+<a class="shot" href="{preview}" target="_blank" rel="noopener noreferrer" tabindex="-1" aria-hidden="true" data-theme-preview="{name}" data-theme-kind="{category}"><img src="{thumb}" alt="" width="800" height="600" loading="lazy" decoding="async" referrerpolicy="no-referrer" onerror="this.remove()"><span class="price{free}">{price}</span></a>
+<div class="meta"><div class="body"><span class="title">{name}</span><span class="detail">{category} · {tagline}</span></div></div>
+<div class="actions"><a class="btn outlined small" href="{preview}" target="_blank" rel="noopener noreferrer" data-theme-preview="{name}" data-theme-kind="{category}">Preview</a>{action}</div>
+</div>"#,
+                preview = esc(t.preview_url),
+                thumb = esc(&t.thumbnail_url()),
+                free = if t.is_free() { " free" } else { "" },
+                price = esc(t.price),
+                name = esc(t.name),
+                category = esc(t.category),
+                tagline = esc(t.tagline),
+                action = action,
+            )
+        })
+        .collect()
+}
+
+/// Ghost's official themes, as small cards: the marketplace screenshot, the
+/// name with a Free tag, and one button whose job depends on whether the
+/// theme is already here.
+///
+/// `installed` is the themes already under `content/themes/`, so an entry
+/// that is installed offers Activate (or reads Active) instead of downloading
+/// it a second time.
 fn official_theme_gallery(installed: &[ghost_api::themes::InstalledTheme]) -> String {
     ghost_api::themes::OFFICIAL_THEMES
         .iter()
@@ -10722,9 +10959,9 @@ fn official_theme_gallery(installed: &[ghost_api::themes::InstalledTheme]) -> St
 
             format!(
                 r#"<div class="card rise" data-filterable>
-<a class="shot" href="{preview}" target="_blank" rel="noopener noreferrer" tabindex="-1" aria-hidden="true"><img src="/ghost/themes/official/{slug}/thumbnail.png" alt="" width="600" height="750" loading="lazy" decoding="async" onerror="this.remove()"></a>
-<div class="meta"><div class="body"><span class="title">{name}</span><span class="detail">{category}</span></div></div>
-<div class="actions"><a class="btn outlined small" href="{preview}" target="_blank" rel="noopener noreferrer">Preview</a>{action}</div>
+<a class="shot" href="{preview}" target="_blank" rel="noopener noreferrer" tabindex="-1" aria-hidden="true" data-theme-preview="{name}" data-theme-kind="{category}"><img src="/ghost/themes/official/{slug}/thumbnail.png" alt="" width="600" height="750" loading="lazy" decoding="async" onerror="this.remove()"></a>
+<div class="meta"><div class="body"><span class="title">{name}<span class="chip free">Free</span></span><span class="detail">{category}</span></div></div>
+<div class="actions"><a class="btn outlined small" href="{preview}" target="_blank" rel="noopener noreferrer" data-theme-preview="{name}" data-theme-kind="{category}">Preview</a>{action}</div>
 </div>"#,
                 slug = esc(t.slug),
                 preview = esc(t.preview_url),

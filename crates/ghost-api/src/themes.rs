@@ -541,6 +541,61 @@ pub const OFFICIAL_THEMES: &[OfficialTheme] = &[
     OfficialTheme { name: "Journal",  slug: "journal",  category: "Newsletter",    preview_url: "https://journal.ghost.io/",  repo: "TryGhost/Journal" },
 ];
 
+/// A theme sold (or given away) on ghost-theme.com. Unlike the official
+/// themes these are not installable in one click: the zip comes from the
+/// store, and goes in through the ordinary upload form.
+pub struct PremiumTheme {
+    pub name: &'static str,
+    /// The store's slug, and the directory name the theme is expected to
+    /// install as.
+    pub slug: &'static str,
+    pub category: &'static str,
+    /// The store's one-line pitch.
+    pub tagline: &'static str,
+    /// As the store shows it: "$29" or "Free".
+    pub price: &'static str,
+    /// Live demo site.
+    pub preview_url: &'static str,
+    /// Number in the store's screenshot file names (`theme{n}-800.webp`).
+    pub shot: u8,
+    /// The Lemon Squeezy variant behind the theme page's Buy / Download
+    /// button — a free theme goes through the same shop, at a price of
+    /// nothing.
+    pub buy_id: &'static str,
+}
+
+impl PremiumTheme {
+    /// The theme's checkout, in the form Lemon Squeezy's `lemon.js` opens as
+    /// an overlay on the page (`?embed=1`). Followed as an ordinary link it
+    /// is still the checkout, so the button works with the script blocked.
+    pub fn checkout_url(&self) -> String {
+        format!("https://shop.ghost-theme.com/checkout/buy/{}?embed=1", self.buy_id)
+    }
+
+    /// The store's own 800px screenshot.
+    pub fn thumbnail_url(&self) -> String {
+        format!("https://ghost-theme.com/assets/images/theme{}-800.webp", self.shot)
+    }
+
+    pub fn is_free(&self) -> bool {
+        self.price.eq_ignore_ascii_case("free")
+    }
+}
+
+/// The ghost-theme.com collection, in the order the store lists it.
+pub const PREMIUM_THEMES: &[PremiumTheme] = &[
+    PremiumTheme { name: "Newsly",    slug: "newsly",    category: "Magazine",    tagline: "For news sites with heavy category structure",     price: "$29",  preview_url: "https://theme10.ghost-theme.com/", shot: 10, buy_id: "8f1fe434-4096-4cc9-afc8-483df30c7d81" },
+    PremiumTheme { name: "Factum",    slug: "factum",    category: "Magazine",    tagline: "For journalism and content-heavy publications",    price: "Free", preview_url: "https://theme9.ghost-theme.com/",  shot: 9, buy_id: "53df98aa-fd0b-4b2f-9898-ed34518dfffe" },
+    PremiumTheme { name: "Robotical", slug: "robotical", category: "Portfolio",   tagline: "For tech portfolios and innovation showcases",     price: "$29",  preview_url: "https://theme2.ghost-theme.com/",  shot: 2, buy_id: "bb22d463-329c-4ac1-a8c1-8cc2b0998309" },
+    PremiumTheme { name: "Writer",    slug: "writer",    category: "Newsletter",  tagline: "For focused writers and minimalist publications",  price: "Free", preview_url: "https://theme8.ghost-theme.com/",  shot: 8, buy_id: "7ea9304c-7797-4924-8223-36c6e9783f21" },
+    PremiumTheme { name: "Ylogger",   slug: "ylogger",   category: "Magazine",    tagline: "For bloggers who want a familiar, classic layout", price: "$29",  preview_url: "https://theme7.ghost-theme.com/",  shot: 7, buy_id: "6b0ef9df-66ac-4819-9ab1-56955224a41a" },
+    PremiumTheme { name: "Bloggie",   slug: "bloggie",   category: "Newsletter",  tagline: "For performance-focused newsletter creators",      price: "$29",  preview_url: "https://theme3.ghost-theme.com/",  shot: 3, buy_id: "96bf281d-23e3-4767-ae4c-c08180f8c369" },
+    PremiumTheme { name: "Icelog",    slug: "icelog",    category: "Newsletter",  tagline: "For distraction-free reading and calm aesthetics", price: "Free", preview_url: "https://theme6.ghost-theme.com/",  shot: 6, buy_id: "7b70e7fa-eb6b-4e2f-8995-3131920302a6" },
+    PremiumTheme { name: "Beguni",    slug: "beguni",    category: "Photography", tagline: "For photographers and visual storytellers",        price: "$29",  preview_url: "https://theme5.ghost-theme.com/",  shot: 5, buy_id: "952c69cf-7325-4191-9583-a895ace77044" },
+    PremiumTheme { name: "Acceler",   slug: "acceler",   category: "Portfolio",   tagline: "For agency portfolios and business websites",      price: "$29",  preview_url: "https://theme4.ghost-theme.com/",  shot: 4, buy_id: "d5cc9715-97ed-4e05-bfdc-0bee0bd5ed69" },
+    PremiumTheme { name: "Asahi",     slug: "asahi",     category: "Magazine",    tagline: "For fast-loading magazines and modern blogs",      price: "$29",  preview_url: "https://theme1.ghost-theme.com/",  shot: 1, buy_id: "205518fe-3146-4bb5-ae04-4a076ab722f2" },
+];
+
 /// Look up a gallery entry by the slug the install route carries.
 pub fn official(slug: &str) -> Option<&'static OfficialTheme> {
     OFFICIAL_THEMES.iter().find(|t| t.slug == slug)
