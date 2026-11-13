@@ -155,7 +155,10 @@ svg.i { width: 22px; height: 22px; flex: none; display: block; }
   display: grid; place-items: center; font-weight: 600; font-size: 13px; flex: none; }
 .avatar.lg { width: 64px; height: 64px; font-size: 26px; object-fit: cover; }
 .who b { font-size: 13px; font-weight: 600; display: block; line-height: 1.2; }
-.who span { font-size: 11px; color: var(--on-surface-variant); }
+/* The name and the address, not the avatar — which is a span too, and sits
+   in the same block. Catching it here left the initial 11px and painted in
+   the muted text colour, which on the primary disc is all but invisible. */
+.who span:not(.avatar) { font-size: 11px; color: var(--on-surface-variant); }
 .rail .icon-btn { width: 32px; height: 32px; }
 .rail .icon-btn svg.i { width: 18px; height: 18px; }
 /* the account block is a link to your own profile; keep it looking like the
@@ -166,7 +169,10 @@ svg.i { width: 22px; height: 22px; flex: none; display: block; }
 .who-link:hover { background: color-mix(in srgb, var(--on-surface) 6%, transparent); }
 .who-link:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
 .who-link > div { min-width: 0; }
-.who-link b, .who-link span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; display: block; }
+/* Clipping applies to the two lines of text. The avatar is excluded because
+   it is not text: `display: block` would override the grid that centres the
+   initial in its disc, and drop the letter into the top-left corner. */
+.who-link b, .who-link span:not(.avatar) { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; display: block; }
 
 /* ---- appearance (night shift) ----
    Ghost's own switcher lives in the account menu and offers Dark, Light and

@@ -207,6 +207,29 @@ async fn the_stylesheet_is_linked_at_a_hashed_url_and_served_there() {
     assert_eq!(std::str::from_utf8(&body).unwrap(), super::CSS);
 }
 
+/// The account block in the rail is `<span class="avatar">A</span>` next to a
+/// `<div>` of name and address. Both rules that style that text were written
+/// as descendant selectors — `.who span`, `.who-link span` — and a span is
+/// what the avatar is, so they reached into the disc and overrode it: the
+/// initial lost the grid that centres it and went to the top-left corner, at
+/// the muted text colour, which on the primary disc is all but invisible.
+#[test]
+fn the_avatar_initial_is_not_styled_as_a_line_of_text() {
+    for rule in [".who span", ".who-link b, .who-link span"] {
+        assert!(
+            !super::CSS.contains(&format!("\n{rule} {{")),
+            "{rule} styles the avatar as text; exclude it with :not(.avatar)"
+        );
+    }
+    assert!(super::CSS.contains(".who span:not(.avatar) {"));
+    assert!(super::CSS.contains(".who-link b, .who-link span:not(.avatar) {"));
+    // And nothing else has quietly taken over the centring.
+    assert!(
+        super::CSS.contains(".avatar { width: 30px; height: 30px;"),
+        "the avatar's own rule moved; check it still centres its initial"
+    );
+}
+
 #[tokio::test]
 async fn admin_branding_uses_the_current_site_name_and_escapes_html() {
     let settings = std::sync::Arc::new(ghost_db::SettingsCache::from_values([
