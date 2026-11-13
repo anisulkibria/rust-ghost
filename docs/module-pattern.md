@@ -34,7 +34,7 @@ Social web. Most of them predate this document.
 |---|---|---|
 | Rules | [crates/ghost-core/src/forms.rs](../crates/ghost-core/src/forms.rs) | Pure domain rules — field types, bounds, normalization, validation. No DB, no HTTP. |
 | Data | [crates/ghost-db/src/repos/forms.rs](../crates/ghost-db/src/repos/forms.rs) | Every query. Structs for rows. Nothing else talks to these tables. |
-| Schema | [migrations/sqlite/0041_forms.sql](../migrations/sqlite/0041_forms.sql), `0042_form_success_action.sql` | Tables, indexes, the one-row config table. |
+| Schema | [migrations/sqlite/0011_forms.sql](../migrations/sqlite/0011_forms.sql) | Tables, indexes, the one-row config table. |
 | Public | [crates/ghost-api/src/forms.rs](../crates/ghost-api/src/forms.rs) | The internet-facing half: render into a page, accept a response, rate limits, tokens. |
 | Public assets | `crates/ghost-api/assets/forms.{js,css}` | Shipped to visitors' browsers. |
 | Admin | [crates/ghost-admin-ui/src/forms.rs](../crates/ghost-admin-ui/src/forms.rs) | Every admin screen, handler and its page HTML. 1,120 lines. |
@@ -281,8 +281,8 @@ what each column is for and what the enum-ish strings may be. An applied
 migration can never be edited — sqlx checksums them; a change breaks boot with
 "previously applied but has been modified". Add another file instead.
 
-`migrations/translate.py` generates the MySQL twins, but it fails on `0036`
-onward, so write `migrations/mysql/00NN_*.sql` by hand to match. Use
+`migrations/translate.py` used to generate the MySQL twins, but it stops part
+way (at `0004_email.sql`) and must not be run, so write `migrations/mysql/00NN_*.sql` by hand to match. Use
 `VARCHAR(n)` with explicit lengths, `TEXT` for JSON blobs (read through
 `types::Text`), `INTEGER` for booleans, `TEXT` for dates. Index what you
 filter and sort on. `ON DELETE CASCADE` for children, and still list children

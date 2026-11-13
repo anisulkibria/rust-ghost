@@ -85,7 +85,7 @@ pub async fn open(target: &Target) -> Result<Db> {
             GhostError::Db(format!("failed to open database {}: {e}", target.redacted()))
         })?;
 
-    migrate_at(&pool, target.sqlite_path().as_deref()).await?;
+    migrate(&pool).await?;
     Ok(pool)
 }
 
@@ -368,70 +368,11 @@ async fn ensure_database(target: &Target) -> Result<()> {
 /// SQLite's unbounded `TEXT` suffices. The two are kept in step by
 /// `ghost-db/tests/schema_parity.rs`.
 pub async fn migrate(pool: &Db) -> Result<()> {
-    migrate_at(pool, None).await
-}
-
-/// The same, told where the SQLite file is.
-///
-/// The path is only used to recover from one specific failure — see
-/// [`crate::repair`] — and a target without a file (MySQL, `:memory:`) passes
-/// `None`.
-pub async fn migrate_at(pool: &Db, path: Option<&Path>) -> Result<()> {
-    let first = run_migrations(pool).await;
-
-    // The one failure worth trying to recover from: a database created before
-    // the MySQL port, whose `_sqlx_migrations` holds the checksums of
-    // migration files that were later edited in place. It is not corrupt and
-    // nothing is missing from it, but every route out of it is blocked while
-    // sqlx refuses to run — so the server converts it and carries on rather
-    // than stopping with advice. `convert_pre_port_sqlite` proves the
-    // database really is that before touching it; anything else keeps the
-    // error it already has.
-    let Err(sqlx::migrate::MigrateError::VersionMismatch(version)) = &first else {
-        return first.map_err(|e| GhostError::Db(format!("migration failed: {e}")));
+    let migrator = match engine() {
+        Engine::Sqlite => sqlx::migrate!("../../migrations/sqlite"),
+        Engine::MySql => sqlx::migrate!("../../migrations/mysql"),
     };
-    if engine() != Engine::Sqlite {
-        return first.map_err(|e| GhostError::Db(format!("migration failed: {e}")));
-    }
-
-    tracing::warn!(
-        "migration {version} does not match the one that was applied — checking whether this \
-         database predates the MySQL port"
-    );
-
-    let embedded: Vec<(i64, String, Vec<u8>)> = sqlx::migrate!("../../migrations/sqlite")
-        .iter()
-        .map(|m| (m.version, m.sql.to_string(), m.checksum.to_vec()))
-        .collect();
-
-    match crate::repair::convert_pre_port_sqlite(pool, path, &embedded).await {
-        Ok(Some(done)) => {
-            tracing::warn!(
-                "converted a pre-port database to the current dialect: {} table declaration(s), \
-                 {} migration checksum(s). The database as it was is at {} — remove it once the \
-                 site looks right",
-                done.tables,
-                done.checksums,
-                done.backup.display(),
-            );
-            // The migrations this database was behind on are applied here, by
-            // sqlx, in the current dialect.
-            run_migrations(pool)
-                .await
-                .map_err(|e| GhostError::Db(format!("migration failed after converting: {e}")))
-        }
-        // Not a pre-port database, so the original error is the real one.
-        Ok(None) => first.map_err(|e| GhostError::Db(format!("migration failed: {e}"))),
-        Err(e) => Err(e),
-    }
-}
-
-/// Apply the migrations for the engine in use, reporting sqlx's own error.
-async fn run_migrations(pool: &Db) -> std::result::Result<(), sqlx::migrate::MigrateError> {
-    match engine() {
-        Engine::Sqlite => sqlx::migrate!("../../migrations/sqlite").run(pool).await,
-        Engine::MySql => sqlx::migrate!("../../migrations/mysql").run(pool).await,
-    }
+    migrator.run(pool).await.map_err(|e| GhostError::Db(format!("migration failed: {e}")))
 }
 
 #[cfg(test)]

@@ -29,7 +29,7 @@ fn value_to_string(v: &serde_json::Value) -> String {
 /// Run seeding on a database that has not been seeded yet.
 ///
 /// The probe is the `roles` table, not `settings`: migrations insert settings
-/// rows of their own (`0004_mail_settings.sql` adds the mail defaults), so on
+/// rows of their own (`0004_email.sql` adds the mail defaults), so on
 /// a fresh database the settings table is already non-empty by the time this
 /// runs. Probing it meant a new install was declared "already seeded" and
 /// silently came up with no roles, no permissions, no placeholder owner and no
