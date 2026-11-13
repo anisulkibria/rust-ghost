@@ -160,10 +160,10 @@ async fn the_newsletters_tab_counts_what_sending_recorded() {
 
 #[test]
 fn module_pages_share_one_admin_only_sidebar_entry() {
-    for active in ["modules", "analytics", "comments", "automations", "forms"] {
+    for active in ["modules", "analytics", "comments", "automations", "forms", "media"] {
         let nav = super::rail(active, None, super::Role::Administrator);
-        assert!(nav.contains(r#"class="nav-item active" href="/ghost/modules/""#));
-        for href in ["analytics", "comments", "automations", "forms"] {
+        assert!(nav.contains(r#"class="nav-item active" href="/ghost/modules/""#), "{active} does not light Modules");
+        for href in ["analytics", "comments", "automations", "forms", "media"] {
             assert!(!nav.contains(&format!(r#"class="nav-item" href="/ghost/{href}/""#)));
             assert!(!nav.contains(&format!(r#"class="nav-item active" href="/ghost/{href}/""#)));
         }

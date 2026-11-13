@@ -55,6 +55,7 @@ pub(crate) async fn admin_asset(Path((version, file)): Path<(String, String)>) -
         "koenig-integrations.js" => include_str!("../assets/koenig-integrations.js"),
         "koenig-forms.js" => include_str!("../assets/koenig-forms.js"),
         "forms-builder.js" => include_str!("../assets/forms-builder.js"),
+        "media-library.js" => include_str!("../assets/media-library.js"),
         "unsplash-picker.js" => include_str!("../assets/unsplash-picker.js"),
         "publishing-workflows.js" => include_str!("../assets/publishing-workflows.js"),
         "automation-editor.js" => include_str!("../assets/automation-editor.js"),

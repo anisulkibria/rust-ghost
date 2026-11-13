@@ -18,6 +18,7 @@ pub mod automations;
 pub mod comments;
 pub mod forms;
 pub mod integrations;
+pub mod media;
 pub mod metafields;
 pub mod newsletters;
 pub mod offers;

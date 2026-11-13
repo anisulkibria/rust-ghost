@@ -209,23 +209,29 @@ html.dark .theme-menu > summary .t-sun { display: none; }
 .main { flex: 1; min-width: 0; }
 .content { --gutter: clamp(24px, 3vw, 48px); max-width: 1500px; margin: 0 auto; padding: 0 var(--gutter) 64px; }
 
-/* Material 3 filled cards for the publication's modules. */
-.module-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 20px; margin-top: 20px; }
-.module-card { display: flex; flex-direction: column; align-items: flex-start; gap: 20px; min-width: 0;
-  padding: 28px; border-radius: 28px; background: var(--sc-low); color: var(--on-surface);
+/* Material 3 filled cards for the publication's modules.
+   Four across on a wide screen: the hub is a menu, and a menu that reads at a
+   glance beats six cards the size of posters. Every size inside the card is
+   scaled down to match — the padding, the icon tile, the heading and the
+   description — so the card is smaller rather than the same card with less
+   room in it. The breakpoints then step 4 → 3 → 2 → 1. */
+.module-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 16px; margin-top: 20px; }
+.module-card { display: flex; flex-direction: column; align-items: flex-start; gap: 14px; min-width: 0;
+  padding: 20px; border-radius: 22px; background: var(--sc-low); color: var(--on-surface);
   text-decoration: none; border: 1px solid var(--outline-variant);
   transition: background var(--dur) var(--ease), box-shadow var(--dur) var(--ease); }
 .module-card:hover { background: var(--sc-high); box-shadow: var(--shadow-1); }
 .module-card:focus-visible { outline: 3px solid var(--primary); outline-offset: 4px; }
-.module-card .ic { width: 56px; height: 56px; border-radius: 18px; }
-.module-card .ic svg { width: 28px; height: 28px; }
-.module-card h2 { margin: 0 0 10px; font-size: 22px; font-weight: 600; letter-spacing: -.3px; }
-.module-card p { margin: 0; color: var(--on-surface-variant); font-size: 14px; line-height: 1.65; }
-.module-open { display: flex; align-items: center; gap: 8px; margin-top: auto; padding-top: 8px;
-  color: var(--primary); font-size: 14px; font-weight: 600; }
-.module-open svg { width: 18px; height: 18px; }
-@media (max-width: 1100px) { .module-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
-@media (max-width: 700px) { .module-grid { grid-template-columns: minmax(0, 1fr); gap: 16px; } }
+.module-card .ic { width: 44px; height: 44px; border-radius: 14px; }
+.module-card .ic svg { width: 22px; height: 22px; }
+.module-card h2 { margin: 0 0 6px; font-size: 17px; font-weight: 600; letter-spacing: -.2px; }
+.module-card p { margin: 0; color: var(--on-surface-variant); font-size: 13px; line-height: 1.55; }
+.module-open { display: flex; align-items: center; gap: 6px; margin-top: auto; padding-top: 6px;
+  color: var(--primary); font-size: 13px; font-weight: 600; }
+.module-open svg { width: 16px; height: 16px; }
+@media (max-width: 1320px) { .module-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+@media (max-width: 1000px) { .module-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 640px) { .module-grid { grid-template-columns: minmax(0, 1fr); gap: 12px; } }
 
 /* ---- forms: the builder's field cards, and a response's answers ---- */
 .fb-list { display: grid; gap: 12px; }
@@ -1991,3 +1997,113 @@ dialog .d-actions { display: flex; justify-content: flex-end; gap: 8px; }
   .trailing { padding-left: 0; }
   .rows .row + .row::before { left: 14px; }
 }
+
+/* ---- media: the library grid, and one file's own screen ---- */
+/* Class prefix `ml-`. Everything structural is reused from the shared
+   primitives: `.card`, `.rows .row`, `.field`, `.seg-bar`, `.btn`, `.batch`
+   and `.row-check` are the posts list's, unchanged. */
+
+/* The toolbar: search takes the room left over, the two selects and the
+   buttons keep their own width. Wraps rather than compressing on a narrow
+   window, because a 90px-wide search box is worse than a second line. */
+.ml-bar { display: flex; flex-wrap: wrap; gap: 12px; align-items: flex-end; }
+.ml-bar .ml-search { flex: 1 1 240px; min-width: 0; }
+.ml-bar .field.fixed { flex: 0 1 180px; }
+.ml-bar .btn { margin-bottom: 2px; }
+
+/* File pickers. The input is the thing that works — the `<label for>` beside
+   it is what gets clicked — so it is moved out of sight rather than
+   `display:none`, which would take it out of the accessibility tree and leave
+   the label pointing at nothing. Used by both pickers in this module (Upload
+   in the library header, Replace on a file's own screen), so the rule is a
+   class rather than a descendant of one container. */
+.ml-upload { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+input.ml-pick { position: absolute; width: 1px; height: 1px; padding: 0;
+  margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
+/* The input takes the focus ring, but it is invisible — so the ring is drawn
+   on the label that stands in for it. */
+input.ml-pick:focus-visible + label.btn { outline: 3px solid var(--primary); outline-offset: 2px; }
+.ml-state { font-size: 13px; }
+
+/* The drop target is the whole grid area, including the empty state, so there
+   is somewhere to drop a file on a site with no files yet. */
+.ml-drop { position: relative; border-radius: 24px; transition: background var(--dur) var(--ease); }
+.ml-drop .ml-hint { margin: 0 0 12px; display: flex; align-items: center; gap: 8px;
+  color: var(--on-surface-variant); font-size: 13px; }
+.ml-drop .ml-hint svg { width: 18px; height: 18px; }
+.ml-drop.ml-over { background: var(--sc-high); outline: 2px dashed var(--primary); outline-offset: 6px; }
+.ml-drop.ml-busy { opacity: .6; pointer-events: none; }
+
+/* Tiles. `auto-fill` with a minimum rather than a fixed count: the library is
+   the one screen whose contents have no natural column count, and a 180px
+   floor keeps a thumbnail readable at every window width without a stack of
+   breakpoints. */
+.ml-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 16px; }
+.ml-tile { position: relative; display: flex; flex-direction: column; min-width: 0;
+  border-radius: 18px; background: var(--sc-low); border: 1px solid var(--outline-variant);
+  transition: background var(--dur) var(--ease), box-shadow var(--dur) var(--ease); }
+.ml-tile:hover { background: var(--sc-high); box-shadow: var(--shadow-1); }
+.ml-tile:focus-within { outline: 3px solid var(--primary); outline-offset: 3px; }
+.ml-open { display: flex; flex-direction: column; min-width: 0; color: inherit; text-decoration: none; }
+.ml-open:focus-visible { outline: none; }
+
+/* A square frame, so a portrait photo and a landscape one leave the grid's
+   rows the same height. `object-fit: cover` is what fills it without
+   distorting; the checkerboard underneath is what makes a transparent PNG
+   legible instead of invisible on a pale surface. */
+.ml-shot { position: relative; aspect-ratio: 1; border-radius: 17px 17px 0 0; overflow: hidden;
+  display: flex; align-items: center; justify-content: center; gap: 6px; flex-direction: column;
+  background-color: var(--sc-high);
+  background-image:
+    linear-gradient(45deg, var(--outline-variant) 25%, transparent 25%, transparent 75%, var(--outline-variant) 75%),
+    linear-gradient(45deg, var(--outline-variant) 25%, transparent 25%, transparent 75%, var(--outline-variant) 75%);
+  background-size: 16px 16px; background-position: 0 0, 8px 8px; }
+.ml-shot img { width: 100%; height: 100%; object-fit: cover; display: block; }
+/* Nothing to show a pattern behind, so the glyph gets a plain surface. */
+.ml-shot-glyph { background-image: none; }
+.ml-shot .ml-glyph { width: 44px; height: 44px; border-radius: 14px; }
+.ml-shot .ml-glyph svg { width: 22px; height: 22px; }
+.ml-ext { font-family: var(--mono, 'Roboto Mono', monospace); font-size: 11px; font-weight: 500;
+  letter-spacing: .06em; color: var(--on-surface-variant); }
+
+.ml-meta { display: flex; flex-direction: column; gap: 2px; padding: 10px 12px 12px; min-width: 0; }
+.ml-name { font-size: 13px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ml-sub { font-size: 12px; color: var(--on-surface-variant); }
+
+/* The checkbox and the copy button float over the thumbnail. They stay hidden
+   until the tile is hovered or focused — or, for the checkbox, until anything
+   on the page is selected, so an existing selection is visible everywhere
+   rather than only under the pointer. */
+.ml-tile .row-check { position: absolute; top: 8px; left: 8px; z-index: 2; margin: 0;
+  border-radius: 10px; background: var(--surface); box-shadow: var(--shadow-1); }
+.ml-copy { position: absolute; top: 8px; right: 8px; z-index: 2;
+  background: var(--surface); box-shadow: var(--shadow-1); }
+.ml-tile .row-check, .ml-copy { opacity: 0; transition: opacity var(--dur) var(--ease); }
+.ml-tile:hover .row-check, .ml-tile:hover .ml-copy,
+.ml-tile:focus-within .row-check, .ml-tile:focus-within .ml-copy,
+.ml-tile .row-check:has(input:checked) { opacity: 1; }
+body:has(.ml-tile input:checked) .ml-tile .row-check { opacity: 1; }
+/* A touch screen has no hover, so the controls are simply always there. */
+@media (hover: none) { .ml-tile .row-check, .ml-copy { opacity: 1; } }
+
+/* One file's screen: the preview beside the forms that act on it, and stacked
+   once there is no longer room for both. */
+.ml-item { display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(300px, 1fr); gap: 20px; align-items: start; }
+.ml-side { display: grid; gap: 16px; }
+.ml-preview { display: flex; align-items: center; justify-content: center; overflow: hidden;
+  border-radius: 24px; border: 1px solid var(--outline-variant); background-color: var(--sc-low);
+  background-image:
+    linear-gradient(45deg, var(--outline-variant) 25%, transparent 25%, transparent 75%, var(--outline-variant) 75%),
+    linear-gradient(45deg, var(--outline-variant) 25%, transparent 25%, transparent 75%, var(--outline-variant) 75%);
+  background-size: 20px 20px; background-position: 0 0, 10px 10px; min-height: 240px; }
+/* Capped at the viewport so a tall photograph does not push the forms beside
+   it off the bottom of the screen. */
+.ml-preview img, .ml-preview video { max-width: 100%; max-height: min(70vh, 720px); display: block; }
+.ml-sound, .ml-nothing { display: flex; flex-direction: column; align-items: center; gap: 12px;
+  padding: 40px 24px; text-align: center; background: var(--surface); width: 100%; }
+.ml-sound .ic, .ml-nothing .ic { width: 56px; height: 56px; border-radius: 18px; }
+.ml-sound .ic svg, .ml-nothing .ic svg { width: 28px; height: 28px; }
+.ml-sound audio { width: 100%; max-width: 420px; }
+.ml-nothing p { margin: 0; font-size: 15px; font-weight: 600; }
+.ml-nothing p.muted { font-weight: 400; max-width: 34ch; }
+@media (max-width: 1000px) { .ml-item { grid-template-columns: minmax(0, 1fr); } }

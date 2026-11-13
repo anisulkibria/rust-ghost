@@ -74,6 +74,11 @@ const MAX_UPLOAD_BYTES: usize = 100 * 1024 * 1024;
 /// Redirects and routes files are a few kilobytes; a megabyte is already
 /// generous and keeps a mistaken upload of something else from being read.
 const ONE_MB_BYTES: usize = 1024 * 1024;
+/// Body limit for the media library's own upload routes: the largest of the
+/// three family ceilings, since one post may carry files of any family and
+/// the body is read before anything knows which. The family's real limit is
+/// then applied per file by `ghost_api::images::store`.
+const MAX_MEDIA_BYTES: usize = 200 * 1024 * 1024;
 
 tokio::task_local! {
     static ADMIN_SETTINGS: Arc<ghost_db::SettingsCache>;
@@ -191,6 +196,27 @@ pub fn admin_ui_router(state: AppState) -> Router<AppState> {
         .route("/forms/{id}/", get(forms::form_page).post(forms::form_save))
         .route("/forms/{id}/delete/", post(forms::form_delete))
         .route("/settings/forms/", get(forms::settings_page).post(forms::settings_save))
+        // Media: the file library. No `{id}` anywhere in it — a stored path
+        // has slashes and dots in it, so a file is named by a `path=`
+        // parameter that `ghost_core::media::parse_location` checks, rather
+        // than by a path segment that would have to be a wildcard capture.
+        // The upload and replace routes carry the largest of the three family
+        // ceilings; `store` then enforces the real one for the family a file
+        // is filed under.
+        .route("/media/", get(media::library_page))
+        .route(
+            "/media/upload/",
+            post(media::upload).layer(axum::extract::DefaultBodyLimit::max(MAX_MEDIA_BYTES)),
+        )
+        .route("/media/delete/", post(media::bulk_delete))
+        .route("/media/item/", get(media::item_page))
+        .route("/media/item/save/", post(media::item_save))
+        .route("/media/item/rename/", post(media::item_rename))
+        .route(
+            "/media/item/replace/",
+            post(media::item_replace).layer(axum::extract::DefaultBodyLimit::max(MAX_MEDIA_BYTES)),
+        )
+        .route("/media/item/delete/", post(media::item_delete))
         // Automations. `new` is a static segment and must precede `{id}`.
         .route("/automations/", get(automations::automations_page))
         .route("/automations/new/", post(automations::automation_create))

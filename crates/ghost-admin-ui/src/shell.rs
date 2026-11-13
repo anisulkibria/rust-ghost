@@ -33,6 +33,10 @@ pub(crate) fn icon(name: &str) -> &'static str {
         "send" => r#"<path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/>"#,
         "globe" => r#"<path d="M11.99 2C6.47 2 2 6.48 2 12s4.47 10 9.99 10C17.52 22 22 17.52 22 12S17.52 2 11.99 2zm6.93 6h-2.95c-.32-1.25-.78-2.45-1.38-3.56 1.84.63 3.37 1.91 4.33 3.56zM12 4.04c.83 1.2 1.48 2.53 1.91 3.96h-3.82c.43-1.43 1.08-2.76 1.91-3.96zM4.26 14C4.1 13.36 4 12.69 4 12s.1-1.36.26-2h3.38c-.08.66-.14 1.32-.14 2 0 .68.06 1.34.14 2H4.26zm.82 2h2.95c.32 1.25.78 2.45 1.38 3.56-1.84-.63-3.37-1.9-4.33-3.56zm2.95-8H5.08c.96-1.66 2.49-2.93 4.33-3.56C8.81 5.55 8.35 6.75 8.03 8zM12 19.96c-.83-1.2-1.48-2.53-1.91-3.96h3.82c-.43 1.43-1.08 2.76-1.91 3.96zM14.34 14H9.66c-.09-.66-.16-1.32-.16-2 0-.68.07-1.35.16-2h4.68c.09.65.16 1.32.16 2 0 .68-.07 1.34-.16 2zm.25 5.56c.6-1.11 1.06-2.31 1.38-3.56h2.95c-.96 1.65-2.49 2.93-4.33 3.56zM16.36 14c.08-.66.14-1.32.14-2 0-.68-.06-1.34-.14-2h3.38c.16.64.26 1.31.26 2s-.1 1.36-.26 2h-3.38z"/>"#,
         "image" => r#"<path d="M21 19V5c0-1.1-.9-2-2-2H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2zM8.5 13.5l2.5 3.01L14.5 12l4.5 6H5l3.5-4.5z"/>"#,
+        // one picture behind another: a library of files rather than a file
+        "library" => r#"<path d="M20 2H8c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm-9.5 11.5 2 2.51L15.5 12l3.5 4.5H9l1.5-3zM4 6H2v14c0 1.1.9 2 2 2h14v-2H4V6z"/>"#,
+        // a play triangle, for video and audio
+        "play" => r#"<path d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20zm-2 14.5v-9l7 4.5-7 4.5z"/>"#,
         "link" => r#"<path d="M3.9 12c0-1.71 1.39-3.1 3.1-3.1h4V7H7c-2.76 0-5 2.24-5 5s2.24 5 5 5h4v-1.9H7c-1.71 0-3.1-1.39-3.1-3.1zM8 13h8v-2H8v2zm9-6h-4v1.9h4c1.71 0 3.1 1.39 3.1 3.1s-1.39 3.1-3.1 3.1h-4V17h4c2.76 0 5-2.24 5-5s-2.24-5-5-5z"/>"#,
         "title" => r#"<path d="M5 4v3h5.5v12h3V7H19V4z"/>"#,
         "notes" => r#"<path d="M3 18h12v-2H3v2zM3 6v2h18V6H3zm0 7h18v-2H3v2z"/>"#,
@@ -887,7 +891,7 @@ pub(crate) fn merge_night_shift(existing: Option<&str>, theme: &str) -> String {
 /// `user` supplies the account block at the bottom of the rail.
 pub(crate) fn rail(active: &str, user: Option<&ghost_core::models::User>, role: Role) -> String {
     let active = match active {
-        "analytics" | "comments" | "automations" | "forms" => "modules",
+        "analytics" | "comments" | "automations" | "forms" | "media" => "modules",
         other => other,
     };
     // Showing a link that only leads to "Not allowed" is worse than not

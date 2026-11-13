@@ -1,17 +1,23 @@
 //! Admin uploads — `/ghost/api/admin/{images,media,files}/upload/`.
 //!
 //! Multipart in, a URL under `/content/…` out. The three families differ only
-//! in where they land and what they accept: images and media are typed
-//! allowlists (a video card cannot be handed a `.exe`), while files are
-//! deliberately open, the way Ghost's file card is.
+//! in where they land and what they accept; which types each one takes, and
+//! the extension a type is stored under, are
+//! [`ghost_core::media::Kind`]'s business, not this module's.
+//!
+//! The actual storing is [`store`], which this module's JSON endpoint and the
+//! admin's media manager both call. Keeping it in one function is what makes
+//! "an upload lands in `content/<family>/YYYY/MM/` under a slugged name and a
+//! random tail" true of every upload however it arrived — the editor's drag
+//! and drop, the media library, or a no-JavaScript form post.
 use axum::extract::{Multipart, State};
 use axum::http::HeaderMap;
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use axum::routing::post;
 use axum::{Json, Router};
+use ghost_core::media::Kind;
 use serde_json::json;
-use std::path::PathBuf;
 
 use crate::state::AppState;
 
@@ -40,98 +46,114 @@ fn upload_router(kind: Kind) -> Router<AppState> {
         .layer(axum::extract::DefaultBodyLimit::max(kind.max_bytes()))
 }
 
-#[derive(Clone, Copy)]
-enum Kind {
-    Image,
-    Media,
-    File,
-}
-
-const IMAGE_TYPES: &[(&str, &str)] = &[
-    ("image/jpeg", "jpg"),
-    ("image/png", "png"),
-    ("image/gif", "gif"),
-    ("image/webp", "webp"),
-    ("image/svg+xml", "svg"),
-    ("image/avif", "avif"),
-];
-
-const MEDIA_TYPES: &[(&str, &str)] = &[
-    ("video/mp4", "mp4"),
-    ("video/webm", "webm"),
-    ("video/ogg", "ogv"),
-    ("audio/mpeg", "mp3"),
-    ("audio/mp3", "mp3"),
-    ("audio/ogg", "ogg"),
-    ("audio/wav", "wav"),
-    ("audio/vnd.wav", "wav"),
-    ("audio/wave", "wav"),
-    ("audio/x-wav", "wav"),
-    ("audio/mp4", "m4a"),
-    ("audio/x-m4a", "m4a"),
-];
-
-impl Kind {
-    fn dir(self, config: &ghost_core::Config) -> PathBuf {
-        match self {
-            Kind::Image => config.images_dir(),
-            Kind::Media => config.media_dir(),
-            Kind::File => config.files_dir(),
-        }
-    }
-
-    /// Where the saved file is reachable on the public site.
-    fn url_prefix(self) -> &'static str {
-        match self {
-            Kind::Image => "/content/images",
-            Kind::Media => "/content/media",
-            Kind::File => "/content/files",
-        }
-    }
-
-    /// Ghost returns `{images: […]}` / `{media: […]}` / `{files: […]}`;
-    /// Koenig reads the array out by this name.
-    fn resource(self) -> &'static str {
-        match self {
-            Kind::Image => "images",
-            Kind::Media => "media",
-            Kind::File => "files",
-        }
-    }
-
-    fn max_bytes(self) -> usize {
-        match self {
-            Kind::Image => 25 * 1024 * 1024,
-            Kind::Media => 200 * 1024 * 1024,
-            Kind::File => 100 * 1024 * 1024,
-        }
-    }
-
-    /// `Ok(extension)` for an accepted upload. The file card takes anything,
-    /// so it keeps the extension the browser sent instead of a mapped one.
-    fn extension(self, content_type: &str, filename: Option<&str>) -> Result<String, String> {
-        let allowed = match self {
-            Kind::Image => IMAGE_TYPES,
-            Kind::Media => MEDIA_TYPES,
-            Kind::File => {
-                let ext = filename
-                    .and_then(|f| f.rsplit_once('.'))
-                    .map(|(_, e)| e.to_ascii_lowercase())
-                    .filter(|e| e.len() <= 8 && e.chars().all(|c| c.is_ascii_alphanumeric()))
-                    .unwrap_or_else(|| "bin".into());
-                return Ok(ext);
-            }
-        };
-        allowed
-            .iter()
-            .find(|(mime, _)| *mime == content_type)
-            .map(|(_, ext)| (*ext).to_string())
-            .ok_or_else(|| format!("unsupported type {content_type}"))
-    }
+/// Ghost returns `{images: […]}` / `{media: […]}` / `{files: […]}`; Koenig
+/// reads the array out by this name, which is also the family's directory.
+fn resource(kind: Kind) -> &'static str {
+    kind.as_str()
 }
 
 fn error(status: StatusCode, message: &str, kind: &str) -> Response {
     (status, Json(json!({ "errors": [{ "message": message, "errorType": kind }] }))).into_response()
+}
+
+/// Why an upload was refused: the status to answer with, and a sentence.
+pub struct Refused {
+    pub status: StatusCode,
+    pub message: String,
+}
+
+impl Refused {
+    fn new(status: StatusCode, message: impl Into<String>) -> Self {
+        Self { status, message: message.into() }
+    }
+}
+
+/// Where one accepted upload was stored.
+pub struct Stored {
+    /// Browser-ready, with the install's base path on it — or, under S3, the
+    /// URL object storage answered with.
+    pub url: String,
+    /// The stored path the media manager knows the file by,
+    /// `images/2026/11/cover-ab12.jpg`. `None` under a storage adapter that
+    /// put the file somewhere this server cannot list.
+    pub path: Option<String>,
+}
+
+/// Store one uploaded file, wherever it came from.
+///
+/// Checks, in the order the request meets them: the family's type allowlist
+/// (which also decides the extension written to disk), the family's size
+/// ceiling, then the host's own upload limit if it has set one. Only after all
+/// three does anything touch the disk.
+///
+/// The name is rebuilt rather than reused — the browser's stem through
+/// `slug::safe_string`, the extension from the allowlist, and a short random
+/// tail so two uploads of `photo.jpg` do not overwrite one another. So an
+/// uploaded filename never reaches the filesystem as given.
+pub async fn store(
+    state: &AppState,
+    kind: Kind,
+    filename: Option<&str>,
+    content_type: &str,
+    data: &[u8],
+) -> Result<Stored, Refused> {
+    let ext = kind
+        .extension(content_type, filename)
+        .map_err(|message| Refused::new(StatusCode::UNSUPPORTED_MEDIA_TYPE, message))?;
+    if data.len() > kind.max_bytes() {
+        return Err(Refused::new(
+            StatusCode::PAYLOAD_TOO_LARGE,
+            format!("file too large (max {}MB)", kind.max_bytes() / 1024 / 1024),
+        ));
+    }
+    // And the host's own ceiling, if it has set one. This one is unusual among
+    // the limits: the figure being compared is the size of the file in hand,
+    // not a count taken from the database, so it is passed in.
+    if let Err(e) = state
+        .limits
+        .error_if_is_over(&state.db, "uploads", ghost_db::limits::Check::of_size(data.len() as i64))
+        .await
+    {
+        return Err(Refused::new(StatusCode::UNPROCESSABLE_ENTITY, e.message()));
+    }
+
+    // content/<family>/YYYY/MM/<name>-<random>.<ext>, as Ghost lays it out.
+    let now = chrono::Utc::now();
+    let month = format!("{:04}/{:02}", now.format("%Y"), now.format("%m"));
+    let dir = match kind {
+        Kind::Image => state.config.images_dir(),
+        Kind::Media => state.config.media_dir(),
+        Kind::File => state.config.files_dir(),
+    }
+    .join(&month);
+    let _ = tokio::fs::create_dir_all(&dir).await;
+    let stem = filename
+        .and_then(|f| f.rsplit_once('.').map(|(s, _)| s.to_string()).or_else(|| Some(f.to_string())))
+        .map(|s| ghost_core::slug::safe_string(&s))
+        .filter(|s| !s.is_empty())
+        .unwrap_or_else(|| "upload".into());
+    // Bounded so a very long name cannot push the stored path past the length
+    // the media manager's metadata key allows.
+    let stem: String = stem.chars().take(60).collect();
+    let name = format!("{stem}-{}.{ext}", ghost_core::ids::random_hex(4));
+    if let Err(e) = tokio::fs::write(dir.join(&name), data).await {
+        tracing::error!("upload: could not write {}: {e}", dir.join(&name).display());
+        return Err(Refused::new(StatusCode::INTERNAL_SERVER_ERROR, "The file could not be written."));
+    }
+
+    let rest = format!("{month}/{name}");
+    let path = format!("{}/{rest}", kind.as_str());
+    // Browser-ready, with the install's base path: the editor drops this
+    // straight into an `<img src>` and has to be able to load it. The write
+    // path puts it back into stored form, so what the editor saves does not
+    // carry the base path into the database.
+    let local_url = ghost_core::url::base(&format!("{}/{rest}", kind.url_prefix()));
+    let published = crate::storage::publish_upload(state, &path, content_type, data, local_url.clone())
+        .await
+        .map_err(|e| Refused::new(StatusCode::BAD_GATEWAY, e.message()))?;
+    // The local original is written either way (object storage is published
+    // *in addition*), so the media manager can always list it by path.
+    Ok(Stored { url: published, path: Some(path) })
 }
 
 async fn upload(State(state): State<AppState>, headers: HeaderMap, mut multipart: Multipart, kind: Kind) -> Response {
@@ -146,60 +168,28 @@ async fn upload(State(state): State<AppState>, headers: HeaderMap, mut multipart
         }
         let filename = field.file_name().map(str::to_string);
         let content_type = field.content_type().map(str::to_string).unwrap_or_else(|| "application/octet-stream".into());
-        let ext = match kind.extension(&content_type, filename.as_deref()) {
-            Ok(ext) => ext,
-            Err(message) => return error(StatusCode::UNSUPPORTED_MEDIA_TYPE, &message, "ValidationError"),
-        };
         let data = match field.bytes().await {
             Ok(d) => d,
             Err(e) => return error(StatusCode::BAD_REQUEST, &e.to_string(), "BadRequestError"),
         };
-        if data.len() > kind.max_bytes() {
-            let message = format!("file too large (max {}MB)", kind.max_bytes() / 1024 / 1024);
-            return error(StatusCode::PAYLOAD_TOO_LARGE, &message, "ValidationError");
-        }
-        // And the host's own ceiling, if it has set one. This one is unusual
-        // among the limits: the figure being compared is the size of the file
-        // in hand, not a count taken from the database, so it is passed in.
-        if let Err(e) = state
-            .limits
-            .error_if_is_over(&state.db, "uploads", ghost_db::limits::Check::of_size(data.len() as i64))
-            .await
-        {
-            return crate::error_json(&e);
-        }
-
-        // content/<kind>/YYYY/MM/<name>-<random>.<ext>, as Ghost lays it out.
-        let now = chrono::Utc::now();
-        let month = format!("{:04}/{:02}", now.format("%Y"), now.format("%m"));
-        let dir = kind.dir(&state.config).join(&month);
-        let _ = tokio::fs::create_dir_all(&dir).await;
-        let stem = filename
-            .as_deref()
-            .and_then(|f| f.rsplit_once('.').map(|(s, _)| s.to_string()).or_else(|| Some(f.to_string())))
-            .map(|s| ghost_core::slug::safe_string(&s))
-            .filter(|s| !s.is_empty())
-            .unwrap_or_else(|| "upload".into());
-        let filename = format!("{stem}-{}.{ext}", ghost_core::ids::random_hex(4));
-        if let Err(e) = tokio::fs::write(dir.join(&filename), &data).await {
-            return error(StatusCode::INTERNAL_SERVER_ERROR, &e.to_string(), "InternalServerError");
-        }
-
-        // Browser-ready, with the install's base path: the editor drops this
-        // straight into an `<img src>` and has to be able to load it. The
-        // write path puts it back into stored form, so what the editor saves
-        // does not carry the base path into the database.
-        let url = ghost_core::url::base(&format!("{}/{month}/{filename}", kind.url_prefix()));
-        let object_key=format!("{}/{month}/{filename}",kind.url_prefix().trim_start_matches("/content/"));
-        let url=match crate::storage::publish_upload(&state,&object_key,&content_type,&data,url).await {
-            Ok(url)=>url,Err(e)=>return error(StatusCode::BAD_GATEWAY,&e.message(),"StorageError")
+        let stored = match store(&state, kind, filename.as_deref(), &content_type, &data).await {
+            Ok(stored) => stored,
+            Err(refused) => {
+                let kind = match refused.status {
+                    StatusCode::INTERNAL_SERVER_ERROR => "InternalServerError",
+                    StatusCode::BAD_GATEWAY => "StorageError",
+                    _ => "ValidationError",
+                };
+                return error(refused.status, &refused.message, kind);
+            }
         };
+        let url = stored.url;
         // The bare array is what this server has always answered with; the
         // named envelope is Ghost's. Both are sent so either client works.
         return (
             StatusCode::CREATED,
             Json(json!({
-                kind.resource(): [{ "url": url, "ref": null }],
+                resource(kind): [{ "url": url, "ref": null }],
                 "url": url,
                 "thumbnailUrl": url,
             })),

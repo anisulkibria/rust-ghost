@@ -26,7 +26,20 @@ That is the shape every module from here on takes. The file must not grow back.
 
 A "module" here means a self-contained administrative feature with its own
 screens under `/ghost/<name>/`: Forms, Comments, Automations, Analytics,
-Social web. Most of them predate this document.
+Media, Social web. Most of them predate this document.
+
+**Media (2026-11-14) is the first module built to this document from
+nothing**, so it is worth reading beside Forms. Two things in it are new and
+are the pattern to copy, not deviations:
+
+- Its rules module (`ghost-core/src/media.rs`) is shared with `ghost-api`
+  rather than only with the admin — the upload endpoint and the library both
+  ask it which types are allowed and what a path may look like. Rule 2 always
+  implied this; Media is where it pays.
+- It has **no table of its own contents**. The filesystem is the record and
+  `media_meta` holds only what the filesystem cannot. Where the authority for
+  a module's data already exists somewhere outside the database, say so in the
+  migration's comment and read the authority.
 
 ## The reference: what Forms is made of
 
@@ -63,8 +76,8 @@ Where to look, and where a new screen goes. Everything under
 | `settings.rs` + `settings/` | the hub, then `general`, `email`, `newsletters`, `features`, `membership`, `growth`, `advanced` |
 | `themes.rs` · `design.rs` · `navigation.rs` · `staff.rs` | the remaining settings groups with screens of their own |
 | `integrations.rs` · `apps.rs` | API keys, custom integrations, and the built-in apps |
-| `analytics.rs` · `comments.rs` · `automations.rs` · `forms.rs` · `social.rs` · `click.rs` | the modules proper |
-| `media.rs` · `preview.rs` · `schedule.rs` · `rest.rs` | supporting machinery |
+| `analytics.rs` · `comments.rs` · `automations.rs` · `forms.rs` · `media.rs` + `media/` · `social.rs` · `click.rs` | the modules proper |
+| `preview.rs` · `schedule.rs` · `rest.rs` | supporting machinery |
 | `tests.rs` | tests for the shared chrome and for screens whose handlers sit elsewhere |
 
 ---

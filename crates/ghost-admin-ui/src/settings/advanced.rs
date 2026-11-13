@@ -1296,6 +1296,12 @@ pub(crate) const CONTENT_TABLES: &[&str] = &[
     "posts", "posts_meta", "posts_tags", "posts_authors", "posts_products",
     "post_revisions", "mobiledoc_revisions", "tags", "snippets", "emails",
     "email_batches", "email_recipients", "email_recipient_failures",
+    // What was written beside an uploaded file is content. The files
+    // themselves are on disk and are deliberately left there: "delete all
+    // content" empties the database, and a media library that emptied the
+    // content directory with it would also take the logo, the icon and every
+    // image a theme was set up with.
+    "media_meta",
 ];
 
 /// Tables wiped by "delete site" on top of the content set — identity, members

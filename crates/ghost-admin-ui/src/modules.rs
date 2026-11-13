@@ -9,6 +9,7 @@ pub(crate) const MODULES: &[(&str, &str, &str, &str, &str)] = &[
     ("Comments", "/ghost/comments/", "comment", "purple", "Review discussions and manage comments across your posts."),
     ("Automations", "/ghost/automations/", "flow", "blue", "Manage automated workflows and their activity."),
     ("Forms", "/ghost/forms/", "form", "amber", "Build contact forms and read the responses visitors send."),
+    ("Media", "/ghost/media/", "library", "pink", "Upload and manage every image, video and file on your site."),
     ("Social web", "/ghost/social/", "share", "teal", "Read, publish notes and connect with the fediverse."),
 ];
 
