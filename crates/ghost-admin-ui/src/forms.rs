@@ -339,18 +339,11 @@ pub async fn form_page(
     .into_response()
 }
 
-/// A hash of the builder script, for its URL.
-///
-/// The admin's scripts are served `immutable` behind a version in the path,
-/// which is only as good as someone remembering to bump it: a script changed
-/// without a bump is served from the browser's cache for a year, and the
-/// page quietly runs the old one. Hashing the contents into the query string
-/// makes a changed script a new URL by construction.
+/// A hash of the builder script, for its URL. See [`crate::asset_hash`] for
+/// why every admin asset is requested with one.
 fn builder_script_hash() -> &'static str {
-    static HASH: std::sync::LazyLock<String> = std::sync::LazyLock::new(|| {
-        use sha2::{Digest, Sha256};
-        hex::encode(Sha256::digest(include_str!("../assets/forms-builder.js").as_bytes()))[..12].to_string()
-    });
+    static HASH: std::sync::LazyLock<String> =
+        std::sync::LazyLock::new(|| crate::asset_hash(include_str!("../assets/forms-builder.js")));
     &HASH
 }
 

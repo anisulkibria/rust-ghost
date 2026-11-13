@@ -819,6 +819,11 @@ migrations/       embedded SQL migrations (schema mirrors Ghost's columns)
 content/          themes/, data/, images/, routes.yaml, redirects.yaml
 ```
 
+Adding an administrative feature of your own? See
+[How to add an admin module](docs/module-pattern.md) — a map of
+`ghost-admin-ui`, the nine places a module registers itself, and the security
+and testing rules every module keeps. Forms is the worked example.
+
 ## Compatibility notes
 
 - **Themes**: `content/themes/flux` runs unchanged (its own `routes.yaml` is

@@ -10,7 +10,7 @@
 //! that redirects with a flash, so the screens work without JavaScript and
 //! there is no second copy of the rules living in a browser.
 
-use crate::{esc, svg};
+use crate::*;
 use ghost_api::federation::{ops, profiles::Profile};
 
 /// The sections the social web is split into.
@@ -730,4 +730,662 @@ mod tests {
         // Past a week a relative figure stops meaning anything.
         assert!(ago(60 * 24 * 40).contains("20"), "{}", ago(60 * 24 * 40));
     }
+}
+
+// -------------------------------------------------------------------------
+// The social web screens: the feed, threads, accounts and the notes composer.
+// -------------------------------------------------------------------------
+
+// ---------------------------------------------------------------------------
+// social web — Ghost's Fediverse/ActivityPub admin
+// ---------------------------------------------------------------------------
+
+
+/// Back to a social web section, carrying a one-shot banner.
+pub(crate) fn social_flash(tab: &str, kind: &str, message: &str) -> Response {
+    let encoded: String = form_urlencoded::Serializer::new(String::new())
+        .append_pair("tab", tab)
+        .append_pair(kind, message)
+        .finish();
+    Redirect::to(&format!("/ghost/social/?{encoded}")).into_response()
+}
+
+/// Back to wherever the form was submitted from.
+///
+/// An action taken from a thread should land back in that thread, not at the
+/// top of the feed — losing your place is the quickest way to make a feed
+/// unusable.
+pub(crate) fn social_return(form: &HashMap<String, String>, kind: &str, message: &str) -> Response {
+    let encoded: String = form_urlencoded::Serializer::new(String::new())
+        .append_pair(kind, message)
+        .finish();
+    match form.get("return").map(String::as_str).filter(|r| r.starts_with("/ghost/social/")) {
+        Some(back) => {
+            let join = if back.contains('?') { '&' } else { '?' };
+            Redirect::to(&format!("{back}{join}{encoded}")).into_response()
+        }
+        None => Redirect::to(&format!("/ghost/social/?{encoded}")).into_response(),
+    }
+}
+
+/// The publication's handle and actor URL, for the identity card.
+pub(crate) async fn social_identity(state: &AppState) -> (String, String) {
+    let site = reqwest::Url::parse(&state.site_url()).ok();
+    let host = site
+        .as_ref()
+        .and_then(|url| match url.port() {
+            Some(port) => url.host_str().map(|h| format!("{h}:{port}")),
+            None => url.host_str().map(str::to_string),
+        })
+        .unwrap_or_default();
+    (
+        format!("@publication@{host}"),
+        format!("{}/.ghost/activitypub/actor", state.site_url()),
+    )
+}
+
+/// The shell every social screen shares: the identity card and the tab bar.
+pub(crate) async fn social_shell(state: &AppState, tab: &str, body: &str, flash: &str) -> String {
+    let (handle, actor) = social_identity(state).await;
+    let (followers, following, posts) = ops::summary(&state.db).await;
+    let unread = ops::unread(&state.db).await;
+    let enabled = ghost_api::federation::enabled(state);
+
+    let tabs: String = social::TABS
+        .iter()
+        .map(|(slug, label)| {
+            // The unread count rides the tab it belongs to, which is the one
+            // place it is useful without being nagging.
+            let badge = if *slug == "notifications" && unread > 0 {
+                format!(r#"<span class="seg-count">{unread}</span>"#)
+            } else {
+                String::new()
+            };
+            format!(
+                r#"<a class="seg{on}" href="/ghost/social/?tab={slug}">{label}{badge}</a>"#,
+                on = if *slug == tab { " on" } else { "" },
+                slug = slug,
+                label = esc(label),
+                badge = badge,
+            )
+        })
+        .collect();
+
+    // Federation needs a public HTTPS address to be reachable at all. Saying
+    // so once, at the top, beats every action failing with its own message.
+    let notice = if !enabled {
+        format!(
+            r#"<div class="banner info rise">{icon}<span class="msg">The social web is off. Your publication is not federating, and nothing here will be delivered until it is enabled.</span></div>"#,
+            icon = svg("ghost"),
+        )
+    } else if !state.site_url().starts_with("https://") {
+        format!(
+            r#"<div class="banner info rise">{icon}<span class="msg">This site's URL is not HTTPS, so other servers cannot reach it. Notes and follows are recorded here but will not be delivered.</span></div>"#,
+            icon = svg("ghost"),
+        )
+    } else {
+        String::new()
+    };
+
+    format!(
+        r#"<header class="page-head rise"><div><h1>Social web</h1><p class="sub">Your publication on the fediverse</p></div></header>
+{flash}{notice}
+{profile}
+<div class="seg-bar">{tabs}</div>
+{body}"#,
+        flash = flash,
+        notice = notice,
+        profile = social::publication_header(&handle, &actor, followers, following, posts, enabled),
+        tabs = tabs,
+        body = body,
+    )
+}
+
+pub(crate) async fn social_page(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Query(q): Query<HashMap<String, String>>,
+) -> Response {
+    let actor = match require_role(&state, &headers, Role::Editor).await {
+        Ok(actor) => actor,
+        Err(response) => return response,
+    };
+    let tab = q.get("tab").map(String::as_str).unwrap_or("feed");
+    let tab = social::TABS
+        .iter()
+        .find(|(slug, _)| *slug == tab)
+        .map(|(slug, _)| *slug)
+        .unwrap_or("feed");
+    let page = q.get("page").and_then(|p| p.parse::<i64>().ok()).unwrap_or(1).clamp(1, 10000);
+    const PER_PAGE: i64 = 20;
+
+    let body = match tab {
+        "notes" | "feed" => {
+            let feed = if tab == "notes" { ops::Feed::Mine } else { ops::Feed::Reader };
+            let notes = ops::notes(&state.db, feed, None, page, PER_PAGE).await;
+            let own = ops::own_interactions(&state.db).await;
+            // Where this page's forms come back to, so an action taken on
+            // page three of the feed does not land on page one.
+            let feed_return = format!("/ghost/social/?tab={tab}&page={page}");
+            // Names for whoever we have not met yet, after this page is
+            // built: a feed must not wait on a remote fetch per author.
+            social_warm_profiles(&state, notes.iter().map(|n| n.author.actor.clone()).collect());
+            let cards: String = notes
+                .iter()
+                .map(|note| social::note_card(note, &own, &feed_return))
+                .collect();
+            let list = if notes.is_empty() {
+                if tab == "notes" {
+                    social::empty("No notes yet", "Anything you publish here goes to every follower.")
+                } else {
+                    social::empty(
+                        "Nothing in your feed yet",
+                        "Follow some accounts and their notes will appear here.",
+                    )
+                }
+            } else {
+                cards
+            };
+            format!(
+                "{composer}{list}{pager}",
+                composer = social::composer(None),
+                list = list,
+                pager = social_pager(tab, page, notes.len() as i64, PER_PAGE),
+            )
+        }
+        "explore" => {
+            let (_, actor_url) = social_identity(&state).await;
+            let found = ops::suggestions(&state.db, &actor_url, 24).await;
+            social_warm_profiles(&state, found.iter().map(|s| s.profile.actor.clone()).collect());
+            let cards: String = found.iter().map(social::suggestion_card).collect();
+            let hosts = ops::recommended_hosts(&state.db).await;
+            format!(
+                r#"{search}
+{suggestions}
+{recommended}"#,
+                // Explore is where you go looking, so the lookup box belongs
+                // here as well as on Following.
+                search = {
+                    let query = q.get("q").map(String::as_str).unwrap_or("");
+                    if query.trim().is_empty() {
+                        social::search_box("", None, None)
+                    } else {
+                        match ops::preview(&state, query).await {
+                            Ok(profile) => social::search_box(query, Some(&profile), None),
+                            Err(e) => social::search_box(query, None, Some(&e.message())),
+                        }
+                    }
+                },
+                suggestions = if found.is_empty() {
+                    social::empty(
+                        "No suggestions yet",
+                        "Accounts that follow you, or whose notes reach your feed, are suggested here.",
+                    )
+                } else {
+                    format!(
+                        r#"<div class="section">Suggested for you</div><div class="sw-grid">{cards}</div>"#
+                    )
+                },
+                recommended = social::recommended_publications(&hosts),
+            )
+        }
+        "notifications" => {
+            let kind = q.get("kind").map(String::as_str).unwrap_or("all");
+            let kind = social::NOTIFICATION_KINDS
+                .iter()
+                .find(|(slug, _, _)| *slug == kind)
+                .copied()
+                .unwrap_or(social::NOTIFICATION_KINDS[0]);
+            let items = ops::notifications(&state.db, kind.2, 100).await;
+            social_warm_profiles(&state, items.iter().map(|n| n.actor.actor.clone()).collect());
+            let filters: String = social::NOTIFICATION_KINDS
+                .iter()
+                .map(|(slug, label, _)| {
+                    format!(
+                        r#"<a class="seg{on}" href="/ghost/social/?tab=notifications&kind={slug}">{label}</a>"#,
+                        on = if *slug == kind.0 { " on" } else { "" },
+                        slug = slug,
+                        label = esc(label),
+                    )
+                })
+                .collect();
+            let rows: String = items.iter().map(social::notification_row).collect();
+            let unread = ops::unread(&state.db).await;
+            format!(
+                r#"<div class="seg-bar sub">{filters}</div>
+{mark}{list}"#,
+                filters = filters,
+                mark = if unread > 0 {
+                    format!(
+                        r#"<form method="post" action="/ghost/social/read/" class="sw-markread"><button class="btn tonal small" type="submit">Mark all as read</button></form>"#
+                    )
+                } else {
+                    String::new()
+                },
+                list = if items.is_empty() {
+                    social::empty(
+                        "Nothing here yet",
+                        "Follows, replies, likes and boosts from other servers show up here.",
+                    )
+                } else {
+                    format!(r#"<div class="card rows rise">{rows}</div>"#)
+                },
+            )
+        }
+        "following" | "followers" | "blocked" => {
+            let relation = match tab {
+                "followers" => ops::Relation::Followers,
+                "blocked" => ops::Relation::Blocked,
+                _ => ops::Relation::Following,
+            };
+            let accounts = ops::accounts(&state.db, relation, page, PER_PAGE).await;
+            social_warm_profiles(
+                &state,
+                accounts.iter().map(|a| a.profile.actor.clone()).collect(),
+            );
+            let rows: String = accounts
+                .iter()
+                .map(|account| social::account_row(account, relation))
+                .collect();
+            // Account search belongs with Following: it is the screen you are
+            // on when you want another one.
+            let search = if tab == "following" {
+                let query = q.get("q").map(String::as_str).unwrap_or("");
+                if query.trim().is_empty() {
+                    social::search_box("", None, None)
+                } else {
+                    match ops::preview(&state, query).await {
+                        Ok(found) => social::search_box(query, Some(&found), None),
+                        Err(e) => social::search_box(query, None, Some(&e.message())),
+                    }
+                }
+            } else {
+                String::new()
+            };
+            let (empty_title, empty_detail) = match tab {
+                "followers" => ("No followers yet", "Accounts that follow your publication appear here."),
+                "blocked" => ("Nobody is blocked", "Blocking an account drops the follow in both directions."),
+                _ => ("Not following anyone yet", "Look an account up above to follow it."),
+            };
+            format!(
+                "{search}{list}{pager}",
+                search = search,
+                list = if accounts.is_empty() {
+                    social::empty(empty_title, empty_detail)
+                } else {
+                    format!(r#"<div class="card rows rise">{rows}</div>"#)
+                },
+                pager = social_pager(tab, page, accounts.len() as i64, PER_PAGE),
+            )
+        }
+        _ => String::new(),
+    };
+
+    page_for_role(
+        actor.role,
+        "Social web",
+        "modules",
+        Some(&actor.user),
+        &social_shell(&state, tab, &body, &flash_banner(&q)).await,
+        true,
+    )
+    .into_response()
+}
+
+/// Previous/next, shown only where there is somewhere to go.
+pub(crate) fn social_pager(tab: &str, page: i64, shown: i64, per_page: i64) -> String {
+    let mut links = String::new();
+    if page > 1 {
+        links.push_str(&format!(
+            r#"<a class="btn tonal small" href="/ghost/social/?tab={tab}&page={}">Previous</a>"#,
+            page - 1
+        ));
+    }
+    if shown == per_page {
+        links.push_str(&format!(
+            r#"<a class="btn tonal small" href="/ghost/social/?tab={tab}&page={}">Next</a>"#,
+            page + 1
+        ));
+    }
+    if links.is_empty() {
+        String::new()
+    } else {
+        format!(r#"<div class="sw-pager">{links}</div>"#)
+    }
+}
+
+/// Fetch missing profiles in the background.
+///
+/// Detached on purpose: the page this serves has already been rendered from
+/// whatever was cached, so a slow or dead remote server delays nothing. The
+/// names appear on the next load.
+pub(crate) fn social_warm_profiles(state: &AppState, actors: Vec<String>) {
+    let db = state.db.clone();
+    // Resolved before detaching, so the background fetch carries the
+    // publication's identity and reaches authorised-fetch instances.
+    let state = state.clone();
+    tokio::spawn(async move {
+        let signer = ghost_api::federation::signer_for(&state).await;
+        ghost_api::federation::profiles::warm(&db, actors, signer).await;
+    });
+}
+
+/// One note and the conversation under it.
+pub(crate) async fn social_thread_page(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Query(q): Query<HashMap<String, String>>,
+) -> Response {
+    let actor = match require_role(&state, &headers, Role::Editor).await {
+        Ok(actor) => actor,
+        Err(response) => return response,
+    };
+    let id = q.get("id").map(String::as_str).unwrap_or("");
+    let Some(note) = ops::note(&state.db, id).await else {
+        return social_flash("feed", "error", "That note is no longer here.");
+    };
+    let own = ops::own_interactions(&state.db).await;
+    let thread_return = format!("/ghost/social/thread/?id={}", url_value(&note.id));
+    let replies = ops::notes(&state.db, ops::Feed::Replies, Some(&note.id), 1, 100).await;
+
+    // The note it answers, when it answers one, so a thread opened from the
+    // middle still has its top.
+    let parent = match note.in_reply_to.as_deref() {
+        Some(parent) => match ops::note(&state.db, parent).await {
+            Some(parent) => format!(
+                r#"<div class="section">In reply to</div>{}"#,
+                social::note_card(&parent, &own, &thread_return)
+            ),
+            None => String::new(),
+        },
+        None => String::new(),
+    };
+
+    let reply_cards: String = replies
+        .iter()
+        .map(|reply| social::note_card(reply, &own, &thread_return))
+        .collect();
+
+    let body = format!(
+        r#"<p class="sw-back"><a href="/ghost/social/">{icon} Back to the feed</a></p>
+{parent}
+<div class="section">Note</div>
+{note}
+<div class="section">{count}</div>
+{composer}
+{replies}"#,
+        icon = svg("chevron"),
+        parent = parent,
+        note = social::note_card(&note, &own, &thread_return),
+        count = if replies.is_empty() {
+            "No replies yet".to_string()
+        } else if replies.len() == 1 {
+            "1 reply".to_string()
+        } else {
+            format!("{} replies", replies.len())
+        },
+        composer = social::composer(Some(&note)),
+        replies = reply_cards,
+    );
+
+    page_for_role(
+        actor.role,
+        "Social web",
+        "modules",
+        Some(&actor.user),
+        &format!("{}{}", flash_banner(&q), body),
+        true,
+    )
+    .into_response()
+}
+
+/// A remote account's page: who they are, and what we hold of theirs.
+pub(crate) async fn social_account_page(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Query(q): Query<HashMap<String, String>>,
+) -> Response {
+    let user = match require_role(&state, &headers, Role::Editor).await {
+        Ok(actor) => actor,
+        Err(response) => return response,
+    };
+    let target = q.get("actor").map(String::as_str).unwrap_or("");
+    if target.is_empty() {
+        return social_flash("feed", "error", "No account was named.");
+    }
+    // One deliberate fetch, because this page *is* the profile — unlike a
+    // list, where it would be fifty.
+    let signer = ghost_api::federation::signer_for(&state).await;
+    let profile =
+        ghost_api::federation::profiles::refresh(&state.db, target, signer.as_ref()).await;
+
+    let following: bool =
+        sqlx::query_scalar::<_, i64>("SELECT EXISTS(SELECT 1 FROM federation_following WHERE actor=?)")
+            .bind(target)
+            .fetch_one(&state.db)
+            .await
+            .unwrap_or(0) != 0;
+    let blocked: bool =
+        sqlx::query_scalar::<_, i64>("SELECT EXISTS(SELECT 1 FROM federation_blocks WHERE actor=?)")
+            .bind(target)
+            .fetch_one(&state.db)
+            .await
+            .unwrap_or(0) != 0;
+
+    let notes = sqlx::query_as::<_, (String,)>(
+        "SELECT id FROM federation_objects WHERE actor=? AND deleted=0 \
+         ORDER BY published_at DESC LIMIT 20",
+    )
+    .bind(target)
+    .fetch_all(&state.db)
+    .await
+    .unwrap_or_default();
+    let own = ops::own_interactions(&state.db).await;
+    let account_return = format!("/ghost/social/account/?actor={}", url_value(target));
+    let mut cards = String::new();
+    for (id,) in &notes {
+        if let Some(note) = ops::note(&state.db, id).await {
+            cards.push_str(&social::note_card(&note, &own, &account_return));
+        }
+    }
+
+    page_for_role(
+        user.role,
+        "Social web",
+        "modules",
+        Some(&user.user),
+        &format!(
+            r#"{flash}<p class="sw-back"><a href="/ghost/social/">{icon} Back to the feed</a></p>
+{card}
+<div class="section">Notes we have seen</div>
+{notes}"#,
+            flash = flash_banner(&q),
+            icon = svg("chevron"),
+            card = social::account_card(&profile, following, blocked),
+            notes = if cards.is_empty() {
+                social::empty(
+                    "Nothing from this account yet",
+                    "Notes appear here once they reach this server.",
+                )
+            } else {
+                cards
+            },
+        ),
+        true,
+    )
+    .into_response()
+}
+
+pub(crate) async fn social_note_create(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Form(form): Form<HashMap<String, String>>,
+) -> Response {
+    if let Err(r) = require_role(&state, &headers, Role::Editor).await {
+        return r;
+    }
+    let reply = form.get("in_reply_to").map(String::as_str).filter(|r| !r.is_empty());
+    let result = ops::publish_note(
+        &state,
+        form.get("text").map(String::as_str).unwrap_or(""),
+        reply,
+        form.get("reply_actor").map(String::as_str),
+    )
+    .await;
+    // A reply belongs back in its thread; a note belongs in your notes.
+    match (result, reply) {
+        (Ok(_), Some(parent)) => {
+            let encoded: String = form_urlencoded::Serializer::new(String::new())
+                .append_pair("id", parent)
+                .append_pair("ok", "Reply published.")
+                .finish();
+            Redirect::to(&format!("/ghost/social/thread/?{encoded}")).into_response()
+        }
+        (Ok(_), None) => social_flash("notes", "ok", "Note published."),
+        (Err(e), Some(parent)) => {
+            let encoded: String = form_urlencoded::Serializer::new(String::new())
+                .append_pair("id", parent)
+                .append_pair("error", &e.message())
+                .finish();
+            Redirect::to(&format!("/ghost/social/thread/?{encoded}")).into_response()
+        }
+        (Err(e), None) => social_flash("notes", "error", &e.message()),
+    }
+}
+
+pub(crate) async fn social_note_delete(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Form(form): Form<HashMap<String, String>>,
+) -> Response {
+    if let Err(r) = require_role(&state, &headers, Role::Editor).await {
+        return r;
+    }
+    // The screens carry the full object id; only its last segment is ours to
+    // act on, and rebuilding the URL from it is what stops a crafted id
+    // naming something on another server.
+    let id = form.get("id").map(String::as_str).unwrap_or("");
+    let uuid = id.rsplit('/').next().unwrap_or("");
+    match ops::delete_note(&state, uuid).await {
+        Ok(()) => social_return(&form, "ok", "Note deleted."),
+        Err(e) => social_return(&form, "error", &e.message()),
+    }
+}
+
+pub(crate) async fn social_follow(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Form(form): Form<HashMap<String, String>>,
+) -> Response {
+    if let Err(r) = require_role(&state, &headers, Role::Editor).await {
+        return r;
+    }
+    let target = form.get("actor").map(String::as_str).unwrap_or("");
+    if form.get("unfollow").is_some() {
+        return match ops::unfollow(&state, target).await {
+            Ok(()) => social_return(&form, "ok", "Unfollowed."),
+            Err(e) => social_return(&form, "error", &e.message()),
+        };
+    }
+    match ops::follow(&state, target).await {
+        Ok(profile) => social_flash(
+            "following",
+            "ok",
+            &format!("Follow request sent to {}.", profile.handle),
+        ),
+        Err(e) => social_flash("following", "error", &e.message()),
+    }
+}
+
+pub(crate) async fn social_interact(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Form(form): Form<HashMap<String, String>>,
+) -> Response {
+    if let Err(r) = require_role(&state, &headers, Role::Editor).await {
+        return r;
+    }
+    let kind = form.get("type").map(String::as_str).unwrap_or("");
+    let result = ops::interact(
+        &state,
+        kind,
+        form.get("actor").map(String::as_str).unwrap_or(""),
+        form.get("object").map(String::as_str).unwrap_or(""),
+    )
+    .await;
+    match result {
+        Ok(_) => social_return(
+            &form,
+            "ok",
+            match kind {
+                "Like" => "Liked.",
+                "Announce" => "Boosted.",
+                _ => "Withdrawn.",
+            },
+        ),
+        Err(e) => social_return(&form, "error", &e.message()),
+    }
+}
+
+pub(crate) async fn social_block(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Form(form): Form<HashMap<String, String>>,
+) -> Response {
+    if let Err(r) = require_role(&state, &headers, Role::Administrator).await {
+        return r;
+    }
+    let unblock = form.get("unblock").is_some();
+    match ops::set_block(
+        &state,
+        form.get("actor").map(String::as_str).unwrap_or(""),
+        !unblock,
+    )
+    .await
+    {
+        Ok(()) => social_return(
+            &form,
+            "ok",
+            if unblock { "Account unblocked." } else { "Account blocked." },
+        ),
+        Err(e) => social_return(&form, "error", &e.message()),
+    }
+}
+
+pub(crate) async fn social_set_enabled(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Form(form): Form<HashMap<String, String>>,
+) -> Response {
+    if let Err(r) = require_role(&state, &headers, Role::Administrator).await {
+        return r;
+    }
+    let enable = form.get("enabled").map(String::as_str) == Some("1");
+    if enable && state.settings.get_bool("is_private") {
+        return social_flash(
+            "feed",
+            "error",
+            "A private publication cannot federate. Turn off private mode first.",
+        );
+    }
+    if let Err(e) = state
+        .settings
+        .set(&state.db, "social_web_enabled", &serde_json::json!(enable))
+        .await
+    {
+        return social_flash("feed", "error", &e.message());
+    }
+    social_flash(
+        "feed",
+        "ok",
+        if enable { "The social web is on." } else { "The social web is off." },
+    )
+}
+
+pub(crate) async fn social_mark_read(State(state): State<AppState>, headers: HeaderMap) -> Response {
+    if let Err(r) = require_role(&state, &headers, Role::Editor).await {
+        return r;
+    }
+    let _ = ops::mark_read(&state).await;
+    social_flash("notifications", "ok", "Notifications marked as read.")
 }

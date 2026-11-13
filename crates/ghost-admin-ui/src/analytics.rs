@@ -10,6 +10,7 @@
 //! The map itself is a client-side enhancement over a server-rendered table:
 //! the table is the readable, WCAG-clean twin and is always present, so no
 //! figure is ever reachable only by hovering a shape.
+use crate::*;
 
 /// ISO 3166-1 alpha-2 to English name.
 ///
@@ -388,7 +389,11 @@ impl Change {
 ///
 /// Inlined rather than bound because the value is chosen from a fixed list in
 /// the caller, never taken from the query string.
-fn audience_clause(audience: &str) -> &'static str {
+/// `AND audience = '…'` for a chosen segment, or nothing for all traffic.
+///
+/// Inlined rather than bound because it is chosen from a fixed list, never
+/// from the query string directly.
+pub(crate) fn audience_clause(audience: &str) -> &'static str {
     match audience {
         "public" => " AND audience = 'public'",
         "free" => " AND audience = 'free'",
@@ -1046,4 +1051,857 @@ mod tests {
         }
         assert_eq!(CAMPAIGN_DIMENSIONS.len(), 5);
     }
+}
+
+// -------------------------------------------------------------------------
+// The Analytics screens: overview, web traffic, growth and newsletters.
+// -------------------------------------------------------------------------
+
+// ---------------------------------------------------------------------------
+// analytics — Ghost's native analytics, split into the same tabs
+// ---------------------------------------------------------------------------
+
+/// The reporting windows Ghost offers, as (query value, label, days back).
+/// `None` days means all time.
+pub(crate) const ANALYTICS_RANGES: &[(&str, &str, Option<i64>)] = &[
+    ("today", "Today", Some(0)),
+    ("7", "7 days", Some(7)),
+    ("30", "30 days", Some(30)),
+    ("90", "3 months", Some(90)),
+    ("365", "12 months", Some(365)),
+    ("all", "All time", None),
+];
+
+/// The tabs the Analytics page is split into, mirroring Ghost's.
+pub(crate) const ANALYTICS_TABS: &[(&str, &str)] = &[
+    ("overview", "Overview"),
+    ("web", "Web traffic"),
+    ("growth", "Growth"),
+    ("newsletters", "Newsletters"),
+];
+
+/// Ghost's posts/pages split on the Top content table.
+pub(crate) const ANALYTICS_CONTENT_KINDS: &[(&str, &str)] =
+    &[("all", "Posts & pages"), ("posts", "Posts"), ("pages", "Pages")];
+
+/// Audience segments for the web traffic breakdown. The values match the
+/// `audience` column written by the page-view middleware.
+pub(crate) const ANALYTICS_AUDIENCES: &[(&str, &str)] = &[
+    ("all", "All traffic"),
+    ("public", "Public visitors"),
+    ("free", "Free members"),
+    ("paid", "Paid members"),
+];
+
+/// A reporting window resolved into something the queries can use.
+pub(crate) struct AnalyticsRange {
+    pub(crate) slug: String,
+    pub(crate) days: Option<i64>,
+    /// The start of the window, as an absolute `'YYYY-MM-DD HH:MM:SS'` UTC
+    /// timestamp — the same form every date in the schema is stored in.
+    ///
+    /// This used to be a SQLite *modifier* (`-30 days`) bound into
+    /// `?`. SQLite takes a modifier as a parameter; MySQL's
+    /// `INTERVAL` is syntax, not a value, so there is no translation. Working
+    /// the instant out here instead makes the comparison portable, and is
+    /// better regardless: the window is now measured by this process rather
+    /// than by whatever clock and timezone the database server happens to
+    /// have.
+    pub(crate) cutoff: String,
+    pub(crate) label: String,
+}
+
+impl AnalyticsRange {
+    pub(crate) fn from_query(q: &HashMap<String, String>) -> Self {
+        let slug = q.get("range").map(String::as_str).unwrap_or("30");
+        let (slug, label, days) = ANALYTICS_RANGES
+            .iter()
+            .find(|(s, _, _)| *s == slug)
+            .copied()
+            .unwrap_or(("30", "30 days", Some(30)));
+        // A cutoff far enough back to include everything stands in for "all
+        // time", so every query keeps the same shape and the same index.
+        let now = chrono::Utc::now();
+        let cutoff = match days {
+            // "Today" starts at midnight UTC, which is what `start of day`
+            // meant.
+            Some(0) => ghost_core::dates::to_db_string(
+                &now.date_naive().and_hms_opt(0, 0, 0).unwrap_or_default().and_utc(),
+            ),
+            Some(n) => {
+                ghost_core::dates::to_db_string(&(now - chrono::Duration::days(n)))
+            }
+            // Far enough back to include everything, so "all time" keeps the
+            // same query shape and the same index as every other window.
+            None => "0001-01-01 00:00:00".to_string(),
+        };
+        Self { slug: slug.to_string(), days, cutoff, label: label.to_string() }
+    }
+
+    /// This window and the equal-length one before it, as explicit bounds.
+    ///
+    /// The older `cutoff` is open-ended (`created_at >= …`), which cannot
+    /// express "the 30 days before the last 30". Both windows come from one
+    /// `now`, so the pair can never drift apart across a tick of the clock
+    /// mid-request.
+    fn windows(&self) -> (analytics::Window, Option<analytics::Window>) {
+        analytics::Window::pair(chrono::Utc::now(), self.days)
+    }
+
+    /// How the previous window is named in a comparison: "vs previous 30
+    /// days". All time has no previous window, and nothing says so.
+    fn previous_label(&self) -> String {
+        match self.days {
+            Some(0) => "yesterday".to_string(),
+            Some(1) => "previous day".to_string(),
+            Some(n) => format!("previous {n} days"),
+            None => "previous period".to_string(),
+        }
+    }
+
+    /// How many daily buckets the chart should show.
+    async fn chart_days(&self, db: &ghost_db::Db) -> i64 {
+        match self.days {
+            Some(0) => 1,
+            Some(n) => n,
+            // All time: back to the first view there is, capped so the chart
+            // stays readable.
+            None => {
+                let first: Option<String> =
+                    sqlx::query_scalar("SELECT MIN(substr(created_at, 1, 10)) FROM page_views")
+                        .fetch_one(db)
+                        .await
+                        .unwrap_or(None);
+                // Counted here rather than in SQL. The original used
+                // `julianday` and a two-argument `MIN`, and MySQL has neither
+                // — its `MIN` is an aggregate. This is arithmetic on a date
+                // the query above already returned, so it never needed the
+                // database at all.
+                match first.as_deref().and_then(|day| {
+                    chrono::NaiveDate::parse_from_str(day, "%Y-%m-%d").ok()
+                }) {
+                    Some(day) => {
+                        let span = (chrono::Utc::now().date_naive() - day).num_days() + 1;
+                        span.clamp(1, 365)
+                    }
+                    None => 30,
+                }
+            }
+        }
+    }
+}
+
+/// Daily unique-visitor buckets across the window, with gaps filled in as
+/// zero.
+///
+/// Counted as distinct viewers per day rather than raw hits, so the chart and
+/// the "unique visitors" figure above it are measuring the same thing — a
+/// reader who opens five posts is one visitor on both.
+pub(crate) async fn analytics_daily_views(
+    db: &ghost_db::Db,
+    range: &AnalyticsRange,
+    audience: &str,
+) -> Vec<DayViews> {
+    let span = range.chart_days(db).await;
+    let mut day_map: std::collections::BTreeMap<String, i64> = std::collections::BTreeMap::new();
+    let sql = format!(
+        "SELECT substr(created_at, 1, 10) AS day, COUNT(DISTINCT viewer) FROM page_views \
+         WHERE created_at >= ?{} GROUP BY day",
+        audience_clause(audience)
+    );
+    if let Ok(rows) = sqlx::query_as::<_, (String, i64)>(&sql)
+        .bind(&range.cutoff)
+        .fetch_all(db)
+        .await
+    {
+        for (day, views) in rows {
+            day_map.insert(day, views);
+        }
+    }
+    let mut days = Vec::new();
+    for back in (0..span).rev() {
+        // Worked out here rather than asked of the database: `date('now', ?)`
+        // takes its offset as a bound parameter, which MySQL cannot express,
+        // and the answer never depended on the server anyway.
+        let day: String = (chrono::Utc::now() - chrono::Duration::days(back))
+            .format("%Y-%m-%d")
+            .to_string();
+        days.push(DayViews { views: day_map.get(&day).copied().unwrap_or(0), day });
+    }
+    days
+}
+
+/// Unique visitors and total views over the window.
+pub(crate) async fn analytics_traffic(
+    db: &ghost_db::Db,
+    range: &AnalyticsRange,
+    audience: &str,
+) -> (i64, i64) {
+    let sql = format!(
+        "SELECT COUNT(DISTINCT viewer), COUNT(*) FROM page_views \
+         WHERE created_at >= ?{}",
+        audience_clause(audience)
+    );
+    sqlx::query_as(&sql).bind(&range.cutoff).fetch_one(db).await.unwrap_or((0, 0))
+}
+
+/// Most-viewed posts and pages over the window.
+///
+/// `kind` filters to `post`, `page`, or everything. A view counts for a piece
+/// when the path is its own, which is how the front end serves it.
+pub(crate) async fn analytics_top_content(
+    db: &ghost_db::Db,
+    range: &AnalyticsRange,
+    audience: &str,
+    kind: &str,
+    limit: i64,
+) -> Vec<(String, String, String, i64)> {
+    let type_clause = match kind {
+        "posts" => " AND p.type = 'post'",
+        "pages" => " AND p.type = 'page'",
+        _ => "",
+    };
+    let sql = format!(
+        "SELECT COALESCE(p.title, p.slug), p.slug, p.type, COUNT(*) AS views FROM page_views v \
+         JOIN posts p ON v.path = '/' || p.slug || '/' OR v.path LIKE '/' || p.slug || '/%' \
+         WHERE v.created_at >= ? AND p.status = 'published'{}{} \
+         GROUP BY p.id ORDER BY views DESC LIMIT ?",
+        type_clause,
+        audience_clause(audience)
+    );
+    sqlx::query_as(&sql).bind(&range.cutoff).bind(limit).fetch_all(db).await.unwrap_or_default()
+}
+
+/// Where the window's traffic came from. A view with no referrer is Direct,
+/// which is how Ghost labels it.
+pub(crate) async fn analytics_top_sources(
+    db: &ghost_db::Db,
+    range: &AnalyticsRange,
+    audience: &str,
+    limit: i64,
+) -> Vec<(String, i64)> {
+    let sql = format!(
+        "SELECT COALESCE(NULLIF(referrer, ''), 'Direct') AS source, COUNT(DISTINCT viewer) AS visitors \
+         FROM page_views WHERE created_at >= ?{} \
+         GROUP BY source ORDER BY visitors DESC LIMIT ?",
+        audience_clause(audience)
+    );
+    sqlx::query_as(&sql).bind(&range.cutoff).bind(limit).fetch_all(db).await.unwrap_or_default()
+}
+
+/// Members, split the way the Growth tab reports them, plus monthly recurring
+/// revenue in minor units.
+pub(crate) async fn analytics_members(db: &ghost_db::Db) -> (i64, i64, i64, i64) {
+    let (total, paid): (i64, i64) = sqlx::query_as(
+        "SELECT COUNT(*), COALESCE(SUM(CASE WHEN status = 'paid' THEN 1 ELSE 0 END), 0) FROM members",
+    )
+    .fetch_one(db)
+    .await
+    .unwrap_or((0, 0));
+    // MRR comes off the live subscriptions, the same forward-looking figure
+    // Ghost reports: cancelled ones stop counting the moment they lapse.
+    let mrr: f64 = sqlx::query_scalar(
+        "SELECT COALESCE(SUM(mrr), 0) FROM subscriptions WHERE status IN ('active', 'trialing')",
+    )
+    .fetch_one(db)
+    .await
+    .unwrap_or(0.0);
+    (total, total - paid, paid, mrr.round() as i64)
+}
+
+/// Minor units (what Stripe and the `subscriptions.mrr` column hold) rendered
+/// as an amount, grouped and without trailing zeroes on a whole figure.
+pub(crate) fn money_minor(minor: i64) -> String {
+    let major = minor as f64 / 100.0;
+    let whole = major.trunc() as i64;
+    let mut grouped = String::new();
+    let digits = whole.abs().to_string();
+    for (i, ch) in digits.chars().enumerate() {
+        if i > 0 && (digits.len() - i).is_multiple_of(3) {
+            grouped.push(',');
+        }
+        grouped.push(ch);
+    }
+    let cents = minor.abs() % 100;
+    let sign = if minor < 0 { "-" } else { "" };
+    if cents == 0 {
+        format!("{sign}{grouped}")
+    } else {
+        format!("{sign}{grouped}.{cents:02}")
+    }
+}
+
+/// A simple rows card, or a muted note when there is nothing to show.
+pub(crate) fn analytics_rows(rows: String, empty: &str) -> String {
+    if rows.is_empty() {
+        format!(
+            r#"<div class="row"><div class="body"><span class="muted">{}</span></div></div>"#,
+            esc(empty)
+        )
+    } else {
+        rows
+    }
+}
+
+/// One `title · detail · figure` row.
+pub(crate) fn analytics_row(icon: &str, tint: &str, title: &str, detail: &str, figure: &str, href: Option<&str>) -> String {
+    let body = match href {
+        Some(h) => format!(
+            r#"<a class="body" href="{h}" target="_blank" rel="noopener"><span class="title">{title}</span><span class="detail">{detail}</span></a>"#,
+            h = esc(h),
+            title = esc(title),
+            detail = detail,
+        ),
+        None => format!(
+            r#"<div class="body"><span class="title">{title}</span><span class="detail">{detail}</span></div>"#,
+            title = esc(title),
+            detail = detail,
+        ),
+    };
+    format!(
+        r#"<div class="row"><span class="ic tint-{tint}">{icon}</span>{body}
+<div class="trailing"><span class="chip tonal">{figure}</span></div></div>"#,
+        tint = tint,
+        icon = icon,
+        body = body,
+        figure = esc(figure),
+    )
+}
+
+pub(crate) async fn analytics_page(State(state): State<AppState>, headers: HeaderMap, Query(q): Query<HashMap<String, String>>) -> Response {
+    let (user, actor_role) = match require_role(&state, &headers, Role::Administrator).await {
+        Ok(a) => (a.user, a.role),
+        Err(r) => return r,
+    };
+    // A connected site has one reporting source. Never substitute local
+    // counts on a Click outage or silently mix its periods with local traffic.
+    match ghost_api::click::connection(&state).await {
+        Ok(Some(_)) => return click::analytics_home(&state, &headers, &q).await,
+        Err(e) => return page_for_role(actor_role, "Analytics", "analytics", Some(&user),
+            &format!("<p role=\"alert\">{}</p><a href=\"/ghost/analytics/click/\">Connection settings</a>", esc(&e.message())), true).into_response(),
+        Ok(None) => {},
+    }
+    let range = AnalyticsRange::from_query(&q);
+    let tab = q.get("tab").map(String::as_str).unwrap_or("overview");
+    let tab = ANALYTICS_TABS.iter().find(|(s, _)| *s == tab).map(|(s, _)| *s).unwrap_or("overview");
+    let audience = q.get("audience").map(String::as_str).unwrap_or("all");
+    let audience = ANALYTICS_AUDIENCES.iter().find(|(s, _)| *s == audience).map(|(s, _)| *s).unwrap_or("all");
+    let content = q.get("content").map(String::as_str).unwrap_or("all");
+    let content = ANALYTICS_CONTENT_KINDS.iter().find(|(s, _)| *s == content).map(|(s, _)| *s).unwrap_or("all");
+    // Which UTM dimension the Campaigns table is broken down by. Resolved
+    // against the fixed list here, so the column name the query interpolates
+    // can only ever be one of the five.
+    let campaign = q.get("campaign").map(String::as_str).unwrap_or("source");
+    let campaign = analytics::CAMPAIGN_DIMENSIONS
+        .iter()
+        .find(|(slug, ..)| *slug == campaign)
+        .map(|(slug, ..)| *slug)
+        .unwrap_or("source");
+
+    // Collection is a setting, and a page of zeroes is confusing without
+    // saying why — Ghost surfaces the same thing on its traffic tab.
+    let tracking_off = !state.settings.get_bool("web_analytics");
+    let notice = if tracking_off && matches!(tab, "overview" | "web") {
+        format!(
+            r#"<div class="banner info rise" style="--i:1">{ic}<span class="msg">Web analytics is switched off, so no new visits are being recorded. Turn it on in <a href="/ghost/settings/analytics/">Settings &rsaquo; Analytics</a>.</span></div>"#,
+            ic = svg("chart"),
+        )
+    } else {
+        String::new()
+    };
+
+    let link = |tab: &str, range_slug: &str, audience: &str| {
+        let mut url = format!("/ghost/analytics/?tab={tab}&range={range_slug}");
+        if audience != "all" {
+            url.push_str(&format!("&audience={audience}"));
+        }
+        url
+    };
+
+    let tabs: String = ANALYTICS_TABS
+        .iter()
+        .map(|(slug, label)| {
+            format!(
+                r#"<a class="seg{on}" href="{href}">{label}</a>"#,
+                on = if *slug == tab { " on" } else { "" },
+                href = esc(&link(slug, &range.slug, audience)),
+                label = esc(label),
+            )
+        })
+        .collect();
+
+    let ranges: String = ANALYTICS_RANGES
+        .iter()
+        .map(|(slug, label, _)| {
+            format!(
+                r#"<a class="{on}" href="{href}">{label}</a>"#,
+                on = if *slug == range.slug { "active" } else { "" },
+                href = esc(&link(tab, slug, audience)),
+                label = esc(label),
+            )
+        })
+        .collect();
+
+    let body = match tab {
+        "web" => {
+            let segs: String = ANALYTICS_AUDIENCES
+                .iter()
+                .map(|(slug, label)| {
+                    format!(
+                        r#"<a class="seg{on}" href="{href}">{label}</a>"#,
+                        on = if *slug == audience { " on" } else { "" },
+                        href = esc(&format!("{}&content={content}", link("web", &range.slug, slug))),
+                        label = esc(label),
+                    )
+                })
+                .collect();
+            let kind_segs: String = ANALYTICS_CONTENT_KINDS
+                .iter()
+                .map(|(slug, label)| {
+                    format!(
+                        r#"<a class="seg{on}" href="{href}">{label}</a>"#,
+                        on = if *slug == content { " on" } else { "" },
+                        href = esc(&format!("{}&content={slug}", link("web", &range.slug, audience))),
+                        label = esc(label),
+                    )
+                })
+                .collect();
+            let campaign_segs: String = analytics::CAMPAIGN_DIMENSIONS
+                .iter()
+                .map(|(slug, _, label, _)| {
+                    format!(
+                        r#"<a class="seg{on}" href="{href}">{label}</a>"#,
+                        on = if *slug == campaign { " on" } else { "" },
+                        href = esc(&format!(
+                            "{}&content={content}&campaign={slug}",
+                            link("web", &range.slug, audience)
+                        )),
+                        label = esc(label),
+                    )
+                })
+                .collect();
+            analytics_web_tab(
+                &state, &range, audience, content, campaign, segs, kind_segs, campaign_segs,
+            )
+            .await
+        }
+        "growth" => analytics_growth_tab(&state, &range).await,
+        "newsletters" => analytics_newsletters_tab(&state, &range).await,
+        _ => analytics_overview_tab(&state, &range).await,
+    };
+
+    page_for_role(actor_role,
+        "Analytics",
+        "analytics",
+        Some(&user),
+        &format!(
+            r#"<p><a class="btn tonal" href="/ghost/analytics/click/">Vuuut Click reports &amp; connection</a></p><header class="page-head rise"><div><h1>Analytics</h1><p class="sub">{sub}</p></div>
+<div class="actions"><div class="range-tabs">{ranges}</div></div></header>
+<div class="seg-bar">{tabs}</div>
+{notice}{body}
+<script src="{assets}/analytics-map.js" defer></script>"#,
+            sub = esc(&range.label),
+            ranges = ranges,
+            tabs = tabs,
+            notice = notice,
+            body = body,
+            assets = ASSETS,
+        ),
+        true,
+    )
+    .into_response()
+}
+
+/// Overview: the headline figures, the traffic shape, and what did best.
+pub(crate) async fn analytics_overview_tab(state: &AppState, range: &AnalyticsRange) -> String {
+    let (visitors, views) = analytics_traffic(&state.db, range, "all").await;
+    let (members, _free, paid, mrr) = analytics_members(&state.db).await;
+    let days = analytics_daily_views(&state.db, range, "all").await;
+
+    // "Right now" is the live counter Ghost puts at the top of the overview.
+    let live: i64 = sqlx::query_scalar(
+        ghost_db::dialect::sql("SELECT COUNT(DISTINCT viewer) FROM page_views WHERE created_at >= datetime('now', '-5 minutes')"),
+    )
+    .fetch_one(&state.db)
+    .await
+    .unwrap_or(0);
+
+    // What the same window before this one looked like, so the headline
+    // figures can be read as a movement rather than as four bare numbers.
+    let (window, previous) = range.windows();
+    let previous_label = range.previous_label();
+    let (before_traffic, before_members) = match &previous {
+        Some(w) => (
+            Some(analytics::traffic(&state.db, w, "all").await),
+            // Members joined before this window started — the total the site
+            // was on when the window opened, which is what the current total
+            // has to be compared against.
+            sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM members WHERE created_at < ?")
+                .bind(&window.from)
+                .fetch_one(&state.db)
+                .await
+                .ok(),
+        ),
+        None => (None, None),
+    };
+    let overview_locations = analytics::locations(&state.db, &window, "all", 10).await;
+    let placed = overview_locations.iter().any(|(code, _, _)| code.is_some());
+
+    let top: String = analytics_top_content(&state.db, range, "all", "all", 5)
+        .await
+        .into_iter()
+        .map(|(title, slug, kind, views)| {
+            analytics_row(
+                &svg(if kind == "page" { "pages" } else { "posts" }),
+                "green",
+                &title,
+                &format!("<code>/{}/</code>", esc(&slug)),
+                &countable(views, "view"),
+                Some(&format!("/{slug}/")),
+            )
+        })
+        .collect();
+
+    let sources: String = analytics_top_sources(&state.db, range, "all", 5)
+        .await
+        .into_iter()
+        .map(|(source, visitors)| {
+            analytics_row(
+                &svg(if source == "Direct" { "link" } else { "globe" }),
+                "blue",
+                &source,
+                if source == "Direct" { "Typed, bookmarked or untracked" } else { "Referral" },
+                &countable(visitors, "visitor"),
+                None,
+            )
+        })
+        .collect();
+
+    format!(
+        r#"<div class="tiles rise" style="--i:1">
+{visitors_tile}{views_tile}{members_tile}
+<div class="tile"><div class="label">MRR</div><div class="value">{mrr}</div><div class="delta">from active subscriptions</div></div>
+</div>
+<p class="live-note rise" style="--i:1">{live} reading in the last 5 minutes · {paid} paid {paid_word} · <a href="/ghost/members/">Manage members</a></p>
+<div class="section">Unique visitors per day</div>
+<div class="card padded rise" style="--i:2">{chart}</div>
+<div class="section">Top content</div>
+<div class="card rows rise" style="--i:3">{top}</div>
+<div class="section">Top sources</div>
+<div class="card rows rise" style="--i:4">{sources}</div>
+<div class="section">Locations</div>
+{locations}"#,
+        visitors_tile = analytics::tile(
+            "Unique visitors",
+            &compact(visitors),
+            analytics::Change { now: visitors, before: before_traffic.map(|(v, _)| v) },
+            &previous_label,
+        ),
+        views_tile = analytics::tile(
+            "Total views",
+            &compact(views),
+            analytics::Change { now: views, before: before_traffic.map(|(_, v)| v) },
+            &previous_label,
+        ),
+        members_tile = analytics::tile(
+            "Members",
+            &compact(members),
+            analytics::Change { now: members, before: before_members },
+            &previous_label,
+        ),
+        live = live,
+        paid = paid,
+        paid_word = if paid == 1 { "member" } else { "members" },
+        mrr = money_minor(mrr),
+        locations = analytics::locations_card(&overview_locations, ASSETS, !placed),
+        chart = views_chart(&days),
+        top = analytics_rows(top, "No content views in this range yet."),
+        sources = analytics_rows(sources, "No traffic recorded in this range yet."),
+    )
+}
+
+/// Web traffic: the same figures broken down by audience, with the content
+/// table filterable by posts or pages the way Ghost's is.
+pub(crate) async fn analytics_web_tab(
+    state: &AppState,
+    range: &AnalyticsRange,
+    audience: &str,
+    kind: &str,
+    campaign: &str,
+    segs: String,
+    kind_segs: String,
+    campaign_segs: String,
+) -> String {
+    let (visitors, views) = analytics_traffic(&state.db, range, audience).await;
+    let days = analytics_daily_views(&state.db, range, audience).await;
+
+    // The same window again as explicit bounds, plus the one before it, for
+    // the comparisons on the tiles and the two new breakdowns.
+    let (window, previous) = range.windows();
+    let before = match &previous {
+        Some(w) => Some(analytics::traffic(&state.db, w, audience).await),
+        None => None,
+    };
+    let visitor_change = analytics::Change { now: visitors, before: before.map(|(v, _)| v) };
+    let view_change = analytics::Change { now: views, before: before.map(|(_, v)| v) };
+    let previous_label = range.previous_label();
+
+    let location_rows = analytics::locations(&state.db, &window, audience, 50).await;
+    let placed = location_rows.iter().any(|(code, _, _)| code.is_some());
+    let campaign_rows = analytics::campaigns(&state.db, &window, campaign, audience, 20).await;
+    let tagged = analytics::tagged_views(&state.db, &window, audience).await;
+
+    let top: String = analytics_top_content(&state.db, range, audience, kind, 10)
+        .await
+        .into_iter()
+        .map(|(title, slug, kind, views)| {
+            analytics_row(
+                &svg(if kind == "page" { "pages" } else { "posts" }),
+                "green",
+                &title,
+                &format!("<code>/{}/</code> · {}", esc(&slug), if kind == "page" { "Page" } else { "Post" }),
+                &countable(views, "view"),
+                Some(&format!("/{slug}/")),
+            )
+        })
+        .collect();
+
+    let sources: String = analytics_top_sources(&state.db, range, audience, 10)
+        .await
+        .into_iter()
+        .map(|(source, visitors)| {
+            analytics_row(
+                &svg(if source == "Direct" { "link" } else { "globe" }),
+                "blue",
+                &source,
+                if source == "Direct" { "Typed, bookmarked or untracked" } else { "Referral" },
+                &countable(visitors, "visitor"),
+                None,
+            )
+        })
+        .collect();
+
+    format!(
+        r#"<div class="tiles rise" style="--i:1" data-cols="2">
+{visitors_tile}{views_tile}
+</div>
+<div class="section">Audience</div>
+<div class="seg-bar">{segs}</div>
+<div class="card padded rise" style="--i:2">{chart}</div>
+<div class="section">Top content</div>
+<div class="seg-bar">{kind_segs}</div>
+<div class="card rows rise" style="--i:3">{top}</div>
+<div class="section">Top sources</div>
+<div class="card rows rise" style="--i:4">{sources}</div>
+<div class="section">Locations</div>
+{locations}
+<div class="section">Campaigns</div>
+{campaigns}"#,
+        visitors_tile = analytics::tile(
+            "Unique visitors",
+            &compact(visitors),
+            visitor_change,
+            &previous_label,
+        ),
+        views_tile =
+            analytics::tile("Total views", &compact(views), view_change, &previous_label),
+        segs = segs,
+        kind_segs = kind_segs,
+        chart = views_chart(&days),
+        top = analytics_rows(top, "No content views in this range yet."),
+        sources = analytics_rows(sources, "No traffic recorded in this range yet."),
+        locations = analytics::locations_card(&location_rows, ASSETS, !placed),
+        campaigns = analytics::campaigns_card(campaign, &campaign_rows, tagged, campaign_segs),
+    )
+}
+
+/// Growth: members over time, the free/paid split, MRR, and where signups
+/// came from.
+pub(crate) async fn analytics_growth_tab(state: &AppState, range: &AnalyticsRange) -> String {
+    let (total, free, paid, mrr) = analytics_members(&state.db).await;
+
+    // New members per day across the window, which is the shape the chart
+    // shows; the tiles carry the running totals.
+    let span = range.chart_days(&state.db).await;
+    let mut day_map: std::collections::BTreeMap<String, i64> = std::collections::BTreeMap::new();
+    if let Ok(rows) = sqlx::query_as::<_, (String, i64)>(
+        "SELECT substr(created_at, 1, 10) AS day, COUNT(*) FROM members \
+         WHERE created_at >= ? GROUP BY day",
+    )
+    .bind(&range.cutoff)
+    .fetch_all(&state.db)
+    .await
+    {
+        for (day, n) in rows {
+            day_map.insert(day, n);
+        }
+    }
+    let mut days = Vec::new();
+    for back in (0..span).rev() {
+        // Worked out here rather than asked of the database: `date('now', ?)`
+        // takes its offset as a bound parameter, which MySQL cannot express,
+        // and the answer never depended on the server anyway.
+        let day: String = (chrono::Utc::now() - chrono::Duration::days(back))
+            .format("%Y-%m-%d")
+            .to_string();
+        days.push(DayViews { views: day_map.get(&day).copied().unwrap_or(0), day });
+    }
+    let new_members: i64 = days.iter().map(|d| d.views).sum();
+
+    // Ghost attributes signups to the post or source that brought them in;
+    // this port records the signup source, which is the part it has.
+    let sources: String = sqlx::query_as::<_, (String, i64)>(
+        "SELECT source, COUNT(*) AS n FROM members_created_events \
+         WHERE created_at >= ? GROUP BY source ORDER BY n DESC LIMIT 10",
+    )
+    .bind(&range.cutoff)
+    .fetch_all(&state.db)
+    .await
+    .unwrap_or_default()
+    .into_iter()
+    .map(|(source, n)| {
+        analytics_row(
+            &svg("person"),
+            "teal",
+            &analytics_source_label(&source),
+            "Signup source",
+            &countable(n, "member"),
+            None,
+        )
+    })
+    .collect();
+
+    let recent: String = sqlx::query_as::<_, (Option<String>, String, String, String)>(
+        "SELECT name, email, status, substr(created_at, 1, 10) FROM members ORDER BY created_at DESC LIMIT 8",
+    )
+    .fetch_all(&state.db)
+    .await
+    .unwrap_or_default()
+    .into_iter()
+    .map(|(name, email, status, created)| {
+        let display = name.clone().unwrap_or_else(|| email.clone());
+        let initial = display.chars().next().unwrap_or('?').to_uppercase().to_string();
+        format!(
+            r#"<div class="row"><span class="avatar">{initial}</span>
+<div class="body"><span class="title">{name}</span><span class="detail">{email} · joined {created}</span></div>
+<div class="trailing"><span class="chip {chip}">{status}</span></div></div>"#,
+            initial = esc(&initial),
+            name = esc(&display),
+            email = esc(&email),
+            created = esc(&created),
+            chip = if status == "paid" { "published" } else { "draft" },
+            status = esc(&status),
+        )
+    })
+    .collect();
+
+    format!(
+        r#"<div class="tiles rise" style="--i:1">
+<div class="tile"><div class="label">Total members</div><div class="value">{total}</div><div class="delta">+{new} in this range</div></div>
+<div class="tile"><div class="label">Free members</div><div class="value">{free}</div><div class="delta">no active subscription</div></div>
+<div class="tile"><div class="label">Paid members</div><div class="value">{paid}</div><div class="delta">subscribed</div></div>
+<div class="tile"><div class="label">MRR</div><div class="value">{mrr}</div><div class="delta">from active subscriptions</div></div>
+</div>
+<div class="section">New members per day</div>
+<div class="card padded rise" style="--i:2">{chart}</div>
+<div class="section">Signup sources</div>
+<div class="card rows rise" style="--i:3">{sources}</div>
+<div class="section">Recent members</div>
+<div class="card rows rise" style="--i:4">{recent}</div>"#,
+        total = compact(total),
+        new = new_members,
+        free = compact(free),
+        paid = compact(paid),
+        mrr = money_minor(mrr),
+        chart = views_chart(&days),
+        sources = analytics_rows(sources, "No signups in this range yet."),
+        recent = analytics_rows(recent, "No members yet."),
+    )
+}
+
+/// Ghost's signup sources read as words rather than the stored key.
+pub(crate) fn analytics_source_label(source: &str) -> String {
+    match source {
+        "member" => "Signup form".to_string(),
+        "api" => "API".to_string(),
+        "admin" => "Added in admin".to_string(),
+        "import" => "Imported".to_string(),
+        "system" => "System".to_string(),
+        other => other.to_string(),
+    }
+}
+
+/// Messages delivered and messages opened in the window, as `(sent, opened)`.
+///
+/// Reads the per-recipient records that sending writes. Both figures sat at
+/// zero for as long as nothing wrote them, which is why they are worth a test
+/// of their own rather than only being exercised through the page.
+pub(crate) async fn newsletter_open_stats(db: &ghost_db::Db, cutoff: &str) -> (i64, i64) {
+    sqlx::query_as(
+        "SELECT COUNT(*), COALESCE(SUM(CASE WHEN r.opened_at IS NOT NULL THEN 1 ELSE 0 END), 0) \
+         FROM email_recipients r JOIN emails e ON e.id = r.email_id \
+         WHERE r.created_at >= ? AND r.status = 'sent'",
+    )
+    .bind(cutoff)
+    .fetch_one(db)
+    .await
+    .unwrap_or((0, 0))
+}
+
+/// Newsletters: subscribers, what went out, and how it was opened.
+pub(crate) async fn analytics_newsletters_tab(state: &AppState, range: &AnalyticsRange) -> String {
+    let subscribers: i64 = sqlx::query_scalar(
+        "SELECT COUNT(DISTINCT member_id) FROM members_newsletters",
+    )
+    .fetch_one(&state.db)
+    .await
+    .unwrap_or(0);
+
+    let (sent, opened) = newsletter_open_stats(&state.db, &range.cutoff).await;
+    let open_rate = if sent > 0 { (opened as f64 / sent as f64) * 100.0 } else { 0.0 };
+
+    // One row per email sent in the window, with its own open rate — Ghost's
+    // sortable top-newsletters table, ordered by what was opened most.
+    let rows: String = sqlx::query_as::<_, (String, String, i64, i64)>(
+        "SELECT COALESCE(p.title, e.subject), substr(e.created_at, 1, 10), \
+                COUNT(r.id), COALESCE(SUM(CASE WHEN r.opened_at IS NOT NULL THEN 1 ELSE 0 END), 0) \
+         FROM emails e LEFT JOIN posts p ON p.id = e.post_id \
+         LEFT JOIN email_recipients r ON r.email_id = e.id AND r.status = 'sent' \
+         WHERE e.created_at >= ? \
+         GROUP BY e.id ORDER BY e.created_at DESC LIMIT 15",
+    )
+    .bind(&range.cutoff)
+    .fetch_all(&state.db)
+    .await
+    .unwrap_or_default()
+    .into_iter()
+    .map(|(title, sent_on, delivered, opens)| {
+        let rate = if delivered > 0 { (opens as f64 / delivered as f64) * 100.0 } else { 0.0 };
+        analytics_row(
+            &svg("send"),
+            "purple",
+            &title,
+            &format!("Sent {} · {} delivered", esc(&sent_on), delivered),
+            &format!("{rate:.0}% opened"),
+            None,
+        )
+    })
+    .collect();
+
+    format!(
+        r#"<div class="tiles rise" style="--i:1">
+<div class="tile"><div class="label">Subscribers</div><div class="value">{subscribers}</div><div class="delta">across all newsletters</div></div>
+<div class="tile"><div class="label">Emails delivered</div><div class="value">{sent}</div><div class="delta">in this range</div></div>
+<div class="tile"><div class="label">Average open rate</div><div class="value">{open_rate:.0}%</div><div class="delta">{opened} opened</div></div>
+</div>
+<div class="section">Newsletters sent</div>
+<div class="card rows rise" style="--i:2">{rows}</div>
+<p class="muted" style="margin:10px 2px 0">Open rates need <strong>Email opens</strong> switched on in
+<a href="/ghost/settings/analytics/">Settings &rsaquo; Analytics</a>. Enable <strong>Email clicks</strong> to track links. Open <strong>Newsletter links</strong> in the post editor to view clicks and update destinations after sending.</p>"#,
+        subscribers = compact(subscribers),
+        sent = compact(sent),
+        open_rate = open_rate,
+        opened = opened,
+        rows = analytics_rows(rows, "No newsletters sent in this range."),
+    )
 }

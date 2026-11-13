@@ -22,6 +22,7 @@
 //! All of the page's numbers are gathered in four queries regardless of how
 //! many posts are listed; a card does not fetch its own anything.
 
+use crate::*;
 use ghost_api::AppState;
 use ghost_core::models::Post;
 use ghost_db::repos;
@@ -1068,4 +1069,161 @@ mod tests {
         assert!(on.contains(r#"data-views="posts""#), "{on}");
         assert!(filter_menu("/ghost/pages/", "all", "newest", "", "", "").contains(r#"data-views="pages""#));
     }
+}
+
+// -------------------------------------------------------------------------
+// The list handlers behind /ghost/posts/ and /ghost/pages/.
+// -------------------------------------------------------------------------
+
+// ---------------------------------------------------------------------------
+// posts list / editor
+// ---------------------------------------------------------------------------
+
+pub(crate) async fn posts_list_impl(state: &AppState, headers: &HeaderMap, post_type: &str, label: &str, flash: &HashMap<String, String>) -> Response {
+    let actor = match require_actor(state, headers).await {
+        Ok(a) => a,
+        Err(r) => return r,
+    };
+    let user = &actor.user;
+    let filter = match flash.get("nql").filter(|s| !s.is_empty()).map(|s| ghost_nql::parse(s)).transpose() {
+        Ok(filter) => filter,
+        Err(e) => return (StatusCode::UNPROCESSABLE_ENTITY, e.message()).into_response(),
+    };
+    let selected_tag = flash.get("tag").map(String::as_str).unwrap_or("");
+    let nql = flash.get("nql").map(String::as_str).unwrap_or("");
+    let search = flash.get("search").map(|s| s.trim()).unwrap_or("");
+    if search.chars().count() > 200 {
+        return (StatusCode::UNPROCESSABLE_ENTITY, "Search must be 200 characters or fewer.").into_response();
+    }
+    let selected = flash.get("filter").and_then(|selected| posts::FILTERS.iter().find(|(key, _, _)| key == selected))
+        .unwrap_or(&posts::FILTERS[0]);
+    let sort = flash.get("sort").and_then(|sort| posts::SORTS.iter().find(|(key, _)| key == sort))
+        .map(|(key, _)| *key).unwrap_or("newest");
+    let query = repos::posts::AdminBrowsePosts {
+        filter: posts::with_tag_filter(filter, selected_tag),
+        post_type: post_type.into(),
+        author_id: (!actor.role.can_edit_any_post()).then(|| actor.user.id.clone()),
+        search: search.into(),
+        status: selected.2.map(str::to_owned),
+        sort: sort.into(),
+        page: flash.get("page").and_then(|p| p.parse().ok()).unwrap_or(1),
+        limit: 25,
+    };
+    let result = match repos::posts::browse_admin(&state.db, &query).await {
+        Ok(result) => result,
+        Err(error) => {
+            tracing::error!("Could not load {post_type} list: {error}");
+            return (StatusCode::INTERNAL_SERVER_ERROR, "Could not load content. Please retry.").into_response();
+        }
+    };
+    let listing = result.listing;
+    let counts = result.counts;
+    let base = if post_type == "page" { "/ghost/pages/" } else { "/ghost/posts/" };
+    let singular = if post_type == "page" { "page" } else { "post" };
+    let plural = if post_type == "page" { "pages" } else { "posts" };
+    let list_state = posts::ListState { filter: selected.0, sort, nql, tag: selected_tag, search };
+    let pager = posts::pager(base, &list_state, listing.page, listing.limit, listing.total);
+    let first = if listing.total == 0 { 0 } else { (listing.page - 1) * listing.limit + 1 };
+    let last = (listing.page * listing.limit).min(listing.total);
+    // The site's tags, for the batch bar's tag picker. Internal tags (Ghost
+    // names them `#something`) are machinery, not something to bulk-apply
+    // from a list, so they stay out of the picker.
+    let tags: Vec<(String, String)> = sqlx::query_as(
+        ghost_db::dialect::sql("SELECT id, name FROM tags WHERE name NOT LIKE '#%' ORDER BY name COLLATE NOCASE LIMIT 200"),
+    )
+    .fetch_all(&state.db)
+    .await
+    .unwrap_or_default();
+    let tag_options: Vec<(String, String)> = sqlx::query_as(ghost_db::dialect::sql("SELECT slug, name FROM tags ORDER BY name COLLATE NOCASE"))
+        .fetch_all(&state.db).await.unwrap_or_default();
+
+    let cards = posts::load_cards(state, listing.posts).await;
+    let list = if cards.is_empty() {
+        // A filter that matched nothing has to offer the way back. Without
+        // it the toolbar is gone with the rows, and the only route out of an
+        // over-narrow filter is editing the address bar.
+        let (title, detail) = match (nql.trim().is_empty() && selected_tag.is_empty() && search.is_empty(), selected.0) {
+            (false, _) => ("Nothing matches this filter", "Clear it to see the rest."),
+            (true, "all") => ("Nothing here yet", "Everything you write shows up here, newest first."),
+            _ => ("Nothing in this view", "Switch tabs to see the rest."),
+        };
+        format!(
+            r#"<div class="card padded rise" style="--i:1;text-align:center;padding:48px 20px">
+<p style="margin:0 0 4px;font-weight:600;font-size:17px">{title}</p>
+<p class="muted" style="margin:0 0 20px">{detail}</p>
+{action}</div>"#,
+            title = esc(title),
+            detail = esc(detail),
+            action = if nql.trim().is_empty() && selected_tag.is_empty() && search.is_empty() {
+                format!(
+                    r#"<a class="btn" href="{base}new/">{add} New {singular}</a>"#,
+                    base = base,
+                    add = svg("add"),
+                    singular = singular,
+                )
+            } else {
+                format!(r#"<a class="btn tonal" href="{base}">Clear filter</a>"#)
+            },
+        )
+    } else {
+        posts::grid(&cards, base, &tags)
+    };
+
+    page_for(
+        label,
+        plural,
+        Some(user),
+        actor.role,
+        &format!(
+            r#"<header class="page-head rise"><div><h1>{label}</h1><p class="sub">{first}–{last} of {total} {total_word}</p></div>
+<div class="actions"><a class="btn" href="{base}new/">{add} New {singular}</a></div></header>
+{banner}
+{filters}
+<div data-batch>
+<div class="list-tools rise" style="--i:0">
+<form class="tool-form" role="search" method="get" action="{base}">
+<input type="hidden" name="filter" value="{status_filter}"><input type="hidden" name="sort" value="{sort}">
+<input type="hidden" name="tag" value="{selected_tag}"><input type="hidden" name="nql" value="{nql}">
+<div class="search">{search_icon}<input name="search" type="search" value="{search_value}" maxlength="200" placeholder="Search {plural} by title, author or excerpt" aria-label="Search {label}">
+<button class="btn text small" type="submit">Search</button>{clear_search}</div></form>
+{tag_picker}{filter_menu}{sorter}</div>
+{list}
+{pager}</div>"#,
+            banner = flash_banner(flash),
+            label = label,
+            first = first,
+            last = last,
+            total = listing.total,
+            total_word = plural,
+            base = base,
+            add = svg("add"),
+            singular = singular,
+            filters = posts::filter_bar(base, selected.0, sort, nql, selected_tag, search, &counts),
+            search_icon = svg("search"),
+            search_value = esc(search),
+            status_filter = esc(selected.0),
+            sort = esc(sort),
+            selected_tag = esc(selected_tag),
+            nql = esc(nql),
+            clear_search = if search.is_empty() { String::new() } else {
+                format!(r#"<a class="btn text small" href="{}" aria-label="Clear search">Clear</a>"#,
+                    posts::ListState { search: "", ..list_state }.url(base, 1))
+            },
+            pager = pager,
+            tag_picker = posts::tag_picker(base, selected.0, sort, nql, selected_tag, search, &tag_options),
+            filter_menu = posts::filter_menu(base, selected.0, sort, nql, selected_tag, search),
+            sorter = posts::sort_picker(base, selected.0, sort, nql, selected_tag, search),
+            list = list,
+        ),
+        true,
+    )
+    .into_response()
+}
+
+pub(crate) async fn posts_list(State(state): State<AppState>, headers: HeaderMap, Query(q): Query<HashMap<String, String>>) -> Response {
+    posts_list_impl(&state, &headers, "post", "Posts", &q).await
+}
+
+pub(crate) async fn pages_list(State(state): State<AppState>, headers: HeaderMap, Query(q): Query<HashMap<String, String>>) -> Response {
+    posts_list_impl(&state, &headers, "page", "Pages", &q).await
 }
