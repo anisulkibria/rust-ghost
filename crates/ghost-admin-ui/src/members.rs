@@ -1206,12 +1206,9 @@ pub(crate) async fn post_analytics_page(
 
 /// The site paths a post is reachable at, for matching page views.
 pub(crate) async fn post_paths_for(state: &AppState, post: &ghost_core::models::Post) -> Vec<String> {
-    let router = state.router.read().await.clone();
-    let json = ghost_core::models::post_to_json(post, &[], &[], "");
-    let path = match router.permalink_for(&json) {
-        Some((_, permalink)) => ghost_routing::tree::build_permalink(&permalink, &json),
-        None => format!("/{}/", post.slug.clone().unwrap_or_default()),
-    };
+    // Where the post really is, prefix included: a Bengali post's views
+    // were recorded at /bn/…, and would never match the neutral path.
+    let path = ghost_api::locales::entry_path(state, post).await;
     let bare = path.trim_end_matches('/').to_string();
     if bare.is_empty() { vec!["/".into()] } else { vec![format!("{bare}/"), bare] }
 }

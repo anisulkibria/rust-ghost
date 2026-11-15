@@ -95,6 +95,131 @@ pub fn normalise(raw: &str) -> Option<String> {
     Some(out)
 }
 
+/// Every language a site can publish in, as `(code, label)`.
+///
+/// Codes and coverage come from Ghost's own list, which matters beyond the
+/// label: a theme's translations live in `<theme>/locales/<code>.json`, so a
+/// code Ghost does not use silently finds no translation file. Labels lead
+/// with the language's own name — that is what somebody scans for when
+/// picking their own, and what [`native_name`] hands a language switcher.
+pub const LANGUAGES: &[(&str, &str)] = &[
+    ("af", "Afrikaans"),
+    ("ar", "العربية (Arabic)"),
+    ("az", "Azərbaycan (Azerbaijani)"),
+    ("bg", "Български (Bulgarian)"),
+    ("bn", "বাংলা (Bengali)"),
+    ("bs", "Bosanski (Bosnian)"),
+    ("ca", "Català (Catalan)"),
+    ("cs", "Čeština (Czech)"),
+    ("da", "Dansk (Danish)"),
+    ("de", "Deutsch (German)"),
+    ("de-CH", "Schweizerdeutsch (Swiss German)"),
+    ("el", "Ελληνικά (Greek)"),
+    ("en", "English"),
+    ("eo", "Esperanto"),
+    ("es", "Español (Spanish)"),
+    ("et", "Eesti (Estonian)"),
+    ("eu", "Euskara (Basque)"),
+    ("fa", "فارسی (Persian/Farsi)"),
+    ("fi", "Suomi (Finnish)"),
+    ("fr", "Français (French)"),
+    ("gd", "Gàidhlig (Gaelic (Scottish))"),
+    ("he", "עברית (Hebrew)"),
+    ("hi", "हिन्दी (Hindi)"),
+    ("hr", "Hrvatski (Croatian)"),
+    ("hu", "Magyar (Hungarian)"),
+    ("id", "Bahasa Indonesia (Indonesian)"),
+    ("is", "Íslenska (Icelandic)"),
+    ("it", "Italiano (Italian)"),
+    ("ja", "日本語 (Japanese)"),
+    ("ko", "한국어 (Korean)"),
+    ("kz", "Қазақша (Kazakh)"),
+    ("lt", "Lietuvių (Lithuanian)"),
+    ("lv", "Latviešu (Latvian)"),
+    ("mk", "Македонски (Macedonian)"),
+    ("mn", "Монгол (Mongolian)"),
+    ("ms", "Bahasa Melayu (Malay)"),
+    ("nb", "Norsk bokmål (Norwegian Bokmål)"),
+    ("ne", "नेपाली (Nepali)"),
+    ("nl", "Nederlands (Dutch)"),
+    ("nn", "Norsk nynorsk (Norwegian Nynorsk)"),
+    ("pa", "ਪੰਜਾਬੀ (Punjabi)"),
+    ("pl", "Polski (Polish)"),
+    ("pt", "Português (Portuguese)"),
+    ("pt-BR", "Português (Brasil) (Portuguese (Brazil))"),
+    ("ro", "Română (Romanian)"),
+    ("ru", "Русский (Russian)"),
+    ("si", "සිංහල (Sinhala)"),
+    ("sk", "Slovenčina (Slovak)"),
+    ("sl", "Slovenščina (Slovenian)"),
+    ("sq", "Shqip (Albanian)"),
+    ("sr", "Srpski (Serbian)"),
+    ("sr-Cyrl", "Српски (Serbian (Cyrillic))"),
+    ("sv", "Svenska (Swedish)"),
+    ("sw", "Kiswahili (Swahili)"),
+    ("ta", "தமிழ் (Tamil)"),
+    ("th", "ไทย (Thai)"),
+    ("tr", "Türkçe (Turkish)"),
+    ("uk", "Українська (Ukrainian)"),
+    ("ur", "اردو (Urdu)"),
+    ("uz", "Oʻzbekcha (Uzbek)"),
+    ("vi", "Tiếng Việt (Vietnamese)"),
+    ("zh", "中文(简体) (Chinese)"),
+    ("zh-Hant", "中文(繁體) (Traditional Chinese)"),
+];
+
+/// A language's name in that language — `de` → `Deutsch`.
+///
+/// What a language switcher shows: a German reader looking for German scans
+/// for "Deutsch", not "German". Falls back to the upper-cased code for a
+/// language the table does not cover, rather than to a blank link.
+pub fn native_name(code: &str) -> String {
+    LANGUAGES
+        .iter()
+        .find(|(value, _)| value.eq_ignore_ascii_case(code))
+        .map(|(_, label)| strip_english_name(label).to_string())
+        .unwrap_or_else(|| code.to_ascii_uppercase())
+}
+
+/// `Português (Brasil) (Portuguese (Brazil))` → `Português (Brasil)`.
+///
+/// The English name is the label's *last top-level* parenthetical, and it
+/// can contain parentheses of its own, so it is found by matching brackets
+/// back from the end rather than by searching for the last `" ("`.
+fn strip_english_name(label: &str) -> &str {
+    if !label.ends_with(')') {
+        return label;
+    }
+    let mut depth = 0usize;
+    for (at, c) in label.char_indices().rev() {
+        match c {
+            ')' => depth += 1,
+            '(' => {
+                depth = depth.saturating_sub(1);
+                if depth == 0 {
+                    let native = label[..at].trim_end();
+                    return if native.is_empty() { label } else { native };
+                }
+            }
+            _ => {}
+        }
+    }
+    label
+}
+
+/// The URL that marks a menu item as the language switcher.
+///
+/// A fragment, so it passes every URL check a menu item already goes
+/// through and, on a theme or API client that knows nothing about it, is a
+/// harmless same-page link rather than a 404. The front end replaces the
+/// item with one link per language when it builds `@site.navigation`.
+pub const SWITCHER_URL: &str = "#language-switcher";
+
+/// Whether a menu item's URL is the language switcher marker.
+pub fn is_switcher(url: &str) -> bool {
+    url.trim().eq_ignore_ascii_case(SWITCHER_URL)
+}
+
 /// Whether to publish `rel=alternate hreflang` alternates.
 ///
 /// Defaults to **true**, which is why this is not read through
@@ -301,6 +426,34 @@ mod tests {
         assert!(!hreflang_enabled(&json!({"locale_hreflang": "false"})));
         // Nonsense gets the default rather than off.
         assert!(hreflang_enabled(&json!({"locale_hreflang": "maybe"})));
+    }
+
+    #[test]
+    fn a_switcher_names_each_language_in_that_language() {
+        assert_eq!(native_name("de"), "Deutsch");
+        assert_eq!(native_name("en"), "English");
+        assert_eq!(native_name("FR"), "Français");
+        // A label whose own name carries parentheses keeps them.
+        assert_eq!(native_name("zh"), "中文(简体)");
+        // ...and an English name with parentheses of its own is still
+        // taken off whole.
+        assert_eq!(native_name("pt-BR"), "Português (Brasil)");
+        assert_eq!(native_name("gd"), "Gàidhlig");
+        // Unknown codes still produce a visible, non-empty link text.
+        assert_eq!(native_name("xx"), "XX");
+        // Every listed code is one `normalise` accepts, so none can be
+        // enabled under a spelling the switcher would not recognise.
+        for (code, _) in LANGUAGES {
+            assert_eq!(normalise(code).as_deref(), Some(*code), "{code}");
+        }
+    }
+
+    #[test]
+    fn the_switcher_marker_is_recognised_however_it_was_typed() {
+        assert!(is_switcher(SWITCHER_URL));
+        assert!(is_switcher(" #Language-Switcher "));
+        assert!(!is_switcher("#language"));
+        assert!(!is_switcher("/language-switcher/"));
     }
 
     #[test]

@@ -375,6 +375,13 @@ fn tile(label: &str, value: &str, detail: &str) -> String {
 /// counts the findings and the content screen lists them.
 async fn report(state: &AppState) -> Result<(Vec<Entry>, Vec<Vec<Finding>>, i64), ghost_core::GhostError> {
     let mut entries = repo::entries(&state.db, repo::ENTRY_LIMIT).await?;
+    // NULL is the default language, which only the settings know; filled in
+    // so the audit compares an English post stored as NULL with one stored
+    // as `en`, and never with a Bengali one.
+    let locales = crate::settings::site_locales(state);
+    for entry in &mut entries {
+        entry.locale = Some(locales.resolve(entry.locale.as_deref()));
+    }
     let total = repo::total(&state.db).await?;
     let findings: Vec<Vec<Finding>> = rules::audit_all(&mut entries).into_iter().map(|(_, f)| f).collect();
     Ok((entries, findings, total))
@@ -561,6 +568,7 @@ pub async fn content_page(
         Err(e) => return server_error(&e),
     };
     let (issue, kind, published) = filters(&q);
+    let locales = crate::settings::site_locales(&state);
     // Re-running from this screen keeps the filters, which is why the link is
     // rebuilt from the reduced values rather than from the query string as it
     // arrived — a forged parameter must not survive into an href.
@@ -632,7 +640,7 @@ pub async fn content_page(
                 .unwrap_or_default();
             format!(
                 r#"<div class="row"><span class="ic seo-score tint-{tint}" title="SEO score">{score}</span>
-<div class="body">{linked}<span class="detail">{kind} · /{slug}/ · {status}</span>
+<div class="body">{linked}<span class="detail">{lang}{kind} · {prefix}/{slug}/ · {status}</span>
 <div class="chips seo-findings">{chips}</div></div>
 <div class="trailing">{edit}</div></div>"#,
                 tint = band(score),
@@ -640,6 +648,13 @@ pub async fn content_page(
                 kind = esc(if entry.kind == "page" { "Page" } else { "Post" }),
                 slug = esc(&entry.slug),
                 status = esc(&entry.status),
+                // On a multilingual site, which language — and the prefix
+                // its URL really carries.
+                lang = match entry.locale.as_deref().filter(|_| locales.multilingual()) {
+                    Some(code) => format!(r#"<span class="chip tonal">{}</span> "#, esc(code)),
+                    None => String::new(),
+                },
+                prefix = esc(&entry.locale.as_deref().map(|c| locales.prefix(c)).unwrap_or_default()),
             )
         })
         .collect();

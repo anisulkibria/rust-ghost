@@ -113,9 +113,15 @@ impl HelperDef for GetHelper {
         let is_read = read_by.is_some();
         let limit_for_query = if is_read { "1".to_string() } else { limit_raw };
 
+        // The page's language, unless the entry is addressed by id or slug
+        // (a read names exactly what it wants) or the theme's own filter
+        // already chooses a language.
+        let lang = page_language(rc, ctx).filter(|_| {
+            !is_read && !filter.as_deref().is_some_and(|f| f.contains("locale"))
+        });
         let runtime = deps.runtime.clone();
         let result: Result<(Value, Value), String> = runtime.block_on(async move {
-            run_get(&deps, &resource_for_query, &filter, &limit_for_query, page, order.as_deref(), include.as_deref())
+            run_get(&deps, &resource_for_query, &filter, &limit_for_query, page, order.as_deref(), include.as_deref(), lang.as_ref())
                 .await
                 .map_err(|e| e.message())
         });
@@ -332,6 +338,29 @@ fn query_simple_path(root: &Value, path: &str) -> Vec<Value> {
     current
 }
 
+/// The language a page is being rendered in, on a multilingual site.
+pub(crate) struct PageLanguage {
+    current: String,
+    default: String,
+}
+
+/// Read from `@site`, which `context::build_site_for_page` fills from the
+/// request's URL prefix and the *current* settings — so a theme's
+/// `{{#get "posts"}}` on the English home page lists English posts, on
+/// `/bn/` Bengali ones, and a change of default language is followed on the
+/// next render without anything else being told. `None` on a
+/// single-language site, where the query stays exactly what it always was.
+fn page_language(rc: &RenderContext<'_, '_>, ctx: &Context) -> Option<PageLanguage> {
+    let site = crate::util::root_get(rc, ctx, "site");
+    if site.get("is_multilingual").and_then(Value::as_bool) != Some(true) {
+        return None;
+    }
+    let current = site.get("locale").and_then(Value::as_str)?.to_string();
+    // `@site.locales` lists the enabled languages with the default first.
+    let default = site.get("locales").and_then(|l| l.get(0)).and_then(Value::as_str)?.to_string();
+    Some(PageLanguage { current, default })
+}
+
 /// Query the DB the way the Content API would for a get helper.
 async fn run_get(
     deps: &HelperDeps,
@@ -341,6 +370,7 @@ async fn run_get(
     page: i64,
     order: Option<&str>,
     include: Option<&str>,
+    lang: Option<&PageLanguage>,
 ) -> ghost_core::Result<(Value, Value)> {
     use ghost_db::repos;
 
@@ -366,8 +396,8 @@ async fn run_get(
                 public: true,
                 include_authors: includes_authors,
                 include_tags: includes_tags,
-                locale: None,
-                default_locale: None,
+                locale: lang.map(|l| l.current.clone()),
+                default_locale: lang.map(|l| l.default.clone()),
             };
             let res = repos::posts::browse(&deps.pool, &q).await?;
             let mut items = Vec::new();
@@ -394,11 +424,17 @@ async fn run_get(
                 includes_count,
             )
             .await?;
+            // A tag with a language of its own is listed only in that
+            // language; one with none belongs to every language.
             let items: Vec<Value> = tags
                 .iter()
+                .filter(|t| match (lang, t.locale.as_deref().filter(|c| !c.is_empty())) {
+                    (Some(l), Some(code)) => code.eq_ignore_ascii_case(&l.current),
+                    _ => true,
+                })
                 .map(|t| {
                     let mut j = ghost_core::models::tag_to_json(t, None);
-                    let url = resolve(&j);
+                    let url = crate::util::resolve_for_page(&j, lang.map(|l| l.current.as_str()), true, resolve);
                     if let Value::Object(m) = &mut j {
                         m.insert("url".into(), json!(url));
                     }
@@ -414,7 +450,7 @@ async fn run_get(
                 .iter()
                 .map(|u| {
                     let mut j = ghost_core::models::user_public_json(u, None);
-                    let url = resolve(&j);
+                    let url = crate::util::resolve_for_page(&j, lang.map(|l| l.current.as_str()), false, resolve);
                     if let Value::Object(m) = &mut j {
                         m.insert("url".into(), json!(url));
                     }
@@ -536,9 +572,12 @@ impl HelperDef for PrevNextPost {
         let deps = self.deps.clone();
         let runtime = deps.runtime.clone();
         let order = if self.is_prev { "published_at desc" } else { "published_at asc" };
+        // The neighbour in the same language: "next" on a Bengali post is
+        // the next Bengali post.
+        let lang = page_language(rc, ctx);
         let found: Option<Value> = runtime.block_on(async move {
             let (items, _) =
-                run_get(&deps, "posts", &Some(filter), "1", 1, Some(order), Some("authors,tags")).await.ok()?;
+                run_get(&deps, "posts", &Some(filter), "1", 1, Some(order), Some("authors,tags"), lang.as_ref()).await.ok()?;
             items.as_array().and_then(|a| a.first().cloned())
         });
 
@@ -603,8 +642,9 @@ impl HelperDef for CollectionHelper {
 
         let deps = self.deps.clone();
         let runtime = deps.runtime.clone();
+        let lang = page_language(rc, ctx);
         let result: Result<(Value, Value), String> = runtime.block_on(async move {
-            run_get(&deps, "posts", &None, &limit.to_string(), 1, None, Some("authors,tags"))
+            run_get(&deps, "posts", &None, &limit.to_string(), 1, None, Some("authors,tags"), lang.as_ref())
                 .await
                 .map_err(|e| e.message())
         });

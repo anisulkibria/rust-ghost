@@ -316,13 +316,8 @@ pub(crate) fn wants_json(headers: &HeaderMap) -> bool {
 /// it had always been `/posts/<id>/` — plus anything worth a banner.
 pub(crate) async fn editor_saved_json(state: &AppState, post: &ghost_core::models::Post, message: &str, level: &str) -> Response {
     let url = if post.status == "published" {
-        let rel = repos::posts::load_relations(&state.db, std::slice::from_ref(post)).await.unwrap_or_default();
-        let data = ghost_core::models::post_to_json(post, &rel.authors_for(&post.id), &rel.tags_for(&post.id), "");
-        let router = state.router.read().await;
-        let path = router.permalink_for(&data)
-            .map(|(_, permalink)| ghost_routing::tree::build_permalink(&permalink, &data))
-            .unwrap_or_else(|| format!("/{}/", post.slug.as_deref().unwrap_or_default()));
-        Some(format!("{}{path}", state.site_url().trim_end_matches('/')))
+        // With the language prefix: a German post lives at `/de/<slug>/`.
+        Some(crate::languages::public_url(state, post).await)
     } else {
         None
     };
@@ -654,15 +649,9 @@ pub(crate) fn truncate_chars(s: &str, max: usize) -> String {
 /// spawned for the same reason: a publish does not wait on anybody else.
 pub(crate) async fn announce_published(state: &AppState, post: &ghost_core::models::Post) {
     let site_url = state.site_url();
-    let router = state.router.read().await.clone();
-    let json = ghost_core::models::post_to_json(post, &[], &[], "");
-    let path = match router.permalink_for(&json) {
-        Some((_, permalink)) => ghost_routing::tree::build_permalink(&permalink, &json),
-        None => format!("/{}/", post.slug.clone().unwrap_or_default()),
-    };
     ghost_api::announce::published(
         state,
-        format!("{site_url}{path}"),
+        crate::languages::public_url(state, post).await,
         // Absolute URLs, so a relative link in the body is not mistaken for
         // an external site worth notifying.
         ghost_core::url::absolutize_html(&site_url, post.html.as_deref().unwrap_or("")),
@@ -674,13 +663,7 @@ pub(crate) async fn notify_slack_published(state: &AppState, post: &ghost_core::
         return;
     };
     let site_title = state.settings.get_str("title").unwrap_or_else(|| "Ghost".into());
-    let site_url = state.site_url();
-    let router = state.router.read().await.clone();
-    let j = ghost_core::models::post_to_json(post, &[], &[], "");
-    let path = match router.permalink_for(&j) {
-        Some((_, pl)) => ghost_routing::tree::build_permalink(&pl, &j),
-        None => format!("/{}/", post.slug.clone().unwrap_or_default()),
-    };
+    let post_url = crate::languages::public_url(state, post).await;
     let excerpt = post
         .custom_excerpt
         .clone()
@@ -696,7 +679,7 @@ pub(crate) async fn notify_slack_published(state: &AppState, post: &ghost_core::
         &cfg,
         &site_title,
         post.title.as_deref().unwrap_or("Untitled"),
-        &format!("{site_url}{path}"),
+        &post_url,
         &excerpt,
         author.as_deref(),
     )
@@ -957,13 +940,8 @@ pub(crate) async fn deliver_newsletter(state: &AppState, post_id: &str, retry: O
         return Err("No subscribers to send to.".into());
     }
 
-    let router = state.router.read().await.clone();
-    let j = ghost_core::models::post_to_json(&post, &[], &[], "");
-    let path = match router.permalink_for(&j) {
-        Some((_, p)) => ghost_routing::tree::build_permalink(&p, &j),
-        None => format!("/{}/", post.slug.clone().unwrap_or_default()),
-    };
-    let post_url = format!("{site_url}{path}");
+    // With the language prefix: a Bengali post's email links to /bn/….
+    let post_url = format!("{site_url}{}", ghost_api::locales::entry_path(state, &post).await);
     let post_title = post.title.clone().unwrap_or_else(|| "Untitled".into());
     // an email has no base to resolve `/content/images/…` against, so the
     // body goes out with full URLs
@@ -1048,11 +1026,7 @@ pub(crate) async fn deliver_newsletter(state: &AppState, post_id: &str, retry: O
             let Ok(Some(p)) = repos::posts::find_by_id(&state.db, &id).await else {
                 continue;
             };
-            let pj = ghost_core::models::post_to_json(&p, &[], &[], "");
-            let ppath = match router.permalink_for(&pj) {
-                Some((_, pl)) => ghost_routing::tree::build_permalink(&pl, &pj),
-                None => format!("/{}/", p.slug.clone().unwrap_or_default()),
-            };
+            let ppath = ghost_api::locales::entry_path(state, &p).await;
             latest.push(ghost_mail::newsletter::LatestPost {
                 title: p.title.clone().unwrap_or_else(|| "Untitled".into()),
                 url: format!("{site_url}{ppath}"),

@@ -22,23 +22,34 @@ pub(crate) fn site_locales(state: &AppState) -> ghost_core::locales::Locales {
     )
 }
 
+/// What a page is, for working out which languages it exists in.
+#[derive(Clone, Copy)]
+pub(crate) enum PageScope<'a> {
+    /// A collection, a taxonomy archive or the home page: "the same page in
+    /// German" is the same path under the German prefix, because an archive
+    /// exists in every language by definition.
+    Archive,
+    /// A post or page, with its translation group if it has one.
+    Entry(Option<&'a str>),
+}
+
 /// This page in every language it exists in, for the switcher a theme draws
 /// and the `hreflang` alternates `{{ghost_head}}` writes.
 ///
-/// `current` is the locale being rendered; `group` is the entry's translation
-/// group, or `None` on a collection or taxonomy page — where "the same page
-/// in German" is simply the same path under the German prefix, because an
-/// archive exists in every language by definition.
+/// `current` is the locale being rendered.
 ///
 /// Only languages that really have the page are listed. A switcher that
 /// offered every enabled language would link to a 404 for the ones that have
 /// not been translated yet, which is worse than not offering them: the
-/// visitor follows it and concludes the site is broken.
+/// visitor follows it and concludes the site is broken. So an entry lists
+/// only its *published* translations, and an entry with no translation group
+/// lists only itself — it is not an archive, and `/de/<its slug>/` is a 404
+/// under `render_entry`'s language rule.
 pub(crate) async fn translations_for(
     state: &AppState,
     locales: &ghost_core::locales::Locales,
     current: &str,
-    group: Option<&str>,
+    scope: PageScope<'_>,
     neutral_path: &str,
 ) -> Value {
     if !locales.multilingual() {
@@ -46,31 +57,35 @@ pub(crate) async fn translations_for(
     }
     let mut out = Vec::new();
     for code in locales.enabled() {
-        let url = match group {
-            Some(group) => {
-                // An entry: only if a translation in this language exists,
+        let url = match scope {
+            PageScope::Entry(Some(group)) => {
+                // Only if a published translation in this language exists,
                 // and at that translation's own slug.
                 let found = repos::locales::in_locale(&state.db, group, code, locales.default_locale())
                     .await
                     .ok()
-                    .flatten();
+                    .flatten()
+                    .filter(|post| post.status == "published");
                 match found {
+                    // The resolver already gives the translation its
+                    // language prefix and the base path.
                     Some(post) => {
                         let resolver = resolver_now(state).await;
-                        let relative = resolver(&models::post_to_json(&post, &[], &[], ""));
-                        Some(locales.localise(&relative, code))
+                        Some(resolver(&models::post_to_json(&post, &[], &[], "")))
                     }
                     None => None,
                 }
             }
-            // An archive or the home page: the same path under this
-            // language's prefix.
-            None => Some(locales.localise(neutral_path, code)),
+            // An entry nobody has translated exists in its own language only.
+            PageScope::Entry(None) => code
+                .eq_ignore_ascii_case(current)
+                .then(|| ghost_core::url::base(&locales.localise(neutral_path, code))),
+            PageScope::Archive => Some(ghost_core::url::base(&locales.localise(neutral_path, code))),
         };
         if let Some(url) = url {
             out.push(serde_json::json!({
                 "locale": code,
-                "url": ghost_core::url::base(&url),
+                "url": url,
                 "active": code.eq_ignore_ascii_case(current),
             }));
         }
@@ -180,14 +195,26 @@ pub async fn entrypoint(State(state): State<AppState>, uri: Uri, headers: Header
     // every post readable as plain Markdown.
     if let Some(md_path) = path.strip_suffix(".md").filter(|_| crate::llms::enabled(&state)) {
         let md_path = format!("{md_path}/");
+        // `/bn/my-post.md` is the Bengali post's Markdown: the language
+        // prefix comes off before the router sees the path, exactly as for
+        // the page itself, and the same rule applies — the entry has to be
+        // in the language its URL names.
+        let locales = site_locales(&state);
+        let (md_locale, md_routed) = locales.split_path(&md_path);
         let router = state.router.read().await.clone();
         if let Some(ghost_routing::tree::RouteMatch::CollectionEntry { slug, .. } | ghost_routing::tree::RouteMatch::StaticPage { slug }) =
-            router.match_path(&md_path)
+            router.match_path(&md_routed)
         {
             let found = match repos::posts::find_by_slug(&state.db, &slug, "post", true).await {
                 Ok(Some(p)) => Ok(Some(p)),
                 _ => repos::posts::find_by_slug(&state.db, &slug, "page", true).await,
             };
+            let found = found.map(|post| {
+                post.filter(|p| {
+                    !locales.multilingual()
+                        || locales.resolve(p.locale.as_deref()).eq_ignore_ascii_case(&md_locale)
+                })
+            });
             if let Ok(Some(post)) = found {
                 if let Some(response)=ghost_api::machine_payments::serve(&state,&post,&uri,&headers).await{return response}
                 // Markdown is a public representation, like Ghost's LLM feed:
@@ -263,7 +290,7 @@ pub async fn entrypoint(State(state): State<AppState>, uri: Uri, headers: Header
 
     match route {
         RouteMatch::Preview { uuid, .. } => render_preview(state, uuid, &path, headers).await,
-        RouteMatch::Rss { kind, name, .. } => rss::render_rss(state, kind, name, &path).await,
+        RouteMatch::Rss { kind, name, .. } => rss::render_rss(state, kind, name, &path, &locale, &headers).await,
         RouteMatch::CollectionIndex { name, filter, order, limit, templates, data, page, .. } => {
             render_collection(state, name, filter, order, limit, templates, data, page, &path, &locale, headers).await
         }
@@ -392,7 +419,13 @@ async fn render_collection(
     if page > 1 {
         context.push("paged".into());
     }
-    if path == "/" {
+    // Each language's home page is a home page: `/bn/` gets the `home`
+    // context and the theme's `home.hbs` exactly as `/` does, so every
+    // language's front page has the same design with no theme change. The
+    // URL prefix is stripped before asking; the canonical and the schema
+    // still use the real path, so `/bn/` remains its own page to a crawler.
+    let routed = locales.split_path(path).1;
+    if routed == "/" {
         context.push("home".into());
     }
     context.push(name.clone());
@@ -402,7 +435,7 @@ async fn render_collection(
     root.insert("pagination".into(), pagination);
     root.extend(extra);
 
-    let is_front = path == "/" && page == 1;
+    let is_front = routed == "/" && page == 1;
     let candidates = {
         let router = state.router.read().await.clone();
         router.collection_templates(&name, &templates, is_front)
@@ -413,18 +446,70 @@ async fn render_collection(
     // is not used here: the path is already language-neutral, because the
     // prefix was stripped before the router ran.
     let neutral = locales.split_path(path).1;
-    let translations = translations_for(&state, &locales, locale, None, &neutral).await;
+    let translations = translations_for(&state, &locales, locale, PageScope::Archive, &neutral).await;
+    let site_overrides = if routed == "/" { home_details(&state, &locales, locale).await } else { Default::default() };
     let rctx = RenderCtx {
         context,
         relative_url: path.to_string(),
         member,
         locale: locale.to_string(),
         translations,
+        site_overrides,
     };
     match render_template(&state, &theme, &candidates, Value::Object(root), &rctx).await {
         Ok(html) => html_response(html),
         Err(e) => error_response(e),
     }
+}
+
+/// A language's home-page details, from the published page whose slug is
+/// that language's code — the page slugged `bn` for `/bn/`.
+///
+/// That page could never be opened as a page anyway: `/bn/` is the Bengali
+/// home, read before any slug. So it does a job instead. Its fields replace
+/// the site-wide ones on that home page only, which is how a language gets
+/// its own `<title>`, description and share cards without a setting per
+/// language, and in the editor everybody already knows.
+///
+/// Only fields that are filled in replace anything; the rest keep the
+/// site's. Looked up by code for every language, the default included, so a
+/// change of default language needs nothing re-done. Empty on a
+/// single-language site.
+pub(crate) async fn home_details(
+    state: &AppState,
+    locales: &ghost_core::locales::Locales,
+    locale: &str,
+) -> serde_json::Map<String, Value> {
+    let mut out = serde_json::Map::new();
+    if !locales.multilingual() {
+        return out;
+    }
+    let Ok(Some(page)) = repos::posts::find_by_slug(&state.db, &locale.to_ascii_lowercase(), "page", true).await else {
+        return out;
+    };
+    let j = models::post_to_json(&page, &[], &[], "");
+    let field = |key: &str| j.get(key).and_then(Value::as_str).map(str::trim).filter(|s| !s.is_empty()).map(str::to_string);
+    let first = |keys: &[&str]| keys.iter().find_map(|k| field(k));
+    let mut put = |key: &str, value: Option<String>| {
+        if let Some(v) = value {
+            out.insert(key.to_string(), Value::String(v));
+        }
+    };
+    // `<title>` and the meta description.
+    put("meta_title", first(&["meta_title", "title"]));
+    put("meta_description", first(&["meta_description", "custom_excerpt"]));
+    // What a theme prints under the site name in its header.
+    put("description", first(&["custom_excerpt", "meta_description"]));
+    // The share cards: on a home page these are read from the site, and
+    // fall back to the site's title — which is the default language's.
+    put("og_title", first(&["og_title", "meta_title", "title"]));
+    put("og_description", first(&["og_description", "meta_description", "custom_excerpt"]));
+    put("og_image", first(&["og_image", "feature_image"]));
+    put("twitter_title", first(&["twitter_title", "meta_title", "title"]));
+    put("twitter_description", first(&["twitter_description", "meta_description", "custom_excerpt"]));
+    put("twitter_image", first(&["twitter_image", "feature_image"]));
+    put("cover_image", field("feature_image"));
+    out
 }
 
 fn data_entry_key(short: &str) -> String {
@@ -552,10 +637,11 @@ async fn render_entry(state: AppState, slug: String, path: &str, locale: &str, q
             &state,
             &locales,
             locale,
-            post.translation_group.as_deref(),
+            PageScope::Entry(post.translation_group.as_deref()),
             &locales.split_path(path).1,
         )
         .await,
+        site_overrides: Default::default(),
     };
     match render_template(&state, &theme, &candidates, Value::Object(root), &rctx).await {
         Ok(html) => {
@@ -605,7 +691,8 @@ async fn render_taxonomy(
                     }
                 }
                 let mut j = models::tag_to_json(&t, None);
-                let url = resolver(&j);
+                // This archive, in the language it is being read in.
+                let url = ghost_render::util::resolve_for_page(&j, Some(locale), true, &*resolver);
                 if let Value::Object(m) = &mut j {
                     m.insert("url".into(), json!(url));
                 }
@@ -619,7 +706,7 @@ async fn render_taxonomy(
                     }
                 };
                 let mut j = models::user_public_json(&u, None);
-                let url = resolver(&j);
+                let url = ghost_render::util::resolve_for_page(&j, Some(locale), false, &*resolver);
                 if let Value::Object(m) = &mut j {
                     m.insert("url".into(), json!(url));
                 }
@@ -663,7 +750,7 @@ async fn render_taxonomy(
 
     let candidates = vec![format!("{name}-{slug}"), name.clone(), "index".into()];
     let neutral = locales.split_path(path).1;
-    let translations = translations_for(&state, &locales, locale, None, &neutral).await;
+    let translations = translations_for(&state, &locales, locale, PageScope::Archive, &neutral).await;
     let rctx = RenderCtx {
         context,
         locale: locale.to_string(),

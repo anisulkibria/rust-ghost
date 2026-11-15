@@ -1,8 +1,12 @@
-//! Settings -> General: title, description, timezone, language and the meta data behind them.
+//! Settings -> General: title, description, timezone and the meta data behind them.
+//!
+//! The publication language moved to Settings -> Languages, as the default
+//! publication language: on a multilingual site changing it re-addresses
+//! every language, so it belongs beside them.
 
 use super::*;
 
-// --- general: title & description, timezone, publication language, staff ---
+// --- general: title & description, timezone, staff ---
 
 pub(crate) async fn general_page(State(state): State<AppState>, headers: HeaderMap, Query(q): Query<HashMap<String, String>>) -> Response {
     let (user, actor_role) = match require_role(&state, &headers, Role::Administrator).await {
@@ -33,12 +37,6 @@ pub(crate) async fn general_page(State(state): State<AppState>, headers: HeaderM
 <div class="row" style="align-items:center"><span class="ic tint-pink">{globe}</span>
 <div class="body"><label class="field fixed" style="margin:0"><select name="timezone">{tz_opts}</select><span>Site timezone</span>{car}</label></div></div>
 </div>
-<div class="section">Publication language</div>
-<div class="card rows rise" style="--i:3">
-<div class="row" style="align-items:center"><span class="ic tint-pink">{lang}</span>
-<div class="body"><label class="field fixed" style="margin:0"><select name="locale">{locale_opts}</select><span>Publication language</span>{car}</label>
-<p class="muted" style="margin:6px 0 0">Used as the site's <code>&lt;html lang&gt;</code> by themes.</p></div></div>
-</div>
 {metadata}
 {social}
 </form>"#,
@@ -47,13 +45,11 @@ pub(crate) async fn general_page(State(state): State<AppState>, headers: HeaderM
             title_ic = svg("title"),
             notes = svg("notes"),
             globe = svg("globe"),
-            lang = svg("notes"),
             car = SELECT_CARET,
             title = s("title"),
             name = s("name"),
             description = s("description"),
             tz_opts = select_options(TIMEZONES, &state.settings.get_str("timezone").unwrap_or_else(|| "Etc/UTC".into())),
-            locale_opts = select_options(LOCALES, &state.settings.get_str("locale").unwrap_or_else(|| "en".into())),
             metadata = metadata_sections(&state),
             social = social_sections(&state),
         ),
@@ -76,11 +72,11 @@ pub(crate) async fn general_save(State(state): State<AppState>, headers: HeaderM
         if v.is_empty() { fallback.to_string() } else { v.to_string() }
     };
     let timezone = non_empty(get("timezone"), "Etc/UTC");
-    let locale = non_empty(get("locale"), "en");
     let mut ok = state.settings.set(&state.db, "title", &serde_json::json!(title)).await.is_ok()
         && state.settings.set(&state.db, "description", &serde_json::json!(get("description"))).await.is_ok()
-        && state.settings.set(&state.db, "timezone", &serde_json::json!(timezone)).await.is_ok()
-        && state.settings.set(&state.db, "locale", &serde_json::json!(locale)).await.is_ok();
+        && state.settings.set(&state.db, "timezone", &serde_json::json!(timezone)).await.is_ok();
+    // The publication language is not on this form any more; it is the
+    // default publication language in Settings -> Languages.
     if let Some(name) = form.get("name") {
         ok &= state.settings.set(&state.db, "name", &serde_json::json!(name.trim())).await.is_ok();
     }

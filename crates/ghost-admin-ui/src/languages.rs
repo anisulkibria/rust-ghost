@@ -78,6 +78,23 @@ pub(crate) fn editor_script(locales: &Locales) -> String {
     )
 }
 
+/// Where an entry lives on the public site, as a site-relative path that
+/// carries its language prefix — `/de/hallo/` for a German post.
+///
+/// The router's permalinks are language-neutral; the language is a prefix
+/// in front of them (see [`ghost_core::locales`]). Anything in the admin
+/// that links to an entry has to add it, or a German post's "View post"
+/// opens `/hallo/` — a 404, because the unprefixed path is the default
+/// language's.
+pub(crate) async fn public_path(state: &AppState, post: &ghost_core::models::Post) -> String {
+    ghost_api::locales::entry_path(state, post).await
+}
+
+/// [`public_path`] as an absolute URL.
+pub(crate) async fn public_url(state: &AppState, post: &ghost_core::models::Post) -> String {
+    format!("{}{}", state.site_url().trim_end_matches('/'), public_path(state, post).await)
+}
+
 /// The most entries the "left to translate" list shows per language.
 const UNTRANSLATED_LIMIT: i64 = 25;
 /// The most results the link search returns.
@@ -145,6 +162,7 @@ pub(crate) fn editor_panel(
     post_type: &str,
     post_id: Option<&str>,
     entry_locale: Option<&str>,
+    title: &str,
     siblings: &[Sibling],
 ) -> (String, String) {
     if !locales.multilingual() {
@@ -201,34 +219,61 @@ pub(crate) fn editor_panel(
         post_id = esc(post_id),
     ));
 
-    // --- what already exists ---------------------------------------------
+    // --- the whole linked set ---------------------------------------------
+    //
+    // Every entry linked to this one, *and this one*, in the site's language
+    // order. A set is one thing whichever member is open: the card reads the
+    // same from the English post as from the Bengali one, and unlinking any
+    // member from any other is the same operation.
     let existing = if siblings.is_empty() {
-        format!(
-            r#"<p class="hint lg-note">No translations yet.</p>"#,
-        )
+        r#"<p class="hint lg-note">Not linked to anything yet. Link an entry in another language below, from this side or from theirs — it is the same link.</p>"#.to_string()
     } else {
-        let rows: String = siblings
-            .iter()
-            .map(|s| {
-                let href = editor_href(s);
-                let title = match &href {
-                    Some(href) => format!(
-                        r#"<a href="{href}">{title}</a>"#,
-                        title = esc(sibling_title(s))
-                    ),
-                    None => esc(sibling_title(s)),
-                };
+        let order = |code: &str| {
+            locales.enabled().iter().position(|c| c.eq_ignore_ascii_case(code)).unwrap_or(usize::MAX)
+        };
+        let own_code = if current.is_empty() { locales.default_locale().to_string() } else { current.to_string() };
+        // (code, row html)
+        let mut rows: Vec<(String, String)> = vec![(
+            own_code.clone(),
+            format!(
+                r#"<div class="lg-sib is-self"><span class="chip tonal">{code}</span>
+<span class="lg-sib-title">{title}</span><span class="lg-sib-note">This {singular}</span></div>"#,
+                code = esc(&own_code),
+                title = esc(if title.trim().is_empty() { "(untitled)" } else { title.trim() }),
+                singular = esc(singular),
+            ),
+        )];
+        for s in siblings {
+            let code = s.locale.clone().filter(|c| !c.is_empty()).unwrap_or_else(|| locales.default_locale().to_string());
+            let title = match editor_href(s) {
+                Some(href) => format!(r#"<a href="{href}">{title}</a>"#, title = esc(sibling_title(s))),
+                None => esc(sibling_title(s)),
+            };
+            let status = if s.status == "published" {
+                String::new()
+            } else {
+                format!(r#"<span class="lg-sib-note">{}</span>"#, esc(&s.status))
+            };
+            rows.push((
+                code.clone(),
                 format!(
                     r#"<div class="lg-sib"><span class="chip tonal">{code}</span>
-<span class="lg-sib-title">{title}</span>
+<span class="lg-sib-title">{title}</span>{status}
 <button class="btn text small danger" type="submit" form="xlate-unlink-{id}">Unlink</button></div>"#,
-                    code = esc(&s.locale.clone().unwrap_or_else(|| locales.default_locale().to_string())),
+                    code = esc(&code),
                     title = title,
+                    status = status,
                     id = esc(&s.id),
-                )
-            })
-            .collect();
-        format!(r#"<div class="lg-sibs">{rows}</div>"#)
+                ),
+            ));
+        }
+        rows.sort_by_key(|(code, _)| order(code));
+        let total = rows.len();
+        format!(
+            r#"<p class="hint lg-note" style="margin:0 0 6px">{total} linked entries, one per language.</p><div class="lg-sibs">{rows}</div>"#,
+            total = total,
+            rows = rows.into_iter().map(|(_, r)| r).collect::<String>(),
+        )
     };
 
     // --- the languages this entry does not have yet -----------------------
@@ -339,17 +384,20 @@ pub async fn search(
     let own = post.locale.clone().unwrap_or_else(|| locales.default_locale().to_string());
     let term = q.get("q").map(|t| t.trim()).unwrap_or("");
 
-    let found = repos::locales::candidates(
+    // One more than is shown, to know whether there is more than is shown.
+    let mut found = repos::locales::candidates(
         &state.db,
         &id,
         &post.post_type,
         &own,
         locales.default_locale(),
         term,
-        SEARCH_LIMIT,
+        SEARCH_LIMIT + 1,
     )
     .await
     .unwrap_or_default();
+    let more = found.len() as i64 > SEARCH_LIMIT;
+    found.truncate(SEARCH_LIMIT as usize);
 
     let items: Vec<serde_json::Value> = found
         .iter()
@@ -363,7 +411,7 @@ pub async fn search(
             })
         })
         .collect();
-    axum::Json(serde_json::json!({ "entries": items })).into_response()
+    axum::Json(serde_json::json!({ "entries": items, "more": more })).into_response()
 }
 
 // ---------------------------------------------------------------------------
@@ -731,7 +779,16 @@ pub async fn languages_page(
 
     // Slugs a language prefix has made unreachable — the one way this URL
     // shape can bite, so it is reported rather than left to be found.
-    let shadowed = repos::locales::shadowed_slugs(&state.db, &locales).await.unwrap_or_default();
+    // A published page slugged with a language's code is not lost: it holds
+    // that language's home-page details (see `ghost_front::routes::
+    // home_details`), so it is listed below rather than warned about.
+    let shadowed: Vec<Sibling> = repos::locales::shadowed_slugs(&state.db, &locales)
+        .await
+        .unwrap_or_default()
+        .into_iter()
+        .filter(|s| !(s.post_type == "page" && s.status == "published"))
+        .collect();
+    let homes = home_pages_card(&state, &locales).await;
     let warning = if shadowed.is_empty() {
         String::new()
     } else {
@@ -751,7 +808,7 @@ pub async fn languages_page(
 <div class="card rows rise" style="--i:5"><div class="row" style="align-items:flex-start">
 <span class="ic tint-red">{ic}</span>
 <div class="body"><span class="title">A language prefix is shadowing these</span>
-<span class="detail">Their slug is the same as a language code, so the prefix is read first and the entry cannot be opened. Change the slug.</span>
+<span class="detail">Their slug is the same as a language code, so the prefix is read first and the entry cannot be opened. Change the slug — or, for a page, publish it to make it that language's home-page details.</span>
 <div class="chips" style="margin-top:8px">{items}</div></div></div></div>"#,
             ic = svg("warning"),
             items = items,
@@ -770,6 +827,8 @@ pub async fn languages_page(
 <div class="tiles rise" style="--i:1">{tiles}</div>
 <div class="section">Languages</div>
 <div class="card rows rise" style="--i:2">{rows}</div>
+<div class="section">Language home pages</div>
+{homes}
 <div class="section">Left to translate</div>
 {todo_card}
 {warning}
@@ -780,6 +839,47 @@ pub async fn languages_page(
         true,
     )
     .into_response()
+}
+
+/// Which page each language's home page takes its details from: the page
+/// slugged with the language's code, if there is one.
+async fn home_pages_card(state: &AppState, locales: &Locales) -> String {
+    if !locales.multilingual() {
+        return String::new();
+    }
+    let mut rows = String::new();
+    for code in locales.enabled() {
+        let slug = code.to_ascii_lowercase();
+        let home = locales.localise("/", code);
+        let page = repos::posts::find_by_slug(&state.db, &slug, "page", false).await.ok().flatten();
+        let detail = match &page {
+            Some(p) if p.status == "published" => format!(
+                r#"Title, description and share cards from <a href="/ghost/pages/{id}/">{title}</a>."#,
+                id = esc(&p.id),
+                title = esc(p.title.as_deref().filter(|t| !t.trim().is_empty()).unwrap_or("(untitled)")),
+            ),
+            Some(p) => format!(
+                r#"<a href="/ghost/pages/{id}/">{title}</a> is a {status} — publish it to use it."#,
+                id = esc(&p.id),
+                title = esc(p.title.as_deref().filter(|t| !t.trim().is_empty()).unwrap_or("(untitled)")),
+                status = esc(&p.status),
+            ),
+            None => format!(
+                r#"The site-wide details. To give it its own, publish a page with the slug <code>{slug}</code>."#,
+                slug = esc(&slug),
+            ),
+        };
+        rows.push_str(&format!(
+            r#"<div class="row"><span class="ic tint-teal">{globe}</span>
+<div class="body"><span class="title">{name} <span class="chip tonal">{home}</span></span>
+<span class="detail">{detail}</span></div></div>"#,
+            globe = svg("globe"),
+            name = esc(&label_for(locales, code)),
+            home = esc(&home),
+            detail = detail,
+        ));
+    }
+    format!(r#"<div class="card rows rise" style="--i:3">{rows}</div>"#)
 }
 
 fn tile(label: &str, value: &str, detail: &str) -> String {
@@ -838,60 +938,27 @@ pub async fn settings_page(
         })
         .collect();
 
-    // One navigation box per non-default language, pre-filled with what it
-    // has or with the site-wide menu as a starting point.
-    let nav_maps = |key: &str| -> serde_json::Value {
-        state
-            .settings
-            .get(key)
-            .and_then(|v| match v {
-                serde_json::Value::Object(o) => Some(serde_json::Value::Object(o)),
-                serde_json::Value::String(raw) => serde_json::from_str(&raw).ok(),
-                _ => None,
-            })
-            .unwrap_or_else(|| serde_json::json!({}))
-    };
-    let primary = nav_maps("navigation_locales");
-    let secondary = nav_maps("secondary_navigation_locales");
-    let as_lines = |map: &serde_json::Value, code: &str| -> String {
-        map.get(code)
-            .and_then(|v| v.as_array())
-            .map(|items| {
-                items
-                    .iter()
-                    .filter_map(|i| {
-                        let label = i.get("label").and_then(|v| v.as_str())?;
-                        let url = i.get("url").and_then(|v| v.as_str()).unwrap_or("/");
-                        Some(format!("{label} | {url}"))
-                    })
-                    .collect::<Vec<_>>()
-                    .join("\n")
-            })
-            .unwrap_or_default()
-    };
-
+    // Menus are edited on the Navigation page, which holds both menus for
+    // every language; this only points there.
     let nav_cards: String = if locales.multilingual() {
-        locales
+        let chips: String = locales
             .enabled()
             .iter()
-            .filter(|code| !locales.is_default(code))
             .map(|code| {
                 format!(
-                    r#"<div class="card padded rise" style="--i:4">
-<p style="margin:0 0 10px;font-weight:600">{label}</p>
-<label class="field" style="margin:0 0 10px"><textarea name="nav_{code}" rows="4" placeholder=" " spellcheck="false" class="lg-nav">{primary}</textarea><span>Primary menu</span></label>
-<label class="field" style="margin:0"><textarea name="nav2_{code}" rows="3" placeholder=" " spellcheck="false" class="lg-nav">{secondary}</textarea><span>Secondary menu</span></label>
-<p class="muted" style="margin:8px 0 0">One item per line, as <code>Label | /url/</code>. Leave a box empty to use the site-wide menu from <a href="/ghost/settings/navigation/">Navigation</a>. A relative URL is served under this language's prefix automatically.</p>
-</div>"#,
-                    label = esc(&crate::settings::locale_label(code)),
-                    code = esc(code),
-                    primary = esc(&as_lines(&primary, code)),
-                    secondary = esc(&as_lines(&secondary, code)),
+                    r##"<a class="chip tonal" href="/ghost/navigation/#nav-{anchor}">{name}</a> "##,
+                    anchor = if locales.is_default(code) { "default".to_string() } else { esc(&code.to_ascii_lowercase()) },
+                    name = esc(&ghost_core::locales::native_name(code)),
                 )
             })
-            .collect()
+            .collect();
+        format!(
+            r#"<div class="card padded rise" style="--i:4">
+<p class="muted" style="margin:0 0 10px">Every language has its own primary and secondary menu. A language you switch on here gets both, generated from the default language's menus and pointing at their translations. Edit them, and add the language switcher, in <a href="/ghost/navigation/">Navigation</a>.</p>
+<p style="margin:0">{chips}</p></div>"#
+        )
     } else {
-        r#"<div class="card padded rise" style="--i:4"><p class="muted" style="margin:0">Add a language above to give it a menu of its own.</p></div>"#.to_string()
+        r#"<div class="card padded rise" style="--i:4"><p class="muted" style="margin:0">Add a language above to give it menus of its own.</p></div>"#.to_string()
     };
 
     page_for_role(
@@ -903,9 +970,16 @@ pub async fn settings_page(
             r#"{head}{banner}
 <p class="rise" style="--i:1"><a class="btn tonal" href="/ghost/languages/">{globe} Open the Languages report</a></p>
 <form method="post" action="/ghost/settings/languages/" id="languages-settings">
+<div class="section">Default publication language</div>
+<div class="card rows rise" style="--i:2">
+<div class="row" style="align-items:center"><span class="ic tint-teal">{globe}</span>
+<div class="body"><label class="field fixed" style="margin:0"><select name="locale" data-lg-default>{default_opts}</select><span>Default publication language</span>{car}</label>
+<p class="muted" style="margin:6px 0 0">The language of the site's own address — no URL prefix — and of every entry not given one. Themes read it as <code>&lt;html lang&gt;</code>. Changing it keeps the current default as a language under its own prefix, with its posts and menus.</p></div></div>
+</div>
+
 <div class="section">Languages</div>
 <div class="card padded rise" style="--i:2">
-<p class="muted" style="margin:0 0 12px">The <b>{default}</b> is this site's default language, set in <a href="/ghost/settings/general/">General settings</a>. It has no URL prefix, so nothing that works today changes. Every language you tick here is published under its own code — <code>/de/my-post/</code>.</p>
+<p class="muted" style="margin:0 0 12px"><b>{default}</b> is the default language: no URL prefix, so nothing that works today changes. Every language you tick here is published under its own code — <code>/de/my-post/</code>.</p>
 <div class="lg-picks">{boxes}</div>
 </div>
 
@@ -919,12 +993,37 @@ pub async fn settings_page(
 
 <div class="section">Navigation per language</div>
 {nav_cards}
-</form>"#,
+</form>
+<script>
+/* Picking a new default updates the boxes before saving: the new default is
+   locked on, and the current one is shown as kept — the server keeps it as a
+   language either way, so the page should not suggest otherwise. */
+(function () {{
+  var pick = document.querySelector('[data-lg-default]');
+  if (!pick) {{ return; }}
+  var saved = pick.value;
+  pick.addEventListener('change', function () {{
+    document.querySelectorAll('.lg-pick').forEach(function (label) {{
+      var box = label.querySelector('input');
+      var note = label.querySelector('em');
+      var isNew = box.value === pick.value;
+      var isOld = box.value === saved && !isNew;
+      label.classList.toggle('is-default', isNew || isOld);
+      if (isNew || isOld) {{ box.checked = true; }}
+      box.disabled = isNew || isOld;
+      if (!note && (isNew || isOld)) {{ note = document.createElement('em'); label.appendChild(note); }}
+      if (note) {{ note.textContent = isNew ? 'default' : (isOld ? 'kept' : ''); if (!isNew && !isOld) {{ note.remove(); }} }}
+    }});
+  }});
+}})();
+</script>"#,
             head = crate::group_head(group, Some("languages-settings")),
             banner = flash_banner(&q),
             globe = svg("globe"),
             share = svg("share"),
             default = esc(&crate::settings::locale_label(locales.default_locale())),
+            default_opts = crate::settings::select_options(crate::settings::LOCALES, locales.default_locale()),
+            car = SELECT_CARET,
             boxes = boxes,
             hreflang_on = if hreflang { " checked" } else { "" },
             nav_cards = nav_cards,
@@ -932,43 +1031,6 @@ pub async fn settings_page(
         true,
     )
     .into_response()
-}
-
-/// `Label | /url/` lines into the navigation shape the settings table holds.
-///
-/// Rebuilt rather than stored as sent: the label is bounded and stripped of
-/// control characters, and a URL is kept only if it is relative or plainly
-/// HTTP(S) — a `javascript:` menu item would run on every page of the site.
-pub(crate) fn parse_nav(raw: &str) -> Vec<serde_json::Value> {
-    raw.lines()
-        .filter_map(|line| {
-            let line = line.trim();
-            if line.is_empty() {
-                return None;
-            }
-            let (label, url) = match line.split_once('|') {
-                Some((l, u)) => (l.trim(), u.trim()),
-                None => (line, "/"),
-            };
-            let label: String = label.chars().filter(|c| !c.is_control()).take(200).collect();
-            if label.trim().is_empty() {
-                return None;
-            }
-            let url = url.chars().filter(|c| !c.is_control()).take(2000).collect::<String>();
-            let url = url.trim();
-            let safe = url.starts_with('/')
-                || url.starts_with("http://")
-                || url.starts_with("https://")
-                || url.starts_with('#');
-            // A protocol-relative URL leaves the site, and a `javascript:`
-            // one runs on every page that renders the menu.
-            let safe = safe && !url.starts_with("//");
-            Some(serde_json::json!({
-                "label": label.trim(),
-                "url": if safe { url } else { "/" },
-            }))
-        })
-        .collect()
 }
 
 pub async fn settings_save(
@@ -982,8 +1044,8 @@ pub async fn settings_save(
     // Parsed by hand: `locales` posts once per ticked box, and
     // `serde_urlencoded` collapses a repeated key to one value.
     let mut ticked: Vec<String> = Vec::new();
-    let mut navs: HashMap<String, String> = HashMap::new();
     let mut hreflang = false;
+    let mut wanted_default: Option<String> = None;
     for (key, value) in form_urlencoded::parse(body.as_bytes()) {
         match key.as_ref() {
             "locales" => {
@@ -994,39 +1056,37 @@ pub async fn settings_save(
                 }
             }
             "locale_hreflang" => hreflang = value == "1",
-            k if k.starts_with("nav_") || k.starts_with("nav2_") => {
-                navs.insert(k.to_string(), value.into_owned());
-            }
+            "locale" => wanted_default = ghost_core::locales::normalise(&value),
             _ => {}
         }
     }
 
+    let previous = state.settings.get_str("locale").unwrap_or_else(|| "en".into());
+    let previous = ghost_core::locales::normalise(&previous).unwrap_or_else(|| "en".into());
+
+    // A new default publication language goes through the one path that
+    // keeps everything else consistent: the old default stays a language,
+    // its entries keep their language, the menus move with them and the
+    // theme is reloaded (`ghost_api::locales::change_default`).
+    let mut changed_default = false;
+    if let Some(wanted) = wanted_default.filter(|w| *w != previous) {
+        if let Err(e) = ghost_api::locales::change_default(&state, &wanted).await {
+            tracing::error!("languages: changing the default language: {}", e.message());
+            return crate::settings_flash("languages", "error", "The default language could not be changed — check the logs.");
+        }
+        changed_default = true;
+        // Its checkbox was locked as the default, so it posted nothing; it
+        // stays a language, as the page said it would.
+        if !ticked.contains(&previous) {
+            ticked.push(previous.clone());
+        }
+    }
     let default = state.settings.get_str("locale").unwrap_or_else(|| "en".into());
     let default = ghost_core::locales::normalise(&default).unwrap_or_else(|| "en".into());
     // The default language is always published in; the checkbox for it is
     // disabled and so posts nothing.
     ticked.retain(|c| *c != default);
     let enabled = ticked.clone();
-    let locales = Locales::from_settings(Some(&default), Some(&serde_json::json!(enabled)));
-
-    // Only the languages that survived, so a menu cannot be stored for a
-    // language the site does not publish in.
-    let mut primary = serde_json::Map::new();
-    let mut secondary = serde_json::Map::new();
-    for code in locales.enabled() {
-        if let Some(raw) = navs.get(&format!("nav_{code}")) {
-            let items = parse_nav(raw);
-            if !items.is_empty() {
-                primary.insert(code.clone(), serde_json::json!(items));
-            }
-        }
-        if let Some(raw) = navs.get(&format!("nav2_{code}")) {
-            let items = parse_nav(raw);
-            if !items.is_empty() {
-                secondary.insert(code.clone(), serde_json::json!(items));
-            }
-        }
-    }
 
     let mut ok = state
         .settings
@@ -1038,16 +1098,13 @@ pub async fn settings_save(
         .set(&state.db, "locale_hreflang", &serde_json::Value::Bool(hreflang))
         .await
         .is_ok();
-    ok &= state
-        .settings
-        .set(&state.db, "navigation_locales", &serde_json::Value::Object(primary))
-        .await
-        .is_ok();
-    ok &= state
-        .settings
-        .set(&state.db, "secondary_navigation_locales", &serde_json::Value::Object(secondary))
-        .await
-        .is_ok();
+    // A language switched on gets both menus now, generated from the
+    // default language's; one switched off loses its menus. Existing menus
+    // are left alone — they are somebody's work.
+    if let Err(e) = crate::navigation::ensure_locale_menus(&state).await {
+        tracing::error!("languages: generating menus failed: {}", e.message());
+        ok = false;
+    }
 
     if !ok {
         return crate::settings_flash("languages", "error", "Saving failed — check the logs.");
@@ -1064,7 +1121,15 @@ pub async fn settings_save(
             "Languages saved, but the theme could not be reloaded — restart to pick up its locale files.",
         );
     }
-    crate::settings_flash("languages", "ok", "Language settings saved.")
+    crate::settings_flash(
+        "languages",
+        "ok",
+        if changed_default {
+            "Language settings saved. The previous default is now a language under its own prefix."
+        } else {
+            "Language settings saved."
+        },
+    )
 }
 
 #[cfg(test)]
@@ -1093,7 +1158,7 @@ mod tests {
         // Installing the module must change nothing until a second language
         // is added: a picker with one option is a decision that is not one.
         let one = Locales::default();
-        assert_eq!(editor_panel(&one, "post", Some(ID), None, &[]), (String::new(), String::new()));
+        assert_eq!(editor_panel(&one, "post", Some(ID), None, "This one", &[]), (String::new(), String::new()));
         assert_eq!(editor_script(&one), "");
     }
 
@@ -1107,12 +1172,7 @@ mod tests {
     #[test]
     fn the_panel_contains_no_form_of_its_own() {
         let locales = Locales::new("en", &["de", "fr"]);
-        let (panel, forms) = editor_panel(
-            &locales,
-            "post",
-            Some(ID),
-            None,
-            &[sib(SIB_ID, Some("de"), "Hallo")],
+        let (panel, forms) = editor_panel(&locales, "post", Some(ID), None, "This one", &[sib(SIB_ID, Some("de"), "Hallo")],
         );
         assert!(!panel.contains("<form"), "a nested form is dropped by the browser:\n{panel}");
         // Every submit in the panel points at a form in the other fragment.
@@ -1130,12 +1190,7 @@ mod tests {
     fn the_panel_offers_only_the_languages_the_entry_does_not_have() {
         let locales = Locales::new("en", &["de", "fr"]);
         // An English entry already translated into German: only French left.
-        let (panel, _) = editor_panel(
-            &locales,
-            "post",
-            Some(ID),
-            None,
-            &[sib(SIB_ID, Some("de"), "Hallo")],
+        let (panel, _) = editor_panel(&locales, "post", Some(ID), None, "This one", &[sib(SIB_ID, Some("de"), "Hallo")],
         );
         // Scoped to the "translate into" select: the entry's *own* language
         // picker correctly lists every language, because the entry can be
@@ -1155,7 +1210,7 @@ mod tests {
     #[test]
     fn linking_is_a_search_box_that_works_without_javascript() {
         let locales = Locales::new("en", &["de"]);
-        let (panel, _) = editor_panel(&locales, "post", Some(ID), None, &[]);
+        let (panel, _) = editor_panel(&locales, "post", Some(ID), None, "This one", &[]);
         assert!(panel.contains("data-xlate-search"), "{panel}");
         assert!(panel.contains("data-xlate-input"), "{panel}");
         // A plain text input named `target`, so a typed slug posts and the
@@ -1166,15 +1221,31 @@ mod tests {
         assert!(editor_script(&locales).contains("translations-search.js"));
     }
 
+    /// A linked set is one thing whichever member is open: the card lists
+    /// every member, this one included, in the site's language order.
+    #[test]
+    fn the_card_lists_the_whole_set_in_language_order_from_any_member() {
+        let locales = Locales::new("en", &["bn", "fr"]);
+        const FR_ID: &str = "6553f7a1b2c3d4e5f6a7b8cb";
+        let mut draft = sib(FR_ID, Some("fr"), "Bonjour");
+        draft.status = "draft".into();
+        // Opened from the Bengali member, with the English one stored as NULL.
+        let (panel, _) = editor_panel(&locales, "post", Some(ID), Some("bn"), "Nomoskar", &[draft, sib(SIB_ID, None, "Hello")]);
+        let at = |needle: &str| panel.find(needle).unwrap_or_else(|| panic!("{needle} missing:\n{panel}"));
+        assert!(at("Hello") < at("Nomoskar") && at("Nomoskar") < at("Bonjour"), "not in site order:\n{panel}");
+        assert!(panel.contains("3 linked entries"), "{panel}");
+        assert!(panel.contains("This post"), "the open entry is not listed");
+        assert!(panel.contains(">draft<"), "a draft member is not marked");
+        // This entry cannot be unlinked from itself; the other two can.
+        assert_eq!(panel.matches(">Unlink<").count(), 2, "{panel}");
+        // Every language is taken, so nothing is offered to create.
+        assert!(panel.contains("exists in every language"), "{panel}");
+    }
+
     #[test]
     fn an_entry_in_every_language_is_told_so_rather_than_shown_an_empty_picker() {
         let locales = Locales::new("en", &["de"]);
-        let (panel, _) = editor_panel(
-            &locales,
-            "post",
-            Some(ID),
-            None,
-            &[sib(SIB_ID, Some("de"), "Hallo")],
+        let (panel, _) = editor_panel(&locales, "post", Some(ID), None, "This one", &[sib(SIB_ID, Some("de"), "Hallo")],
         );
         assert!(panel.contains("exists in every language"), "{panel}");
         assert!(!panel.contains(r#"form="xlate-new""#), "{panel}");
@@ -1184,23 +1255,18 @@ mod tests {
     fn an_unsaved_entry_is_asked_to_save_first() {
         // There is no id to hang a translation off yet.
         let locales = Locales::new("en", &["de"]);
-        let (panel, forms) = editor_panel(&locales, "post", None, None, &[]);
+        let (panel, forms) = editor_panel(&locales, "post", None, None, "This one", &[]);
         assert!(panel.contains("Save this post to start translating"), "{panel}");
         assert!(forms.is_empty(), "{forms}");
         // And an id that is not an ObjectID is treated the same, never linked.
-        let (hostile, _) = editor_panel(&locales, "post", Some("../../settings"), None, &[]);
+        let (hostile, _) = editor_panel(&locales, "post", Some("../../settings"), None, "This one", &[]);
         assert!(!hostile.contains("../../settings"), "{hostile}");
     }
 
     #[test]
     fn a_hostile_title_is_escaped_in_the_panel() {
         let locales = Locales::new("en", &["de"]);
-        let (panel, forms) = editor_panel(
-            &locales,
-            "post",
-            Some(ID),
-            None,
-            &[sib(SIB_ID, Some("de"), r#"<img src=x onerror="alert(1)">"#)],
+        let (panel, forms) = editor_panel(&locales, "post", Some(ID), None, "This one", &[sib(SIB_ID, Some("de"), r#"<img src=x onerror="alert(1)">"#)],
         );
         for html in [&panel, &forms] {
             assert!(!html.contains("<img"), "{html}");
@@ -1211,39 +1277,10 @@ mod tests {
     #[test]
     fn a_page_panel_talks_about_pages_and_posts_to_the_pages_editor() {
         let locales = Locales::new("en", &["de"]);
-        let (panel, forms) = editor_panel(&locales, "page", Some(ID), None, &[]);
+        let (panel, forms) = editor_panel(&locales, "page", Some(ID), None, "This one", &[]);
         assert!(panel.contains("Language of this page"), "{panel}");
         assert!(forms.contains(&format!("/ghost/pages/{ID}/translations/new/")), "{forms}");
         assert!(!forms.contains("/ghost/posts/"), "{forms}");
-    }
-
-    #[test]
-    fn a_menu_line_that_would_run_script_is_refused() {
-        // The menu renders on every page of the site, so a `javascript:` URL
-        // in it would run everywhere.
-        let items = parse_nav("Home | /\nEvil | javascript:alert(1)\nOff-site | //evil.example/x");
-        assert_eq!(items.len(), 3);
-        assert_eq!(items[0]["url"], "/");
-        assert_eq!(items[1]["url"], "/", "a javascript: URL is replaced, not stored");
-        assert_eq!(items[2]["url"], "/", "a protocol-relative URL leaves the site");
-        // An ordinary external link is kept.
-        let ext = parse_nav("Docs | https://example.com/docs");
-        assert_eq!(ext[0]["url"], "https://example.com/docs");
-    }
-
-    #[test]
-    fn menu_lines_are_rebuilt_rather_than_stored_as_sent() {
-        let items = parse_nav("  Home  |  /  \n\n\nAbout|/about/\nBare\n   \n");
-        assert_eq!(items.len(), 3);
-        assert_eq!(items[0], serde_json::json!({"label": "Home", "url": "/"}));
-        assert_eq!(items[1], serde_json::json!({"label": "About", "url": "/about/"}));
-        // A line with no separator is a label pointing at the home page.
-        assert_eq!(items[2], serde_json::json!({"label": "Bare", "url": "/"}));
-        // Control characters cannot survive into a label.
-        let dirty = parse_nav("Ho\u{0}me | /");
-        assert_eq!(dirty[0]["label"], "Home");
-        // A line that is only a separator contributes nothing.
-        assert!(parse_nav(" | /x/").is_empty());
     }
 
     #[test]

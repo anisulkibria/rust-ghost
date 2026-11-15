@@ -264,3 +264,72 @@ async fn a_slug_shadowed_by_a_language_prefix_is_found() {
     // cannot retroactively break a slug.
     assert!(repo::shadowed_slugs(&db, &Locales::default()).await.unwrap().is_empty());
 }
+
+/// Linking merges two sets whole, so a language present in *both* sets —
+/// not just on the two entries being linked — has to be refused, or the
+/// merged group holds two French entries.
+#[tokio::test]
+async fn merging_two_sets_that_both_have_a_language_is_refused() {
+    let test = connect_test().await.unwrap();
+    let db = test.pool();
+    let en = entry(&db, "hello", "Hello", None, "post").await;
+    let fr1 = entry(&db, "bonjour", "Bonjour", Some("fr"), "post").await;
+    let bn = entry(&db, "nomoskar", "Nomoskar", Some("bn"), "post").await;
+    let fr2 = entry(&db, "salut", "Salut", Some("fr"), "post").await;
+    repo::link(&db, &en, &fr1, "en").await.unwrap().unwrap();
+    repo::link(&db, &bn, &fr2, "en").await.unwrap().unwrap();
+
+    let refused = repo::link(&db, &en, &bn, "en").await.unwrap();
+    assert_eq!(refused, Err(repo::LinkRefusal::Occupied("fr".into())));
+    // Nothing moved.
+    assert_ne!(group_of(&db, &en).await, group_of(&db, &bn).await);
+}
+
+/// The search offers exactly what linking would accept, from whichever
+/// entry in a set somebody starts: never an entry already linked, never one
+/// in a language the set already has, never one whose own set would collide.
+#[tokio::test]
+async fn the_search_offers_the_same_entries_from_every_member_of_a_set() {
+    let test = connect_test().await.unwrap();
+    let db = test.pool();
+    let en = entry(&db, "hello", "Hello page", None, "post").await;
+    let bn = entry(&db, "nomoskar", "Nomoskar page", Some("bn"), "post").await;
+    repo::link(&db, &en, &bn, "en").await.unwrap().unwrap();
+    // Candidates of every kind.
+    let other_en = entry(&db, "other", "Other English page", None, "post").await;
+    let fr = entry(&db, "bonjour", "Bonjour page", Some("fr"), "post").await;
+    // A German post already linked to a Bengali one: merging would put two
+    // Bengali entries in the set.
+    let de = entry(&db, "hallo", "Hallo page", Some("de"), "post").await;
+    let bn2 = entry(&db, "aro", "Aro page", Some("bn"), "post").await;
+    repo::link(&db, &de, &bn2, "en").await.unwrap().unwrap();
+    // A Spanish post linked to a Portuguese one: no clash, so offered.
+    let es = entry(&db, "hola", "Hola page", Some("es"), "post").await;
+    let pt = entry(&db, "ola", "Ola page", Some("pt"), "post").await;
+    repo::link(&db, &es, &pt, "en").await.unwrap().unwrap();
+
+    for (from, own) in [(&en, "en"), (&bn, "bn")] {
+        let mut found: Vec<String> = repo::candidates(&db, from, "post", own, "en", "page", 50)
+            .await
+            .unwrap()
+            .into_iter()
+            .map(|s| s.id)
+            .collect();
+        found.sort();
+        let mut expected = vec![fr.clone(), es.clone(), pt.clone()];
+        expected.sort();
+        assert_eq!(found, expected, "from {own}");
+        for wrong in [&en, &bn, &other_en, &de, &bn2] {
+            assert!(!found.contains(wrong), "from {own}: offered {wrong}");
+        }
+    }
+
+    // And everything offered really links — from the Bengali side, into a
+    // set of five.
+    repo::link(&db, &bn, &fr, "en").await.unwrap().unwrap();
+    repo::link(&db, &fr, &es, "en").await.unwrap().unwrap();
+    let siblings = repo::siblings(&db, &en).await.unwrap();
+    let mut langs: Vec<String> = siblings.iter().map(|s| s.locale.clone().unwrap_or_default()).collect();
+    langs.sort();
+    assert_eq!(langs, ["bn", "es", "fr", "pt"], "the English post sees the whole set");
+}

@@ -45,6 +45,15 @@ pub fn site_router(state: AppState) -> Router {
         .route("/public/cards.min.js", get(cards::cards_js))
         .route("/public/staff-toolbar.js", get(||async {([(axum::http::header::CONTENT_TYPE,"text/javascript; charset=utf-8")],include_str!("staff_toolbar.js"))}))
         .route("/public/comment-counts.min.js", get(comment_counts::comment_counts_js))
+        // The language switcher dropdown `{{ghost_head}}` injects. Versioned
+        // by content hash in its URL, so it can be cached for good.
+        .route("/public/language-switcher.js", get(||async {(
+            [
+                (axum::http::header::CONTENT_TYPE,"text/javascript; charset=utf-8"),
+                (axum::http::header::CACHE_CONTROL,"public, max-age=31536000, immutable"),
+            ],
+            ghost_render::language_switcher::SCRIPT,
+        )}))
         .route("/public/{*path}", get(routes::public_file))
         .route("/favicon.ico", get(routes::favicon))
         .route("/sitemap.xml", get(sitemap::sitemap_index))
@@ -78,5 +87,5 @@ pub fn site_router(state: AppState) -> Router {
 /// Async helper: read the current tree and wrap it.
 pub async fn resolver_now(state: &ghost_api::AppState) -> ghost_render::helpers::UrlResolver {
     let router = state.router.read().await.clone();
-    url_resolver(router)
+    ghost_api::themes::url_resolver_live(router, state.settings.clone())
 }

@@ -83,24 +83,62 @@ pub fn root_data(rc: &RenderContext<'_, '_>, ctx: &Context) -> Value {
 /// `{{url}}` inside `{{#foreach tags}}` and `{{primary_tag.url}}` fall back
 /// to "/" and every tag and author link on a theme points at the homepage.
 pub fn resolve_nested_urls(post: &mut Value, resolve: &dyn Fn(&Value) -> String) {
-    for field in ["tags", "authors"] {
+    // The entry's own language. Its tags and authors link to *that*
+    // language's archives — a tag on a Bengali post goes to
+    // `/bn/tag/news/`, where the Bengali posts with that tag are — so a
+    // theme's post card needs no change to stay in the reader's language.
+    // Passed to the resolver as `url_locale`, which only it reads; a tag
+    // with a language of its own keeps that one.
+    let lang = post.get("locale").and_then(Value::as_str).filter(|c| !c.is_empty()).map(str::to_string);
+    let url_for = |item: &Value, is_tag: bool| -> String {
+        let own = is_tag && item.get("locale").and_then(Value::as_str).is_some_and(|c| !c.is_empty());
+        match &lang {
+            Some(code) if !own => {
+                let mut probe = item.clone();
+                if let Value::Object(m) = &mut probe {
+                    m.insert("url_locale".into(), Value::String(code.clone()));
+                }
+                resolve(&probe)
+            }
+            _ => resolve(item),
+        }
+    };
+    for (field, is_tag) in [("tags", true), ("authors", false)] {
         if let Some(items) = post.get_mut(field).and_then(|v| v.as_array_mut()) {
             for item in items.iter_mut() {
-                let url = resolve(item);
+                let url = url_for(item, is_tag);
                 if let Value::Object(m) = item {
                     m.insert("url".into(), Value::String(url));
                 }
             }
         }
     }
-    for field in ["primary_tag", "primary_author"] {
+    for (field, is_tag) in [("primary_tag", true), ("primary_author", false)] {
         let Some(item) = post.get_mut(field).filter(|v| v.is_object()) else {
             continue;
         };
-        let url = resolve(item);
+        let url = url_for(item, is_tag);
         if let Value::Object(m) = item {
             m.insert("url".into(), Value::String(url));
         }
+    }
+}
+
+/// Resolve a standalone tag or author for a page in `page_locale` — a
+/// `{{#get "tags"}}` list on `/bn/`, or the archive's own `tag` on
+/// `/bn/tag/news/` — so it links to that language's archive. A tag with a
+/// language of its own keeps it.
+pub fn resolve_for_page(item: &Value, page_locale: Option<&str>, is_tag: bool, resolve: &dyn Fn(&Value) -> String) -> String {
+    let own = is_tag && item.get("locale").and_then(Value::as_str).is_some_and(|c| !c.is_empty());
+    match page_locale.filter(|c| !c.is_empty()) {
+        Some(code) if !own => {
+            let mut probe = item.clone();
+            if let Value::Object(m) = &mut probe {
+                m.insert("url_locale".into(), Value::String(code.to_string()));
+            }
+            resolve(&probe)
+        }
+        _ => resolve(item),
     }
 }
 
@@ -125,3 +163,45 @@ pub fn write_out(
     }
     Ok(())
 }
+
+#[cfg(test)]
+mod nested_url_tests {
+    use super::*;
+    use serde_json::json;
+
+    /// A stand-in resolver: what it was asked to localise, as a path.
+    fn fake(item: &Value) -> String {
+        let lang = item.get("url_locale").and_then(Value::as_str).map(|c| format!("/{c}")).unwrap_or_default();
+        format!("{lang}/x/{}/", item["slug"].as_str().unwrap_or(""))
+    }
+
+    #[test]
+    fn nested_tags_and_authors_follow_the_entrys_language() {
+        let mut post = json!({
+            "locale": "bn",
+            "tags": [{"slug": "news", "locale": null}, {"slug": "khobor", "locale": "bn"}, {"slug": "english-only", "locale": "en"}],
+            "authors": [{"slug": "ada", "locale": "fr"}],
+            "primary_tag": {"slug": "news"},
+            "primary_author": {"slug": "ada", "locale": "fr"},
+        });
+        resolve_nested_urls(&mut post, &fake);
+        assert_eq!(post["tags"][0]["url"], "/bn/x/news/", "a tag for every language follows the post");
+        // A tag with its own language is left to the resolver, which uses it.
+        assert_eq!(post["tags"][1]["url"], "/x/khobor/");
+        assert_eq!(post["tags"][2]["url"], "/x/english-only/");
+        // An author's own `locale` (their admin language) is never used.
+        assert_eq!(post["authors"][0]["url"], "/bn/x/ada/");
+        assert_eq!(post["primary_tag"]["url"], "/bn/x/news/");
+        assert_eq!(post["primary_author"]["url"], "/bn/x/ada/");
+        // The probe key never reaches the theme.
+        assert!(post["tags"][0].get("url_locale").is_none());
+    }
+
+    #[test]
+    fn a_default_language_entry_leaves_its_links_alone() {
+        let mut post = json!({"locale": null, "tags": [{"slug": "news"}]});
+        resolve_nested_urls(&mut post, &fake);
+        assert_eq!(post["tags"][0]["url"], "/x/news/");
+    }
+}
+

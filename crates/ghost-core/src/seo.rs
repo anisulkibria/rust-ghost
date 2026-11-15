@@ -218,6 +218,10 @@ pub struct Entry {
     pub canonical_url: Option<String>,
     pub word_count: i64,
     pub tag_count: i64,
+    /// The language the entry is in. Duplicates are only counted within one
+    /// language (see [`audit_all`]); the caller fills it in with the site's
+    /// default where the row is NULL, which only it knows.
+    pub locale: Option<String>,
     /// Set by [`audit_all`] when a second entry shares this one's title.
     pub duplicate_title: bool,
     /// Likewise for the resolved meta description.
@@ -361,20 +365,28 @@ pub fn score(findings: &[Finding]) -> u8 {
 ///
 /// Only published entries are compared. Two drafts with the title "Untitled"
 /// are not competing for anything.
+///
+/// And only within one language. A post and its translation at
+/// `/bn/<slug>/` are tied together by `hreflang` and shown to different
+/// readers; sharing a title — a brand name, or a translation not yet
+/// retitled — is not two pages competing for one result.
 pub fn audit_all(entries: &mut [Entry]) -> Vec<(usize, Vec<Finding>)> {
     use std::collections::HashMap;
+    let key = |entry: &Entry, text: &str| {
+        format!("{}\u{0}{}", entry.locale.as_deref().unwrap_or("").to_lowercase(), text.to_lowercase())
+    };
     let mut titles: HashMap<String, usize> = HashMap::new();
     let mut descriptions: HashMap<String, usize> = HashMap::new();
     for entry in entries.iter() {
         if !entry.is_published() {
             continue;
         }
-        let title = entry.effective_title().to_lowercase();
+        let title = entry.effective_title();
         if !title.is_empty() {
-            *titles.entry(title).or_insert(0) += 1;
+            *titles.entry(key(entry, title)).or_insert(0) += 1;
         }
         if let Some(description) = entry.effective_description() {
-            *descriptions.entry(description.to_lowercase()).or_insert(0) += 1;
+            *descriptions.entry(key(entry, description)).or_insert(0) += 1;
         }
     }
     for entry in entries.iter_mut() {
@@ -384,11 +396,11 @@ pub fn audit_all(entries: &mut [Entry]) -> Vec<(usize, Vec<Finding>)> {
             continue;
         }
         entry.duplicate_title = titles
-            .get(&entry.effective_title().to_lowercase())
+            .get(&key(entry, entry.effective_title()))
             .is_some_and(|n| *n > 1);
         entry.duplicate_description = entry
             .effective_description()
-            .and_then(|d| descriptions.get(&d.to_lowercase()))
+            .and_then(|d| descriptions.get(&key(entry, d)))
             .is_some_and(|n| *n > 1);
     }
     entries.iter().enumerate().map(|(i, e)| (i, audit(e))).collect()
@@ -420,6 +432,29 @@ mod tests {
 
     fn codes(findings: &[Finding]) -> Vec<&str> {
         findings.iter().map(|f| f.code).collect()
+    }
+
+    #[test]
+    fn duplicates_are_only_counted_within_one_language() {
+        let with = |id: &str, title: &str, locale: Option<&str>| Entry {
+            id: id.into(),
+            title: title.into(),
+            locale: locale.map(str::to_string),
+            ..good()
+        };
+        let mut entries = vec![
+            with("1", "Vuuut", Some("en")),
+            with("2", "Vuuut", Some("bn")),
+            with("3", "Same in English", Some("en")),
+            with("4", "Same in English", Some("en")),
+        ];
+        audit_all(&mut entries);
+        assert!(!entries[0].duplicate_title, "a translation is not a duplicate");
+        assert!(!entries[1].duplicate_title);
+        assert!(entries[2].duplicate_title && entries[3].duplicate_title, "two English pages still are");
+        // The shared description (from `good()`) is per language too.
+        assert!(entries[0].duplicate_description, "three English entries share it");
+        assert!(!entries[1].duplicate_description, "the only Bengali one");
     }
 
     #[test]

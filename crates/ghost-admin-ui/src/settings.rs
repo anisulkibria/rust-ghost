@@ -52,7 +52,7 @@ impl SettingsGroup {
 }
 
 pub(crate) const SETTINGS_GROUPS: &[SettingsGroup] = &[
-    SettingsGroup { slug: "general", title: "General settings", icon: "settings", tint: "pink", items: &["Name, title & description", "Timezone", "Publication language", "Meta data", "Social accounts"] },
+    SettingsGroup { slug: "general", title: "General settings", icon: "settings", tint: "pink", items: &["Name, title & description", "Timezone", "Meta data", "Social accounts"] },
     SettingsGroup { slug: "staff", title: "Staff", icon: "ghost", tint: "teal", items: &["People", "Roles", "Invitations"] },
     SettingsGroup { slug: "analytics", title: "Analytics", icon: "chart", tint: "green", items: &["Web analytics", "Email opens", "Email clicks", "Member sources", "Outbound link tagging"] },
     SettingsGroup { slug: "design", title: "Design & branding", icon: "tune", tint: "purple", items: &["Brand", "Site-wide colors", "Theme settings"] },
@@ -73,7 +73,7 @@ pub(crate) const SETTINGS_GROUPS: &[SettingsGroup] = &[
     SettingsGroup { slug: "forms", title: "Forms", icon: "form", tint: "amber", items: &["Notifications", "Spam protection", "Privacy & retention"] },
     // This port's own module, like Forms: the report lives under Modules and
     // what is here is what applies to every page at once.
-    SettingsGroup { slug: "languages", title: "Languages", icon: "globe", tint: "teal", items: &["Languages", "Search engines", "Navigation per language"] },
+    SettingsGroup { slug: "languages", title: "Languages", icon: "globe", tint: "teal", items: &["Default publication language", "Languages", "Search engines", "Navigation per language"] },
     SettingsGroup { slug: "seo", title: "SEO", icon: "trending", tint: "blue", items: &["Search appearance", "Crawling", "robots.txt", "IndexNow"] },
     SettingsGroup { slug: "integrations", title: "Integrations", icon: "integrations", tint: "red", items: &["Built-in apps", "Custom integrations", "Content API"] },
     SettingsGroup { slug: "migration", title: "Migration tools", icon: "import", tint: "blue", items: &["Import content", "Export all data", "Members", "Post analytics", "Themes"] },
@@ -94,7 +94,6 @@ pub(crate) const SETTINGS_INDEX: &[(&str, &str, &str)] = &[
     ("general", "Name, title & description", "Title"),
     ("general", "Name, title & description", "Description"),
     ("general", "Timezone", "Site timezone"),
-    ("general", "Publication language", "Publication language"),
     // The section names stay in the haystack: "X card" and "Facebook card"
     // are what these are called, and they are the headings on the page.
     ("general", "Meta data · search", "Meta title"),
@@ -106,6 +105,8 @@ pub(crate) const SETTINGS_INDEX: &[(&str, &str, &str)] = &[
     ("general", "Meta data · Facebook card", "Facebook title"),
     ("general", "Meta data · Facebook card", "Facebook description"),
     ("general", "Meta data · Facebook card", "Facebook image"),
+    ("languages", "Default publication language", "Default publication language"),
+    ("languages", "Default publication language", "Publication language"),
     ("languages", "Languages", "Multilingual"),
     ("languages", "Languages", "Translations"),
     ("languages", "Languages", "Language"),
@@ -466,14 +467,6 @@ pub(crate) const TIMEZONES: &[(&str, &str)] = &[
     ("Pacific/Fiji", "(GMT+12:00) Fiji"),
 ];
 
-/// Ghost's publication language picker: the setting stores the `locale`
-/// code (Ghost has no separate `lang` setting).
-///
-/// Codes and coverage come from Ghost's own list, which matters beyond the
-/// label: a theme's translations live in `<theme>/locales/<code>.json`, so a
-/// locale saved under a code Ghost does not use (`zh-cn` rather than `zh`)
-/// silently finds no translation file. Labels lead with the language's own
-/// name, because that is what someone scans for when picking their own.
 /// This site's languages, as `ghost_core::locales` understands them.
 ///
 /// One place so that the editor, the tag screen, the Languages module and
@@ -530,71 +523,9 @@ pub(crate) fn locale_options(
     out
 }
 
-pub(crate) const LOCALES: &[(&str, &str)] = &[
-    ("af", "Afrikaans"),
-    ("ar", "العربية (Arabic)"),
-    ("az", "Azərbaycan (Azerbaijani)"),
-    ("bg", "Български (Bulgarian)"),
-    ("bn", "বাংলা (Bengali)"),
-    ("bs", "Bosanski (Bosnian)"),
-    ("ca", "Català (Catalan)"),
-    ("cs", "Čeština (Czech)"),
-    ("da", "Dansk (Danish)"),
-    ("de", "Deutsch (German)"),
-    ("de-CH", "Schweizerdeutsch (Swiss German)"),
-    ("el", "Ελληνικά (Greek)"),
-    ("en", "English"),
-    ("eo", "Esperanto"),
-    ("es", "Español (Spanish)"),
-    ("et", "Eesti (Estonian)"),
-    ("eu", "Euskara (Basque)"),
-    ("fa", "فارسی (Persian/Farsi)"),
-    ("fi", "Suomi (Finnish)"),
-    ("fr", "Français (French)"),
-    ("gd", "Gàidhlig (Gaelic (Scottish))"),
-    ("he", "עברית (Hebrew)"),
-    ("hi", "हिन्दी (Hindi)"),
-    ("hr", "Hrvatski (Croatian)"),
-    ("hu", "Magyar (Hungarian)"),
-    ("id", "Bahasa Indonesia (Indonesian)"),
-    ("is", "Íslenska (Icelandic)"),
-    ("it", "Italiano (Italian)"),
-    ("ja", "日本語 (Japanese)"),
-    ("ko", "한국어 (Korean)"),
-    ("kz", "Қазақша (Kazakh)"),
-    ("lt", "Lietuvių (Lithuanian)"),
-    ("lv", "Latviešu (Latvian)"),
-    ("mk", "Македонски (Macedonian)"),
-    ("mn", "Монгол (Mongolian)"),
-    ("ms", "Bahasa Melayu (Malay)"),
-    ("nb", "Norsk bokmål (Norwegian Bokmål)"),
-    ("ne", "नेपाली (Nepali)"),
-    ("nl", "Nederlands (Dutch)"),
-    ("nn", "Norsk nynorsk (Norwegian Nynorsk)"),
-    ("pa", "ਪੰਜਾਬੀ (Punjabi)"),
-    ("pl", "Polski (Polish)"),
-    ("pt", "Português (Portuguese)"),
-    ("pt-BR", "Português (Brasil) (Portuguese (Brazil))"),
-    ("ro", "Română (Romanian)"),
-    ("ru", "Русский (Russian)"),
-    ("si", "සිංහල (Sinhala)"),
-    ("sk", "Slovenčina (Slovak)"),
-    ("sl", "Slovenščina (Slovenian)"),
-    ("sq", "Shqip (Albanian)"),
-    ("sr", "Srpski (Serbian)"),
-    ("sr-Cyrl", "Српски (Serbian (Cyrillic))"),
-    ("sv", "Svenska (Swedish)"),
-    ("sw", "Kiswahili (Swahili)"),
-    ("ta", "தமிழ் (Tamil)"),
-    ("th", "ไทย (Thai)"),
-    ("tr", "Türkçe (Turkish)"),
-    ("uk", "Українська (Ukrainian)"),
-    ("ur", "اردو (Urdu)"),
-    ("uz", "Oʻzbekcha (Uzbek)"),
-    ("vi", "Tiếng Việt (Vietnamese)"),
-    ("zh", "中文(简体) (Chinese)"),
-    ("zh-Hant", "中文(繁體) (Traditional Chinese)"),
-];
+/// The language table lives in `ghost_core::locales` so the front end's
+/// language switcher and this picker name languages identically.
+pub(crate) const LOCALES: &[(&str, &str)] = ghost_core::locales::LANGUAGES;
 /// `<option>` list for a picker, marking `current`; a stored value outside
 /// the list (e.g. a locale this list doesn't cover) still shows up raw.
 pub(crate) fn select_options(list: &[(&str, &str)], current: &str) -> String {

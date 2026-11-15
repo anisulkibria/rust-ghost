@@ -88,10 +88,16 @@ pub async fn llms_txt(State(state): State<AppState>) -> Response {
 
     let header_block = format!("# {title}\n> {description}");
 
+    // The live resolver: it follows the permalink structure and puts each
+    // entry under its language's prefix, so a Bengali post is listed at
+    // /bn/<slug>/ — and its Markdown at /bn/<slug>.md — rather than at a
+    // neutral path that 404s.
+    let resolver = crate::resolver_now(&state).await;
     let entries = |rows: &[ghost_core::models::Post]| -> Vec<String> {
         rows.iter()
             .map(|p| {
-                let url = format!("{origin}/{}/", p.slug.clone().unwrap_or_default());
+                let path = resolver(&ghost_core::models::post_to_json(p, &[], &[], ""));
+                let url = ghost_core::url::absolute(&site_url, &path);
                 let desc = p
                     .custom_excerpt
                     .clone()

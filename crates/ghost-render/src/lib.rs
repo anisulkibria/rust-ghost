@@ -6,6 +6,7 @@ pub mod get_helper;
 pub mod gscan;
 pub mod gscan_rules;
 pub mod helpers;
+pub mod language_switcher;
 pub mod lexical;
 pub mod markdown;
 pub mod mobiledoc;

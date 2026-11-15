@@ -19,6 +19,7 @@ pub mod click;
 pub mod integration_permissions;
 pub mod images;
 pub mod jwt;
+pub mod locales;
 pub mod explore;
 pub mod federation;
 pub mod forms;

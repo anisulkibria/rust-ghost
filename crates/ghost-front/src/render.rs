@@ -28,6 +28,10 @@ pub struct RenderCtx {
     /// what exists, which is the failure that makes a switcher offer a link
     /// to a 404.
     pub translations: Value,
+    /// `@site` fields this page replaces — a language's home page taking
+    /// its title, description and cards from the page slugged with its
+    /// code (see `routes::home_details`). Empty everywhere else.
+    pub site_overrides: serde_json::Map<String, Value>,
 }
 
 /// Resolve `@member` from the request's session cookie.
@@ -128,12 +132,18 @@ pub async fn render_template(
     };
 
     // build the full root: data + site/config/member/labs/custom + context
-    let site = render_context::build_site_for(
+    let mut site = render_context::build_site_for_page(
         &state.settings,
         &state.site_url(),
         &state.admin_url(),
         Some(&rctx.locale),
+        &rctx.translations,
     );
+    if let Value::Object(m) = &mut site {
+        for (key, value) in &rctx.site_overrides {
+            m.insert(key.clone(), value.clone());
+        }
+    }
     let config = render_context::build_config(
         theme.posts_per_page(),
         serde_json::to_value(&theme.pkg.config.image_sizes).unwrap_or(Value::Array(vec![])),

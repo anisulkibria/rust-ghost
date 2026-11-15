@@ -208,7 +208,7 @@ fn public_post(j: &mut Value) {
 /// prefixed ones.
 pub(crate) async fn resolve(state: &AppState) -> Arc<dyn Fn(&Value) -> String + Send + Sync> {
     let router: Arc<RouterTree> = state.router.read().await.clone();
-    let resolver = crate::themes::url_resolver(router);
+    let resolver = crate::themes::url_resolver_live(router, state.settings.clone());
     let site = state.site_url();
     Arc::new(move |value| ghost_core::url::absolute(&site, &resolver(value)))
 }

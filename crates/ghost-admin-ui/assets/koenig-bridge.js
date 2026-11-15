@@ -465,7 +465,7 @@
     preview.textContent = '';
     var slug = slugInput.value.trim();
     if (slug) {
-      preview.append((config.siteUrl || '') + '/');
+      preview.append((config.slugBase || config.siteUrl || '') + '/');
       var bold = document.createElement('b');
       bold.textContent = slug;
       preview.append(bold, '/');

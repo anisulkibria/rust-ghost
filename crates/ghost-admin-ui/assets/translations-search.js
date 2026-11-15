@@ -89,14 +89,14 @@
       input.parentNode.insertBefore(pill, input.parentNode.firstChild);
     }
 
-    function render(entries) {
+    function render(entries, more) {
       results.textContent = '';
       if (!entries.length) {
         var none = document.createElement('p');
         none.className = 'lg-result-none';
         none.textContent = 'Nothing matches that in another language.';
         results.appendChild(none);
-        results.hidden = false;
+        show();
         return;
       }
       entries.forEach(function (entry) {
@@ -121,8 +121,46 @@
         });
         results.appendChild(row);
       });
-      results.hidden = false;
+      // The server returns a capped list; say so rather than letting the
+      // last row look like the last match.
+      if (more) {
+        var note = document.createElement('p');
+        note.className = 'lg-result-more';
+        note.textContent = 'More entries match. Type more of the title to narrow it down.';
+        results.appendChild(note);
+      }
+      show();
     }
+
+    // Open the list and bring it into view: the sidebar scrolls itself, and
+    // the box is near the bottom of a panel near the bottom of it.
+    function show() {
+      var wasHidden = results.hidden;
+      results.hidden = false;
+      if (wasHidden && results.scrollIntoView) {
+        results.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+      }
+    }
+
+    function rows() {
+      return Array.prototype.slice.call(results.querySelectorAll('.lg-result'));
+    }
+
+    // Arrow keys move between the input and the results.
+    results.addEventListener('keydown', function (event) {
+      var list = rows();
+      var at = list.indexOf(document.activeElement);
+      if (event.key === 'ArrowDown' && at < list.length - 1) {
+        event.preventDefault();
+        list[at + 1].focus();
+      } else if (event.key === 'ArrowUp') {
+        event.preventDefault();
+        if (at > 0) { list[at - 1].focus(); } else { input.focus(); }
+      } else if (event.key === 'Escape') {
+        close();
+        input.focus();
+      }
+    });
 
     function search() {
       var term = input.value.trim();
@@ -139,7 +177,7 @@
           return response.ok ? response.json() : { entries: [] };
         })
         .then(function (payload) {
-          render((payload && payload.entries) || []);
+          render((payload && payload.entries) || [], !!(payload && payload.more));
         })
         .catch(function () {
           /* An aborted or failed search leaves the box usable: a slug typed
@@ -164,6 +202,14 @@
     input.addEventListener('keydown', function (event) {
       if (event.key === 'Escape') {
         close();
+        return;
+      }
+      if (event.key === 'ArrowDown' && !results.hidden) {
+        var list = rows();
+        if (list.length) {
+          event.preventDefault();
+          list[0].focus();
+        }
         return;
       }
       if (event.key !== 'Enter') {

@@ -40,7 +40,7 @@ use ghost_api::AppState;
 use ghost_db::repos;
 
 /// The caches that may hold a sitemap have to key on what decided it.
-const VARY: &str = "Accept, Sec-Fetch-Dest, Sec-Fetch-Mode";
+pub(crate) const VARY: &str = "Accept, Sec-Fetch-Dest, Sec-Fetch-Mode";
 
 /// Whether this request is a person opening the URL in a browser.
 ///
@@ -97,7 +97,7 @@ struct IndexEntry {
 
 const RESOURCES: [&str; 4] = ["posts", "pages", "tags", "authors"];
 
-fn esc(s: &str) -> String {
+pub(crate) fn esc(s: &str) -> String {
     s.replace('&', "&amp;")
         .replace('<', "&lt;")
         .replace('>', "&gt;")
@@ -123,7 +123,7 @@ fn path_of(url: &str) -> &str {
 }
 
 /// `https://example.com/a/b` -> `example.com`.
-fn host_of(url: &str) -> &str {
+pub(crate) fn host_of(url: &str) -> &str {
     let rest = url.split_once("://").map(|(_, rest)| rest).unwrap_or(url);
     rest.split('/').next().unwrap_or(rest)
 }
@@ -249,7 +249,7 @@ fn html_response(html: String) -> Response {
 /// is reached from a crawler's report or a robots.txt link, often on a slow
 /// connection, and it should be useful before anything else loads — there is
 /// nothing else to load.
-const CSS: &str = r#"
+pub(crate) const CSS: &str = r#"
 :root {
   color-scheme: light dark;
   --bg: #fbfbfc; --surface: #fff; --text: #15151a; --muted: #6c6c78;

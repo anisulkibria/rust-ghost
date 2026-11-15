@@ -179,10 +179,14 @@ pub async fn link(
     // converges on one group of three rather than splitting the set.
     let group = a_group.clone().or_else(|| b_group.clone()).unwrap_or_else(ids::new_id);
 
-    // Would the merged group hold two of any one language? Read the existing
-    // members out and decide in Rust: expressing this as one SQL predicate
-    // was unreadable, and this is the invariant the whole module rests on.
-    let mut taken: Vec<String> = Vec::new();
+    // Would the merged group hold two of any one language? Every member of
+    // both sets counts — the two entries being linked *and* everything
+    // already linked to either — because linking merges the sets whole: an
+    // English post with a French translation linked to a Bengali post that
+    // also has one would otherwise make a group with two French entries.
+    // Read out and decided in Rust: as one SQL predicate it was unreadable,
+    // and this is the invariant the whole module rests on.
+    let mut members: Vec<(String, String)> = vec![(a_id.to_string(), a_code.clone()), (b_id.to_string(), b_code.clone())];
     for existing in [a_group.as_deref(), b_group.as_deref()].into_iter().flatten() {
         let rows = sqlx::query_as::<_, (String, Option<String>)>(
             "SELECT id, locale FROM posts WHERE translation_group = ?",
@@ -192,13 +196,13 @@ pub async fn link(
         .await
         .map_err(dberr)?;
         for (id, locale) in rows {
-            if id != a_id && id != b_id {
-                taken.push(settled(&locale));
+            if !members.iter().any(|(m, _)| *m == id) {
+                members.push((id, settled(&locale)));
             }
         }
     }
-    for code in [&a_code, &b_code] {
-        if taken.iter().any(|t| t.eq_ignore_ascii_case(code)) {
+    for (i, (_, code)) in members.iter().enumerate() {
+        if members[..i].iter().any(|(_, earlier)| earlier.eq_ignore_ascii_case(code)) {
             return Ok(Err(LinkRefusal::Occupied(code.clone())));
         }
     }
@@ -234,6 +238,44 @@ pub async fn unlink(db: &Db, post_id: &str) -> Result<()> {
         .await
         .map_err(dberr)?;
     Ok(())
+}
+
+/// The languages that use a tag, with how many published posts each has
+/// with it — which is which language archives of that tag have anything on
+/// them. Keyed by the code as the site knows it (NULL read as the default).
+pub async fn tag_usage(db: &Db, tag_id: &str, default_locale: &str) -> Result<Vec<(String, i64)>> {
+    let rows = sqlx::query_as::<_, (String, i64)>(
+        "SELECT COALESCE(NULLIF(p.locale, ''), ?) AS code, COUNT(*) \
+         FROM posts p JOIN posts_tags pt ON pt.post_id = p.id \
+         WHERE pt.tag_id = ? AND p.status = 'published' AND p.type = 'post' \
+         GROUP BY COALESCE(NULLIF(p.locale, ''), ?)",
+    )
+    .bind(default_locale)
+    .bind(tag_id)
+    .bind(default_locale)
+    .fetch_all(db)
+    .await
+    .map_err(dberr)?;
+    Ok(rows)
+}
+
+/// Write `code` into every entry that has no language of its own.
+///
+/// A NULL locale means "the site's default language" (see the migration),
+/// which is right until the default changes. On a multilingual site that
+/// change must not relabel every existing entry as the new language — the
+/// English posts would suddenly claim to be Bengali, and sit in the same
+/// translation group as the real Bengali ones. So the old default is
+/// written in, once, at the moment it stops being the default.
+///
+/// Returns how many entries were stamped.
+pub async fn stamp_default(db: &Db, code: &str) -> Result<u64> {
+    let done = sqlx::query("UPDATE posts SET locale = ? WHERE locale IS NULL OR locale = ''")
+        .bind(code)
+        .execute(db)
+        .await
+        .map_err(dberr)?;
+    Ok(done.rows_affected())
 }
 
 /// The group `post_id` belongs to, minting one if it has none.
@@ -372,18 +414,27 @@ pub async fn candidates(
         "%{}%",
         term.trim().replace('\\', "\\\\").replace('%', "\\%").replace('_', "\\_")
     );
-    // A NULL locale is the default language, so "not in my language" has to
-    // account for both spellings of it.
-    let own_is_default = own_locale.eq_ignore_ascii_case(default_locale);
-    let locale_clause = if own_is_default {
-        "p.locale IS NOT NULL AND p.locale != ?"
-    } else {
-        "(p.locale IS NULL OR p.locale != ?)"
-    };
+    // Only entries [`link`] would accept, so it is the same from whichever
+    // side somebody starts. "Mine" is this entry and everything already
+    // linked to it; a candidate qualifies when neither it nor anything
+    // linked to *it* is in a language mine already has. That excludes
+    // what is already linked (its language is taken by definition) and
+    // anything whose own set would collide on merging.
+    //
+    // A NULL locale is the default language, so every comparison goes
+    // through COALESCE to the default code.
+    let _ = own_locale;
+    let mine = "SELECT COALESCE(NULLIF(m.locale, ''), ?) FROM posts m \
+                WHERE m.id = ? OR (m.translation_group IS NOT NULL \
+                  AND m.translation_group = (SELECT g.translation_group FROM posts g WHERE g.id = ?))";
     let sql = format!(
         "SELECT p.id, p.title, p.slug, p.locale, p.status, p.type, p.updated_at \
          FROM posts p \
-         WHERE p.type = ? AND p.id != ? AND {locale_clause} \
+         WHERE p.type = ? AND p.id != ? \
+           AND COALESCE(NULLIF(p.locale, ''), ?) NOT IN ({mine}) \
+           AND NOT EXISTS (SELECT 1 FROM posts q \
+                 WHERE p.translation_group IS NOT NULL AND q.translation_group = p.translation_group \
+                   AND COALESCE(NULLIF(q.locale, ''), ?) IN ({mine})) \
            AND (LOWER(COALESCE(p.title, '')) LIKE LOWER(?) ESCAPE '\\' \
              OR LOWER(COALESCE(p.slug, '')) LIKE LOWER(?) ESCAPE '\\') \
          ORDER BY COALESCE(p.published_at, p.updated_at, p.created_at) DESC LIMIT ?"
@@ -391,7 +442,14 @@ pub async fn candidates(
     let rows = sqlx::query_as::<_, (String, Option<String>, Option<String>, Option<String>, String, String, Option<String>)>(&sql)
         .bind(post_type)
         .bind(post_id)
-        .bind(own_locale)
+        .bind(default_locale)
+        .bind(default_locale)
+        .bind(post_id)
+        .bind(post_id)
+        .bind(default_locale)
+        .bind(default_locale)
+        .bind(post_id)
+        .bind(post_id)
         .bind(&pattern)
         .bind(&pattern)
         .bind(limit.clamp(1, 100))

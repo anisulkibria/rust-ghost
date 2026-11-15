@@ -653,13 +653,7 @@ pub(crate) async fn newsletter_preview(
     };
     // The permalink goes through the router for the same reason the send path
     // does it: a dated or prefixed structure is not /{slug}/.
-    let post_json = ghost_core::models::post_to_json(&post, &[], &[], "");
-    let router = state.router.read().await.clone();
-    let path = match router.permalink_for(&post_json) {
-        Some((_, p)) => ghost_routing::tree::build_permalink(&p, &post_json),
-        None => format!("/{}/", post.slug.clone().unwrap_or_default()),
-    };
-    let post_url = format!("{site_url}{path}");
+    let post_url = format!("{site_url}{}", ghost_api::locales::entry_path(&state, &post).await);
 
     let site_ctx = ghost_mail::newsletter::SiteContext {
         title: title.clone(),

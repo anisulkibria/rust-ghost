@@ -445,7 +445,11 @@ const BUILTIN_PARTIALS: &[(&str, &str)] = &[
         "navigation",
         r#"<ul class="nav">
     {{#foreach navigation}}
+    {{#if lang_switcher}}
+    <li class="nav-language"><a href="{{url}}">{{label}}</a></li>
+    {{else}}
     <li class="{{link_class for=url class=(concat "nav-" slug)}}"><a href="{{url}}">{{label}}</a></li>
+    {{/if}}
     {{/foreach}}
 </ul>"#,
     ),

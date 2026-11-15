@@ -1405,7 +1405,7 @@ impl HelperDef for Navigation {
             .map(|item| {
                 let url = item.get("url").and_then(|u| u.as_str()).unwrap_or_default();
                 let label = item.get("label").and_then(|l| l.as_str()).unwrap_or_default();
-                json!({
+                let mut marked = json!({
                     // `build_site` has already put the base path on these
                     "url": url,
                     "label": label,
@@ -1414,7 +1414,13 @@ impl HelperDef for Navigation {
                     // ...so the current-page test has to take it back off:
                     // `relative` is the request path, which arrives stripped
                     "current": is_current_nav(&relative, ghost_core::url::strip(url)),
-                })
+                });
+                // The language switcher's item (see `context::Switcher`),
+                // so the built-in partial can give it a class of its own.
+                if item.get("lang_switcher").and_then(Value::as_bool) == Some(true) {
+                    marked["lang_switcher"] = json!(true);
+                }
+                marked
             })
             .collect();
 
@@ -2069,11 +2075,15 @@ impl HelperDef for GhostHead {
         // answers it per language rather than picking one.
         if ghost_core::locales::hreflang_enabled(&site) {
             let translations = root_get(rc, ctx, "translations");
-            let default_locale = ghost_core::locales::Locales::from_settings(
-                site.get("locale").and_then(Value::as_str),
-                site.get("locales_enabled"),
-            );
-            tags.extend(meta.hreflang_tags(&translations, default_locale.default_locale()));
+            // `@site.locale` is the language of *this page*; the site's
+            // default is the first of `@site.locales`. Reading the former
+            // pointed `x-default` at the Bengali URL on every Bengali page.
+            let default_locale = site
+                .get("locales")
+                .and_then(|l| l.get(0))
+                .and_then(Value::as_str)
+                .unwrap_or("en");
+            tags.extend(meta.hreflang_tags(&translations, default_locale));
         }
 
         // The rest of a paginated sequence. These stay on a paged archive
@@ -2101,11 +2111,23 @@ impl HelperDef for GhostHead {
             ghost_core::GHOST_VERSION_SAFE
         ));
 
-        // RSS alternate (site feed)
+        // RSS alternate (site feed) — the feed of this page's language:
+        // `/bn/rss/` carries the Bengali posts, as `/bn/` lists them.
+        let feed_prefix = match (
+            site.get("is_multilingual").and_then(Value::as_bool),
+            site.get("locale").and_then(Value::as_str),
+            site.get("locales").and_then(|l| l.get(0)).and_then(Value::as_str),
+        ) {
+            (Some(true), Some(current), Some(default)) if !current.eq_ignore_ascii_case(default) => {
+                format!("/{}", current.to_ascii_lowercase())
+            }
+            _ => String::new(),
+        };
         tags.push(format!(
-            r#"<link rel="alternate" type="application/rss+xml" title="{}" href="{}/rss/" />"#,
+            r#"<link rel="alternate" type="application/rss+xml" title="{}" href="{}{}/rss/" />"#,
             html_escape(site.get("title").and_then(|t| t.as_str()).unwrap_or("")),
-            origin.trim_end_matches('/')
+            origin.trim_end_matches('/'),
+            feed_prefix
         ));
 
         // Koenig card assets. A post can contain a gallery, a toggle or an
@@ -2144,6 +2166,13 @@ impl HelperDef for GhostHead {
         // accent color css var
         if let Some(accent) = site.get("accent_color").and_then(|a| a.as_str()).filter(|a| !a.is_empty()) {
             tags.push(format!(r#"<style>:root {{--ghost-accent-color: {accent};}}</style>"#));
+        }
+
+        // The language switcher dropdown, on a page whose menu carries the
+        // switcher. Injected like Portal so that no theme has to change; it
+        // needs no API key.
+        if let Some(switcher) = crate::language_switcher::head_tags(&site["language_switcher"]) {
+            tags.push(switcher);
         }
 
         // Portal, then Sodo Search — Ghost's order. Both need the frontend

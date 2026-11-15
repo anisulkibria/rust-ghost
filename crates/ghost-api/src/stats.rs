@@ -138,12 +138,8 @@ async fn post_paths(state: &AppState, post_id: &str) -> Vec<String> {
     let Ok(Some(post)) = ghost_db::repos::posts::find_by_id(&state.db, post_id).await else {
         return Vec::new();
     };
-    let router = state.router.read().await.clone();
-    let json = ghost_core::models::post_to_json(&post, &[], &[], "");
-    let path = match router.permalink_for(&json) {
-        Some((_, permalink)) => ghost_routing::tree::build_permalink(&permalink, &json),
-        None => format!("/{}/", post.slug.clone().unwrap_or_default()),
-    };
+    // Prefix included: a Bengali post's views are recorded at /bn/….
+    let path = crate::locales::entry_path(state, &post).await;
     let bare = path.trim_end_matches('/').to_string();
     if bare.is_empty() {
         vec!["/".to_string()]

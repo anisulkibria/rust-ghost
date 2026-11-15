@@ -68,6 +68,9 @@ pub(crate) struct Editor<'a> {
     /// for on demand instead — a dropdown of every entry on the site is
     /// unusable past a few dozen.
     siblings: Vec<ghost_db::repos::locales::Sibling>,
+    /// Where the entry is on the public site, language prefix included, or
+    /// empty for one that does not exist yet.
+    view_url: String,
 }
 
 /// Ghost's registered Unsplash application — a public Client-ID, the one
@@ -109,6 +112,16 @@ impl Editor<'_> {
         } else {
             "post"
         }
+    }
+
+    /// The site URL plus this entry's language prefix — empty for the
+    /// default language — which is what comes before its slug.
+    fn slug_base(&self) -> String {
+        format!(
+            "{}{}",
+            self.site_url.trim_end_matches('/'),
+            self.locales.prefix(self.field(|p| p.locale.as_deref()))
+        )
     }
 
     fn base(&self) -> &'static str {
@@ -449,6 +462,10 @@ pub(crate) fn editor_html(ed: &Editor<'_>) -> String {
         "isNew": ed.id().is_none(),
         "savedStatus": ed.post.map(|p| p.status.as_str()).unwrap_or("draft"),
         "siteUrl": ed.site_url,
+        // What the slug preview puts in front of the slug: the site plus
+        // this entry's language prefix (`…/de`), so it shows the URL the
+        // entry will really have.
+        "slugBase": ed.slug_base(),
         "siteTitle": ed.site_title,
         "siteDescription": ed.site_description,
         "membersEnabled": ed.members_enabled,
@@ -562,7 +579,7 @@ pub(crate) fn editor_html(ed: &Editor<'_>) -> String {
             preview = if slug.is_empty() {
                 String::new()
             } else {
-                format!("{}/<b>{}</b>/", esc(&ed.site_url), esc(slug))
+                format!("{}/<b>{}</b>/", esc(&ed.slug_base()), esc(slug))
             },
             published_at = esc(&to_datetime_local(ed.field(|p| p.published_at.as_deref()))),
             excerpt = textarea_field("custom_excerpt", "Excerpt", ed.field(|p| p.custom_excerpt.as_deref()), 3, false),
@@ -801,6 +818,7 @@ pub(crate) fn editor_html(ed: &Editor<'_>) -> String {
         ed.post_type,
         ed.id(),
         Some(ed.field(|p| p.locale.as_deref())).filter(|c| !c.is_empty()),
+        ed.field(|p| p.title.as_deref()),
         &ed.siblings,
     );
     side.push_str(&language_panel);
@@ -826,9 +844,8 @@ pub(crate) fn editor_html(ed: &Editor<'_>) -> String {
         format!("New {singular}")
     };
     let preview = format!(
-        r#"<a class="btn text" id="editor-view" href="{site}/{slug}/" target="_blank" rel="noopener"{hidden}>{open} View {singular}</a>"#,
-        site = esc(&ed.site_url),
-        slug = esc(ed.field(|p| p.slug.as_deref())),
+        r#"<a class="btn text" id="editor-view" href="{href}" target="_blank" rel="noopener"{hidden}>{open} View {singular}</a>"#,
+        href = esc(&ed.view_url),
         hidden = if status == "published" && ed.id().is_some() { "" } else { " hidden" },
         open = svg("open"),
     );
@@ -1041,6 +1058,10 @@ pub(crate) async fn editor_context<'a>(
         siblings: match post {
             Some(p) => repos::locales::siblings(&state.db, &p.id).await.unwrap_or_default(),
             None => Vec::new(),
+        },
+        view_url: match post {
+            Some(p) => crate::languages::public_url(state, p).await,
+            None => String::new(),
         },
     }
 }

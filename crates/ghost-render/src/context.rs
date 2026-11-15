@@ -76,6 +76,25 @@ pub fn build_site_for(
     admin_url: &str,
     locale: Option<&str>,
 ) -> Value {
+    build_site_for_page(settings, site_url, admin_url, locale, &Value::Null)
+}
+
+/// [`build_site_for`] for one page, whose `translations` decide where the
+/// language switcher's links go.
+///
+/// `translations` is the `[{locale, url, active}]` list the front end
+/// computes for the page (see `ghost_front::routes::translations_for`). A
+/// menu item whose URL is [`ghost_core::locales::SWITCHER_URL`] is replaced
+/// by one item per language: this page in that language where it exists,
+/// and that language's home page where it does not — a switcher that drops
+/// a language on an untranslated post leaves its readers no way across.
+pub fn build_site_for_page(
+    settings: &SettingsCache,
+    site_url: &str,
+    admin_url: &str,
+    locale: Option<&str>,
+    translations: &Value,
+) -> Value {
     let mut m = Map::new();
     for key in PUBLIC_KEYS {
         if let Some(v) = settings.get(key) {
@@ -196,6 +215,21 @@ pub fn build_site_for(
             m.insert(nav_key.to_string(), Value::Array(items));
         }
     }
+    let switcher = language_switcher(&locales, &active, translations);
+    let mut has_switcher = false;
+    for key in ["navigation", "secondary_navigation"] {
+        if let Some(Value::Array(items)) = m.get(key) {
+            let (expanded, found) = place_switcher(items, switcher.as_ref());
+            has_switcher |= found;
+            m.insert(key.to_string(), Value::Array(expanded));
+        }
+    }
+    // What `{{ghost_head}}` hands the dropdown script. Only when a menu
+    // actually carries the switcher: a site that has not added one gets no
+    // script at all.
+    if let (true, Some(sw)) = (has_switcher, &switcher) {
+        m.insert("language_switcher".into(), sw.for_page());
+    }
     m.insert("locale".into(), json!(active.clone()));
     m.insert("lang".into(), json!(active.clone()));
     // What a theme branches on to decide whether to draw a switcher.
@@ -234,6 +268,124 @@ pub fn build_site_for(
     m.insert("url".into(), json!(site_url));
     m.insert("admin_url".into(), json!(admin_url));
     Value::Object(m)
+}
+
+/// The language switcher for one page: this page in every language, and
+/// the single menu item that stands for it.
+///
+/// The switcher reaches a theme as **one** ordinary menu item — labelled
+/// with the language being read, in that language — so every theme draws
+/// it, whether it renders `{{navigation}}` or walks `@site.navigation`
+/// itself, and nothing in a theme has to change. `{{ghost_head}}` then
+/// injects a script, as it does Portal, that finds that item on the page
+/// and turns it into a dropdown of every language (see
+/// `assets/language-switcher.js`).
+///
+/// Without the script the item is still a working link: it goes to the
+/// next language, which on the common two-language site is exactly the
+/// toggle somebody wants.
+struct Switcher {
+    active: String,
+    /// `(locale, native name, url without base path, active)`.
+    links: Vec<(String, String, String, bool)>,
+}
+
+impl Switcher {
+    /// The language the item links to with scripts off.
+    fn fallback(&self) -> &str {
+        let at = self.links.iter().position(|l| l.3).unwrap_or(0);
+        &self.links[(at + 1) % self.links.len()].2
+    }
+
+    fn label(&self) -> String {
+        ghost_core::locales::native_name(&self.active)
+    }
+
+    /// The menu item. URLs come back *without* the base path: the caller
+    /// prefixes every menu URL afterwards.
+    fn item(&self) -> Value {
+        json!({ "label": self.label(), "url": self.fallback(), "lang_switcher": true })
+    }
+
+    /// The payload for the script, with browser-ready URLs. `trigger` is
+    /// how it recognises the item in the theme's markup: by where it links
+    /// and what it says, since a theme's own menu markup carries no class
+    /// this code chose.
+    fn for_page(&self) -> Value {
+        json!({
+            "current": self.active,
+            "trigger": { "label": self.label(), "url": ghost_core::url::base(self.fallback()) },
+            "languages": self.links.iter().map(|(code, name, url, active)| json!({
+                "locale": code,
+                "label": name,
+                "url": ghost_core::url::base(url),
+                "active": active,
+            })).collect::<Vec<_>>(),
+        })
+    }
+}
+
+/// `None` on a single-language site: a switcher with one language in it is
+/// a link to the page you are on.
+///
+/// Each language links to this page in that language where it exists, and
+/// to its home page where it does not — a switcher that dropped a language
+/// on an untranslated post would leave its readers no way across.
+fn language_switcher(
+    locales: &ghost_core::locales::Locales,
+    active: &str,
+    translations: &Value,
+) -> Option<Switcher> {
+    if !locales.multilingual() {
+        return None;
+    }
+    let page_in = |code: &str| -> Option<String> {
+        translations.as_array()?.iter().find_map(|t| {
+            let c = t.get("locale").and_then(Value::as_str)?;
+            let url = t.get("url").and_then(Value::as_str)?;
+            // `translations` already carries the base path.
+            c.eq_ignore_ascii_case(code).then(|| ghost_core::url::strip(url).to_string())
+        })
+    };
+    let links = locales
+        .enabled()
+        .iter()
+        .map(|code| {
+            (
+                code.clone(),
+                ghost_core::locales::native_name(code),
+                page_in(code).unwrap_or_else(|| locales.localise("/", code)),
+                code.eq_ignore_ascii_case(active),
+            )
+        })
+        .collect();
+    Some(Switcher { active: active.to_string(), links })
+}
+
+/// Replace the first switcher marker in a menu with the switcher's item,
+/// and drop any others — a menu with the marker twice gets one switcher —
+/// or drop them all when there is no switcher to draw. Reports whether the
+/// menu had a marker.
+fn place_switcher(items: &[Value], switcher: Option<&Switcher>) -> (Vec<Value>, bool) {
+    let is_marker = |item: &Value| {
+        item.get("url").and_then(Value::as_str).is_some_and(ghost_core::locales::is_switcher)
+    };
+    if !items.iter().any(is_marker) {
+        return (items.to_vec(), false);
+    }
+    let mut out = Vec::with_capacity(items.len());
+    let mut placed = false;
+    for item in items {
+        if !is_marker(item) {
+            out.push(item.clone());
+        } else if !placed {
+            placed = true;
+            if let Some(sw) = switcher {
+                out.push(sw.item());
+            }
+        }
+    }
+    (out, true)
 }
 
 /// Build the `config` object (theme package.json config).
@@ -361,5 +513,88 @@ mod tests {
         ]);
         assert_eq!(both["transistor_portal_enabled"], json!(true));
         assert_eq!(both["transistor_portal_url_template"], json!("https://x.test/{uuid}"));
+    }
+
+    fn page_site(pairs: &[(&str, Value)], locale: &str, translations: Value) -> Value {
+        let cache = SettingsCache::from_values(pairs.iter().map(|(k, v)| ((*k).to_string(), v.clone())));
+        build_site_for_page(&cache, "https://site.test", "https://site.test/ghost", Some(locale), &translations)
+    }
+
+    fn menu_with_switcher() -> Value {
+        json!([{"label": "Home", "url": "/"}, {"label": "Language", "url": "#language-switcher"}])
+    }
+
+    #[test]
+    fn the_switcher_is_one_menu_item_named_for_the_language_being_read() {
+        let site = page_site(
+            &[("locale", json!("en")), ("locales_enabled", json!(["de"])), ("navigation", menu_with_switcher())],
+            "de",
+            json!([
+                {"locale": "en", "url": "/hello/", "active": false},
+                {"locale": "de", "url": "/de/hallo/", "active": true},
+            ]),
+        );
+        let nav = site["navigation"].as_array().unwrap();
+        assert_eq!(nav.len(), 2, "{nav:?}");
+        assert_eq!(nav[1]["label"], "Deutsch");
+        // With scripts off it is a toggle to the other language.
+        assert_eq!(nav[1]["url"], "/hello/");
+        assert_eq!(nav[1]["lang_switcher"], true);
+
+        // The dropdown's data: every language, and how to find the item.
+        let sw = &site["language_switcher"];
+        assert_eq!(sw["current"], "de");
+        assert_eq!(sw["trigger"], json!({"label": "Deutsch", "url": "/hello/"}));
+        assert_eq!(
+            sw["languages"],
+            json!([
+                {"locale": "en", "label": "English", "url": "/hello/", "active": false},
+                {"locale": "de", "label": "Deutsch", "url": "/de/hallo/", "active": true},
+            ])
+        );
+    }
+
+    #[test]
+    fn a_language_without_this_page_links_to_its_home_page() {
+        let site = page_site(
+            &[("locale", json!("en")), ("locales_enabled", json!(["de", "fr"])), ("navigation", menu_with_switcher())],
+            "en",
+            json!([{"locale": "en", "url": "/hello/", "active": true}]),
+        );
+        let urls: Vec<&str> =
+            site["language_switcher"]["languages"].as_array().unwrap().iter().map(|l| l["url"].as_str().unwrap()).collect();
+        assert_eq!(urls, ["/hello/", "/de/", "/fr/"]);
+        assert_eq!(site["navigation"][1]["url"], "/de/", "the fallback is the next language");
+    }
+
+    #[test]
+    fn a_site_without_a_switcher_gets_no_switcher_data() {
+        // Multilingual, but nobody added the switcher to a menu: no script.
+        let site = page_site(
+            &[("locale", json!("en")), ("locales_enabled", json!(["de"])), ("navigation", json!([{"label": "Home", "url": "/"}]))],
+            "en",
+            json!([]),
+        );
+        assert!(site.get("language_switcher").is_none());
+        // Single-language with a marker left in: the marker just goes.
+        let site = page_site(&[("locale", json!("en")), ("navigation", menu_with_switcher())], "en", Value::Null);
+        assert_eq!(site["navigation"], json!([{"label": "Home", "url": "/"}]));
+        assert!(site.get("language_switcher").is_none());
+    }
+
+    #[test]
+    fn a_language_menu_carries_its_own_switcher() {
+        let site = page_site(
+            &[
+                ("locale", json!("en")),
+                ("locales_enabled", json!(["de"])),
+                ("navigation", json!([{"label": "Home", "url": "/"}])),
+                ("navigation_locales", json!({"de": [{"label": "Start", "url": "/de/"}, {"label": "Sprache", "url": "#language-switcher"}]})),
+            ],
+            "de",
+            json!([]),
+        );
+        let labels: Vec<&str> = site["navigation"].as_array().unwrap().iter().map(|i| i["label"].as_str().unwrap()).collect();
+        assert_eq!(labels, ["Start", "Deutsch"]);
     }
 }

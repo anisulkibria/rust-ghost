@@ -44,7 +44,54 @@ pub struct InstalledTheme {
 /// into an absolute URL must use [`ghost_core::url::absolute`] rather than
 /// concatenating onto a site url that carries the prefix too.
 pub fn url_resolver(router: Arc<RouterTree>) -> ghost_render::helpers::UrlResolver {
+    resolver(router, None)
+}
+
+/// [`url_resolver`] that also puts an entry under its language's prefix —
+/// `/bn/<slug>/` for a Bengali post — on a multilingual site.
+///
+/// Reads the language settings on every call rather than capturing them,
+/// so a change of default language, or a language switched on or off,
+/// re-addresses every link the next time a page renders. A post whose
+/// language is the default (stored as NULL, or as the code) stays
+/// unprefixed. A tag with a language of its own gets that language's
+/// prefix; a tag with none belongs to every language and keeps the
+/// default's. This is the one place every theme link to an entry comes
+/// from — `{{url}}`, `{{#get}}`, prev/next, the Content API — so they
+/// cannot disagree.
+pub fn url_resolver_live(router: Arc<RouterTree>, settings: Arc<ghost_db::SettingsCache>) -> ghost_render::helpers::UrlResolver {
+    resolver(router, Some(settings))
+}
+
+fn resolver(router: Arc<RouterTree>, settings: Option<Arc<ghost_db::SettingsCache>>) -> ghost_render::helpers::UrlResolver {
     use ghost_routing::tree::TaxonomyKind;
+
+    // The resource's path under its language's prefix.
+    //
+    // `url_locale` wins when present: it is how a caller says "this tag or
+    // author, as linked from a Bengali page" (see
+    // `ghost_render::util::resolve_nested_urls`). Otherwise an entry or a
+    // tag uses its own `locale`. An author never does — a user's `locale`
+    // is their admin language, not where their archive lives.
+    let localise = move |resource: &serde_json::Value, path: String, own_locale: bool| -> String {
+        let Some(settings) = settings.as_ref() else { return path };
+        let code = resource
+            .get("url_locale")
+            .or_else(|| own_locale.then(|| resource.get("locale")).flatten())
+            .and_then(|l| l.as_str())
+            .filter(|c| !c.is_empty());
+        let Some(code) = code else {
+            return path;
+        };
+        if path == "/404/" {
+            return path;
+        }
+        let locales = ghost_core::locales::Locales::from_settings(
+            settings.get_str("locale").as_deref(),
+            settings.get("locales_enabled").as_ref(),
+        );
+        locales.localise(&path, code)
+    };
 
     Arc::new(move |resource: &serde_json::Value| {
         let taxonomy = match resource_kind(resource) {
@@ -52,7 +99,10 @@ pub fn url_resolver(router: Arc<RouterTree>) -> ghost_render::helpers::UrlResolv
             None => None,
         };
         if let Some(permalink) = taxonomy {
-            return ghost_core::url::base(&ghost_routing::tree::build_permalink(permalink, resource));
+            let path = ghost_routing::tree::build_permalink(permalink, resource);
+            let is_tag = matches!(resource_kind(resource), Some(TaxonomyKind::Tag));
+            let path = localise(resource, path, is_tag);
+            return ghost_core::url::base(&path);
         }
         // a tag or author with no taxonomy route configured has no page
         if resource_kind(resource).is_some() {
@@ -63,7 +113,7 @@ pub fn url_resolver(router: Arc<RouterTree>) -> ghost_render::helpers::UrlResolv
             Some((_, permalink)) => ghost_routing::tree::build_permalink(&permalink, resource),
             None => "/404/".to_string(),
         };
-        ghost_core::url::base(&path)
+        ghost_core::url::base(&localise(resource, path, true))
     })
 }
 
@@ -94,8 +144,12 @@ pub async fn build_theme_state(
     router: Arc<RouterTree>,
     site_origin: String,
     theme_dir: &Path,
-    locales: &ghost_core::locales::Locales,
+    settings: &Arc<ghost_db::SettingsCache>,
 ) -> Result<ThemeState> {
+    let locales = &ghost_core::locales::Locales::from_settings(
+        settings.get_str("locale").as_deref(),
+        settings.get("locales_enabled").as_ref(),
+    );
     // `{{content_api_key}}` hands themes the public frontend key
     let content_api_key = ghost_db::repos::integrations::internal_content_key(&db)
         .await
@@ -106,7 +160,7 @@ pub async fn build_theme_state(
     let deps = ghost_render::HelperDeps {
         pool: Arc::new(db),
         runtime: tokio::runtime::Handle::current(),
-        url_resolver: url_resolver(router),
+        url_resolver: url_resolver_live(router, settings.clone()),
         // load_and_activate hashes the theme's assets itself and overwrites these
         asset_hashes: Arc::new(HashMap::new()),
         global_asset_hash: String::new(),
@@ -361,11 +415,7 @@ pub async fn activate(state: &AppState, name: &str) -> Result<()> {
     }
 
     let router = state.router.read().await.clone();
-    let locales = ghost_core::locales::Locales::from_settings(
-        state.settings.get_str("locale").as_deref(),
-        state.settings.get("locales_enabled").as_ref(),
-    );
-    let theme = build_theme_state(state.db.clone(), router, state.site_url(), &dir, &locales).await?;
+    let theme = build_theme_state(state.db.clone(), router, state.site_url(), &dir, &state.settings).await?;
 
     *state.theme.write().await = Arc::new(theme);
     state

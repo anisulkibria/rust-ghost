@@ -1691,9 +1691,21 @@ async fn admin_edit_settings(State(state): State<AppState>, headers: HeaderMap, 
         writes.push((key.to_string(), value.clone()));
     }
 
+    // The publication language is the default language of a multilingual
+    // site; a plain write would drop the old one and relabel its content
+    // (see `crate::locales`). It goes last: a client sends the whole settings
+    // document back, and its stale `navigation` or `locales_enabled` would
+    // otherwise overwrite what the change just moved.
+    let (locale, writes): (Vec<_>, Vec<_>) =
+        writes.into_iter().partition(|(key, value)| key == "locale" && value.is_string());
     let mut updated = Vec::new();
     for (key, value) in writes {
         if state.settings.set(&state.db, &key, &value).await.is_ok() {
+            updated.push(json!({ "key": { "key": key, "value": value } }));
+        }
+    }
+    for (key, value) in locale {
+        if crate::locales::change_default(&state, value.as_str().unwrap_or_default()).await.is_ok() {
             updated.push(json!({ "key": { "key": key, "value": value } }));
         }
     }

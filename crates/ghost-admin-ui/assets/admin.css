@@ -2244,12 +2244,24 @@ textarea.lg-nav { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, mo
 .lg-action > .field { flex: 1 1 150px; min-width: 0; margin: 0; }
 .lg-action > .btn { flex: none; }
 
-/* The link search: results hang under the input, over whatever follows. */
+/* The linked set: this entry is listed with the rest, marked rather than
+   linked, so the card reads the same from every member. */
+.lg-sib.is-self .lg-sib-title { font-weight: 600; }
+.lg-sib-note { flex: none; font-size: 12px; color: var(--on-surface-variant); }
+
+/* The link search: results sit in the flow under the input, full width.
+   Not a floating dropdown: the panel is a .card (overflow: hidden, for its
+   corners) inside a sidebar that scrolls itself, so anything hanging out of
+   the panel was clipped — every result past its bottom edge was invisible
+   and could not be scrolled to. In the flow the panel grows, the sidebar
+   scrolls, and the list scrolls within its own max-height. */
 .lg-search { position: relative; }
-.lg-results { position: absolute; top: 100%; left: 0; right: 0; z-index: 20; margin-top: 6px;
-  padding: 6px; max-height: 280px; overflow-y: auto; border-radius: 14px;
-  background: var(--sc-lowest); border: 1px solid var(--outline-variant);
-  box-shadow: var(--shadow-2, var(--shadow-1)); }
+.lg-results { flex: 1 1 100%; order: 3; box-sizing: border-box; margin: 0;
+  padding: 6px; max-height: min(320px, 50vh); overflow-y: auto; overscroll-behavior: contain;
+  border-radius: 14px; background: var(--sc-lowest); border: 1px solid var(--outline-variant); }
+.lg-results[hidden] { display: none; }
+.lg-result-more { margin: 4px 0 0; padding: 8px 9px 4px; border-top: 1px solid var(--outline-variant);
+  font-size: 12.5px; color: var(--on-surface-variant); }
 .lg-result { display: flex; align-items: center; gap: 8px; width: 100%; padding: 8px 9px;
   border: 0; border-radius: 10px; background: none; font: inherit; color: inherit;
   text-align: left; cursor: pointer; }
@@ -2283,3 +2295,8 @@ textarea.lg-nav { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, mo
 .lg-create { display: flex; flex-wrap: wrap; gap: 8px; align-items: flex-end; margin: 0; }
 .lg-create .field.fixed { flex: 1 1 150px; min-width: 0; }
 .lg-create .btn { margin-bottom: 2px; }
+
+/* A tag's public archive in each language that uses it. */
+.tag-archives { display: flex; flex-direction: column; gap: 6px; margin-top: 8px; }
+.tag-archive { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.tag-archive a { overflow-wrap: anywhere; }

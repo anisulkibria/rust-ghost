@@ -127,6 +127,52 @@ pub(crate) async fn author_archive_url(state: &AppState, user: &ghost_core::mode
 
 /// The tag's public archive URL, resolved through the same router the
 /// frontend uses so it always matches routes.yaml.
+/// The tag's public archive in every language that uses it.
+///
+/// A tag with no language of its own belongs to every language, and each
+/// language has its own archive of it — `/tag/news/`, `/bn/tag/news/` —
+/// listing that language's posts. So the tag screen links each language
+/// that has published posts with the tag, with how many. A tag that
+/// belongs to one language links that language's archive only; a
+/// single-language site gets the one link it always had.
+async fn tag_archive_links(state: &AppState, tag: &ghost_core::models::Tag, path: &str) -> String {
+    let locales = crate::settings::site_locales(state);
+    let link = |url: &str| format!(r#"<a href="{u}" target="_blank" rel="noopener">{u}</a>"#, u = esc(url));
+    if !locales.multilingual() {
+        return format!("Public archive: {}", link(path));
+    }
+    if let Some(own) = tag.locale.as_deref().filter(|c| !c.is_empty()) {
+        let code = locales.resolve(Some(own));
+        return format!(
+            r#"Public archive, in {}: {}"#,
+            esc(&crate::settings::locale_label(&code)),
+            link(&locales.localise(path, &code))
+        );
+    }
+    let usage = repos::locales::tag_usage(&state.db, &tag.id, locales.default_locale()).await.unwrap_or_default();
+    let rows: String = locales
+        .enabled()
+        .iter()
+        .filter_map(|code| {
+            let count = usage.iter().find(|(c, _)| c.eq_ignore_ascii_case(code)).map(|(_, n)| *n)?;
+            Some(format!(
+                r#"<span class="tag-archive"><span class="chip tonal">{code}</span> {link} <span class="muted">{count} post{s}</span></span>"#,
+                code = esc(code),
+                link = link(&locales.localise(path, code)),
+                count = count,
+                s = if count == 1 { "" } else { "s" },
+            ))
+        })
+        .collect();
+    if rows.is_empty() {
+        return format!(
+            "Public archive: {} — no published posts carry this tag yet. Every language gets its own archive of it once one does.",
+            link(path)
+        );
+    }
+    format!(r#"Public archives, in each language that uses this tag:<span class="tag-archives">{rows}</span>"#)
+}
+
 pub(crate) async fn tag_archive_url(state: &AppState, tag: &ghost_core::models::Tag) -> Option<String> {
     let router = state.router.read().await.clone();
     let j = ghost_core::models::tag_to_json(tag, None);
@@ -288,10 +334,7 @@ pub(crate) async fn tag_edit_page(
                 // path comes from routes.yaml, which defaults to /tag/{slug}/
                 // and can be changed.
                 match tag_archive_url(&state, &tag).await {
-                    Some(u) => format!(
-                        r#"Public archive: <a href="{u}" target="_blank" rel="noopener">{u}</a>"#,
-                        u = esc(&u)
-                    ),
+                    Some(u) => tag_archive_links(&state, &tag, &u).await,
                     None => "This tag has no public archive page.".to_string(),
                 }
             },

@@ -34,7 +34,7 @@ pub const ENTRY_LIMIT: i64 = 1000;
 pub async fn entries(db: &Db, limit: i64) -> Result<Vec<Entry>> {
     let rows: Vec<EntryRow> = sqlx::query_as(
         "SELECT p.id, p.title, p.slug, p.type AS kind, p.status, p.visibility, \
-                p.published_at, p.feature_image, p.canonical_url, p.custom_excerpt, \
+                p.published_at, p.feature_image, p.canonical_url, p.custom_excerpt, p.locale, \
                 p.plaintext, \
                 m.meta_title, m.meta_description, m.feature_image_alt, \
                 m.og_image, m.twitter_image, \
@@ -76,6 +76,7 @@ struct EntryRow {
     feature_image: Option<String>,
     canonical_url: Option<String>,
     custom_excerpt: Option<String>,
+    locale: Option<String>,
     plaintext: Option<Text>,
     meta_title: Option<String>,
     meta_description: Option<String>,
@@ -110,6 +111,7 @@ impl From<EntryRow> for Entry {
                 .map(|t| t.0.split_whitespace().count() as i64)
                 .unwrap_or(0),
             tag_count: r.tag_count,
+            locale: r.locale.filter(|c| !c.is_empty()),
             duplicate_title: false,
             duplicate_description: false,
         }

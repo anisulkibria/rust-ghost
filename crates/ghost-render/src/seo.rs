@@ -143,6 +143,29 @@ impl PageMeta {
         self.url()
     }
 
+    /// On a multilingual site, the language this page is rendered in and
+    /// the site's other languages, read from `@site` (which the front end
+    /// fills from the URL's prefix). `None` on a single-language site.
+    fn languages(&self) -> Option<(String, Vec<String>)> {
+        if self.site.get("is_multilingual").and_then(Value::as_bool) != Some(true) {
+            return None;
+        }
+        let current = self.site_str("locale")?;
+        let others = self
+            .site
+            .get("locales")
+            .and_then(Value::as_array)
+            .map(|all| {
+                all.iter()
+                    .filter_map(Value::as_str)
+                    .filter(|c| !c.eq_ignore_ascii_case(&current))
+                    .map(str::to_string)
+                    .collect()
+            })
+            .unwrap_or_default();
+        Some((current, others))
+    }
+
     /// `og:type`. Ghost reads it off the context: an author profile is a
     /// `profile`, a post is an `article`, and everything else — including a
     /// static page and a tag archive — is a `website`.
@@ -401,6 +424,15 @@ impl PageMeta {
         };
         push("og:site_name", self.site_str("title"));
         push("og:type", Some(self.og_type().to_string()));
+        // The language this page is in, and the others the site publishes
+        // in — only on a multilingual site, so a single-language site's head
+        // stays exactly Ghost's.
+        if let Some((current, others)) = self.languages() {
+            push("og:locale", Some(og_locale(&current)));
+            for other in others {
+                push("og:locale:alternate", Some(og_locale(&other)));
+            }
+        }
         push("og:title", Some(self.og_title()));
         push("og:description", Some(self.og_description()));
         push("og:url", Some(self.canonical()));
@@ -623,13 +655,24 @@ impl PageMeta {
 
     /// The JSON-LD `<script>` block, ready to write into the head.
     pub fn schema_tag(&self) -> Option<String> {
-        let schema = self.schema()?;
+        let mut schema = self.schema()?;
+        // schema.org's own language field, on a multilingual site: the
+        // structured data says which language the page is in, as `<html
+        // lang>` and `og:locale` do.
+        if let (Some((current, _)), Value::Object(m)) = (self.languages(), &mut schema) {
+            m.insert("inLanguage".into(), Value::String(current));
+        }
         let body = serde_json::to_string_pretty(&schema).ok()?;
         Some(format!(
             "<script type=\"application/ld+json\">\n{}\n    </script>",
             escape_json_ld(&body)
         ))
     }
+}
+
+/// Open Graph writes a locale with an underscore — `pt_BR`, not `pt-BR`.
+fn og_locale(code: &str) -> String {
+    code.replace('-', "_")
 }
 
 fn non_empty(s: &str) -> Option<String> {
