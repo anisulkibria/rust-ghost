@@ -2,6 +2,7 @@
 pub mod automations;
 pub mod comments;
 pub mod config;
+pub mod dashboard;
 pub mod database;
 pub mod dialect;
 pub mod dates;

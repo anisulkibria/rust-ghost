@@ -34,7 +34,8 @@ fn user_with(accessibility: Option<&str>) -> ghost_core::models::User {
 /// the three real choices survive.
 #[test]
 fn night_shift_reads_ghosts_shapes_and_defaults_to_light() {
-    assert_eq!(night_shift(None), "light");
+    // Signed out there is no preference to read, so the OS decides.
+    assert_eq!(night_shift(None), "system");
     assert_eq!(night_shift(Some(&user_with(None))), "light");
     assert_eq!(night_shift(Some(&user_with(Some("not json")))), "light");
     assert_eq!(night_shift(Some(&user_with(Some(r#"{}"#)))), "light");
@@ -65,17 +66,26 @@ fn merging_night_shift_leaves_the_rest_of_the_blob_alone() {
 #[test]
 fn the_page_opens_on_the_user_s_scheme_and_offers_to_change_it() {
     let dark = page_for("Posts", "posts", Some(&user_with(Some(r#"{"nightShift":"dark"}"#))), super::Role::Contributor, "", true).0;
-    assert!(dark.contains(r#"<html class="dark" data-theme="dark">"#), "{dark}");
+    assert!(dark.contains(r#"<html class="no-js dark" data-theme="dark">"#), "{dark}");
     assert!(dark.contains(r#"class="menu-item on" data-choice="dark""#), "{dark}");
 
     let light = page_for("Posts", "posts", Some(&user_with(Some(r#"{"nightShift":"light"}"#))), super::Role::Contributor, "", true).0;
-    assert!(light.contains(r#"<html data-theme="light">"#), "{light}");
+    assert!(light.contains(r#"<html class="no-js" data-theme="light">"#), "{light}");
 
     let system = page_for("Posts", "posts", Some(&user_with(Some(r#"{"nightShift":"system"}"#))), super::Role::Contributor, "", true).0;
-    assert!(system.contains(r#"<html data-theme="system">"#), "{system}");
-    // no preference yet: Ghost's default is light, never the OS
+    assert!(system.contains(r#"<html class="no-js" data-theme="system">"#), "{system}");
+    // A signed-in user with no preference yet: Ghost's default is light,
+    // never the OS. Signed out is the opposite and is asserted separately —
+    // there the OS is the only thing there is to go on.
     let fresh = page_for("Posts", "posts", Some(&user_with(None)), super::Role::Contributor, "", true).0;
-    assert!(fresh.contains(r#"<html data-theme="light">"#), "{fresh}");
+    assert!(fresh.contains(r#"<html class="no-js" data-theme="light">"#), "{fresh}");
+
+    // `no-js` is on every page and the head script removes it before paint;
+    // the password reveal on the signed-out screens is hidden while it is
+    // present, so a browser without scripting is never shown a dead control.
+    let signed_out = page_for("Sign in", "", None, super::Role::Contributor, "", false).0;
+    assert!(signed_out.contains(r#"<html class="no-js" data-theme="system">"#), "{signed_out}");
+    assert!(signed_out.contains("classList.remove('no-js')"), "{signed_out}");
 
     // the switcher itself: three choices, saving where the handler lives
     let menu = rail("posts", Some(&user_with(Some(r#"{"nightShift":"system"}"#))), super::Role::Contributor);

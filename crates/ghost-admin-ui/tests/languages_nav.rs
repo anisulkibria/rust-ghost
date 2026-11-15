@@ -20,7 +20,7 @@ struct Fixture {
 impl Fixture {
     async fn session(&self) -> String {
         let id = ghost_db::repos::sessions::create(&self.state.db, &self.owner).await.unwrap();
-        format!("ghost-admin-api-session={id}")
+        format!("vuuut-admin-session={id}")
     }
 
     /// A published entry, in `locale` (None = the default) and translation

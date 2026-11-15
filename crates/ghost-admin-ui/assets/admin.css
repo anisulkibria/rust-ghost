@@ -1303,23 +1303,105 @@ dialog.unsplash button:focus-visible, .u-chip:focus-visible { outline: 2px solid
   .editor-title { font-size: 26px; }
 }
 
-/* ---- centered auth pages ---- */
-.auth { min-height: 100vh; display: grid; place-items: center; padding: 24px; position: relative; overflow: hidden; }
-.content:has(> .auth) { max-width: none; padding: 0; }
-.auth .blob { position: absolute; border-radius: 50%; filter: blur(90px); opacity: .45; pointer-events: none; }
-.auth .b1 { width: 420px; height: 420px; background: var(--pink-bg); top: -140px; left: -120px; }
-.auth .b2 { width: 380px; height: 380px; background: var(--blue-bg); bottom: -140px; right: -100px; }
-.auth .b3 { width: 300px; height: 300px; background: var(--purple-bg); bottom: -80px; left: 18%; opacity: .35; }
-.auth-box { width: min(400px, 100%); position: relative; animation: rise .5s var(--ease) both; }
-.auth-logo { font-family: Georgia, 'Iowan Old Style', serif; font-style: italic; font-size: 54px; line-height: 1;
-  position: relative; width: 60px; height: 64px; border-radius: 20px 20px 20px 6px;
-  background: var(--primary); color: var(--on-primary); display: grid; place-items: center; margin: 0 auto 20px; }
-.auth-logo span { position: absolute; font-family: var(--font); font-style: normal; font-weight: 600;
-  font-size: 22px; line-height: 1; right: 5px; top: 4px; }
-.auth-box h1 { text-align: center; font-size: 26px; font-weight: 600; margin: 0 0 6px; }
-.auth-box .sub { text-align: center; color: var(--on-surface-variant); font-size: 14px; margin: 0 0 28px; }
-.auth-box .card { padding: 26px; }
-.auth-box .btn { width: 100%; height: 46px; font-size: 15px; margin-top: 4px; }
+/* ---- centered auth pages ----
+   Sign in, setup, the emailed code, forgot-password and invite redemption.
+   All five render through `page_for(nav: false)`, so everything here is
+   written once and applies to all of them. */
+
+/* The bare shell every page without a rail gets. A class rather than the
+   inline style it replaces: inline wins over every rule in this file, so the
+   full-bleed override below could never take effect and the auth background
+   was clipped to a 640px column down the middle of the screen. */
+.content.narrow { max-width: 640px; padding-top: 40px; }
+/* An auth page is the exception: it paints the whole viewport. More specific
+   than `.content.narrow` on purpose, so it wins without depending on which
+   rule comes last. */
+.content.narrow:has(> .auth) { max-width: none; padding: 0; }
+
+.auth { min-height: 100dvh; display: grid; place-items: center;
+  padding: 32px 24px; position: relative; overflow: hidden; }
+
+/* The background wash. Three blurred ovals, placed so each bleeds off a
+   different edge — a blob fully inside the viewport reads as a stray shape
+   rather than as lighting. `filter: blur()` needs room to fall off, which is
+   what the negative offsets buy; `.auth` clips the overspill. */
+.auth .blob { position: absolute; border-radius: 50%; filter: blur(100px);
+  opacity: .5; pointer-events: none; }
+.auth .b1 { width: 46vmax; height: 46vmax; min-width: 420px; min-height: 420px;
+  background: var(--pink-bg); top: -18vmax; left: -12vmax; }
+.auth .b2 { width: 40vmax; height: 40vmax; min-width: 360px; min-height: 360px;
+  background: var(--blue-bg); bottom: -16vmax; right: -10vmax; }
+.auth .b3 { width: 32vmax; height: 32vmax; min-width: 280px; min-height: 280px;
+  background: var(--purple-bg); bottom: -12vmax; left: 20%; opacity: .38; }
+/* Dark mode: the same hues at a fraction of the strength. At full opacity
+   the containers are bright enough to glow through a dark page and the card
+   stops being the brightest thing on screen, which is the one job the
+   background must not take from it. */
+.dark .auth .blob { opacity: .26; }
+.dark .auth .b3 { opacity: .2; }
+
+.auth-box { width: min(408px, 100%); position: relative;
+  animation: rise .5s var(--ease) both; }
+
+/* The brand tile: the same rounded square with the bottom-left corner
+   squared off that the rail and the Click dashboard use, at the size a page
+   with nothing else on it can afford. */
+.auth-logo { font-family: Georgia, 'Iowan Old Style', serif; font-style: italic;
+  font-size: 54px; line-height: 1; position: relative; width: 60px; height: 64px;
+  border-radius: 20px 20px 20px 6px; background: var(--primary); color: var(--on-primary);
+  display: grid; place-items: center; margin: 0 auto 18px;
+  box-shadow: 0 8px 24px color-mix(in srgb, var(--primary) 28%, transparent); }
+.auth-logo span { position: absolute; font-family: var(--font); font-style: normal;
+  font-weight: 600; font-size: 22px; line-height: 1; right: 5px; top: 4px; }
+
+.auth-box h1 { text-align: center; font-size: 26px; font-weight: 600;
+  letter-spacing: -.3px; margin: 0 0 6px; overflow-wrap: anywhere; }
+.auth-box .sub { text-align: center; color: var(--on-surface-variant);
+  font-size: 14px; margin: 0 0 24px; }
+.auth-box .card { padding: 26px 26px 22px; }
+.auth-box .btn { width: 100%; height: 46px; font-size: 15px; margin-top: 6px; }
+/* The banner sits above the first field and must not crowd it. */
+.auth-box .banner { margin: 0 0 18px; font-size: 13.5px; }
+
+/* A password field and the control that reveals it. The button is inside the
+   field's box, so the input is padded out of its way rather than overlapped —
+   a long password must never run underneath it. */
+.auth-pw { position: relative; }
+.auth-pw input { padding-right: 48px; }
+.auth-reveal { position: absolute; right: 6px; top: 50%; transform: translateY(-50%);
+  width: 36px; height: 36px; display: grid; place-items: center; border: none;
+  background: transparent; border-radius: 50%; cursor: pointer; padding: 0;
+  color: var(--on-surface-variant); }
+.auth-reveal:hover { background: color-mix(in srgb, var(--on-surface) 8%, transparent);
+  color: var(--on-surface); }
+.auth-reveal:focus-visible { outline: 2px solid var(--primary); outline-offset: -2px; }
+.auth-reveal svg { width: 20px; height: 20px; display: block; }
+/* Only one of the two glyphs shows at a time; the button's state says which. */
+.auth-reveal .off, .auth-reveal[aria-pressed="true"] .on { display: none; }
+.auth-reveal[aria-pressed="true"] .off { display: block; }
+/* No script, no toggle — but the field must still work, so the button goes
+   rather than sitting there inert. */
+.no-js .auth-reveal { display: none; }
+.no-js .auth-pw input { padding-right: 14px; }
+
+/* Under the card: the way out for somebody who did not mean to be here, and
+   the secondary action. Quiet, because neither is what the page is for. */
+.auth-foot { display: flex; flex-direction: column; align-items: center; gap: 2px;
+  margin-top: 18px; font-size: 13.5px; }
+.auth-foot a { color: var(--on-surface-variant); text-decoration: none;
+  padding: 6px 10px; border-radius: 10px; }
+.auth-foot a:hover { color: var(--primary); text-decoration: underline; }
+
+@media (max-width: 479px) {
+  .auth { padding: 24px 16px; }
+  .auth-box .card { padding: 20px 18px 18px; }
+  .auth-box h1 { font-size: 23px; }
+}
+/* An entrance that slides is a liability for anybody who asked for less
+   motion; the card still appears, it just does not travel. */
+@media (prefers-reduced-motion: reduce) {
+  .auth-box { animation: none; }
+}
 
 /* ---- search bar ---- */
 .search { display: flex; align-items: center; gap: 12px; background: var(--sc-lowest); border-radius: 999px;
@@ -2300,3 +2382,60 @@ textarea.lg-nav { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, mo
 .tag-archives { display: flex; flex-direction: column; gap: 6px; margin-top: 8px; }
 .tag-archive { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .tag-archive a { overflow-wrap: anywhere; }
+
+/* ---- dashboard: the admin home ----
+   Almost entirely the shared primitives — `.page-head`, `.tiles`, `.card
+   rows`, `.chip`, `.ic .tint-*` — because the home screen's whole job is to
+   look like a condensed version of the screens it links to. What is new here
+   is a section heading that carries a link or a note on its right, and a
+   caption above the one chart. */
+
+/* A `.section` with something on its right. The heading keeps its own type
+   and padding from the shared rule; this only lays the two parts out, so the
+   headings on every other screen are untouched. */
+.dash-head { display: flex; align-items: baseline; gap: 12px; }
+
+/* "All drafts →" / "Full report →": the way out of a card that shows the
+   first five of something. Sized down from the heading it sits beside, so it
+   reads as a door rather than as a second title. */
+.dash-more { margin-left: auto; display: inline-flex; align-items: center; gap: 2px;
+  font-size: 13px; font-weight: 600; color: var(--primary); text-decoration: none;
+  white-space: nowrap; flex: none; }
+.dash-more:hover { text-decoration: underline; }
+.dash-more svg.i { width: 16px; height: 16px; }
+
+/* What the figures in a card's trailing chips are measuring. On the right of
+   the heading because it qualifies every row at once — repeating "readers in
+   the last 30 days" on five rows would crowd out the titles. */
+.dash-note { margin-left: auto; font-size: 12.5px; font-weight: 400;
+  color: var(--on-surface-variant); white-space: nowrap; flex: none; }
+
+/* The sparkline's own label. The chart is a single series, so the caption is
+   the legend and no legend box is drawn — the same arrangement the Analytics
+   overview uses, restated here because that card gets its title from the
+   `.section` above it and this one does not. */
+.dash-chart-title { margin: 0 0 10px; font-size: 13px; font-weight: 600;
+  color: var(--on-surface-variant); letter-spacing: .2px; }
+
+/* On a phone the heading and its door stack rather than squeezing the
+   heading to nothing. */
+@media (max-width: 599px) {
+  .dash-head { flex-wrap: wrap; gap: 4px 12px; }
+  .dash-more, .dash-note { margin-left: 0; }
+}
+
+/* A row whose title is itself the link. `.rows .row` clears the underline
+   for a row that is wholly an anchor, but these rows wrap the anchor around
+   the title and detail only — so the link kept its underline and every entry
+   in the work queue read as a wall of underscored text. Underline on hover
+   instead, and only under the title. */
+.dash-rows a.body { text-decoration: none; color: inherit; }
+.dash-rows a.body:hover .title { text-decoration: underline; }
+.dash-rows a.body:focus-visible { outline: 2px solid var(--primary);
+  outline-offset: 2px; border-radius: 8px; }
+
+/* The reset form's live region. Empty until the script puts an answer in it,
+   so it must not reserve space or draw a gap under the button. */
+.auth-status { margin: 14px 0 0; font-size: 13.5px; text-align: center;
+  color: var(--on-surface-variant); }
+.auth-status:empty { display: none; }

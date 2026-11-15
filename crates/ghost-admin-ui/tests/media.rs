@@ -66,7 +66,7 @@ impl Fixture {
 
     async fn session(&self) -> String {
         let id = ghost_db::repos::sessions::create(&self.state.db, &self.owner).await.unwrap();
-        format!("ghost-admin-api-session={id}")
+        format!("vuuut-admin-session={id}")
     }
 }
 
@@ -274,7 +274,7 @@ async fn the_library_is_closed_to_anyone_who_is_not_a_signed_in_administrator() 
         ("POST", "/media/item/replace/".to_string(), files()),
     ] {
         // no cookie at all, and a cookie that names no session
-        for cookie in [None, Some("ghost-admin-api-session=not-a-session")] {
+        for cookie in [None, Some("vuuut-admin-session=not-a-session")] {
             let payload = body.as_ref().map(|(ct, bytes)| (&ct[..], bytes.clone()));
             let r = send(&f.state, method, &uri, cookie, Some(ORIGIN), payload).await;
             assert!(

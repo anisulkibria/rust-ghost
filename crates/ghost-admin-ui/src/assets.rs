@@ -54,6 +54,10 @@ pub(crate) async fn admin_asset(Path((version, file)): Path<(String, String)>) -
         "koenig-bridge.js" => include_str!("../assets/koenig-bridge.js"),
         "koenig-integrations.js" => include_str!("../assets/koenig-integrations.js"),
         "koenig-forms.js" => include_str!("../assets/koenig-forms.js"),
+        // The signed-out screens' password reveal. Served like the rest, and
+        // reachable without a session on purpose — the sign-in page that
+        // loads it has no session either.
+        "auth.js" => include_str!("../assets/auth.js"),
         "translations-search.js" => include_str!("../assets/translations-search.js"),
         "forms-builder.js" => include_str!("../assets/forms-builder.js"),
         "media-library.js" => include_str!("../assets/media-library.js"),

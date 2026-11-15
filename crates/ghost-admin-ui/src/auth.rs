@@ -3,6 +3,59 @@
 use super::*;
 
 // ---------------------------------------------------------------------------
+// shared pieces of the signed-out screens
+// ---------------------------------------------------------------------------
+
+/// The banner an auth screen shows when something went wrong.
+///
+/// `role="alert"` so a screen reader announces it on arrival: the page has
+/// just reloaded and the only thing that changed is this sentence, which a
+/// sighted person sees and nobody else would.
+///
+/// The message is always one of this module's own literals — never anything
+/// from the query string — but it goes through `esc` anyway, so that stays
+/// true if somebody later passes something that is not.
+pub(crate) fn auth_error(message: &str) -> String {
+    format!(
+        r#"<div class="banner error" role="alert">{icon}<span class="msg">{message}</span></div>"#,
+        icon = svg("warning"),
+        message = esc(message),
+    )
+}
+
+/// A password input with a button that reveals what has been typed.
+///
+/// Typing a long password blind into a form that answers "that does not
+/// match" is the worst loop on this screen, and the reveal is the cheapest
+/// way out of it. The button is `aria-pressed`, so its state is announced
+/// rather than only drawn, and it is hidden outright without scripting —
+/// see the `.no-js` rules in the stylesheet.
+///
+/// `autocomplete` differs by screen: `current-password` on sign-in lets a
+/// manager fill it, `new-password` on setup and invite stops it offering an
+/// existing one for a brand-new account.
+pub(crate) fn password_field(label: &str, autocomplete: &str, new_password: bool) -> String {
+    format!(
+        r#"<div class="field auth-pw"><input name="password" type="password" placeholder=" " required autocomplete="{autocomplete}"{min}><span>{label}</span>
+<button type="button" class="auth-reveal" aria-pressed="false" aria-label="Show password" title="Show password">{eye}{hide}</button></div>"#,
+        autocomplete = esc(autocomplete),
+        // The server enforces this too; the attribute only moves the
+        // complaint to before the round trip.
+        min = if new_password { r#" minlength="10""# } else { "" },
+        label = esc(label),
+        eye = svg_class("eye", "on"),
+        hide = svg_class("hide", "off"),
+    )
+}
+
+/// The reveal button's script, cache-busted by its own content.
+pub(crate) fn auth_script_hash() -> &'static str {
+    static HASH: std::sync::LazyLock<String> =
+        std::sync::LazyLock::new(|| crate::asset_hash(include_str!("../assets/auth.js")));
+    &HASH
+}
+
+// ---------------------------------------------------------------------------
 // index / setup / login
 // ---------------------------------------------------------------------------
 
@@ -13,12 +66,17 @@ use super::*;
 /// `/ghost/`, so without that second binding the canonical admin URL falls
 /// through to the site's catch-all — which bounces every `/ghost`-prefixed
 /// path straight back to `/ghost/` and loops.
+///
+/// A session lands on [`ADMIN_HOME`], the dashboard, rather than on the posts
+/// list: the first screen of a session should say what is waiting, and the
+/// posts list is one of the things it says it about. Every other way in
+/// redirects to the same constant, so "home" is one screen however you arrive.
 pub async fn index(State(state): State<AppState>, headers: HeaderMap) -> Response {
     if !repos::users::is_setup(&state.db).await.unwrap_or(false) {
         return Redirect::to("/ghost/setup/").into_response();
     }
     match require_session(&state, &headers).await {
-        Ok(_) => Redirect::to("/ghost/posts/").into_response(),
+        Ok(_) => Redirect::to(ADMIN_HOME).into_response(),
         Err(r) => r.into_response(),
     }
 }
@@ -41,14 +99,18 @@ pub(crate) async fn setup_page(State(state): State<AppState>) -> Response {
 <div class="card"><form method="post" action="/ghost/setup/">
 <label class="field"><input name="blog_title" value="{title_v}" placeholder=" " required><span>Site title</span></label>
 <label class="field"><input name="name" placeholder=" " required autocomplete="name"><span>Your name</span></label>
-<label class="field"><input name="email" type="email" placeholder=" " required autocomplete="email"><span>Email</span></label>
-<label class="field"><input name="password" type="password" minlength="10" required autocomplete="new-password"><span>Password · min 10 characters</span></label>
+<label class="field"><input name="email" type="email" placeholder=" " required autocomplete="email" autocapitalize="none" spellcheck="false"><span>Email</span></label>
+{password}
 <button class="btn" type="submit">Create account</button>
 </form></div>
-</div></div>"#,
+</div></div>
+<script src="{assets}/auth.js?v={auth_hash}" defer></script>"#,
             logo = BRAND_GLYPH,
             title = esc(&title),
             title_v = esc(&title),
+            password = password_field("Password · min 10 characters", "new-password", true),
+            assets = ASSETS,
+            auth_hash = auth_script_hash(),
         ),
         false,
     )
@@ -102,17 +164,19 @@ pub(crate) async fn login_page(State(state): State<AppState>, headers: HeaderMap
         return Redirect::to("/ghost/setup/").into_response();
     }
     if current_user(&state, &headers).await.is_some() {
-        return Redirect::to("/ghost/posts/").into_response();
+        return Redirect::to(ADMIN_HOME).into_response();
     }
     let err = if q.contains_key("throttled") {
         // Deliberately does not say how long: naming the wait tells an
         // attacker exactly when to resume, and a person who is locked out
         // needs to know to stop rather than to schedule.
-        r#"<div class="banner error"><svg class="i" viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="12" r="10"/></svg>Too many sign-in attempts. Wait a while before trying again, or reset your password.</div>"#
+        auth_error("Too many sign-in attempts. Wait a while before trying again, or reset your password.")
     } else if q.contains_key("invalid") {
-        r#"<div class="banner error"><svg class="i" viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="12" r="10"/></svg>Invalid email or password</div>"#
+        // One message for both halves. Saying which of the two was wrong tells
+        // an attacker which addresses have accounts.
+        auth_error("That email and password do not match an account.")
     } else {
-        ""
+        String::new()
     };
     page_u(
         "Sign in",
@@ -125,15 +189,22 @@ pub(crate) async fn login_page(State(state): State<AppState>, headers: HeaderMap
 <h1>{title}</h1>
 <p class="sub">Sign in to the admin panel</p>
 <div class="card"><form method="post" action="/ghost/signin/">{err}
-<label class="field"><input name="email" type="email" placeholder=" " required autofocus autocomplete="username"><span>Email</span></label>
-<label class="field"><input name="password" type="password" placeholder=" " required autocomplete="current-password"><span>Password</span></label>
+<label class="field"><input name="email" type="email" placeholder=" " required autofocus autocomplete="username" autocapitalize="none" spellcheck="false"><span>Email</span></label>
+{password}
 <button class="btn" type="submit">Sign in</button>
-<a class="btn text" href="/ghost/forgot-password/">Forgot password?</a>
 </form></div>
-</div></div>"#,
+<div class="auth-foot">
+<a href="/ghost/forgot-password/">Forgot your password?</a>
+<a href="/">&larr; Back to {title}</a>
+</div>
+</div></div>
+<script src="{assets}/auth.js?v={auth_hash}" defer></script>"#,
             logo = BRAND_GLYPH,
             title = esc(&state.settings.get_str("title").unwrap_or_else(|| "Ghost".into())),
-            err = err
+            err = err,
+            password = password_field("Password", "current-password", false),
+            assets = ASSETS,
+            auth_hash = auth_script_hash(),
         ),
         false,
     )
@@ -155,10 +226,11 @@ pub(crate) fn set_session_cookie(state: &AppState, resp: &mut Response, sid: &st
     resp.headers_mut().insert(
         header::SET_COOKIE,
         format!(
-            "ghost-admin-api-session={sid}; Path={}/ghost; HttpOnly; SameSite=Lax; Max-Age={}{}",
+            "{name}={sid}; Path={}/ghost; HttpOnly; SameSite=Lax; Max-Age={}{}",
             ghost_core::url::subdir(),
             60 * 60 * 24 * 7,
-            ghost_api::admin::cookie_secure(state)
+            ghost_api::admin::cookie_secure(state),
+            name = ghost_api::admin::SESSION_COOKIE,
         )
         .parse()
         .unwrap(),
@@ -195,7 +267,7 @@ pub(crate) async fn login_submit(
     if !state.settings.get_bool("require_email_mfa") || user.last_seen.is_none() {
         return match repos::sessions::create(&state.db, &user.id).await {
             Ok(sid) => {
-                let mut resp = Redirect::to("/ghost/posts/").into_response();
+                let mut resp = Redirect::to(ADMIN_HOME).into_response();
                 set_session_cookie(&state, &mut resp, &sid);
                 resp
             }
@@ -262,13 +334,12 @@ pub(crate) async fn issue_signin_code(state: &AppState, sid: &str, user: &ghost_
 }
 
 /// The session id on the request, verified or not.
+///
+/// Delegates rather than re-reading the header, so there is exactly one piece
+/// of code that knows what the admin session cookie is called. This used to
+/// spell the name out, and a rename had to find all eight copies.
 pub(crate) fn session_id_from(headers: &HeaderMap) -> Option<String> {
-    headers
-        .get(header::COOKIE)
-        .and_then(|c| c.to_str().ok())?
-        .split(';')
-        .find_map(|c| c.trim().strip_prefix("ghost-admin-api-session="))
-        .map(str::to_string)
+    ghost_api::admin::session_id_from(headers)
 }
 
 /// The code-entry screen, shown between password and session when email 2FA
@@ -280,17 +351,26 @@ pub(crate) async fn verify_page(State(state): State<AppState>, headers: HeaderMa
     // A verified session has nothing to do here; an unknown one has to start over.
     match repos::sessions::is_unverified(&state.db, &sid).await {
         Ok(true) => {}
-        Ok(false) => return Redirect::to("/ghost/posts/").into_response(),
+        Ok(false) => return Redirect::to(ADMIN_HOME).into_response(),
         Err(_) => return Redirect::to("/ghost/signin/").into_response(),
     }
 
+    // Announced, not just drawn: the page has reloaded and this sentence is
+    // the only thing that changed, which a sighted person sees and nobody
+    // else would. Errors are `alert`; the confirmation is a quieter `status`,
+    // because it does not interrupt anything.
     let banner = match q.get("send").map(String::as_str) {
-        Some("failed") => r#"<div class="banner error">Could not send the code — check the mail settings, or ask another administrator.</div>"#,
-        Some("resent") => r#"<div class="banner ok">A new code is on its way.</div>"#,
+        Some("failed") => {
+            auth_error("Could not send the code — check the mail settings, or ask another administrator.")
+        }
+        Some("resent") => format!(
+            r#"<div class="banner ok" role="status">{icon}<span class="msg">A new code is on its way.</span></div>"#,
+            icon = svg("check"),
+        ),
         _ => match q.get("error").map(String::as_str) {
-            Some("incorrect") => r#"<div class="banner error">That code is not right. Check the email and try again.</div>"#,
-            Some("expired") => r#"<div class="banner error">That code has expired. Send yourself a new one.</div>"#,
-            _ => "",
+            Some("incorrect") => auth_error("That code is not right. Check the email and try again."),
+            Some("expired") => auth_error("That code has expired. Send yourself a new one."),
+            _ => String::new(),
         },
     };
 
@@ -338,7 +418,7 @@ pub(crate) async fn verify_submit(State(state): State<AppState>, headers: Header
             if let Ok(Some(user_id)) = repos::sessions::get_user(&state.db, &sid).await {
                 let _ = repos::users::update_last_seen(&state.db, &user_id).await;
             }
-            Redirect::to("/ghost/posts/").into_response()
+            Redirect::to(ADMIN_HOME).into_response()
         }
         Ok(CodeCheck::Incorrect) => Redirect::to("/ghost/signin/verify/?error=incorrect").into_response(),
         _ => Redirect::to("/ghost/signin/verify/?error=expired").into_response(),
@@ -365,15 +445,23 @@ pub(crate) async fn verify_resend(State(state): State<AppState>, headers: Header
 }
 
 pub(crate) async fn logout(State(state): State<AppState>, headers: HeaderMap) -> Response {
-    if let Some(cookie) = headers.get(header::COOKIE).and_then(|c| c.to_str().ok()) {
-        if let Some(sid) = cookie.split(';').find_map(|c| c.trim().strip_prefix("ghost-admin-api-session=")) {
-            let _ = repos::sessions::destroy(&state.db, sid).await;
-        }
+    if let Some(sid) = session_id_from(&headers) {
+        let _ = repos::sessions::destroy(&state.db, &sid).await;
     }
     let mut resp = Redirect::to("/ghost/signin/").into_response();
     resp.headers_mut().insert(
         header::SET_COOKIE,
-        format!("ghost-admin-api-session=; Path={}/ghost; HttpOnly; SameSite=Lax; Max-Age=0{}", ghost_core::url::subdir(), ghost_api::admin::cookie_secure(&state)).parse().unwrap(),
+        // Name, path and `Secure` must match the cookie that was set or the
+        // browser keeps the original alongside this one and the sign-out
+        // does nothing.
+        format!(
+            "{name}=; Path={}/ghost; HttpOnly; SameSite=Lax; Max-Age=0{}",
+            ghost_core::url::subdir(),
+            ghost_api::admin::cookie_secure(&state),
+            name = ghost_api::admin::SESSION_COOKIE,
+        )
+        .parse()
+        .unwrap(),
     );
     resp
 }
@@ -411,6 +499,40 @@ pub(crate) async fn appearance_save(
     }
 }
 
+/// Ask for a reset link, or set a new password when arriving with a token.
+///
+/// The form itself is built by `publishing-workflows.js`, which reads the
+/// `?token=` in the URL to decide whether to ask for an email address or for
+/// a new password, and posts to the password-reset endpoint. The ids
+/// `password-recovery`, `recovery-fields` and `recovery-message` are that
+/// script's contract and must not be renamed here.
+///
+/// Because the whole form is script-built, there is a `<noscript>`: without
+/// it this page is an empty card with a Continue button that does nothing,
+/// which looks broken rather than unavailable.
 pub(crate) async fn forgot_password_page() -> Response {
-    page_u("Reset password", "", None, r#"<div class="auth-box"><h1>Reset password</h1><div class="card padded"><form id="password-recovery"><div id="recovery-fields"></div><button class="btn" type="submit">Continue</button><p role="status" id="recovery-message"></p></form><a href="/ghost/signin/">Back to sign in</a></div></div>"#,false).into_response()
+    page_u(
+        "Reset password",
+        "",
+        None,
+        &format!(
+            r#"<div class="auth"><div class="blob b1"></div><div class="blob b2"></div><div class="blob b3"></div>
+<div class="auth-box">
+<div class="auth-logo">{logo}</div>
+<h1>Reset your password</h1>
+<p class="sub">We will email you a link to set a new one.</p>
+<div class="card">
+<noscript><div class="banner error" role="alert">{warn}<span class="msg">Resetting a password needs JavaScript. Turn it on and reload, or ask another administrator to send you a new invitation.</span></div></noscript>
+<form id="password-recovery"><div id="recovery-fields"></div>
+<button class="btn" type="submit">Continue</button>
+<p role="status" id="recovery-message" class="auth-status"></p></form>
+</div>
+<div class="auth-foot"><a href="/ghost/signin/">&larr; Back to sign in</a></div>
+</div></div>"#,
+            logo = BRAND_GLYPH,
+            warn = svg("warning"),
+        ),
+        false,
+    )
+    .into_response()
 }

@@ -59,6 +59,30 @@ things in it are worth copying:
   (`ghost_core::seo::flag`), so the renderer, the sitemap, the public
   robots.txt handler and the report cannot disagree about what is switched on.
 
+**Dashboard (2026-11-15) is the third**, and is the one to read for a module
+that is *not* behind a single role. Three things in it are new:
+
+- **It is open to every signed-in role, and gates its sections instead.** It
+  is where `/ghost/` lands, so a `require_role(Administrator)` at the top
+  would mean a Contributor signs in to "Not allowed". Its `guard` is
+  `require_actor` alone, and each section is rendered only for a role that may
+  open everything it links to — rule 8's real intent, which is that no link
+  ever leads to a refusal.
+- **Its `ghost-core` module holds rankings, not validation.** Nothing on the
+  page comes from a visitor, so `ghost_core::dashboard` is not a trust
+  boundary; what it owns is the *order* queues are shown in and the thresholds
+  at which a checklist item appears. Those are the parts that go quietly
+  wrong, and they are unit-tested there without a database. Rule 2 is about
+  "rules that can be wrong", and a ranking qualifies.
+- **It is not a card on the Modules hub** (registration 3), deliberately: it
+  is the home, not a tool filed under one. Registrations 5, 6, 8 and 9 are
+  empty too — no settings, no scripts, no tables.
+
+It also replaced five separate `Redirect::to("/ghost/posts/")` literals with
+one `shell::ADMIN_HOME`. Those five are the ways into the admin and they have
+to agree; before, `/ghost/` went to the posts list while the rail's brand link
+went to Analytics, so "home" was two screens depending on how you arrived.
+
 ## The reference: what Forms is made of
 
 | Layer | File | What lives there |
@@ -94,6 +118,7 @@ Where to look, and where a new screen goes. Everything under
 | `settings.rs` + `settings/` | the hub, then `general`, `email`, `newsletters`, `features`, `membership`, `growth`, `advanced` |
 | `themes.rs` · `design.rs` · `navigation.rs` · `staff.rs` | the remaining settings groups with screens of their own |
 | `integrations.rs` · `apps.rs` | API keys, custom integrations, and the built-in apps |
+| `dashboard.rs` | the admin home at `/ghost/dashboard/`, where `/ghost/` and every sign-in land |
 | `analytics.rs` · `comments.rs` · `automations.rs` · `forms.rs` · `media.rs` + `media/` · `seo.rs` · `social.rs` · `click.rs` | the modules proper |
 | `preview.rs` · `schedule.rs` · `rest.rs` | supporting machinery |
 | `tests.rs` | tests for the shared chrome and for screens whose handlers sit elsewhere |

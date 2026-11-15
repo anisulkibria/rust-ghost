@@ -111,7 +111,7 @@ impl Fixture {
         let app = Router::new().nest("/admin", ghost_api::admin::admin_router().merge(ghost_api::automations::automations_router()).merge(ghost_api::admin_comments::admin_comments_router()))
             .nest("/content", ghost_api::content::content_router(state.clone()))
             .merge(ghost_api::members::members_router()).with_state(state.clone());
-        Self {_db: test_db, state, app, cookie: format!("ghost-admin-api-session={sid}"), content_key}
+        Self {_db: test_db, state, app, cookie: format!("vuuut-admin-session={sid}"), content_key}
     }
 
     async fn request(&self, method: &str, path: &str, body: Value, auth: Option<&str>) -> (StatusCode, Value) {
@@ -131,7 +131,7 @@ impl Fixture {
         sqlx::query("INSERT INTO roles_users (id, role_id, user_id) SELECT ?, id, ? FROM roles WHERE name = ?")
             .bind(ghost_core::ids::new_id()).bind(&id).bind(role).execute(&self.state.db).await.unwrap();
         let session = repos::sessions::create(&self.state.db, &id).await.unwrap();
-        (id, format!("ghost-admin-api-session={session}"))
+        (id, format!("vuuut-admin-session={session}"))
     }
 
     async fn integration(&self) -> Value {
@@ -2061,7 +2061,7 @@ async fn starting_stripe_connect_redirects_with_a_state_bound_to_this_session() 
     // The state in the URL is the one now stored against the session, and it
     // is what makes the returned keys unredeemable by anybody else.
     let state: String = sqlx::query_scalar(ghost_db::dialect::sql("SELECT json_extract(session_data, '$.stripe-connect-state') FROM sessions WHERE session_id = ?"))
-        .bind(f.cookie.trim_start_matches("ghost-admin-api-session="))
+        .bind(f.cookie.trim_start_matches("vuuut-admin-session="))
         .fetch_one(&f.state.db).await.unwrap();
     let decoded = {
         use base64::Engine;
@@ -2100,7 +2100,7 @@ async fn stripe_connect_refuses_a_production_site_without_https() {
 async fn a_connect_token_is_verified_against_the_session_and_never_stored() {
     use base64::Engine;
     let f = Fixture::new().await;
-    let sid = f.cookie.trim_start_matches("ghost-admin-api-session=").to_string();
+    let sid = f.cookie.trim_start_matches("vuuut-admin-session=").to_string();
     let blob = |state: &str| {
         base64::engine::general_purpose::STANDARD.encode(json!({
             "a": "sk_test_fixture", "p": "pk_test_fixture", "s": state,

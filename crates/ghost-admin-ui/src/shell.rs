@@ -10,9 +10,23 @@ pub(crate) fn esc(s: &str) -> String {
     s.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;").replace('"', "&quot;")
 }
 
+/// Where the admin begins: the rail's brand link, the first rail item, and
+/// what every way into the admin redirects to once there is a session —
+/// `/ghost/`, a password sign-in, a verified 2FA code, and a redeemed staff
+/// invitation.
+///
+/// One constant rather than five literals because those five have to agree.
+/// They did not before this existed: `/ghost/` landed on the posts list while
+/// the brand link went to Analytics, so "home" was two different screens
+/// depending on how you got there.
+pub(crate) const ADMIN_HOME: &str = "/ghost/dashboard/";
+
 /// Inline 24dp Material Design icons (outlined style, strokeless fill paths).
 pub(crate) fn icon(name: &str) -> &'static str {
     match name {
+        // Material Symbols "dashboard": four unequal panels, the shape every
+        // admin uses for a home screen made of cards.
+        "dashboard" => r#"<path d="M3 13h8V3H3v10zm0 8h8v-6H3v6zm10 0h8V11h-8v10zm0-18v6h8V3h-8z"/>"#,
         "posts" => r#"<path d="M19 5v14H5V5h14m0-2H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm-2.5 14H7v-2h9.5v2zm0-4H7v-2h9.5v2zm0-4H7V7h9.5v2z"/>"#,
         "pages" => r#"<path d="M14 2H6c-1.1 0-2 .9-2 2v16c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V8l-6-6zm2 16H8v-2h8v2zm0-4H8v-2h8v2zm-3-5V3.5L18.5 9H13z"/>"#,
         "tags" => r#"<path d="M21.41 11.58l-9-9C12.05 2.22 11.55 2 11 2H4c-1.1 0-2 .9-2 2v7c0 .55.22 1.05.59 1.42l9 9c.36.36.86.58 1.41.58s1.05-.22 1.41-.59l7-7c.37-.36.59-.86.59-1.41s-.23-1.06-.59-1.42zM5.5 7C4.67 7 4 6.33 4 5.5S4.67 4 5.5 4 7 4.67 7 5.5 6.33 7 5.5 7z"/>"#,
@@ -92,6 +106,18 @@ pub(crate) fn svg(name: &str) -> String {
     format!(r#"<svg class="i" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">{}</svg>"#, icon(name))
 }
 
+/// [`svg`] with an extra class on the glyph, for the case where two icons sit
+/// in one control and CSS has to tell them apart — the password reveal holds
+/// both an open and a struck-through eye and shows whichever matches its
+/// state. Keeps `class="i"` so the shared sizing rules still apply.
+pub(crate) fn svg_class(name: &str, extra: &str) -> String {
+    format!(
+        r#"<svg class="i {extra}" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">{body}</svg>"#,
+        extra = extra,
+        body = icon(name),
+    )
+}
+
 /// The one place the admin borrows another set: Ghost's appearance menu uses
 /// lucide's stroked sun, moon and monitor, and no filled Material glyph reads
 /// as cleanly for it. Same `class="i"` contract as [`svg`] so sizing rules
@@ -149,6 +175,11 @@ pub(crate) fn admin_css_hash() -> &'static str {
 pub(crate) const THEME_JS: &str = r#"
 (function () {
   var root = document.documentElement;
+  // The document ships with `no-js` on it and loses it here, in the head,
+  // before anything paints. A control that only works with a script — the
+  // password reveal on the sign-in form — is hidden by that class, so it is
+  // never offered to a browser that cannot drive it.
+  root.classList.remove('no-js');
   var media = window.matchMedia ? window.matchMedia('(prefers-color-scheme: dark)') : null;
   window.ghostApplyTheme = function () {
     var choice = root.dataset.theme;
@@ -860,7 +891,17 @@ pub(crate) const JS: &str = r#"
 /// shapes are read; anything missing or unreadable is light, which is Ghost's
 /// own default rather than the OS.
 pub(crate) fn night_shift(user: Option<&ghost_core::models::User>) -> &'static str {
-    let raw = user.and_then(|u| u.accessibility.as_deref());
+    // Nobody is signed in, so there is no stored preference to honour and
+    // "light" would be a guess. Follow the operating system instead: the
+    // sign-in, setup and invite screens are the only pages rendered without a
+    // user, and they were the only pages in this admin that stayed white on a
+    // machine set to dark.
+    //
+    // A signed-in user with nothing saved still gets "light". That is their
+    // account's default rather than an absence of information, and changing
+    // it would silently re-theme every existing account.
+    let Some(user) = user else { return "system" };
+    let raw = user.accessibility.as_deref();
     let Ok(value) = raw
         .map(serde_json::from_str::<serde_json::Value>)
         .unwrap_or_else(|| Ok(serde_json::Value::Null))
@@ -904,6 +945,9 @@ pub(crate) fn rail(active: &str, user: Option<&ghost_core::models::User>, role: 
     // showing it, so the rail is filtered by the same capabilities the
     // handlers enforce.
     let items: &[(&str, &str, &str, &str, &str)] = &[
+        // Home leads the rail, as it does in Ghost. Every signed-in role may
+        // open it, so it carries no capability filter below.
+        ("dashboard", ADMIN_HOME, "Dashboard", "dashboard", "teal"),
         ("posts", "/ghost/posts/", "Posts", "posts", "blue"),
         ("pages", "/ghost/pages/", "Pages", "pages", "green"),
         ("tags", "/ghost/tags/", "Tags", "tags", "amber"),
@@ -1000,7 +1044,7 @@ pub(crate) fn rail(active: &str, user: Option<&ghost_core::models::User>, role: 
     );
     format!(
         r#"<aside class="rail">
-<a class="brand" href="/ghost/analytics/" title="{site_name}">{brand_mark}</a>
+<a class="brand" href="{home}" title="{site_name}">{brand_mark}</a>
 <div class="nav-scroll">{links}</div>
 <div class="rail-foot">
 <div class="who">{who}
@@ -1008,6 +1052,7 @@ pub(crate) fn rail(active: &str, user: Option<&ghost_core::models::User>, role: 
 <a class="icon-btn" href="/ghost/signout/" title="Sign out">{logout}</a></div>
 </div>
 </aside>"#,
+        home = ADMIN_HOME,
         brand_mark = admin_brand_mark(),
         site_name = esc(&admin_site_name()),
         links = links,
@@ -1036,13 +1081,21 @@ pub(crate) fn page_for(title: &str, active: &str, user: Option<&ghost_core::mode
     let shell = if nav {
         format!(r#"<div class="shell">{rail}<main class="main"><div class="content">{body}</div></main></div>"#, rail = rail(active, user, role))
     } else {
-        format!(r#"<div class="content" style="max-width:640px;padding-top:40px">{body}</div>"#)
+        // A class, not an inline style. The inline `max-width:640px` this
+        // replaces outranked every stylesheet rule, including the one that
+        // makes an auth page full-bleed — so the sign-in screen's background
+        // was being clipped into a 640px-wide rectangle with hard edges down
+        // the middle of the viewport, which is what it looked like.
+        format!(r#"<div class="content narrow">{body}</div>"#)
     };
     // Dark renders with the class already on <html>, so a forced-dark user
     // never sees a light flash; `system` is the only choice the server cannot
     // resolve, and the head script settles it before the first paint.
     let theme = night_shift(user);
-    let dark = if theme == "dark" { r#" class="dark""# } else { "" };
+    // `no-js` is removed by the head script before the first paint, so it
+    // survives only where there is no scripting at all — which is what the
+    // `.no-js` rules in the stylesheet are written against.
+    let dark = if theme == "dark" { r#" class="no-js dark""# } else { r#" class="no-js""# };
     Html(format!(
         r#"<!DOCTYPE html><html{dark} data-theme="{theme}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <script>{theme_js}</script>

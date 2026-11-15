@@ -435,7 +435,22 @@ async fn admin_edit_newsletter(
 // auth
 // ---------------------------------------------------------------------------
 
-const SESSION_COOKIE: &str = "ghost-admin-api-session";
+/// The name of the admin session cookie.
+///
+/// **Not** Ghost's `ghost-admin-api-session`, deliberately. Cookies are keyed
+/// by host and path and **not by port**, so a real Ghost on
+/// `localhost:2368` and this server on `localhost:1971` are one cookie jar as
+/// far as the browser is concerned. Sharing Ghost's name meant each sign-in
+/// overwrote the other's session cookie — signing in here signed you out of
+/// Ghost, and signing in there signed you out of here. Running both side by
+/// side is the normal case while porting, so the name has to differ.
+///
+/// `Path=/ghost` does not save it either: both admins live at that path.
+///
+/// Every read and every write of this cookie goes through this constant, so
+/// the two can never drift — that was the other half of the bug, with the
+/// literal spelled out in eight places across two crates.
+pub const SESSION_COOKIE: &str = "vuuut-admin-session";
 
 /// The session id carried on a request, verified or not.
 pub fn session_id_from(headers: &HeaderMap) -> Option<String> {
@@ -2141,5 +2156,50 @@ mod tests {
         for key in ["title", "mail_smtp_host", "mail_smtp_user", "mailgun_domain", "mail_transport"] {
             assert!(!is_secret_setting(key), "{key} is not a credential");
         }
+    }
+
+    /// The admin session cookie must not be named what Ghost names its own.
+    ///
+    /// Cookies are scoped by host and path and **not by port**, so a real
+    /// Ghost on `localhost:2368` and this server on `localhost:1971` share
+    /// one jar, and both admins sit at `Path=/ghost`. While they had the same
+    /// name, signing into one signed you out of the other — in both
+    /// directions. Running the two side by side is the normal case while
+    /// porting, so this is pinned rather than left to a code review.
+    #[test]
+    fn the_admin_session_cookie_does_not_collide_with_a_real_ghost() {
+        assert_ne!(SESSION_COOKIE, "ghost-admin-api-session");
+        // Ghost prefixes its own cookies with `ghost-`; staying out of that
+        // namespace entirely is what keeps this true as Ghost adds more.
+        assert!(!SESSION_COOKIE.starts_with("ghost-"), "{SESSION_COOKIE}");
+        assert!(!SESSION_COOKIE.is_empty());
+    }
+
+    /// What is written is what is read. These were eight separate string
+    /// literals across two crates, which is how a cookie gets set under one
+    /// name and looked for under another.
+    #[test]
+    fn the_cookie_that_is_set_is_the_cookie_that_is_read() {
+        let mut headers = HeaderMap::new();
+        let set = format!("{SESSION_COOKIE}=abc123; Path=/ghost; HttpOnly; SameSite=Lax");
+        // Exactly what a browser sends back for the header above.
+        let sent = set.split(';').next().unwrap().to_string();
+        headers.insert(header::COOKIE, sent.parse().unwrap());
+        assert_eq!(session_id_from(&headers).as_deref(), Some("abc123"));
+
+        // A real Ghost's cookie riding along in the same jar is ignored
+        // rather than mistaken for ours.
+        let mut shared = HeaderMap::new();
+        shared.insert(
+            header::COOKIE,
+            format!("ghost-admin-api-session=theirs; {SESSION_COOKIE}=ours").parse().unwrap(),
+        );
+        assert_eq!(session_id_from(&shared).as_deref(), Some("ours"));
+
+        // And with only Ghost's cookie present we are simply signed out,
+        // never signed in as whatever their session id happens to be.
+        let mut theirs = HeaderMap::new();
+        theirs.insert(header::COOKIE, "ghost-admin-api-session=theirs".parse().unwrap());
+        assert_eq!(session_id_from(&theirs), None);
     }
 }

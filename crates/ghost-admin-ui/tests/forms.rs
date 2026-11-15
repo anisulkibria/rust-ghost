@@ -145,7 +145,7 @@ async fn the_module_is_closed_to_anyone_who_is_not_a_signed_in_administrator() {
         ("POST", "/settings/forms/"),
     ] {
         // no cookie, and a cookie that names no session
-        for cookie in [None, Some("ghost-admin-api-session=not-a-session")] {
+        for cookie in [None, Some("vuuut-admin-session=not-a-session")] {
             let r = admin(&state, method, uri, cookie, Some(ORIGIN), (method == "POST").then_some("")).await;
             assert!(
                 r.status.is_redirection() && r.location.contains("signin") || r.status == StatusCode::UNAUTHORIZED,
@@ -162,7 +162,7 @@ async fn the_module_is_closed_to_anyone_who_is_not_a_signed_in_administrator() {
 async fn a_form_is_built_sent_read_exported_and_deleted() {
     let (_db, state, owner) = fixture().await;
     let session = ghost_db::repos::sessions::create(&state.db, &owner).await.unwrap();
-    let cookie = format!("ghost-admin-api-session={session}");
+    let cookie = format!("vuuut-admin-session={session}");
     let cookie = Some(cookie.as_str());
 
     // The module is on the Modules page and in Settings.
@@ -563,7 +563,7 @@ async fn a_response_is_emailed_to_the_owner_by_default_through_the_sites_mail_se
     ])
     .await;
     let session = ghost_db::repos::sessions::create(&state.db, &owner).await.unwrap();
-    let cookie = format!("ghost-admin-api-session={session}");
+    let cookie = format!("vuuut-admin-session={session}");
     let created = admin(&state, "POST", "/forms/new/", Some(&cookie), Some(ORIGIN), Some("")).await;
     let form_id = between(&created.location, "/ghost/forms/", "/").to_string();
 

@@ -25,7 +25,7 @@ struct Fixture {
 impl Fixture {
     async fn session_for(&self, user_id: &str) -> String {
         let id = ghost_db::repos::sessions::create(&self.state.db, user_id).await.unwrap();
-        format!("ghost-admin-api-session={id}")
+        format!("vuuut-admin-session={id}")
     }
 
     async fn session(&self) -> String {

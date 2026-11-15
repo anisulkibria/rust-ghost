@@ -587,7 +587,7 @@ pub async fn auth_frame(State(state): State<AppState>, headers: HeaderMap) -> Re
     let has_session = headers
         .get(header::COOKIE)
         .and_then(|c| c.to_str().ok())
-        .map(|c| c.contains("ghost-admin-api-session"))
+        .map(|c| c.contains(crate::admin::SESSION_COOKIE))
         .unwrap_or(false);
     if !has_session {
         return (StatusCode::NO_CONTENT, [(header::CACHE_CONTROL, "public, max-age=0")]).into_response();

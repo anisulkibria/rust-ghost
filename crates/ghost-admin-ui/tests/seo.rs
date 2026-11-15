@@ -28,7 +28,7 @@ struct Fixture {
 impl Fixture {
     async fn session(&self) -> String {
         let id = ghost_db::repos::sessions::create(&self.state.db, &self.owner).await.unwrap();
-        format!("ghost-admin-api-session={id}")
+        format!("vuuut-admin-session={id}")
     }
 
     /// A session for somebody who is not an administrator.
@@ -56,7 +56,7 @@ impl Fixture {
             .await
             .unwrap();
         let session = ghost_db::repos::sessions::create(&self.state.db, &id).await.unwrap();
-        format!("ghost-admin-api-session={session}")
+        format!("vuuut-admin-session={session}")
     }
 
     /// A published post with no meta description, no image and no tags —

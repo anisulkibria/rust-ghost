@@ -17,6 +17,7 @@ pub mod analytics;
 mod click;
 pub mod automations;
 pub mod comments;
+pub mod dashboard;
 pub mod forms;
 pub mod history;
 pub mod languages;
@@ -150,6 +151,9 @@ pub fn admin_ui_router(state: AppState) -> Router<AppState> {
         .route("/signin/resend/", post(verify_resend))
         .route("/signout/", get(logout))
         .route("/appearance/", post(appearance_save))
+        // The admin home: where `/ghost/` and every sign-in land. Open to
+        // every signed-in role, with its sections gated inside.
+        .route("/dashboard/", get(dashboard::dashboard_page))
         .route("/analytics/", get(analytics_page))
         .route("/analytics/click/", get(click::page).post(click::action))
         .route("/modules/", get(modules_page))

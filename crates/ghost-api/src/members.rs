@@ -4,7 +4,8 @@
 //! and Portal is hardcoded to find it at `{siteUrl}/members/api/...`, so the
 //! paths here are a contract with the CDN script, not a design choice.
 //!
-//! Sessions follow Ghost's `members-ssr`: a cookie named `ghost-members-ssr`
+//! Sessions follow Ghost's `members-ssr` scheme, under a name of our own
+//! ([`SESSION_COOKIE`], and see its docs for why not Ghost's): a cookie
 //! holding the member's `transient_id`, signed with the site's
 //! `theme_session_secret`. Nothing in the cookie is secret — the signature is
 //! what makes it unforgeable — and because the payload is the transient id
@@ -30,10 +31,19 @@ use crate::AppState;
 #[path = "member_subscriptions.rs"]
 mod subscriptions;
 
-/// Ghost's cookie name — Portal does not read it (it is `httpOnly`), but
-/// keeping the name identical means an existing Ghost install's debugging
-/// knowledge transfers.
-const SESSION_COOKIE: &str = "ghost-members-ssr";
+/// The member session cookie.
+///
+/// This was `ghost-members-ssr`, Ghost's own name, on the reasoning that
+/// matching it let an existing Ghost install's debugging knowledge transfer.
+/// That turned out to cost more than it bought: cookies are scoped by host
+/// and path and **not by port**, so a real Ghost on `localhost:2368` and this
+/// server on `localhost:1971` are one jar, and signing in as a member on
+/// either site evicted the other's session. The admin cookie had the same
+/// collision — see [`crate::admin::SESSION_COOKIE`], which carries the full
+/// explanation.
+///
+/// Portal never reads this (it is `httpOnly`), so the name is ours to choose.
+const SESSION_COOKIE: &str = "vuuut-members-ssr";
 /// Ghost's `cookieMaxAge` default: 184 days.
 const SESSION_MAX_AGE: i64 = 184 * 24 * 60 * 60;
 /// Ghost's integrity token lifetime (`tokenDuration`), 5 minutes.

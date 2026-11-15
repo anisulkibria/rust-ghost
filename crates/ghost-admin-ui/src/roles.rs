@@ -195,12 +195,9 @@ pub(crate) async fn current_user(state: &AppState, headers: &HeaderMap) -> Optio
     if headers.contains_key(axum::http::header::AUTHORIZATION) {
         return ghost_api::admin::current_user(state, headers).await;
     }
-    let cookie = headers.get(header::COOKIE)?.to_str().ok()?;
-    let sid = cookie
-        .split(';')
-        .filter_map(|c| c.trim().strip_prefix("ghost-admin-api-session="))
-        .next()?
-        .to_string();
+    // Through the shared reader, so this and `ghost_api` can never disagree
+    // about what the cookie is called.
+    let sid = ghost_api::admin::session_id_from(headers)?;
     let user_id = repos::sessions::get_user(&state.db, &sid).await.ok()??;
     repos::users::find_by_id(&state.db, &user_id).await.ok()?
 }

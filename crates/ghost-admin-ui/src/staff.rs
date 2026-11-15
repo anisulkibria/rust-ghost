@@ -491,14 +491,18 @@ pub(crate) async fn invite_accept_page(State(state): State<AppState>, Path(token
 <div class="card"><form method="post" action="/ghost/invite/{token}/">
 <label class="field"><input value="{email}" disabled><span>Email</span></label>
 <label class="field"><input name="name" placeholder=" " required autocomplete="name" autofocus><span>Your name</span></label>
-<label class="field"><input name="password" type="password" minlength="10" required autocomplete="new-password"><span>Password · min 10 characters</span></label>
+{password}
 <button class="btn" type="submit">Create account</button>
-</form></div></div></div>"#,
+</form></div></div></div>
+<script src="{assets}/auth.js?v={auth_hash}" defer></script>"#,
             logo = BRAND_GLYPH,
             title = esc(&title),
             role = esc(&i.role),
             token = esc(&token),
             email = esc(&i.email),
+            password = auth::password_field("Password · min 10 characters", "new-password", true),
+            assets = ASSETS,
+            auth_hash = auth::auth_script_hash(),
         ),
         _ => format!(
             r#"<div class="auth"><div class="auth-box"><div class="auth-logo">{logo}</div>
@@ -545,12 +549,13 @@ pub(crate) async fn invite_accept_submit(
             let _ = repos::staff::delete_invite_by_email(&state.db, &invite.email).await;
             match repos::sessions::create(&state.db, &user.id).await {
                 Ok(sid) => {
-                    let mut resp = Redirect::to("/ghost/posts/").into_response();
+                    let mut resp = Redirect::to(ADMIN_HOME).into_response();
                     if let Ok(v) = format!(
-                        "ghost-admin-api-session={sid}; Path={}/ghost; HttpOnly; SameSite=Lax; Max-Age={}{}",
+                        "{name}={sid}; Path={}/ghost; HttpOnly; SameSite=Lax; Max-Age={}{}",
                         ghost_core::url::subdir(),
                         60 * 60 * 24 * 7,
-                        ghost_api::admin::cookie_secure(&state)
+                        ghost_api::admin::cookie_secure(&state),
+                        name = ghost_api::admin::SESSION_COOKIE,
                     )
                     .parse()
                     {

@@ -400,7 +400,7 @@ async fn a_posts_analytics_page_reports_the_send_it_just_made() {
         .oneshot(
             Request::builder()
                 .uri(format!("/posts/{post_id}/analytics/"))
-                .header("cookie", format!("ghost-admin-api-session={session}"))
+                .header("cookie", format!("vuuut-admin-session={session}"))
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -423,7 +423,7 @@ async fn a_posts_analytics_page_reports_the_send_it_just_made() {
     assert!(page.contains(">Open rate</div><div class=\"value\">0%<"), "open rate missing");
 
     let export=ghost_admin_ui::admin_ui_router(state.clone()).with_state(state.clone()).oneshot(
-        Request::builder().uri("/settings/migration/export/analytics/").header("cookie",format!("ghost-admin-api-session={session}")).body(Body::empty()).unwrap()
+        Request::builder().uri("/settings/migration/export/analytics/").header("cookie",format!("vuuut-admin-session={session}")).body(Body::empty()).unwrap()
     ).await.unwrap();
     assert_eq!(export.status(),axum::http::StatusCode::OK);
     let bytes=to_bytes(export.into_body(),5_000_000).await.unwrap();
@@ -438,7 +438,7 @@ async fn a_posts_analytics_page_reports_the_send_it_just_made() {
         .oneshot(
             Request::builder()
                 .uri("/posts/nope/analytics/")
-                .header("cookie", format!("ghost-admin-api-session={session}"))
+                .header("cookie", format!("vuuut-admin-session={session}"))
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -461,7 +461,7 @@ async fn the_admin_api_can_manage_themes_and_export_content() {
     let (_test_db, state, owner) = fixture(sink.port).await;
     seed(&state, &owner, &[("reader@example.test", "R")]).await;
     let session = ghost_db::repos::sessions::create(&state.db, &owner).await.unwrap();
-    let cookie = format!("ghost-admin-api-session={session}");
+    let cookie = format!("vuuut-admin-session={session}");
 
     let call = |method: &'static str, uri: String, cookie: String| {
         let app = ghost_admin_ui::rest::router().with_state(state.clone());
@@ -559,9 +559,9 @@ async fn ghost_newsletter_preview_and_test_send_use_the_standard_api_payload(){
     let post=seed(&state,&owner,&[("preview-subscriber@example.test","Reader")]).await;
     let session=ghost_db::repos::sessions::create(&state.db,&owner).await.unwrap();
     let app=ghost_api::admin::admin_router().with_state(state.clone());
-    let response=app.clone().oneshot(Request::builder().uri(format!("/email_previews/posts/{post}/")).header("cookie",format!("ghost-admin-api-session={session}")).body(Body::empty()).unwrap()).await.unwrap();
+    let response=app.clone().oneshot(Request::builder().uri(format!("/email_previews/posts/{post}/")).header("cookie",format!("vuuut-admin-session={session}")).body(Body::empty()).unwrap()).await.unwrap();
     assert_eq!(response.status(),axum::http::StatusCode::OK);let bytes=to_bytes(response.into_body(),5_000_000).await.unwrap();let preview:serde_json::Value=serde_json::from_slice(&bytes).unwrap();assert!(preview["email_previews"][0]["html"].as_str().unwrap().contains("Batched"));
-    let response=app.oneshot(Request::builder().method("POST").uri(format!("/email_previews/posts/{post}/")).header("cookie",format!("ghost-admin-api-session={session}")).header("content-type","application/json").body(Body::from(serde_json::json!({"emails":["test-reader@example.test"]}).to_string())).unwrap()).await.unwrap();
+    let response=app.oneshot(Request::builder().method("POST").uri(format!("/email_previews/posts/{post}/")).header("cookie",format!("vuuut-admin-session={session}")).header("content-type","application/json").body(Body::from(serde_json::json!({"emails":["test-reader@example.test"]}).to_string())).unwrap()).await.unwrap();
     assert_eq!(response.status(),axum::http::StatusCode::NO_CONTENT);assert_eq!(sink.accepted.load(Ordering::SeqCst),1);
     let _=std::fs::remove_dir_all(state.config.content_path());
 }
@@ -575,7 +575,7 @@ async fn ghost_json_import_uses_the_standard_multipart_field_and_preserves_conte
     let data=serde_json::json!({"db":[{"data":{"posts":[{"id":"ghost-api-import","title":"API import","slug":"api-import","lexical":lexical,"type":"post","status":"published","visibility":"public","published_at":"2026-10-01T12:34:56Z","meta_title":"SEO survives"}],"posts_authors":[{"id":"import-author-relation","post_id":"ghost-api-import","author_id":owner}]}}]});
     let body=format!("--import-boundary\r\nContent-Disposition: form-data; name=\"importfile\"; filename=\"ghost.json\"\r\nContent-Type: application/json\r\n\r\n{data}\r\n--import-boundary--\r\n");
     let app=ghost_admin_ui::rest::router().with_state(state.clone());
-    let response=app.oneshot(Request::builder().method("POST").uri("/db/").header("cookie",format!("ghost-admin-api-session={session}")).header("accept","application/json").header("content-type","multipart/form-data; boundary=import-boundary").body(Body::from(body)).unwrap()).await.unwrap();
+    let response=app.oneshot(Request::builder().method("POST").uri("/db/").header("cookie",format!("vuuut-admin-session={session}")).header("accept","application/json").header("content-type","multipart/form-data; boundary=import-boundary").body(Body::from(body)).unwrap()).await.unwrap();
     let status=response.status();let bytes=to_bytes(response.into_body(),1_000_000).await.unwrap();assert_eq!(status,axum::http::StatusCode::OK,"{}",String::from_utf8_lossy(&bytes));
     let (html,date):(String,String)=sqlx::query_as("SELECT html,published_at FROM posts WHERE id='ghost-api-import'").fetch_one(&state.db).await.unwrap();assert!(html.contains("Imported through Ghost API"));assert_eq!(date,"2026-10-01 12:34:56");
     let title:String=sqlx::query_scalar("SELECT meta_title FROM posts_meta WHERE post_id='ghost-api-import'").fetch_one(&state.db).await.unwrap();assert_eq!(title,"SEO survives");
@@ -596,13 +596,13 @@ async fn managed_mail_forms_are_locked_and_keep_platform_secrets_hidden() {
     let session = ghost_db::repos::sessions::create(&state.db, &owner).await.unwrap();
     let app = ghost_admin_ui::admin_ui_router(state.clone()).with_state(state.clone());
     for uri in ["/settings/email/", "/settings/newsletters/"] {
-        let response = app.clone().oneshot(Request::builder().uri(uri).header("cookie", format!("ghost-admin-api-session={session}")).body(Body::empty()).unwrap()).await.unwrap();
+        let response = app.clone().oneshot(Request::builder().uri(uri).header("cookie", format!("vuuut-admin-session={session}")).body(Body::empty()).unwrap()).await.unwrap();
         assert_eq!(response.status(), 200);
         let html = String::from_utf8(to_bytes(response.into_body(), 2_000_000).await.unwrap().to_vec()).unwrap();
         assert!(html.contains("<fieldset disabled"));
         assert!(html.contains("managed by your hosting provider"));
         for secret in ["platform-ses-user", "platform-ses-password", "platform-mailgun-key"] { assert!(!html.contains(secret)); }
-        let response = app.clone().oneshot(Request::builder().method("POST").uri(uri).header("cookie", format!("ghost-admin-api-session={session}")).header("content-type", "application/x-www-form-urlencoded").body(Body::from("ses_smtp_pass=tenant-secret&mailgun_api_key=tenant-key")).unwrap()).await.unwrap();
+        let response = app.clone().oneshot(Request::builder().method("POST").uri(uri).header("cookie", format!("vuuut-admin-session={session}")).header("content-type", "application/x-www-form-urlencoded").body(Body::from("ses_smtp_pass=tenant-secret&mailgun_api_key=tenant-key")).unwrap()).await.unwrap();
         assert!(response.status().is_redirection());
     }
     assert_eq!(state.settings.get_str("ses_smtp_pass").as_deref(), Some("platform-ses-password"));

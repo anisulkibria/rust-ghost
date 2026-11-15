@@ -16,6 +16,7 @@ pub mod sessions;
 pub mod actions;
 pub mod automations;
 pub mod comments;
+pub mod dashboard;
 pub mod forms;
 pub mod integrations;
 pub mod locales;
