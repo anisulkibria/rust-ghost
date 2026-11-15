@@ -579,6 +579,11 @@
     });
     // Publishing requires the primary action. Background saves keep unpublished work private.
     if (kind !== 'explicit') { fields.set('status', savedStatus); }
+    // Which kind of save this is, which is what the server uses to decide
+    // whether this one earns a place in the post's history: an explicit save
+    // always does, a run of autosaves costs one version every ten minutes.
+    // Ghost's `forceRevision`, under another name.
+    fields.set('save_kind', kind === 'explicit' ? 'explicit' : 'background');
     fetch(form.getAttribute('action'), {
       method: 'POST',
       body: fields,

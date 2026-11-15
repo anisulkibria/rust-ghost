@@ -343,6 +343,7 @@ async fn render_private(
         context: vec!["private".to_string()],
         relative_url: "/private/".to_string(),
         member: member_context(state, &headers).await,
+        ..Default::default()
     };
     let candidates = vec!["private".to_string()];
     if theme.has_template("private") {

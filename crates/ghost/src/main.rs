@@ -183,11 +183,14 @@ async fn main() {
         .trim_end_matches('/')
         .to_string();
 
-    let locale = settings.get_str("locale").unwrap_or_else(|| "en".into());
+    let locales = ghost_core::locales::Locales::from_settings(
+        settings.get_str("locale").as_deref(),
+        settings.get("locales_enabled").as_ref(),
+    );
 
     let mut activated = None;
     for (name, dir) in candidates {
-        match ghost_api::themes::build_theme_state(db.clone(), router_tree.clone(), site_origin.clone(), dir, &locale).await {
+        match ghost_api::themes::build_theme_state(db.clone(), router_tree.clone(), site_origin.clone(), dir, &locales).await {
             Ok(theme) => {
                 activated = Some((name.clone(), theme));
                 break;

@@ -14,7 +14,7 @@ use super::*;
 /// editor (and a word count that never counts) until its cache expired.
 macro_rules! koenig_version {
     () => {
-        "1.8.29"
+        "1.8.30"
     };
 }
 pub(crate) const KOENIG_VERSION: &str = koenig_version!();
@@ -54,6 +54,7 @@ pub(crate) async fn admin_asset(Path((version, file)): Path<(String, String)>) -
         "koenig-bridge.js" => include_str!("../assets/koenig-bridge.js"),
         "koenig-integrations.js" => include_str!("../assets/koenig-integrations.js"),
         "koenig-forms.js" => include_str!("../assets/koenig-forms.js"),
+        "translations-search.js" => include_str!("../assets/translations-search.js"),
         "forms-builder.js" => include_str!("../assets/forms-builder.js"),
         "media-library.js" => include_str!("../assets/media-library.js"),
         "unsplash-picker.js" => include_str!("../assets/unsplash-picker.js"),

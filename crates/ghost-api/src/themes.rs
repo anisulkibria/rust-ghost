@@ -94,7 +94,7 @@ pub async fn build_theme_state(
     router: Arc<RouterTree>,
     site_origin: String,
     theme_dir: &Path,
-    locale: &str,
+    locales: &ghost_core::locales::Locales,
 ) -> Result<ThemeState> {
     // `{{content_api_key}}` hands themes the public frontend key
     let content_api_key = ghost_db::repos::integrations::internal_content_key(&db)
@@ -114,7 +114,10 @@ pub async fn build_theme_state(
         site_origin,
         content_api_key,
     };
-    let translations = load_translations(theme_dir, locale);
+    // Every enabled language's strings, not just the default's: the compiled
+    // registry is shared by every request, so a multilingual site needs all
+    // of them available at once.
+    let translations = load_all_translations(theme_dir, locales);
 
     // Themes are user-supplied, so a malformed one must not be able to take
     // the process down — turn a panic in the compiler into a theme error.
@@ -138,6 +141,24 @@ pub async fn build_theme_state(
 /// Ghost's locale files list every translatable string up front with an
 /// empty value, so empty entries are dropped: the `{{t}}` helper is meant to
 /// fall back to the key itself for those.
+/// Every language this site publishes in, keyed by locale code, with `""`
+/// holding the default language's strings.
+///
+/// The empty key is what `{{t}}` falls back to when a page's own language has
+/// no translation for a string, so a half-translated locale file shows the
+/// default language's wording rather than a blank.
+pub fn load_all_translations(
+    theme_dir: &Path,
+    locales: &ghost_core::locales::Locales,
+) -> HashMap<String, HashMap<String, String>> {
+    let mut out = HashMap::new();
+    out.insert(String::new(), load_translations(theme_dir, locales.default_locale()));
+    for code in locales.enabled() {
+        out.insert(code.clone(), load_translations(theme_dir, code));
+    }
+    out
+}
+
 pub fn load_translations(theme_dir: &Path, locale: &str) -> HashMap<String, String> {
     let locales = theme_dir.join("locales");
     let base = locale.split(['-', '_']).next().unwrap_or("en");
@@ -311,6 +332,18 @@ pub fn list(state: &AppState) -> Vec<InstalledTheme> {
 }
 
 /// Compile `name` and swap it in as the live theme, persisting the choice.
+/// Recompile the active theme in place.
+///
+/// The compiled registry holds one locale file per enabled language, chosen
+/// when the theme was activated — so adding a language leaves it rendering in
+/// the default one until this runs. Called by Settings → Languages on save,
+/// rather than left for the next restart, which is when somebody would
+/// otherwise notice their new language coming out in English.
+pub async fn reactivate(state: &AppState) -> Result<()> {
+    let name = state.settings.get_str("active_theme").unwrap_or_else(|| "source".into());
+    activate(state, &name).await
+}
+
 pub async fn activate(state: &AppState, name: &str) -> Result<()> {
     // A hosted plan can restrict which themes a site may run. Checked here
     // rather than in the two handlers that call this, so the admin screen and
@@ -328,8 +361,11 @@ pub async fn activate(state: &AppState, name: &str) -> Result<()> {
     }
 
     let router = state.router.read().await.clone();
-    let locale = state.settings.get_str("locale").unwrap_or_else(|| "en".into());
-    let theme = build_theme_state(state.db.clone(), router, state.site_url(), &dir, &locale).await?;
+    let locales = ghost_core::locales::Locales::from_settings(
+        state.settings.get_str("locale").as_deref(),
+        state.settings.get("locales_enabled").as_ref(),
+    );
+    let theme = build_theme_state(state.db.clone(), router, state.site_url(), &dir, &locales).await?;
 
     *state.theme.write().await = Arc::new(theme);
     state

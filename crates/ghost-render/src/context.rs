@@ -32,10 +32,50 @@ const PUBLIC_KEYS: &[&str] = &[
     // `ghost_head` decides whether to advertise the Markdown source from
     // these two, so both have to reach the render root.
     "llms_enabled", "is_private",
+    // Settings → SEO. Every tag `ghost_head` emits about this page is decided
+    // from one of these, so they have to be on the render root beside the
+    // title and the description they modify. `seo_robots_txt` is deliberately
+    // *not* here — nothing in a template reads it, and it is the one SEO
+    // setting large enough to be worth keeping off every page's context.
+    "seo_structured_data", "seo_append_site_title", "seo_referrer_policy",
+    "seo_noindex_tag_pages", "seo_noindex_author_pages", "seo_noindex_paged_pages",
+    // Settings → Languages. `locales_enabled` is what tells a theme whether
+    // to draw a language switcher at all; the two navigation maps are read
+    // by `build_site` and replaced with the one menu this request needs, so
+    // they never reach a template themselves.
+    "locales_enabled", "locale_hreflang",
 ];
 
+/// Settings read by [`build_site`] and then removed from what it returns.
+///
+/// The per-language navigation maps hold every language's menu. A template
+/// only ever wants *this* request's, and `{{#foreach @site.navigation}}` is
+/// how it asks — so the map is resolved into `navigation` and dropped rather
+/// than handed over for a theme to index into.
+const RESOLVED_AWAY: &[&str] = &["navigation_locales", "secondary_navigation_locales"];
+
 /// Build the `site` object placed at the render root.
+///
+/// [`build_site_for`] with the site's default language — the shape every
+/// caller that is not rendering a page wants (the Content API's `/settings/`,
+/// the admin's preview payload).
 pub fn build_site(settings: &SettingsCache, site_url: &str, admin_url: &str) -> Value {
+    build_site_for(settings, site_url, admin_url, None)
+}
+
+/// Build the `site` object for a page being rendered in `locale`.
+///
+/// `locale` decides two things a template reads without knowing it asked:
+/// `@site.locale`/`@site.lang`, which become `<html lang>`, and
+/// `@site.navigation`, which is this language's menu rather than the
+/// site-wide one. A language with no menu of its own falls back to the
+/// site-wide `navigation`, so adding a language never empties its menu.
+pub fn build_site_for(
+    settings: &SettingsCache,
+    site_url: &str,
+    admin_url: &str,
+    locale: Option<&str>,
+) -> Value {
     let mut m = Map::new();
     for key in PUBLIC_KEYS {
         if let Some(v) = settings.get(key) {
@@ -55,9 +95,11 @@ pub fn build_site(settings: &SettingsCache, site_url: &str, admin_url: &str) -> 
     d("codeinjection_head", json!(""));
     d("codeinjection_foot", json!(""));
     m.insert("name".into(), json!(settings.site_name()));
-    // Ghost stores no separate `lang`; publication language is `locale`
-    let locale = m.get("locale").cloned().unwrap_or(json!("en"));
-    m.entry("lang".to_string()).or_insert(locale);
+    // `locale` and `lang` are both set further down, from the language this
+    // page is actually being rendered in rather than from the setting — on a
+    // multilingual site those differ, and `<html lang>` has to follow the
+    // page. (Ghost stores no separate `lang`; the publication language is
+    // `locale`, and that remains the default.)
 
     // Ghost derives the members flags from members_signup_access rather than
     // storing them, and themes branch on them heavily.
@@ -125,6 +167,42 @@ pub fn build_site(settings: &SettingsCache, site_url: &str, admin_url: &str) -> 
             let public = ghost_core::url::base_asset(path);
             m.insert(key.to_string(), json!(public));
         }
+    }
+
+    // This request's language, and its menu.
+    //
+    // Done before the base-path prefixing below, so a swapped-in menu goes
+    // through exactly the same treatment the site-wide one does — a
+    // per-language menu whose URLs were left unprefixed would link outside
+    // the install on a subdirectory site.
+    let locales = ghost_core::locales::Locales::from_settings(
+        settings.get_str("locale").as_deref(),
+        settings.get("locales_enabled").as_ref(),
+    );
+    let active = locales.resolve(locale);
+    for (nav_key, map_key) in
+        [("navigation", "navigation_locales"), ("secondary_navigation", "secondary_navigation_locales")]
+    {
+        let per_locale = settings.get(map_key).and_then(|v| match v {
+            // Stored as an object; older rows and form posts hold the JSON
+            // as a string.
+            Value::Object(o) => Some(Value::Object(o)),
+            Value::String(raw) => serde_json::from_str::<Value>(&raw).ok(),
+            _ => None,
+        });
+        if let Some(Value::Array(items)) = per_locale.as_ref().and_then(|v| v.get(&active)).cloned() {
+            // An empty list for a language is a deliberate "no menu here",
+            // not a missing entry, so it replaces the site-wide one.
+            m.insert(nav_key.to_string(), Value::Array(items));
+        }
+    }
+    m.insert("locale".into(), json!(active.clone()));
+    m.insert("lang".into(), json!(active.clone()));
+    // What a theme branches on to decide whether to draw a switcher.
+    m.insert("locales".into(), json!(locales.enabled()));
+    m.insert("is_multilingual".into(), json!(locales.multilingual()));
+    for key in RESOLVED_AWAY {
+        m.remove(*key);
     }
 
     // Menu URLs too. Themes reach these both ways — `{{navigation}}`, which

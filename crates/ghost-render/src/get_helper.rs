@@ -366,6 +366,8 @@ async fn run_get(
                 public: true,
                 include_authors: includes_authors,
                 include_tags: includes_tags,
+                locale: None,
+                default_locale: None,
             };
             let res = repos::posts::browse(&deps.pool, &q).await?;
             let mut items = Vec::new();

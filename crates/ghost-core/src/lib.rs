@@ -8,10 +8,13 @@ pub mod dates;
 pub mod error;
 pub mod forms;
 pub mod ids;
+pub mod locales;
 pub mod media;
 pub mod metafields;
 pub mod mail_settings;
 pub mod models;
+pub mod revisions;
+pub mod seo;
 pub mod slug;
 pub mod url;
 

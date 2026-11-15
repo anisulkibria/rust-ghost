@@ -463,7 +463,20 @@ fn ghost_render_placeholder(md: &str) -> String {
                 "[the admin area](/ghost)",
                 r#"<a href="/ghost">the admin area</a>"#,
             );
-            html.push_str(&format!("<p>{}</p>", linked));
+            // `**bold**`, which the About fixture uses. Without this the
+            // asterisks survive into `plaintext`, and from there into the
+            // page's excerpt and its `og:description` — a fresh install
+            // advertised itself to every social network with raw Markdown in
+            // the share text.
+            let mut bolded = String::new();
+            for (i, part) in linked.split("**").enumerate() {
+                if i % 2 == 1 {
+                    bolded.push_str(&format!("<strong>{part}</strong>"));
+                } else {
+                    bolded.push_str(part);
+                }
+            }
+            html.push_str(&format!("<p>{}</p>", bolded));
         }
     }
     html

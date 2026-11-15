@@ -65,16 +65,22 @@ async fn copy(State(state):State<AppState>,headers:HeaderMap,Path(id):Path<Strin
 }
 async fn revisions(State(state):State<AppState>,headers:HeaderMap,Path(id):Path<String>)->Response {
     if let Err(r)=authorize(&state,&headers,&id).await{return r}
-    // `created_at_ts` (milliseconds) is the real order; the id only breaks a
-    // same-millisecond tie, and does so stably on both engines. It replaces
-    // SQLite's `rowid`, which MySQL does not have and this table's
-    // random-text primary key cannot stand in for.
-    let rows=sqlx::query_as::<_,(String,String,ghost_db::types::Text)>("SELECT id,created_at,snapshot FROM post_revisions WHERE post_id=? AND snapshot IS NOT NULL ORDER BY created_at_ts DESC,id DESC LIMIT 100")
-        .bind(id).fetch_all(&state.db).await;
-    match rows{Ok(rows)=>Json(json!({"revisions":rows.into_iter().map(|(id,date,snapshot)|{
-        let snapshot:Value=serde_json::from_str(&snapshot).unwrap_or(Value::Null);
-        json!({"id":id,"created_at":date,"title":snapshot["post"]["title"],"post":snapshot["post"]})
-    }).collect::<Vec<_>>()})).into_response(),Err(_)=>error(StatusCode::INTERNAL_SERVER_ERROR,"Could not load revisions")}
+    // The listing and the ordering belong to the repo, which the admin's own
+    // Post history screen reads through as well — two copies of this query
+    // would be two chances for the API and the screen to disagree about what
+    // a post's history is.
+    let listed=repos::publishing::revisions(&state.db,&id,100).await;
+    let Ok(listed)=listed else{return error(StatusCode::INTERNAL_SERVER_ERROR,"Could not load revisions")};
+    // The envelope keeps the whole snapshot per entry, which the repo's
+    // `Revision` deliberately does not carry: an API client restoring one
+    // wants the post it would get back, where the screen only draws a list.
+    let mut out=Vec::with_capacity(listed.len());
+    for r in listed {
+        let post=repos::publishing::revision_snapshot(&state.db,&id,&r.id).await.ok().flatten()
+            .map(|s|serde_json::to_value(&s.post).unwrap_or(Value::Null)).unwrap_or(Value::Null);
+        out.push(json!({"id":r.id,"created_at":r.created_at,"title":r.title,"post":post}));
+    }
+    Json(json!({"revisions":out})).into_response()
 }
 async fn restore(State(state):State<AppState>,headers:HeaderMap,Path((id,revision)):Path<(String,String)>)->Response {
     let (user,post)=match authorize(&state,&headers,&id).await{Ok(v)=>v,Err(r)=>return r};

@@ -26,7 +26,7 @@ That is the shape every module from here on takes. The file must not grow back.
 
 A "module" here means a self-contained administrative feature with its own
 screens under `/ghost/<name>/`: Forms, Comments, Automations, Analytics,
-Media, Social web. Most of them predate this document.
+Media, SEO, Social web. Most of them predate this document.
 
 **Media (2026-11-14) is the first module built to this document from
 nothing**, so it is worth reading beside Forms. Two things in it are new and
@@ -40,6 +40,24 @@ are the pattern to copy, not deviations:
   `media_meta` holds only what the filesystem cannot. Where the authority for
   a module's data already exists somewhere outside the database, say so in the
   migration's comment and read the authority.
+
+**SEO (2026-11-14) is the second**, and takes that last point further: it has
+no table at all. Its report is computed from `posts` during the request that
+renders it, so there is nothing to invalidate and no way for the report to
+disagree with the editor — see
+[crates/ghost-db/src/repos/seo.rs](../crates/ghost-db/src/repos/seo.rs). Its
+migration exists only to create the eight `settings` rows the module writes,
+because `SettingsCache::set` refuses a key that has no row: **a module with
+settings and no migration has a Save button that always fails.** Two more
+things in it are worth copying:
+
+- Its rules module (`ghost-core/src/seo.rs`) holds **the settings' defaults as
+  well as the audit rules**, and every default reproduces the behaviour the
+  site had before the module existed. Installing it changes nothing until
+  somebody changes a switch.
+- Four crates read those defaults through one function
+  (`ghost_core::seo::flag`), so the renderer, the sitemap, the public
+  robots.txt handler and the report cannot disagree about what is switched on.
 
 ## The reference: what Forms is made of
 
@@ -76,7 +94,7 @@ Where to look, and where a new screen goes. Everything under
 | `settings.rs` + `settings/` | the hub, then `general`, `email`, `newsletters`, `features`, `membership`, `growth`, `advanced` |
 | `themes.rs` · `design.rs` · `navigation.rs` · `staff.rs` | the remaining settings groups with screens of their own |
 | `integrations.rs` · `apps.rs` | API keys, custom integrations, and the built-in apps |
-| `analytics.rs` · `comments.rs` · `automations.rs` · `forms.rs` · `media.rs` + `media/` · `social.rs` · `click.rs` | the modules proper |
+| `analytics.rs` · `comments.rs` · `automations.rs` · `forms.rs` · `media.rs` + `media/` · `seo.rs` · `social.rs` · `click.rs` | the modules proper |
 | `preview.rs` · `schedule.rs` · `rest.rs` | supporting machinery |
 | `tests.rs` | tests for the shared chrome and for screens whose handlers sit elsewhere |
 

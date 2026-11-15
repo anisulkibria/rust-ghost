@@ -18,11 +18,13 @@ pub mod automations;
 pub mod comments;
 pub mod forms;
 pub mod integrations;
+pub mod locales;
 pub mod media;
 pub mod metafields;
 pub mod newsletters;
 pub mod offers;
 pub mod recommendations;
+pub mod seo;
 pub mod webhooks;
 
 use ghost_core::models::{Post, PostMeta, Tag, User};
@@ -48,6 +50,13 @@ pub(crate) struct PostRow {
     pub post_type: Option<String>,
     pub status: Option<String>,
     pub visibility: Option<String>,
+    /// The language this entry is written in. NULL means the site's default
+    /// language — never backfilled, so that changing the publication
+    /// language does not relabel every existing post as a translation into
+    /// the old one.
+    pub locale: Option<String>,
+    /// Shared by every translation of the same entry; NULL when it has none.
+    pub translation_group: Option<String>,
     pub created_at: Option<String>,
     pub updated_at: Option<String>,
     pub published_at: Option<String>,
@@ -90,6 +99,8 @@ impl<'r> sqlx::FromRow<'r, sqlx::any::AnyRow> for PostRow {
             post_type: row.try_get("type")?,
             status: row.try_get("status")?,
             visibility: row.try_get("visibility")?,
+            locale: row.try_get("locale")?,
+            translation_group: row.try_get("translation_group")?,
             created_at: row.try_get("created_at")?,
             updated_at: row.try_get("updated_at")?,
             published_at: row.try_get("published_at")?,
@@ -107,7 +118,7 @@ impl<'r> sqlx::FromRow<'r, sqlx::any::AnyRow> for PostRow {
     }
 }
 
-pub(crate) const POST_COLS: &str = "id, uuid, title, slug, mobiledoc, lexical, markdown, html, plaintext, feature_image, featured, type, status, visibility, created_at, updated_at, published_at, published_by, custom_excerpt, reading_time, codeinjection_head, codeinjection_foot, custom_template, canonical_url, show_title_and_feature_image, email_recipient_filter, newsletter_id";
+pub(crate) const POST_COLS: &str = "id, uuid, title, slug, mobiledoc, lexical, markdown, html, plaintext, feature_image, featured, type, status, visibility, locale, translation_group, created_at, updated_at, published_at, published_by, custom_excerpt, reading_time, codeinjection_head, codeinjection_foot, custom_template, canonical_url, show_title_and_feature_image, email_recipient_filter, newsletter_id";
 
 impl From<PostRow> for Post {
     fn from(r: PostRow) -> Self {
@@ -141,7 +152,8 @@ impl From<PostRow> for Post {
             meta: None,
             email_recipient_filter: r.email_recipient_filter,
             auto_excerpt: None,
-            locale: None,
+            locale: r.locale,
+            translation_group: r.translation_group,
             comment_id: None,
             newsletter_id: r.newsletter_id,
         }
@@ -222,6 +234,9 @@ pub(crate) struct TagRow {
     pub feature_image: Option<String>,
     pub parent_id: Option<String>,
     pub visibility: Option<String>,
+    /// The language this tag belongs to, or NULL for every language — which
+    /// is what a site wants for a brand name or an internal `#featured`.
+    pub locale: Option<String>,
     pub meta_title: Option<String>,
     pub meta_description: Option<String>,
     pub og_image: Option<String>,
@@ -253,6 +268,7 @@ impl<'r> sqlx::FromRow<'r, sqlx::any::AnyRow> for TagRow {
             feature_image: row.try_get("feature_image")?,
             parent_id: row.try_get("parent_id")?,
             visibility: row.try_get("visibility")?,
+            locale: row.try_get("locale")?,
             meta_title: row.try_get("meta_title")?,
             meta_description: row.try_get("meta_description")?,
             og_image: row.try_get("og_image")?,
@@ -271,7 +287,7 @@ impl<'r> sqlx::FromRow<'r, sqlx::any::AnyRow> for TagRow {
     }
 }
 
-pub(crate) const TAG_COLS: &str = "id, name, slug, description, feature_image, parent_id, visibility, meta_title, meta_description, og_image, og_title, og_description, twitter_image, twitter_title, twitter_description, codeinjection_head, codeinjection_foot, canonical_url, accent_color, created_at, updated_at";
+pub(crate) const TAG_COLS: &str = "id, name, slug, description, feature_image, parent_id, visibility, locale, meta_title, meta_description, og_image, og_title, og_description, twitter_image, twitter_title, twitter_description, codeinjection_head, codeinjection_foot, canonical_url, accent_color, created_at, updated_at";
 
 impl From<TagRow> for Tag {
     fn from(r: TagRow) -> Self {
@@ -283,6 +299,7 @@ impl From<TagRow> for Tag {
             feature_image: r.feature_image,
             parent_id: r.parent_id,
             visibility: r.visibility.unwrap_or_else(|| "public".into()),
+            locale: r.locale,
             meta_title: r.meta_title,
             meta_description: r.meta_description,
             og_image: r.og_image,

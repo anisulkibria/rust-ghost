@@ -108,6 +108,10 @@ pub(crate) struct TagEditForm {
     twitter_image: String,
     codeinjection_head: String,
     codeinjection_foot: String,
+    /// Empty means "every language", which is what every tag on a site that
+    /// has not enabled a second language is.
+    #[serde(default)]
+    locale: String,
 }
 
 /// An author's public archive URL, resolved through the router so it follows
@@ -154,6 +158,7 @@ pub(crate) async fn tag_edit_page(
     let internal = tag.visibility == "internal";
     let slug = tag.slug.clone().unwrap_or_default();
     let accent = tag.accent_color.clone().unwrap_or_default();
+    let locales = crate::settings::site_locales(&state);
 
     page_for_role(actor_role, 
         "Tag",
@@ -178,6 +183,7 @@ pub(crate) async fn tag_edit_page(
 <label class="field" style="margin:0"><input name="feature_image" value="{feature_image}" placeholder=" "><span>Tag image URL</span></label>
 </div>
 <p class="muted" style="margin:10px 0 0">A name starting with <code>#</code> makes the tag internal: it stays off the site and out of search, but still groups posts. {internal_note}</p>
+{language_row}
 </div></div>
 </div>
 <div class="section">Metadata</div>
@@ -247,6 +253,23 @@ pub(crate) async fn tag_edit_page(
             accent = esc(&accent),
             feature_image = v(tag.feature_image.as_deref()),
             internal_note = if internal { "This tag is internal." } else { "" },
+            // Only on a site that publishes in more than one language —
+            // otherwise it is a picker with one option, which reads as a
+            // decision somebody has to make and is not one.
+            language_row = if locales.multilingual() {
+                format!(
+                    r#"<label class="field fixed" style="margin:12px 0 0"><select name="locale">{options}</select><span>Language</span>{car}</label>
+<p class="muted" style="margin:6px 0 0">A tag with a language appears only in that language's archives and tag pickers. Leave it on <b>Every language</b> for something like a brand name or an internal tag.</p>"#,
+                    options = crate::settings::locale_options(
+                        &locales,
+                        tag.locale.as_deref().unwrap_or(""),
+                        Some("Every language"),
+                    ),
+                    car = crate::SELECT_CARET,
+                )
+            } else {
+                String::new()
+            },
             meta_title = v(tag.meta_title.as_deref()),
             meta_description = v(tag.meta_description.as_deref()),
             canonical_url = v(tag.canonical_url.as_deref()),
@@ -317,6 +340,16 @@ pub(crate) async fn tag_edit_save(
         codeinjection_head: Some(form.codeinjection_head.clone()),
         codeinjection_foot: Some(form.codeinjection_foot.clone()),
         visibility: None,
+        // Reduced to a language this site actually publishes in: the value
+        // comes off a form, and a tag locked to a language that does not
+        // exist would vanish from every archive and every picker.
+        locale: Some(match form.locale.trim() {
+            "" => String::new(),
+            raw => crate::settings::site_locales(&state)
+                .is_enabled(raw)
+                .then(|| ghost_core::locales::normalise(raw).unwrap_or_default())
+                .unwrap_or_default(),
+        }),
     };
     match repos::tags::update(&state.db, &id, &changes).await {
         Ok(tag) => {

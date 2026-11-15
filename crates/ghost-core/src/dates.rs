@@ -71,6 +71,20 @@ pub fn short_date_in_zone(db: &str, timezone: &str) -> String {
     dt.with_timezone(&tz).format("%-d %b %Y").to_string()
 }
 
+/// `14:32` in the site timezone — the clock, for something that happened just
+/// now and whose date is therefore not in question.
+///
+/// Used where a screen has to say when it computed what it is showing. Same
+/// timezone handling as [`short_date_in_zone`], and the same reason: a time
+/// shown in UTC on a site set to Dhaka is a time the reader has to convert.
+pub fn clock_in_zone(db: &str, timezone: &str) -> String {
+    let Some(dt) = from_db_string(db) else {
+        return String::new();
+    };
+    let tz: chrono_tz::Tz = timezone.parse().unwrap_or(chrono_tz::UTC);
+    dt.with_timezone(&tz).format("%H:%M").to_string()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

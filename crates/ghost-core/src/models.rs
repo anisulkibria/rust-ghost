@@ -25,7 +25,11 @@ pub struct Post {
     #[serde(rename = "type")]
     pub post_type: String, // "post" | "page"
     pub status: String,    // published | draft | scheduled | sent
+    /// The language this entry is written in; `None` means the site's
+    /// default language.
     pub locale: Option<String>,
+    /// Shared by every translation of this entry, `None` when it has none.
+    pub translation_group: Option<String>,
     pub visibility: String, // public | members | paid | tiers
     #[serde(default)]
     pub tier_ids: Vec<String>,
@@ -118,6 +122,8 @@ pub struct Tag {
     pub feature_image: Option<String>,
     pub parent_id: Option<String>,
     pub visibility: String,
+    /// The language this tag belongs to, or `None` for every language.
+    pub locale: Option<String>,
     pub meta_title: Option<String>,
     pub meta_description: Option<String>,
     pub og_image: Option<String>,
@@ -289,6 +295,11 @@ pub fn post_to_json(p: &Post, authors: &[User], tags: &[Tag], url: &str) -> Valu
     m.insert("status".into(), json!(p.status));
     m.insert("type".into(), json!(p.post_type));
     m.insert("visibility".into(), json!(p.visibility));
+    // The language this entry is in, and what links it to its translations.
+    // Null locale means the site's default language; the renderer resolves
+    // that, because only it knows what the default is.
+    m.insert("locale".into(), json!(p.locale));
+    m.insert("translation_group".into(), json!(p.translation_group));
     m.insert("tiers".into(), json!(p.tier_ids.iter().map(|id| json!({"id": id})).collect::<Vec<_>>()));
     m.insert("reading_time".into(), json!(p.reading_time));
     m.insert("access".into(), json!(p.visibility == "public"));
@@ -398,6 +409,9 @@ pub fn tag_to_json(t: &Tag, url: Option<&str>) -> Value {
     m.insert("feature_image".into(), public_image(&t.feature_image));
     m.insert("url".into(), json!(url));
     m.insert("visibility".into(), json!(t.visibility));
+    // Null for a tag that belongs to every language, so a theme can tell
+    // "no language" from "the default language".
+    m.insert("locale".into(), json!(t.locale));
     m.insert("meta_title".into(), json!(t.meta_title));
     m.insert("meta_description".into(), json!(t.meta_description));
     m.insert("og_image".into(), public_image(&t.og_image));

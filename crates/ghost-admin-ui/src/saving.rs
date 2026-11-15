@@ -18,6 +18,18 @@ pub(crate) struct EditorForm {
     pub(crate) html: Option<String>,
     /// Only posted when the rich editor is not running.
     pub(crate) markdown: Option<String>,
+    /// `"background"` for one of the editor's autosaves, `"explicit"` when
+    /// somebody pressed Save or cmd-S. Absent from a plain form submit, which
+    /// is explicit by definition — there is no autosave without the script.
+    ///
+    /// Only reaches [`ghost_db::repos::posts::PostChanges::explicit_save`],
+    /// which decides whether this save earns a place in the post's history.
+    /// Nothing else reads it, so a forged value costs at most one extra
+    /// version.
+    pub(crate) save_kind: Option<String>,
+    /// The language this entry is in, from the editor's Language panel.
+    /// Absent on a single-language site, where the panel is not drawn.
+    pub(crate) locale: Option<String>,
     pub(crate) status: String,
     pub(crate) published_at: Option<String>,
     pub(crate) visibility: Option<String>,
@@ -107,6 +119,10 @@ impl EditorForm {
                 "email_subject" => form.email_subject = keep(value),
                 "preview_email" => form.preview_email = keep(value),
                 "updated_at" => form.updated_at = keep(value),
+                "save_kind" => form.save_kind = keep(value),
+                // Kept even when empty: an empty value is "the site
+                // default", which is a real choice the picker offers.
+                "locale" => form.locale = Some(value),
                 "tags" => {
                     if !value.trim().is_empty() {
                         form.tags.push(value);
@@ -1608,6 +1624,23 @@ pub(crate) async fn editor_save(State(state): State<AppState>, Path(id): Path<St
         // emptying the list would otherwise orphan the post.
         author_ids: if form.authors.is_empty() { None } else { Some(form.authors.clone()) },
         clearing: editor_owned_fields(form.is_koenig(), form.has_content()),
+        // Who is saving, for the revision this update snapshots — the one
+        // thing Post history needs that the snapshot itself does not carry.
+        editor_id: Some(user.id.clone()),
+        // Ghost's `forceRevision`. The editor's script says which kind of
+        // save this is; a form submitted without JavaScript says nothing and
+        // is explicit by default, because there is no autosave without it.
+        explicit_save: form.save_kind.as_deref() != Some("background"),
+        // Reduced to a language this site publishes in: the value comes off
+        // a form, and an entry in a language that does not exist would be
+        // unreachable at every URL.
+        locale: form.locale.as_ref().map(|raw| match raw.trim() {
+            "" => String::new(),
+            code => crate::settings::site_locales(&state)
+                .is_enabled(code)
+                .then(|| ghost_core::locales::normalise(code).unwrap_or_default())
+                .unwrap_or_default(),
+        }),
     };
     let json_mode = wants_json(&headers);
     match repos::posts::update(&state.db, &id, &changes).await {

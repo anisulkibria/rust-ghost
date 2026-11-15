@@ -10,6 +10,7 @@ pub mod lexical;
 pub mod markdown;
 pub mod mobiledoc;
 pub mod preprocess;
+pub mod seo;
 pub mod social;
 pub mod theme;
 pub mod util;

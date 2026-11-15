@@ -21,6 +21,16 @@ pub struct BrowsePosts {
     pub public: bool,
     pub include_authors: bool,
     pub include_tags: bool,
+    /// Restrict to one language. `None` means every language, which is what
+    /// the admin lists and the Content API want.
+    ///
+    /// A pair rather than one code because the default language is stored as
+    /// NULL and never backfilled (see `0014_multilingual.sql`): asking for it
+    /// has to match both spellings, and asking for any other language must
+    /// match only the explicit code. Getting that wrong shows every existing
+    /// post in every language's archive.
+    pub locale: Option<String>,
+    pub default_locale: Option<String>,
 }
 
 #[derive(Debug)]
@@ -144,6 +154,28 @@ fn enforce_exprs(q: &BrowsePosts) -> Vec<Expr> {
     parts
 }
 
+/// The locale predicate for a browse, as raw SQL.
+///
+/// Not expressed in NQL: NQL has no way to say "this column is NULL or equals
+/// this", and the default language needs exactly that. Written here, with the
+/// code bound rather than interpolated.
+fn locale_clause(q: &BrowsePosts) -> Option<(&'static str, String)> {
+    let wanted = q.locale.as_deref()?.trim();
+    if wanted.is_empty() {
+        return None;
+    }
+    let is_default = q
+        .default_locale
+        .as_deref()
+        .is_some_and(|d| d.eq_ignore_ascii_case(wanted));
+    if is_default {
+        // NULL is the default language, so both spellings match.
+        Some(("(posts.locale IS NULL OR posts.locale = ", wanted.to_string()))
+    } else {
+        Some(("(posts.locale = ", wanted.to_string()))
+    }
+}
+
 fn cond(key: &str, value: &str) -> Expr {
     Expr::Cond(ghost_nql::Cond {
         key: key.into(),
@@ -216,6 +248,18 @@ pub(crate) fn push_clause_with_binds(qb: &mut QueryBuilder<'_, Any>, clause: &st
     }
 }
 
+/// ANDs the locale predicate onto a query that may or may not already have a
+/// WHERE. Shared by the rows query and the count, which have to agree or the
+/// pager counts pages that are not there.
+fn push_locale(qb: &mut QueryBuilder<'_, Any>, q: &BrowsePosts, has_where: bool) {
+    if let Some((open, code)) = locale_clause(q) {
+        qb.push(if has_where { " AND " } else { " WHERE " });
+        qb.push(open);
+        qb.push_bind(code);
+        qb.push(")");
+    }
+}
+
 pub async fn browse(pool: &Db, q: &BrowsePosts) -> Result<PostsPage> {
     let enforced = enforce_exprs(q);
     let combined = enforced.into_iter().reduce(|a, b| Expr::And(vec![a, b]));
@@ -224,11 +268,13 @@ pub async fn browse(pool: &Db, q: &BrowsePosts) -> Result<PostsPage> {
     qb.push(POST_COLS);
     qb.push(" FROM posts");
 
+    let has_where = combined.is_some();
     if let Some(expr) = combined {
         let sql = ghost_nql::compile(&expr, "posts")?;
         qb.push(" WHERE ");
         push_clause_with_binds(&mut qb, &sql.clause, &sql.binds);
     }
+    push_locale(&mut qb, q, has_where);
     let limit = if q.limit > 0 { q.limit } else { 15 };
     let page = q.page.max(1);
     let order = order_clause(q.order.as_deref());
@@ -246,11 +292,14 @@ pub async fn browse(pool: &Db, q: &BrowsePosts) -> Result<PostsPage> {
 
     // total count for pagination meta
     let mut cqb = QueryBuilder::<Any>::new("SELECT COUNT(*) FROM posts");
-    if let Some(expr) = enforce_count_expr(q) {
+    let count_expr = enforce_count_expr(q);
+    let count_has_where = count_expr.is_some();
+    if let Some(expr) = count_expr {
         let sql = ghost_nql::compile(&expr, "posts")?;
         cqb.push(" WHERE ");
         push_clause_with_binds(&mut cqb, &sql.clause, &sql.binds);
     }
+    push_locale(&mut cqb, q, count_has_where);
     let total: i64 = cqb.build_query_scalar().fetch_one(pool).await.map_err(dberr)?;
 
     let mut posts: Vec<Post> = rows.into_iter().map(Into::into).collect();
@@ -652,6 +701,66 @@ pub struct PostChanges {
     /// Everything else keeps the value already in the row, so a partial
     /// update cannot blank a column it never offered.
     pub clearing: Vec<&'static str>,
+    /// The language this entry is written in. `Some("")` clears it back to
+    /// the site default, which is stored as NULL.
+    pub locale: Option<String>,
+    /// Whether somebody asked for this save, as opposed to it being one of
+    /// the editor's autosaves — Ghost's `forceRevision`.
+    ///
+    /// Decides whether a changed draft earns a place in the history now or
+    /// waits for the ten-minute interval; see
+    /// [`ghost_core::revisions::should_generate`]. Defaults to `false`, which
+    /// is the conservative end: a caller that does not say is treated as a
+    /// background save and so cannot fill the history on its own.
+    pub explicit_save: bool,
+    /// Who is making this edit, for the revision this update snapshots.
+    ///
+    /// Not part of the post: it is written to `post_revisions.author_id` and
+    /// nowhere else, which is what lets Post history say *who* changed
+    /// something rather than only when. `None` for an edit with no human
+    /// behind it — the scheduler publishing a post on its date — and the
+    /// history shows those as the system.
+    pub editor_id: Option<String>,
+}
+
+/// How many revisions this post has, and when the newest was taken.
+///
+/// Both in one round trip, because [`update`] needs both on every save and
+/// this sits on the editor's autosave path.
+async fn revision_state(pool: &Db, post_id: &str) -> (i64, Option<i64>) {
+    sqlx::query_as::<_, (i64, Option<i64>)>(
+        "SELECT COUNT(*), MAX(created_at_ts) FROM post_revisions WHERE post_id = ?",
+    )
+    .bind(post_id)
+    .fetch_one(pool)
+    .await
+    .unwrap_or((0, None))
+}
+
+/// Drop everything past Ghost's [`ghost_core::revisions::MAX_REVISIONS`],
+/// oldest first.
+///
+/// Expressed as "delete the ones not in the newest 25" rather than
+/// "delete where rank > 25": no window functions, which keeps it identical on
+/// SQLite and MySQL. The subquery is materialised by the `LIMIT`, which is
+/// also what makes MySQL accept a `DELETE` whose subquery names the table it
+/// is deleting from.
+async fn prune_revisions(
+    tx: &mut sqlx::Transaction<'_, sqlx::Any>,
+    post_id: &str,
+) -> Result<()> {
+    sqlx::query(
+        "DELETE FROM post_revisions WHERE post_id = ? AND id NOT IN \
+         (SELECT id FROM (SELECT id FROM post_revisions WHERE post_id = ? \
+           ORDER BY created_at_ts DESC, id DESC LIMIT ?) AS keep)",
+    )
+    .bind(post_id)
+    .bind(post_id)
+    .bind(ghost_core::revisions::MAX_REVISIONS)
+    .execute(&mut **tx)
+    .await
+    .map_err(dberr)?;
+    Ok(())
 }
 
 pub async fn update(pool: &Db, id: &str, changes: &PostChanges) -> Result<Post> {
@@ -695,14 +804,60 @@ pub async fn update(pool: &Db, id: &str, changes: &PostChanges) -> Result<Post> 
     if visibility == "tiers" && tiers.is_empty() && status != "draft" {
         return Err(GhostError::ValidationError { message: "Choose at least one paid tier before publishing.".into(), context: Some("tiers".into()) });
     }
-    let snapshot = super::publishing::snapshot(pool, existing.clone()).await?;
-    let snapshot_json = serde_json::to_string(&snapshot).map_err(|e| GhostError::Internal(e.to_string()))?;
+    // Whether this save earns a place in the post's history, and why. Ghost's
+    // rule, in `ghost_core::revisions` — the editor autosaves three seconds
+    // after typing stops, and snapshotting every one of those is what made
+    // this table grow without bound.
+    //
+    // The four fields compared are the four Ghost compares: the body, the
+    // title, the feature image and the excerpt. They are read against
+    // `existing`, which in this port's convention is exactly what the
+    // snapshot below would hold — so "nothing changed" means "the version we
+    // would keep is the one we already have".
+    let next_lexical = pick(&changes.lexical, &existing.lexical, "lexical");
+    let next_feature_image = pick(&changes.feature_image, &existing.feature_image, "feature_image");
+    let next_excerpt = pick(&changes.custom_excerpt, &existing.custom_excerpt, "custom_excerpt");
+    let content_changed = next_lexical != existing.lexical
+        || Some(title.clone()) != existing.title
+        || next_feature_image != existing.feature_image
+        || next_excerpt != existing.custom_excerpt;
+    let (revision_count, last_revision_ms) = revision_state(pool, id).await;
+    let reason = ghost_core::revisions::should_generate(
+        &ghost_core::revisions::Save {
+            content_changed,
+            has_revisions: revision_count > 0,
+            last_revision_ms,
+            // Ghost reads these off the status transition, not off a flag.
+            unpublishing: existing.status == "published" && status == "draft",
+            publishing: existing.status != "published" && status == "published",
+            explicit: changes.explicit_save,
+        },
+        chrono::Utc::now().timestamp_millis(),
+    );
+
+    // Read before the transaction opens, never inside it. `snapshot` takes a
+    // connection of its own, and a pool sized for one — which is what a
+    // SQLite test database is — would then be waiting on the connection the
+    // transaction is already holding. That deadlock is a `pool timed out`
+    // error on every single save, so it is not a subtle one.
+    let snapshot_json = match reason {
+        Some(_) => {
+            let snapshot = super::publishing::snapshot(pool, existing.clone()).await?;
+            Some(serde_json::to_string(&snapshot).map_err(|e| GhostError::Internal(e.to_string()))?)
+        }
+        None => None,
+    };
+
     let mut tx = pool.begin().await.map_err(dberr)?;
-    sqlx::query("INSERT INTO post_revisions (id,post_id,lexical,created_at_ts,created_at,reason,feature_image,feature_image_caption,snapshot) VALUES (?,?,?,?,?,'edit',?,?,?)")
-        .bind(ids::new_id()).bind(id).bind(&existing.lexical).bind(chrono::Utc::now().timestamp_millis())
-        .bind(&now).bind(&existing.feature_image).bind(existing.meta.as_ref().and_then(|m|m.feature_image_caption.as_ref()))
-        .bind(snapshot_json).execute(&mut *tx).await.map_err(dberr)?;
-    sqlx::query("UPDATE posts SET title = ?, slug = ?, lexical = ?, markdown = ?, html = ?, plaintext = ?, custom_excerpt = ?, feature_image = ?, featured = ?, status = ?, visibility = ?, published_at = ?, codeinjection_head = ?, codeinjection_foot = ?, custom_template = ?, canonical_url = ?, show_title_and_feature_image = ?, reading_time = ?, updated_at = ? WHERE id = ?")
+    if let (Some(reason), Some(snapshot_json)) = (reason, snapshot_json) {
+        sqlx::query("INSERT INTO post_revisions (id,post_id,lexical,created_at_ts,created_at,author_id,reason,feature_image,feature_image_caption,snapshot) VALUES (?,?,?,?,?,?,?,?,?,?)")
+            .bind(ids::new_id()).bind(id).bind(&existing.lexical).bind(chrono::Utc::now().timestamp_millis())
+            .bind(&now).bind(changes.editor_id.as_deref()).bind(reason.as_str())
+            .bind(&existing.feature_image).bind(existing.meta.as_ref().and_then(|m|m.feature_image_caption.as_ref()))
+            .bind(snapshot_json).execute(&mut *tx).await.map_err(dberr)?;
+        prune_revisions(&mut tx, id).await?;
+    }
+    sqlx::query("UPDATE posts SET title = ?, slug = ?, lexical = ?, markdown = ?, html = ?, plaintext = ?, custom_excerpt = ?, feature_image = ?, featured = ?, status = ?, visibility = ?, locale = ?, published_at = ?, codeinjection_head = ?, codeinjection_foot = ?, custom_template = ?, canonical_url = ?, show_title_and_feature_image = ?, reading_time = ?, updated_at = ? WHERE id = ?")
         .bind(&title)
         .bind(&slug_)
         .bind(stored(&pick(&changes.lexical, &existing.lexical, "lexical")))
@@ -714,6 +869,14 @@ pub async fn update(pool: &Db, id: &str, changes: &PostChanges) -> Result<Post> 
         .bind(changes.featured.unwrap_or(existing.featured))
         .bind(&status)
         .bind(changes.visibility.clone().unwrap_or_else(|| existing.visibility.clone()))
+        // An empty string is "the site default", which is stored as NULL —
+        // the migration never backfills it, so this is the one spelling that
+        // survives a later change of publication language.
+        .bind(match changes.locale.as_deref() {
+            Some("") => None,
+            Some(code) => Some(code.to_string()),
+            None => existing.locale.clone(),
+        })
         .bind(&published_at)
         .bind(pick(&changes.codeinjection_head, &existing.codeinjection_head, "codeinjection_head"))
         .bind(pick(&changes.codeinjection_foot, &existing.codeinjection_foot, "codeinjection_foot"))

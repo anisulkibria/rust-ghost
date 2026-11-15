@@ -55,6 +55,19 @@ pub(crate) struct Editor<'a> {
     site_url: String,
     site_title: String,
     site_description: String,
+    /// The most recent revisions, for the Post history panel, with how many
+    /// there are in total. Only the first [`crate::history::PANEL_LIMIT`] are
+    /// shown inline; the panel links to the screen for the rest.
+    revisions: Vec<ghost_db::repos::publishing::Revision>,
+    revision_count: i64,
+    timezone: String,
+    /// This site's languages, for the Language panel. Empty of options on a
+    /// single-language site, where the panel is not drawn at all.
+    locales: ghost_core::locales::Locales,
+    /// The entry's existing translations. Candidates to link are searched
+    /// for on demand instead — a dropdown of every entry on the site is
+    /// unusable past a few dozen.
+    siblings: Vec<ghost_db::repos::locales::Sibling>,
 }
 
 /// Ghost's registered Unsplash application — a public Client-ID, the one
@@ -776,6 +789,35 @@ pub(crate) fn editor_html(ed: &Editor<'_>) -> String {
         false,
     ));
 
+    // Language, and this entry's translations. Above history because it is
+    // about what the entry *is* rather than what it was.
+    //
+    // The panel's forms cannot live inside the editor's own form — HTML
+    // forbids nested forms and a browser drops the inner one, which made
+    // every button in this panel silently submit the editor instead. They go
+    // out beside the delete form and the panel's controls reach them by id.
+    let (language_panel, language_forms) = crate::languages::editor_panel(
+        &ed.locales,
+        ed.post_type,
+        ed.id(),
+        Some(ed.field(|p| p.locale.as_deref())).filter(|c| !c.is_empty()),
+        &ed.siblings,
+    );
+    side.push_str(&language_panel);
+
+    // Post history / Page history. Last, because it is the one panel that is
+    // about the entry's past rather than about what it will be — and it is
+    // only there once there is an entry with a past.
+    if let Some(id) = ed.id() {
+        side.push_str(&crate::history::editor_panel(
+            ed.post_type,
+            id,
+            &ed.revisions,
+            ed.revision_count,
+            &ed.timezone,
+        ));
+    }
+
     // --- head, and the page around both columns -----------------------------
 
     let heading = if ed.id().is_some() {
@@ -838,7 +880,7 @@ html {{ font-size: 62.5%; }}
 <label class="icon-btn side-btn" for="side-toggle" title="Show or hide settings">
 <span class="when-shown">{hide}</span><span class="when-hidden">{show}</span></label>
 <button class="btn" id="editor-save" type="submit" form="editor-form">{save} <span data-save-label>{save_label}</span></button></div></header>
-{delete}
+{delete}{language_forms}{language_script}
 <form method="post" action="{action}" id="editor-form" class="editor-shell">
 {content}
 <aside class="editor-side">{side}</aside>
@@ -890,6 +932,8 @@ html {{ font-size: 62.5%; }}
         save = svg("check"),
         save_label = if ed.id().is_none() && ed.can_publish { "Publish".to_string() } else { format!("Save {singular}") },
         delete = delete,
+        language_forms = language_forms,
+        language_script = crate::languages::editor_script(&ed.locales),
         action = action,
         content = content,
         side = side,
@@ -980,6 +1024,24 @@ pub(crate) async fn editor_context<'a>(
         site_url: state.site_url(),
         site_title: state.settings.get_str("title").unwrap_or_default(),
         site_description: state.settings.get_str("description").unwrap_or_default(),
+        // Only the handful the panel shows: the screen reads the rest, and a
+        // post with eighty saves should not load eighty snapshots to open.
+        revisions: match post {
+            Some(p) => repos::publishing::revisions(&state.db, &p.id, crate::history::PANEL_LIMIT as i64)
+                .await
+                .unwrap_or_default(),
+            None => Vec::new(),
+        },
+        revision_count: match post {
+            Some(p) => repos::publishing::revision_count(&state.db, &p.id).await.unwrap_or(0),
+            None => 0,
+        },
+        timezone: state.settings.get_str("timezone").unwrap_or_else(|| "Etc/UTC".into()),
+        locales: crate::settings::site_locales(state),
+        siblings: match post {
+            Some(p) => repos::locales::siblings(&state.db, &p.id).await.unwrap_or_default(),
+            None => Vec::new(),
+        },
     }
 }
 

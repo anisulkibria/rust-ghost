@@ -1067,40 +1067,114 @@ fn ghost_head_advertises_the_webmention_endpoint() {
 
 #[test]
 fn meta_title_and_description_follow_the_context() {
+    // The home page is titled with the site title, or its SEO title — not
+    // the title and the description joined, which is what this used to do.
     let home = json!({
         "context": ["home"],
         "site": {"title": "My Site", "description": "A blog"}
     });
     check(&[
-        ("{{meta_title}}", &home, "My Site - A blog"),
+        ("{{meta_title}}", &home, "My Site"),
         ("{{meta_description}}", &home, "A blog"),
     ]);
+    let seo_titled = json!({
+        "context": ["home"],
+        "site": {"title": "My Site", "description": "A blog", "meta_title": "My Site — essays on building things"}
+    });
+    check(&[("{{meta_title}}", &seo_titled, "My Site — essays on building things")]);
 
+    // A post is titled with its own title and nothing appended, the way
+    // Ghost's `getTitle` returns `post.meta_title || post.title`.
     let post_ctx = json!({
         "context": ["post"],
         "title": "A Post",
-        "excerpt": "Some words",
+        "custom_excerpt": "Some words",
         "site": {"title": "My Site"}
     });
     check(&[
-        ("{{meta_title}}", &post_ctx, "A Post - My Site"),
+        ("{{meta_title}}", &post_ctx, "A Post"),
         ("{{meta_description}}", &post_ctx, "Some words"),
     ]);
+
+    // An archive does get the site title appended — that one is Ghost's.
+    let tag_ctx = json!({
+        "context": ["tag"],
+        "tag": {"id": "t", "name": "Engineering", "description": "How we build"},
+        "site": {"title": "My Site"}
+    });
+    check(&[
+        ("{{meta_title}}", &tag_ctx, "Engineering - My Site"),
+        ("{{meta_description}}", &tag_ctx, "How we build"),
+    ]);
+    let author_ctx = json!({
+        "context": ["author"],
+        "author": {"id": "a", "name": "Ada Lovelace", "bio": "Writes about engines"},
+        "site": {"title": "My Site"}
+    });
+    check(&[
+        ("{{meta_title}}", &author_ctx, "Ada Lovelace - My Site"),
+        ("{{meta_description}}", &author_ctx, "Writes about engines"),
+    ]);
+}
+
+/// The automated excerpt is not a meta description. Ghost publishes only what
+/// a person wrote, and so does the SEO report — if the renderer invented one
+/// here, the report would call every post described and the gap would never
+/// be fixed.
+#[test]
+fn the_automated_excerpt_is_not_published_as_a_meta_description() {
+    let post_ctx = json!({
+        "context": ["post"],
+        "post": {"id": "1", "title": "A Post", "excerpt": "The first fifty words of the body"},
+        "site": {"title": "My Site"},
+    });
+    check(&[("{{meta_description}}", &post_ctx, "")]);
+    // but it is still good enough for a share card, which would otherwise be
+    // a blank grey box
+    let head = render("{{ghost_head}}", &post_ctx);
+    assert!(
+        head.contains(r#"<meta property="og:description" content="The first fifty words of the body" />"#),
+        "{head}"
+    );
+    assert!(!head.contains(r#"<meta name="description""#), "{head}");
+}
+
+/// Off by default, because Ghost does not do it; kept because appending the
+/// site title to every post is a house style some publications want.
+#[test]
+fn a_site_can_ask_for_its_title_on_the_end_of_every_post_title() {
+    let mut data = json!({
+        "context": ["post"],
+        "post": {"id": "1", "title": "A Post"},
+        "site": {"title": "My Site"},
+    });
+    assert_eq!(render("{{meta_title}}", &data), "A Post");
+    data["site"]["seo_append_site_title"] = json!(true);
+    assert_eq!(render("{{meta_title}}", &data), "A Post - My Site");
+    // an entry's own SEO title is still the authority
+    data["post"]["meta_title"] = json!("Exactly this");
+    assert_eq!(render("{{meta_title}}", &data), "Exactly this - My Site");
 }
 
 #[test]
 fn ghost_head_emits_the_essential_tags() {
     let head = render("{{ghost_head}}", &root_with_post());
     for expected in [
-        "<title>",
         r#"<link rel="canonical""#,
-        r#"<meta name="generator""#,
+        r#"<meta name="referrer" content="no-referrer-when-downgrade" />"#,
+        r#"<meta name="generator" content="Ghost 6.75" />"#,
         r#"<meta property="og:title""#,
+        r#"<meta property="og:type" content="article" />"#,
         r#"<meta name="twitter:card""#,
+        r#"<script type="application/ld+json">"#,
+        r#""@type": "Article""#,
         r#"type="application/rss+xml""#,
     ] {
         assert!(head.contains(expected), "ghost_head missing {expected}:\n{head}");
     }
+    // The theme owns the `<title>`: two of them in one page is a validation
+    // error and leaves the winner up to the parser.
+    assert!(!head.contains("<title>"), "ghost_head must not emit a title:\n{head}");
 }
 
 #[test]
@@ -1277,14 +1351,22 @@ fn meta_title_resolves_the_routed_post_from_the_layout() {
         "context": ["post"],
         "post": {"id": "1", "title": "A Post"},
     });
-    assert_eq!(render("{{meta_title}}", &data), "A Post - Site");
+    assert_eq!(render("{{meta_title}}", &data), "A Post");
 
-    // the page suffix only applies once past page one
-    let mut paged = data.clone();
-    paged["context"] = json!(["index", "paged"]);
-    paged["pagination"] = json!({"page": 2});
-    assert_eq!(render(r#"{{meta_title page=" (Page %)"}}"#, &paged), "A Post - Site (Page 2)");
-    assert_eq!(render(r#"{{meta_title page=" (Page %)"}}"#, &data), "A Post - Site");
+    // The page suffix applies once past page one, on the contexts that are
+    // archives — a post is never page 2 of anything.
+    let mut paged = json!({
+        "site": {"title": "Site"},
+        "context": ["tag", "paged"],
+        "tag": {"id": "t", "name": "Engineering"},
+        "pagination": {"page": 2},
+    });
+    assert_eq!(render(r#"{{meta_title page=" (Page %)"}}"#, &paged), "Engineering - Site (Page 2)");
+    // and the theme's format replaces the default rather than doubling it
+    assert_eq!(render(r#"{{meta_title page=" · p%"}}"#, &paged), "Engineering - Site · p2");
+    assert_eq!(render("{{meta_title}}", &paged), "Engineering - Site (Page 2)");
+    paged["pagination"] = json!({"page": 1});
+    assert_eq!(render(r#"{{meta_title page=" (Page %)"}}"#, &paged), "Engineering - Site");
 }
 
 /// `{{price}}` goes through `Intl.NumberFormat` in Ghost, which groups

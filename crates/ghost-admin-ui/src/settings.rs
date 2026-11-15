@@ -71,6 +71,10 @@ pub(crate) const SETTINGS_GROUPS: &[SettingsGroup] = &[
     // This port's own module. Its builder and responses live under Modules;
     // what is here is what applies to every form at once.
     SettingsGroup { slug: "forms", title: "Forms", icon: "form", tint: "amber", items: &["Notifications", "Spam protection", "Privacy & retention"] },
+    // This port's own module, like Forms: the report lives under Modules and
+    // what is here is what applies to every page at once.
+    SettingsGroup { slug: "languages", title: "Languages", icon: "globe", tint: "teal", items: &["Languages", "Search engines", "Navigation per language"] },
+    SettingsGroup { slug: "seo", title: "SEO", icon: "trending", tint: "blue", items: &["Search appearance", "Crawling", "robots.txt", "IndexNow"] },
     SettingsGroup { slug: "integrations", title: "Integrations", icon: "integrations", tint: "red", items: &["Built-in apps", "Custom integrations", "Content API"] },
     SettingsGroup { slug: "migration", title: "Migration tools", icon: "import", tint: "blue", items: &["Import content", "Export all data", "Members", "Post analytics", "Themes"] },
     SettingsGroup { slug: "advanced", title: "Advanced", icon: "code", tint: "red", items: &["Redirects & routes"] },
@@ -102,6 +106,25 @@ pub(crate) const SETTINGS_INDEX: &[(&str, &str, &str)] = &[
     ("general", "Meta data · Facebook card", "Facebook title"),
     ("general", "Meta data · Facebook card", "Facebook description"),
     ("general", "Meta data · Facebook card", "Facebook image"),
+    ("languages", "Languages", "Multilingual"),
+    ("languages", "Languages", "Translations"),
+    ("languages", "Languages", "Language"),
+    ("languages", "Search engines", "hreflang"),
+    ("languages", "Navigation per language", "Primary menu per language"),
+    ("languages", "Navigation per language", "Secondary menu per language"),
+    ("seo", "Search appearance", "Structured data"),
+    ("seo", "Search appearance", "Open Graph"),
+    ("seo", "Search appearance", "Twitter card"),
+    ("seo", "Search appearance", "Schema.org JSON-LD"),
+    ("seo", "Search appearance", "Append the site title to page titles"),
+    ("seo", "Search appearance", "Referrer policy"),
+    ("seo", "Crawling", "List images in the sitemap"),
+    ("seo", "Crawling", "Hide tag archives from search"),
+    ("seo", "Crawling", "Hide author archives from search"),
+    ("seo", "Crawling", "Hide page 2 and beyond from search"),
+    ("seo", "Crawling", "noindex"),
+    ("seo", "robots.txt", "Custom robots.txt"),
+    ("seo", "IndexNow", "IndexNow key"),
     ("analytics", "Analytics", "Web analytics"),
     ("analytics", "Analytics", "Email opens"),
     ("analytics", "Analytics", "Email clicks"),
@@ -451,6 +474,62 @@ pub(crate) const TIMEZONES: &[(&str, &str)] = &[
 /// locale saved under a code Ghost does not use (`zh-cn` rather than `zh`)
 /// silently finds no translation file. Labels lead with the language's own
 /// name, because that is what someone scans for when picking their own.
+/// This site's languages, as `ghost_core::locales` understands them.
+///
+/// One place so that the editor, the tag screen, the Languages module and
+/// the settings page cannot disagree about which languages exist. Reads the
+/// two settings the Multilingual module owns and nothing else.
+pub(crate) fn site_locales(state: &AppState) -> ghost_core::locales::Locales {
+    ghost_core::locales::Locales::from_settings(
+        state.settings.get_str("locale").as_deref(),
+        state.settings.get("locales_enabled").as_ref(),
+    )
+}
+
+/// The human label for a language code — `de` → `Deutsch (German)`.
+///
+/// Falls back to the code itself, which is what a site using a locale this
+/// list does not cover should see rather than a blank.
+pub(crate) fn locale_label(code: &str) -> String {
+    LOCALES
+        .iter()
+        .find(|(value, _)| value.eq_ignore_ascii_case(code))
+        .map(|(_, label)| (*label).to_string())
+        .unwrap_or_else(|| code.to_string())
+}
+
+/// A `<select>` of this site's languages.
+///
+/// `blank` labels the "no particular language" option when one is wanted —
+/// a tag with no locale belongs to every language — and is omitted entirely
+/// when it is `None`, which is how a post's own picker reads: an entry is
+/// always in exactly one language.
+pub(crate) fn locale_options(
+    locales: &ghost_core::locales::Locales,
+    current: &str,
+    blank: Option<&str>,
+) -> String {
+    let mut out = String::new();
+    if let Some(label) = blank {
+        out.push_str(&format!(
+            r#"<option value=""{sel}>{label}</option>"#,
+            sel = if current.trim().is_empty() { " selected" } else { "" },
+            label = esc(label),
+        ));
+    }
+    for code in locales.enabled() {
+        let selected = code.eq_ignore_ascii_case(current.trim());
+        out.push_str(&format!(
+            r#"<option value="{code}"{sel}>{label}{default}</option>"#,
+            code = esc(code),
+            sel = if selected { " selected" } else { "" },
+            label = esc(&locale_label(code)),
+            default = if locales.is_default(code) { " · default" } else { "" },
+        ));
+    }
+    out
+}
+
 pub(crate) const LOCALES: &[(&str, &str)] = &[
     ("af", "Afrikaans"),
     ("ar", "العربية (Arabic)"),

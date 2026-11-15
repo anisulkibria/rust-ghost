@@ -4,8 +4,10 @@ mod images;
 pub mod cards;
 pub mod comment_counts;
 mod llms;
+mod pretty_urls;
 mod private;
 mod render;
+pub mod robots;
 mod routes;
 mod sitemap;
 mod rss;
@@ -46,6 +48,9 @@ pub fn site_router(state: AppState) -> Router {
         .route("/public/{*path}", get(routes::public_file))
         .route("/favicon.ico", get(routes::favicon))
         .route("/sitemap.xml", get(sitemap::sitemap_index))
+        // The crawler's first request. A private site answers this in the
+        // gate below before this route is reached.
+        .route("/robots.txt", get(robots::robots_txt))
         // the LLM index, gated on Settings → Meta data
         .route("/llms.txt", get(llms::llms_txt))
         // the access-code screen for a private site; a no-op redirect home
@@ -58,6 +63,9 @@ pub fn site_router(state: AppState) -> Router {
             state.clone(),
             analytics::track_views,
         ))
+        // One address per page, before a view is counted — so `/a-post` and
+        // `/a-post/` are not two rows in the analytics either.
+        .layer(axum::middleware::from_fn(pretty_urls::canonicalize))
         // Outermost, so a private site answers before anything is rendered or
         // a view is counted.
         .layer(axum::middleware::from_fn_with_state(

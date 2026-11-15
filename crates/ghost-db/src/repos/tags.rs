@@ -119,6 +119,9 @@ pub struct NewTag {
     pub accent_color: Option<String>,
     pub meta_title: Option<String>,
     pub meta_description: Option<String>,
+    /// The language this tag belongs to. `None` — the default — means every
+    /// language, which is what an existing site's tags all are.
+    pub locale: Option<String>,
 }
 
 pub async fn slug_exists(pool: &Db, slug_: &str, self_id: Option<&str>) -> Result<bool> {
@@ -173,13 +176,14 @@ pub async fn insert(pool: &Db, new: &NewTag) -> Result<Tag> {
     };
     let id = ids::new_id();
     let now = dates::now_db();
-    sqlx::query("INSERT INTO tags (id, name, slug, description, feature_image, visibility, accent_color, meta_title, meta_description, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
+    sqlx::query("INSERT INTO tags (id, name, slug, description, feature_image, visibility, locale, accent_color, meta_title, meta_description, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
         .bind(&id)
         .bind(&name)
         .bind(&slug_)
         .bind(&new.description)
         .bind(&new.feature_image)
         .bind(if visibility.is_empty() { "public" } else { visibility.as_str() })
+        .bind(&new.locale)
         .bind(&new.accent_color)
         .bind(&new.meta_title)
         .bind(&new.meta_description)
@@ -215,6 +219,9 @@ pub struct TagChanges {
     pub twitter_description: Option<String>,
     pub codeinjection_head: Option<String>,
     pub codeinjection_foot: Option<String>,
+    /// `Some("")` clears it back to "every language", which is how the
+    /// picker's blank option is meant to read.
+    pub locale: Option<String>,
 }
 
 pub async fn update(pool: &Db, id: &str, changes: &TagChanges) -> Result<Tag> {
@@ -252,7 +259,7 @@ pub async fn update(pool: &Db, id: &str, changes: &TagChanges) -> Result<Tag> {
          accent_color = ?, meta_title = ?, meta_description = ?, canonical_url = ?, \
          og_image = ?, og_title = ?, og_description = ?, \
          twitter_image = ?, twitter_title = ?, twitter_description = ?, \
-         codeinjection_head = ?, codeinjection_foot = ?, updated_at = ? WHERE id = ?",
+         codeinjection_head = ?, codeinjection_foot = ?, locale = ?, updated_at = ? WHERE id = ?",
     )
         .bind(&name)
         .bind(&slug_)
@@ -271,6 +278,13 @@ pub async fn update(pool: &Db, id: &str, changes: &TagChanges) -> Result<Tag> {
         .bind(changes.twitter_description.clone().or(existing.twitter_description.clone()))
         .bind(changes.codeinjection_head.clone().or(existing.codeinjection_head.clone()))
         .bind(changes.codeinjection_foot.clone().or(existing.codeinjection_foot.clone()))
+        // An empty string is an erasure here, not "unchanged": it is the
+        // blank "every language" option in the picker.
+        .bind(match changes.locale.as_deref() {
+            Some("") => None,
+            Some(code) => Some(code.to_string()),
+            None => existing.locale.clone(),
+        })
         .bind(&now)
         .bind(id)
         .execute(pool)

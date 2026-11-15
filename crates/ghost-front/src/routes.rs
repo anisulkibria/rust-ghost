@@ -13,6 +13,71 @@ use crate::render::{render_template, RenderCtx};
 use crate::resolver_now;
 use crate::rss;
 
+/// This site's languages. Two settings reads per request, which is what the
+/// settings cache is for.
+pub(crate) fn site_locales(state: &AppState) -> ghost_core::locales::Locales {
+    ghost_core::locales::Locales::from_settings(
+        state.settings.get_str("locale").as_deref(),
+        state.settings.get("locales_enabled").as_ref(),
+    )
+}
+
+/// This page in every language it exists in, for the switcher a theme draws
+/// and the `hreflang` alternates `{{ghost_head}}` writes.
+///
+/// `current` is the locale being rendered; `group` is the entry's translation
+/// group, or `None` on a collection or taxonomy page — where "the same page
+/// in German" is simply the same path under the German prefix, because an
+/// archive exists in every language by definition.
+///
+/// Only languages that really have the page are listed. A switcher that
+/// offered every enabled language would link to a 404 for the ones that have
+/// not been translated yet, which is worse than not offering them: the
+/// visitor follows it and concludes the site is broken.
+pub(crate) async fn translations_for(
+    state: &AppState,
+    locales: &ghost_core::locales::Locales,
+    current: &str,
+    group: Option<&str>,
+    neutral_path: &str,
+) -> Value {
+    if !locales.multilingual() {
+        return Value::Array(vec![]);
+    }
+    let mut out = Vec::new();
+    for code in locales.enabled() {
+        let url = match group {
+            Some(group) => {
+                // An entry: only if a translation in this language exists,
+                // and at that translation's own slug.
+                let found = repos::locales::in_locale(&state.db, group, code, locales.default_locale())
+                    .await
+                    .ok()
+                    .flatten();
+                match found {
+                    Some(post) => {
+                        let resolver = resolver_now(state).await;
+                        let relative = resolver(&models::post_to_json(&post, &[], &[], ""));
+                        Some(locales.localise(&relative, code))
+                    }
+                    None => None,
+                }
+            }
+            // An archive or the home page: the same path under this
+            // language's prefix.
+            None => Some(locales.localise(neutral_path, code)),
+        };
+        if let Some(url) = url {
+            out.push(serde_json::json!({
+                "locale": code,
+                "url": ghost_core::url::base(&url),
+                "active": code.eq_ignore_ascii_case(current),
+            }));
+        }
+    }
+    Value::Array(out)
+}
+
 fn sitemap_resource_name(path: &str) -> Option<String> {
     let name = path.strip_prefix("/sitemap-")?.strip_suffix(".xml")?;
     if name.chars().all(|c| c.is_ascii_alphanumeric() || c == '-') {
@@ -168,14 +233,31 @@ pub async fn entrypoint(State(state): State<AppState>, uri: Uri, headers: Header
         return crate::render::error_page(&state, StatusCode::NOT_FOUND, &path, headers).await;
     }
 
-    // 3. per-resource sitemaps (/sitemap-posts.xml …)
+    // 3. per-resource sitemaps (/sitemap-posts.xml …). The headers go with it:
+    // they decide whether this is a person opening the URL, who gets a page,
+    // or a crawler, who gets the XML.
     if let Some(resource) = sitemap_resource_name(&path) {
-        return crate::sitemap::sitemap_resource(state, resource).await;
+        return crate::sitemap::sitemap_resource(state, headers, resource).await;
     }
 
-    // 4. router tree
+    // 4. the language prefix, before the router sees the path.
+    //
+    // `/de/my-post/` is routed as `/my-post/` and rendered in German. The
+    // default language is unprefixed, so on a single-language site — and for
+    // every URL an existing site already has — this is a no-op and the
+    // original path goes to the router untouched. See
+    // `ghost_core::locales::split_path` for why an unknown prefix is treated
+    // as an ordinary path segment rather than a language.
+    //
+    // `path` stays the prefixed form: it is what the canonical link, the
+    // `og:url` and the pagination links are built from, and those have to
+    // name the URL the visitor is actually on.
+    let locales = site_locales(&state);
+    let (locale, routed) = locales.split_path(&path);
+
+    // 5. router tree
     let router = state.router.read().await.clone();
-    let Some(route) = router.match_path(&path) else {
+    let Some(route) = router.match_path(&routed) else {
         return crate::render::error_page(&state, StatusCode::NOT_FOUND, &path, headers).await;
     };
 
@@ -183,15 +265,15 @@ pub async fn entrypoint(State(state): State<AppState>, uri: Uri, headers: Header
         RouteMatch::Preview { uuid, .. } => render_preview(state, uuid, &path, headers).await,
         RouteMatch::Rss { kind, name, .. } => rss::render_rss(state, kind, name, &path).await,
         RouteMatch::CollectionIndex { name, filter, order, limit, templates, data, page, .. } => {
-            render_collection(state, name, filter, order, limit, templates, data, page, &path, headers).await
+            render_collection(state, name, filter, order, limit, templates, data, page, &path, &locale, headers).await
         }
         RouteMatch::Channel { name, filter, order, limit, templates, page, .. } => {
-            render_collection(state, name, filter, order, limit, templates, None, page, &path, headers).await
+            render_collection(state, name, filter, order, limit, templates, None, page, &path, &locale, headers).await
         }
-        RouteMatch::CollectionEntry { slug, .. } => render_entry(state, slug, &path, query.as_deref(), headers).await,
-        RouteMatch::StaticPage { slug } => render_entry(state, slug, &path, query.as_deref(), headers).await,
+        RouteMatch::CollectionEntry { slug, .. } => render_entry(state, slug, &path, &locale, query.as_deref(), headers).await,
+        RouteMatch::StaticPage { slug } => render_entry(state, slug, &path, &locale, query.as_deref(), headers).await,
         RouteMatch::Taxonomy { kind, slug, page, .. } => {
-            render_taxonomy(state, kind, slug, page, &path, headers).await
+            render_taxonomy(state, kind, slug, page, &path, &locale, headers).await
         }
         RouteMatch::Custom { name, templates, data, content_type } => {
             render_custom(state, name, templates, data, content_type, &path, headers).await
@@ -258,10 +340,12 @@ async fn render_collection(
     data: Option<serde_yaml::Value>,
     page: i64,
     path: &str,
+    locale: &str,
     headers: HeaderMap,
 ) -> Response {
     let theme = state.theme.read().await.clone();
     let limit_final = limit.unwrap_or(theme.posts_per_page());
+    let locales = site_locales(&state);
 
     let q = repos::posts::BrowsePosts {
         filter,
@@ -272,6 +356,11 @@ async fn render_collection(
         public: true,
         include_authors: true,
         include_tags: true,
+        // An archive shows one language's posts. Suppressed entirely on a
+        // single-language site, so the query a existing install runs is
+        // byte for byte the one it ran before.
+        locale: locales.multilingual().then(|| locale.to_string()),
+        default_locale: Some(locales.default_locale().to_string()),
     };
     let result = match repos::posts::browse(&state.db, &q).await {
         Ok(r) => r,
@@ -319,10 +408,18 @@ async fn render_collection(
         router.collection_templates(&name, &templates, is_front)
     };
 
+    // An archive exists in every language by definition, so the switcher
+    // offers them all at the same path under each prefix. `paginated_base`
+    // is not used here: the path is already language-neutral, because the
+    // prefix was stripped before the router ran.
+    let neutral = locales.split_path(path).1;
+    let translations = translations_for(&state, &locales, locale, None, &neutral).await;
     let rctx = RenderCtx {
         context,
         relative_url: path.to_string(),
         member,
+        locale: locale.to_string(),
+        translations,
     };
     match render_template(&state, &theme, &candidates, Value::Object(root), &rctx).await {
         Ok(html) => html_response(html),
@@ -369,7 +466,7 @@ async fn resolve_data_entry(state: &AppState, short: &str, member: &Value) -> Op
     }
 }
 
-async fn render_entry(state: AppState, slug: String, path: &str, query: Option<&str>, headers: HeaderMap) -> Response {
+async fn render_entry(state: AppState, slug: String, path: &str, locale: &str, query: Option<&str>, headers: HeaderMap) -> Response {
     // posts first, then pages (Ghost's router fallthrough)
     let (post, post_type) = match repos::posts::find_by_slug(&state.db, &slug, "post", true).await {
         Ok(Some(p)) => (p, "post"),
@@ -394,6 +491,24 @@ async fn render_entry(state: AppState, slug: String, path: &str, query: Option<&
             }
         },
     };
+
+    // The entry has to be in the language the URL asked for.
+    //
+    // `/de/my-post/` naming an English post is a 404 **in German**, not the
+    // English post served under a German URL: two URLs carrying the same
+    // text is the duplicate-content signal that `hreflang` exists to avoid,
+    // and a German URL returning English reads as broken. The same rule in
+    // the other direction keeps a German post off the unprefixed path.
+    //
+    // A NULL locale is the default language — never backfilled, so this is
+    // also what makes every pre-existing post keep answering on its own URL.
+    let locales = site_locales(&state);
+    if locales.multilingual() {
+        let entry_locale = post.locale.as_deref().unwrap_or(locales.default_locale());
+        if !entry_locale.eq_ignore_ascii_case(locale) {
+            return crate::render::error_page(&state, StatusCode::NOT_FOUND, path, headers).await;
+        }
+    }
 
     let member = crate::render::member_context(&state, &headers).await;
     let gift_token = form_urlencoded::parse(query.unwrap_or("").as_bytes()).find(|(key,_)|key=="gift").map(|(_,value)|value.into_owned());
@@ -429,6 +544,18 @@ async fn render_entry(state: AppState, slug: String, path: &str, query: Option<&
         context,
         relative_url: path.to_string(),
         member,
+        locale: locale.to_string(),
+        // Only the languages this entry really has, read from its
+        // translation group — so the switcher cannot offer a link to a
+        // language that would 404 under the rule above.
+        translations: translations_for(
+            &state,
+            &locales,
+            locale,
+            post.translation_group.as_deref(),
+            &locales.split_path(path).1,
+        )
+        .await,
     };
     match render_template(&state, &theme, &candidates, Value::Object(root), &rctx).await {
         Ok(html) => {
@@ -449,9 +576,11 @@ async fn render_taxonomy(
     slug: String,
     page: i64,
     path: &str,
+    locale: &str,
     headers: HeaderMap,
 ) -> Response {
     let theme = state.theme.read().await.clone();
+    let locales = site_locales(&state);
     let resolver = resolver_now(&state).await;
 
     let (taxonomy_json, name, filter, resource_label): (Value, String, Option<ghost_nql::Expr>, &'static str) =
@@ -463,6 +592,18 @@ async fn render_taxonomy(
                         return crate::render::error_page(&state, StatusCode::NOT_FOUND, path, headers).await;
                     }
                 };
+                // A tag locked to a language has an archive only in that
+                // language. A tag with no locale belongs to every language —
+                // which is what a brand name or an internal tag is, and what
+                // every tag on a site that has not enabled a second
+                // language is.
+                if locales.multilingual() {
+                    if let Some(tag_locale) = t.locale.as_deref().filter(|c| !c.is_empty()) {
+                        if !tag_locale.eq_ignore_ascii_case(locale) {
+                            return crate::render::error_page(&state, StatusCode::NOT_FOUND, path, headers).await;
+                        }
+                    }
+                }
                 let mut j = models::tag_to_json(&t, None);
                 let url = resolver(&j);
                 if let Value::Object(m) = &mut j {
@@ -495,6 +636,10 @@ async fn render_taxonomy(
         public: true,
         include_authors: true,
         include_tags: true,
+        // A tag or author archive lists one language's posts, like any other
+        // archive — otherwise `/de/author/ada/` would list her English work.
+        locale: locales.multilingual().then(|| locale.to_string()),
+        default_locale: Some(locales.default_locale().to_string()),
     };
     let result = match repos::posts::browse(&state.db, &q).await {
         Ok(r) => r,
@@ -517,10 +662,15 @@ async fn render_taxonomy(
     root.insert("pagination".into(), pagination);
 
     let candidates = vec![format!("{name}-{slug}"), name.clone(), "index".into()];
+    let neutral = locales.split_path(path).1;
+    let translations = translations_for(&state, &locales, locale, None, &neutral).await;
     let rctx = RenderCtx {
         context,
+        locale: locale.to_string(),
+        translations,
         relative_url: path.to_string(),
         member,
+        ..Default::default()
     };
     match render_template(&state, &theme, &candidates, Value::Object(root), &rctx).await {
         Ok(html) => html_response(html),
@@ -553,6 +703,7 @@ async fn render_custom(
         context: vec![name],
         relative_url: path.to_string(),
         member,
+        ..Default::default()
     };
     match render_template(&state, &theme, &candidates, Value::Object(root), &rctx).await {
         Ok(html) => {
@@ -635,6 +786,7 @@ pub(crate) async fn render_preview_snapshot(
         context,
         relative_url: path.to_string(),
         member,
+        ..Default::default()
     };
     render_template(state, &theme, &candidates, Value::Object(root), &rctx).await
 }

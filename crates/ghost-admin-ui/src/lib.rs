@@ -18,7 +18,10 @@ mod click;
 pub mod automations;
 pub mod comments;
 pub mod forms;
+pub mod history;
+pub mod languages;
 pub mod posts;
+pub mod seo;
 pub mod social;
 pub mod rest;
 pub mod schedule;
@@ -196,6 +199,13 @@ pub fn admin_ui_router(state: AppState) -> Router<AppState> {
         .route("/forms/{id}/", get(forms::form_page).post(forms::form_save))
         .route("/forms/{id}/delete/", post(forms::form_delete))
         .route("/settings/forms/", get(forms::settings_page).post(forms::settings_save))
+        // seo: the report, and the switches behind it. Static `content`
+        // before any `{id}` this module might grow.
+        .route("/seo/", get(seo::seo_page))
+        .route("/seo/content/", get(seo::content_page))
+        .route("/settings/seo/", get(seo::settings_page).post(seo::settings_save))
+        .route("/languages/", get(languages::languages_page))
+        .route("/settings/languages/", get(languages::settings_page).post(languages::settings_save))
         // Media: the file library. No `{id}` anywhere in it — a stored path
         // has slashes and dots in it, so a file is named by a `path=`
         // parameter that `ghost_core::media::parse_location` checks, rather
@@ -237,6 +247,15 @@ pub fn admin_ui_router(state: AppState) -> Router<AppState> {
         .route("/posts/{id}/preview/test/", post(preview::send_test))
         .route("/posts/{id}/delete/", post(post_delete))
         .route("/posts/{id}/analytics/", get(post_analytics_page))
+        // Post history and Page history, reached from the editor's own panel.
+        .route("/posts/{id}/history/", get(history::history_page))
+        .route("/posts/{id}/history/{revision}/restore/", post(history::restore))
+        // multilingual: linking an entry to its translations, from the
+        // editor's Language panel.
+        .route("/posts/{id}/translations/link/", post(languages::link))
+        .route("/posts/{id}/translations/unlink/", post(languages::unlink))
+        .route("/posts/{id}/translations/new/", post(languages::create))
+        .route("/posts/{id}/translations/search/", get(languages::search))
         .route("/pages/", get(posts::pages_list))
         .route("/pages/new/", get(page_new).post(page_create))
         .route("/pages/bulk/", post(pages_bulk))
@@ -244,6 +263,12 @@ pub fn admin_ui_router(state: AppState) -> Router<AppState> {
         .route("/pages/{id}/preview/", post(preview::render))
         .route("/pages/{id}/preview/test/", post(preview::send_test))
         .route("/pages/{id}/delete/", post(page_delete))
+        .route("/pages/{id}/history/", get(history::history_page))
+        .route("/pages/{id}/history/{revision}/restore/", post(history::restore))
+        .route("/pages/{id}/translations/link/", post(languages::link))
+        .route("/pages/{id}/translations/unlink/", post(languages::unlink))
+        .route("/pages/{id}/translations/new/", post(languages::create))
+        .route("/pages/{id}/translations/search/", get(languages::search))
         .route("/tags/", get(tags_list).post(tag_create))
         .route("/tags/{id}/", get(tag_edit_page).post(tag_edit_save))
         .route("/tags/{id}/delete/", post(tag_delete))

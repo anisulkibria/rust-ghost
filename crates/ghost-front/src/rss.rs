@@ -32,6 +32,8 @@ pub async fn render_rss(state: AppState, kind: RssKind, name: String, path: &str
         public: true,
         include_authors: true,
         include_tags: true,
+        locale: None,
+        default_locale: None,
     };
     let result = match repos::posts::browse(&state.db, &q).await {
         Ok(r) => r,

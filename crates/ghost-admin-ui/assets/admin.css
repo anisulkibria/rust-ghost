@@ -2107,3 +2107,179 @@ body:has(.ml-tile input:checked) .ml-tile .row-check { opacity: 1; }
 .ml-nothing p { margin: 0; font-size: 15px; font-weight: 600; }
 .ml-nothing p.muted { font-weight: 400; max-width: 34ch; }
 @media (max-width: 1000px) { .ml-item { grid-template-columns: minmax(0, 1fr); } }
+
+/* ---- seo: the report's score badges and its filter bar ---- */
+/* Class prefix `seo-`. Everything else on both screens is the shared set:
+   `.tiles`, `.card.rows .row`, `.chips`, `.chip`, `.seg-bar`, `.btn`. */
+
+/* A score in place of an icon. The `.ic` box already centres its content and
+   carries the tint, so this only has to make a number read as a number —
+   tabular figures so a column of them does not jitter between 8 and 100. */
+.ic.seo-score { font-size: 14.5px; font-weight: 600; font-variant-numeric: tabular-nums; }
+
+/* The findings under an entry's title. Sits inside `.row .body`, so the gap
+   above it is the row's business rather than the chips'. */
+.seo-findings { margin-top: 8px; }
+/* A finding chip carries its explanation in `title=`, so the pointer should
+   say there is something to read. */
+.seo-findings .chip { cursor: help; }
+
+/* The filter bar: three selects that submit on change, wrapping rather than
+   compressing — a 90px-wide "Issue" select is worse than a second line. The
+   same arrangement as the media library's `.ml-bar`, with its own widths. */
+.seo-bar { display: flex; flex-wrap: wrap; gap: 12px; align-items: flex-end; margin: 2px 0 16px; }
+.seo-bar .field.fixed { flex: 0 1 220px; }
+.seo-bar .btn { margin-bottom: 2px; }
+@media (max-width: 560px) { .seo-bar .field.fixed { flex: 1 1 100%; } }
+
+/* ---- history: Post history / Page history ---- */
+/* Class prefix `ph-`. The page head, cards, buttons and chips are the shared
+   set; what is here is the two-column split and the revision list, neither of
+   which has an existing primitive. */
+
+/* List on the left, the version being read on the right. The list is given a
+   fixed share rather than `auto` so a long title in one row cannot widen the
+   column and squeeze the content beside it. */
+.ph-split { display: grid; grid-template-columns: 300px minmax(0, 1fr); gap: 16px; align-items: start; }
+@media (max-width: 900px) { .ph-split { grid-template-columns: minmax(0, 1fr); } }
+
+/* The list itself. Scrolls rather than running down the page: a post saved a
+   hundred times should not push its own content out of reach. */
+.ph-list { overflow: hidden; padding: 6px; }
+.ph-split > .ph-list { max-height: calc(100vh - 220px); overflow-y: auto; }
+/* In the editor panel there is no card around it and no scroll. */
+.ph-list.compact { padding: 0; margin-bottom: 10px; }
+
+.ph-rev { display: grid; gap: 1px; padding: 10px 12px; border-radius: 12px;
+  color: inherit; text-decoration: none; transition: background var(--dur) var(--ease); }
+.ph-rev:hover { background: color-mix(in srgb, var(--on-surface) 7%, transparent); }
+.ph-rev:focus-visible { outline: 2px solid var(--primary); outline-offset: -2px; }
+.ph-rev.on { background: var(--secondary-container); color: var(--on-secondary-container); }
+.ph-rev .ph-when { font-size: 13px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.ph-rev .ph-title { font-size: 13.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ph-rev .ph-by { font-size: 12.5px; color: var(--on-surface-variant); }
+.ph-rev.on .ph-by { color: inherit; opacity: .8; }
+/* The editor panel's rows are tighter and drop the title, which the panel's
+   own heading already implies. */
+.ph-rev.compact { padding: 7px 8px; }
+.ph-rev.compact .ph-title { display: none; }
+
+/* The version being read. */
+.ph-detail-head { display: flex; flex-wrap: wrap; gap: 12px; align-items: flex-start;
+  justify-content: space-between; margin-bottom: 14px; }
+.ph-detail-head h2 { margin: 2px 0 0; font-size: 21px; font-weight: 600; letter-spacing: -.01em; }
+.ph-detail-head .ph-when { margin: 0; font-size: 13px; color: var(--on-surface-variant); }
+.ph-restore { margin: 0; flex: none; }
+.ph-image { display: block; width: 100%; max-height: 300px; object-fit: cover;
+  border-radius: 16px; margin-bottom: 16px; }
+
+/* The stored body, rendered as it was. Deliberately plain: this is a record
+   of what the text said, not a preview of how the theme would paint it, and
+   dressing it up as the latter would be a promise this cannot keep. */
+.ph-body { font-size: 15.5px; line-height: 1.65; overflow-wrap: anywhere; }
+.ph-body > :first-child { margin-top: 0; }
+.ph-body > :last-child { margin-bottom: 0; }
+.ph-body h1, .ph-body h2, .ph-body h3 { margin: 22px 0 8px; line-height: 1.25; letter-spacing: -.01em; }
+.ph-body h1 { font-size: 24px; } .ph-body h2 { font-size: 20px; } .ph-body h3 { font-size: 17px; }
+.ph-body p, .ph-body ul, .ph-body ol, .ph-body blockquote { margin: 0 0 14px; }
+.ph-body ul, .ph-body ol { padding-left: 22px; }
+.ph-body img, .ph-body video, .ph-body iframe { max-width: 100%; height: auto; border-radius: 12px; }
+.ph-body blockquote { padding-left: 14px; border-left: 3px solid var(--outline-variant);
+  color: var(--on-surface-variant); }
+.ph-body pre { padding: 12px 14px; border-radius: 12px; background: var(--sc-low);
+  overflow-x: auto; font-size: 13px; }
+.ph-body figcaption { font-size: 13px; color: var(--on-surface-variant); text-align: center; }
+.ph-body a { color: var(--primary); }
+
+/* ---- languages: the Multilingual module's picks, and the editor panel ---- */
+/* Class prefix `lg-`. Tiles, cards, rows, chips and switches are the shared
+   set; what is here is the language checkbox grid and the editor's
+   translation list, neither of which has an existing primitive. */
+
+/* The enabled-languages grid. A plain multi-column list rather than a
+   multi-select: there are ~60 languages and a native multi-select of that
+   length is unusable, where ticking boxes is not. */
+.lg-picks { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 2px 14px; }
+.lg-pick { display: flex; align-items: center; gap: 9px; padding: 7px 9px; border-radius: 10px;
+  font-size: 14px; cursor: pointer; transition: background var(--dur) var(--ease); }
+.lg-pick:hover { background: color-mix(in srgb, var(--on-surface) 6%, transparent); }
+.lg-pick input { flex: none; accent-color: var(--primary); width: 16px; height: 16px; }
+.lg-pick > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* The default language is ticked and disabled — it is set in General
+   settings, and unticking it here would mean nothing. Shown rather than
+   hidden so the list is not missing the one language the site definitely
+   publishes in. */
+.lg-pick.is-default { cursor: default; background: var(--secondary-container);
+  color: var(--on-secondary-container); }
+.lg-pick em { margin-left: auto; font-size: 11.5px; font-style: normal; font-weight: 600;
+  letter-spacing: .03em; text-transform: uppercase; opacity: .75; }
+
+/* A navigation box, one per language. Monospaced because its content is
+   `Label | /url/` lines and the pipe should line up. */
+textarea.lg-nav { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 13px; line-height: 1.6; }
+
+/* ---- the editor's Language panel ---- */
+/* The panel stacks a picker, a list, two actions and three hints, and with
+   no rhythm of its own they ran together into a wall. Each block gets the
+   same gap, and each control is separated from the sentence explaining it —
+   so the eye can tell "thing you set" from "thing telling you about it". */
+.lg-field { margin: 0 0 4px; }
+.lg-group { margin-top: 18px; padding-top: 16px; border-top: 1px solid var(--outline-variant); }
+.lg-group:first-of-type { border-top: 0; }
+/* A small heading for a block that is a list rather than a control. */
+.lg-label { display: block; margin-bottom: 8px; font-size: 11.5px; font-weight: 600;
+  letter-spacing: .05em; text-transform: uppercase; color: var(--on-surface-variant); }
+/* A hint that stands alone rather than under a field needs its own top gap,
+   since there is no control above it to sit against. */
+.lg-note { margin: 0; }
+/* Hints under a control: close enough to read as belonging to it, far enough
+   not to crowd it. */
+.lg-group .hint, .lg-field .hint { margin: 8px 0 0; line-height: 1.5; }
+
+/* An action row: a control and its button, on one line, wrapping rather than
+   squeezing the control on a narrow panel. `align-items: end` so the button
+   sits on the field's baseline instead of floating above its label. */
+.lg-action { display: flex; flex-wrap: wrap; gap: 10px; align-items: flex-end; margin: 0; }
+.lg-action > .field { flex: 1 1 150px; min-width: 0; margin: 0; }
+.lg-action > .btn { flex: none; }
+
+/* The link search: results hang under the input, over whatever follows. */
+.lg-search { position: relative; }
+.lg-results { position: absolute; top: 100%; left: 0; right: 0; z-index: 20; margin-top: 6px;
+  padding: 6px; max-height: 280px; overflow-y: auto; border-radius: 14px;
+  background: var(--sc-lowest); border: 1px solid var(--outline-variant);
+  box-shadow: var(--shadow-2, var(--shadow-1)); }
+.lg-result { display: flex; align-items: center; gap: 8px; width: 100%; padding: 8px 9px;
+  border: 0; border-radius: 10px; background: none; font: inherit; color: inherit;
+  text-align: left; cursor: pointer; }
+.lg-result:hover, .lg-result:focus-visible { background: color-mix(in srgb, var(--on-surface) 8%, transparent); }
+.lg-result-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis;
+  white-space: nowrap; font-size: 13.5px; }
+.lg-result-status { font-size: 12px; color: var(--on-surface-variant); }
+.lg-result-none { margin: 0; padding: 10px; font-size: 13px; color: var(--on-surface-variant); }
+
+/* The entry that has been picked, in place of the input. */
+.lg-chosen { display: flex; align-items: center; gap: 8px; padding: 7px 9px; border-radius: 10px;
+  background: var(--secondary-container); color: var(--on-secondary-container); font-size: 13.5px; }
+.lg-chosen-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+
+/* One existing translation. The title takes the room left over so the
+   language chip and the status stay put as titles vary in length. */
+.lg-sibs { display: grid; gap: 6px; }
+.lg-sib { display: flex; align-items: center; gap: 9px; padding: 9px 10px; border-radius: 10px;
+  background: var(--sc-low); font-size: 13.5px; }
+.lg-sib-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lg-sib-title a { text-decoration: none; }
+.lg-sib-title a:hover { text-decoration: underline; }
+/* The unlink forms cannot nest inside the editor's own form, so they sit
+   beside it and the buttons reach them by id — the same arrangement the
+   delete button uses. */
+.lg-hidden-form { display: none; }
+
+/* "Translate into …" and "Or link one that exists": a select and a button on
+   one line, wrapping rather than squeezing the select on a narrow panel. */
+.lg-create { display: flex; flex-wrap: wrap; gap: 8px; align-items: flex-end; margin: 0; }
+.lg-create .field.fixed { flex: 1 1 150px; min-width: 0; }
+.lg-create .btn { margin-bottom: 2px; }

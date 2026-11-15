@@ -959,6 +959,90 @@
         "value": "false"
     },
     {
+        "group": "multilingual",
+        "key": "locales_enabled",
+        "type": "array",
+        "flags": "",
+        "value": "[]"
+    },
+    {
+        "group": "multilingual",
+        "key": "navigation_locales",
+        "type": "object",
+        "flags": "",
+        "value": "{}"
+    },
+    {
+        "group": "multilingual",
+        "key": "secondary_navigation_locales",
+        "type": "object",
+        "flags": "",
+        "value": "{}"
+    },
+    {
+        "group": "multilingual",
+        "key": "locale_hreflang",
+        "type": "boolean",
+        "flags": "",
+        "value": "true"
+    },
+    {
+        "group": "seo",
+        "key": "seo_structured_data",
+        "type": "boolean",
+        "flags": "",
+        "value": "true"
+    },
+    {
+        "group": "seo",
+        "key": "seo_append_site_title",
+        "type": "boolean",
+        "flags": "",
+        "value": "false"
+    },
+    {
+        "group": "seo",
+        "key": "seo_sitemap_images",
+        "type": "boolean",
+        "flags": "",
+        "value": "true"
+    },
+    {
+        "group": "seo",
+        "key": "seo_noindex_tag_pages",
+        "type": "boolean",
+        "flags": "",
+        "value": "false"
+    },
+    {
+        "group": "seo",
+        "key": "seo_noindex_author_pages",
+        "type": "boolean",
+        "flags": "",
+        "value": "false"
+    },
+    {
+        "group": "seo",
+        "key": "seo_noindex_paged_pages",
+        "type": "boolean",
+        "flags": "",
+        "value": "false"
+    },
+    {
+        "group": "seo",
+        "key": "seo_referrer_policy",
+        "type": "string",
+        "flags": "",
+        "value": ""
+    },
+    {
+        "group": "seo",
+        "key": "seo_robots_txt",
+        "type": "string",
+        "flags": "",
+        "value": ""
+    },
+    {
         "group": "indexnow",
         "key": "indexnow_api_key",
         "type": "string",

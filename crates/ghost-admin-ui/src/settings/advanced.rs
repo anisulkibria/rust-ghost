@@ -391,6 +391,8 @@ pub(crate) async fn build_post_analytics_csv(state: &AppState) -> Option<Vec<u8>
         public: false,
         include_authors: true,
         include_tags: true,
+        locale: None,
+        default_locale: None,
     };
     let posts = repos::posts::browse(&state.db, &q).await.map(|p| p.posts).unwrap_or_default();
     let site_url = state.site_url();

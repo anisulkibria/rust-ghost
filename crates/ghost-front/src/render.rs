@@ -7,6 +7,7 @@ use ghost_core::Result;
 use ghost_render::{context as render_context, ThemeState};
 use serde_json::{Map, Value};
 
+#[derive(Default)]
 pub struct RenderCtx {
     pub context: Vec<String>,
     pub relative_url: String,
@@ -14,6 +15,19 @@ pub struct RenderCtx {
     /// Themes branch on this to swap "Sign in" for "Account", so it has to be
     /// resolved server-side even though Portal also fetches it over XHR.
     pub member: Value,
+    /// The language this page is being rendered in — the one named by the
+    /// URL's prefix, or the site default. Decides `<html lang>`, which menu
+    /// `@site.navigation` holds, and which locale file `{{t}}` reads.
+    pub locale: String,
+    /// This page in every language it exists in, as
+    /// `[{locale, label, url, active}]`.
+    ///
+    /// Computed once here and read twice — by a theme drawing a language
+    /// switcher (`{{#foreach translations}}`) and by `{{ghost_head}}` writing
+    /// the `hreflang` alternates. One source so the two cannot disagree about
+    /// what exists, which is the failure that makes a switcher offer a link
+    /// to a 404.
+    pub translations: Value,
 }
 
 /// Resolve `@member` from the request's session cookie.
@@ -114,10 +128,11 @@ pub async fn render_template(
     };
 
     // build the full root: data + site/config/member/labs/custom + context
-    let site = render_context::build_site(
+    let site = render_context::build_site_for(
         &state.settings,
         &state.site_url(),
         &state.admin_url(),
+        Some(&rctx.locale),
     );
     let config = render_context::build_config(
         theme.posts_per_page(),
@@ -200,6 +215,8 @@ pub async fn render_template(
             m.insert("relativeUrl".into(), Value::String(rctx.relative_url.clone()));
             m.insert("frontendKey".into(), Value::String(frontend_key.clone()));
             m.insert("comments".into(), Value::Bool(has_comments));
+            m.insert("locale".into(), Value::String(rctx.locale.clone()));
+            m.insert("translations".into(), rctx.translations.clone());
             Value::Object(m.clone())
         }
         other => {
@@ -215,6 +232,8 @@ pub async fn render_template(
             m.insert("relativeUrl".into(), Value::String(rctx.relative_url.clone()));
             m.insert("frontendKey".into(), Value::String(frontend_key));
             m.insert("comments".into(), Value::Bool(has_comments));
+            m.insert("locale".into(), Value::String(rctx.locale.clone()));
+            m.insert("translations".into(), rctx.translations.clone());
             Value::Object(m)
         }
     };
@@ -274,6 +293,7 @@ pub async fn error_page_with_message(
         context: vec![format!("error-{code}")],
         relative_url: path.to_string(),
         member: member_context(state, &headers).await,
+        ..Default::default()
     };
 
     if let Ok(html) = render_template(state, &theme, &candidates, Value::Object(root), &rctx).await {
@@ -290,10 +310,15 @@ pub async fn error_page_with_message(
         .replace('&', "&amp;")
         .replace('<', "&lt;")
         .replace('>', "&gt;");
+    // `noindex,nofollow` because this page has no content of its own and a
+    // theme with an `error.hbs` gets the same tag through `{{ghost_head}}`.
+    // The status code is already enough for a well-behaved crawler; the tag
+    // is what keeps a "Page not found" out of the results when something
+    // links to a URL that used to work.
     (
         status,
         Html(format!(
-            "<!DOCTYPE html><html><head><title>{code}</title></head><body style=\"font-family:sans-serif;text-align:center;padding:4rem\"><h1>{code}</h1><p>{escaped}</p></body></html>"
+            "<!DOCTYPE html><html lang=\"en\"><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width, initial-scale=1\"><meta name=\"robots\" content=\"noindex,nofollow\"><title>{code}</title></head><body style=\"font-family:sans-serif;text-align:center;padding:4rem\"><h1>{code}</h1><p>{escaped}</p></body></html>"
         )),
     )
         .into_response()

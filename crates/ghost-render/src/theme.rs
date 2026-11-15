@@ -300,7 +300,14 @@ pub fn read_pkg(theme_dir: &Path) -> Option<ThemePkg> {
 }
 
 /// Scan a theme directory and build the activation state.
-pub fn load_and_activate(theme_dir: &Path, deps: &HelperDeps, translations: HashMap<String, String>) -> Result<ThemeState> {
+/// `translations` is keyed by locale code, with `""` for the site default —
+/// every language at once, because the registry is shared by every request
+/// and a multilingual site renders more than one of them between restarts.
+pub fn load_and_activate(
+    theme_dir: &Path,
+    deps: &HelperDeps,
+    translations: HashMap<String, HashMap<String, String>>,
+) -> Result<ThemeState> {
     let name = theme_dir
         .file_name()
         .map(|n| n.to_string_lossy().to_string())

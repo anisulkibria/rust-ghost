@@ -310,6 +310,8 @@ async fn browse_posts_impl(
             public: true,
             include_authors: true,
             include_tags: true,
+            locale: None,
+            default_locale: None,
         },
     )
     .await;
@@ -669,6 +671,8 @@ async fn search_index_posts(State(state): State<AppState>, Query(params): Query<
             public: true,
             include_authors: false,
             include_tags: false,
+            locale: None,
+            default_locale: None,
         },
     )
     .await;

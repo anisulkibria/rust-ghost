@@ -815,13 +815,19 @@ fn settings_groups_match_ghosts_navigation() {
     // every one of their fields falls back to. Migration tools is a group
     // in its place, holding the import and export that were under
     // Advanced — which is Ghost's own arrangement.
+    //
+    // SEO is this port's own group, beside Forms for the same reason: the
+    // module's report lives under Modules, and the switches that apply to
+    // every page at once live here. Languages sits before it: which
+    // languages a site publishes in decides what the SEO settings are
+    // describing.
     let titles: Vec<&str> = SETTINGS_GROUPS.iter().map(|g| g.title).collect();
     assert_eq!(
         titles,
         ["General settings", "Staff", "Analytics",
          "Design & branding", "Navigation", "Code injection", "Announcement",
          "Membership", "Machine payments", "Email", "Newsletters", "Growth",
-         "Features", "Forms", "Integrations",
+         "Features", "Forms", "Languages", "SEO", "Integrations",
          "Migration tools", "Advanced", "History", "Danger zone"]
     );
     // every group has a working page at its slug

@@ -115,6 +115,8 @@ pub async fn llms_txt(State(state): State<AppState>) -> Response {
                 public: true,
                 include_authors: false,
                 include_tags: false,
+                locale: None,
+                default_locale: None,
             };
             repos::posts::browse(&db, &q).await.map(|r| r.posts).unwrap_or_default()
         }

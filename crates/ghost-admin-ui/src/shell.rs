@@ -48,6 +48,12 @@ pub(crate) fn icon(name: &str) -> &'static str {
         "file" => r#"<path d="M6 2c-1.1 0-1.99.9-1.99 2L4 20c0 1.1.89 2 1.99 2H18c1.1 0 2-.9 2-2V8l-6-6H6zm7 7V3.5L18.5 9H13z"/>"#,
         "copy" => r#"<path d="M16 1H4c-1.1 0-2 .9-2 2v14h2V3h12V1zm3 4H8c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h11c1.1 0 2-.9 2-2V7c0-1.1-.9-2-2-2zm0 16H8V7h11v14z"/>"#,
         "check" => r#"<path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/>"#,
+        // Material Symbols `trending_up`: a line stepping up to an arrowhead.
+        // The SEO module's mark — the one thing the whole module is about.
+        "trending" => r#"<path d="M16 6l2.29 2.29-4.88 4.88-4-4L2 16.59 3.41 18l6-6 4 4 6.3-6.29L22 12V6z"/>"#,
+        // Material Symbols `warning`: a filled triangle with a bang. Used for
+        // a finding a crawler cannot work around.
+        "warning" => r#"<path d="M1 21h22L12 2 1 21zm12-3h-2v-2h2v2zm0-4h-2v-4h2v4z"/>"#,
         "ghost" => r#"<path d="M12 2a8 8 0 0 0-8 8v10.6c0 .7.85 1.05 1.35.55l1.9-1.9 2.2 2.2c.3.3.78.3 1.08 0L12 20l1.47 1.45c.3.3.78.3 1.08 0l2.2-2.2 1.9 1.9c.5.5 1.35.15 1.35-.55V10a8 8 0 0 0-8-8zm-3 8.5A1.5 1.5 0 1 1 10.5 9 1.5 1.5 0 0 1 9 10.5zm6 0A1.5 1.5 0 1 1 16.5 9 1.5 1.5 0 0 1 15 10.5z"/>"#,
         "menu" => r#"<path d="M3 18h18v-2H3v2zm0-5h18v-2H3v2zm0-7v2h18V6H3z"/>"#,
         "comment" => r#"<path d="M20 2H4c-1.1 0-2 .9-2 2v18l4-4h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zM6 9h12v2H6V9zm8 5H6v-2h8v2zm4-6H6V6h12v2z"/>"#,
@@ -891,7 +897,7 @@ pub(crate) fn merge_night_shift(existing: Option<&str>, theme: &str) -> String {
 /// `user` supplies the account block at the bottom of the rail.
 pub(crate) fn rail(active: &str, user: Option<&ghost_core::models::User>, role: Role) -> String {
     let active = match active {
-        "analytics" | "comments" | "automations" | "forms" | "media" => "modules",
+        "analytics" | "comments" | "automations" | "forms" | "media" | "seo" | "languages" => "modules",
         other => other,
     };
     // Showing a link that only leads to "Not allowed" is worse than not

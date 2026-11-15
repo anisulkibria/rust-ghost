@@ -771,6 +771,8 @@ async fn admin_browse_posts_impl(state: AppState, params: HashMap<String, String
             public: false,
             include_authors: true,
             include_tags: true,
+            locale: None,
+            default_locale: None,
         },
     )
     .await;
@@ -1161,6 +1163,20 @@ async fn admin_edit_post(State(state): State<AppState>, Path(id): Path<String>, 
         }),
         clearing: ["custom_excerpt", "feature_image", "canonical_url", "custom_template", "codeinjection_head", "codeinjection_foot", "meta_title", "meta_description", "og_title", "og_description", "og_image", "twitter_title", "twitter_description", "twitter_image", "email_subject", "feature_image_alt", "feature_image_caption"]
             .into_iter().filter(|key| posts.get(*key).is_some_and(Value::is_null)).collect(),
+        // Recorded on the revision this update snapshots, so Post history can
+        // name whoever made the edit — including an edit made through the API.
+        editor_id: Some(user.id.clone()),
+        // An API call is a deliberate write; there is no autosave behind it.
+        explicit_save: true,
+        // Accepted only in canonical form; an explicit empty string resets
+        // the entry to the site's default language.
+        locale: posts.get("locale").and_then(|v| v.as_str()).map(|raw| {
+            if raw.trim().is_empty() {
+                String::new()
+            } else {
+                ghost_core::locales::normalise(raw).unwrap_or_default()
+            }
+        }),
     };
 
     match repos::posts::update(&state.db, &id, &changes).await {
@@ -1277,6 +1293,12 @@ async fn admin_add_tag(State(state): State<AppState>, headers: HeaderMap, Json(b
         accent_color: tag.get("accent_color").and_then(|v| v.as_str()).map(str::to_string),
         meta_title: tag.get("meta_title").and_then(|v| v.as_str()).map(str::to_string),
         meta_description: tag.get("meta_description").and_then(|v| v.as_str()).map(str::to_string),
+        // Reduced to a code this site publishes in, so an API client cannot
+        // store a locale the site has no language for.
+        locale: tag
+            .get("locale")
+            .and_then(|v| v.as_str())
+            .and_then(ghost_core::locales::normalise),
     };
     match repos::tags::insert(&state.db, &new).await {
         Ok(t) => {
@@ -1318,6 +1340,15 @@ async fn admin_edit_tag(State(state): State<AppState>, Path(id): Path<String>, h
         twitter_description: f("twitter_description"),
         codeinjection_head: f("codeinjection_head"),
         codeinjection_foot: f("codeinjection_foot"),
+        // An explicit empty string clears it back to "every language"; a
+        // value is accepted only in canonical form.
+        locale: f("locale").map(|raw| {
+            if raw.trim().is_empty() {
+                String::new()
+            } else {
+                ghost_core::locales::normalise(&raw).unwrap_or_default()
+            }
+        }),
     };
     match repos::tags::update(&state.db, &id, &changes).await {
         Ok(t) => {

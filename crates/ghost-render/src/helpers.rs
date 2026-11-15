@@ -1665,29 +1665,50 @@ impl HelperDef for Plural {
 /// `{{t "key" binding=value}}`. Ghost returns a plain string here (not a
 /// SafeString) so that `{{t}}` escapes and `{{{t}}}` does not, and so that it
 /// composes as a subexpression: `{{tags prefix=(t " on ")}}`.
+/// Every language's strings, so one registry can render any of them.
+///
+/// Keyed by locale code; `""` holds the site default's strings, which is what
+/// a single-language site has and the only entry it needs.
+pub type Translations = Arc<HashMap<String, HashMap<String, String>>>;
+
+/// `{{t "string"}}` — a theme string in the language of the page being
+/// rendered.
+///
+/// The language is read off the render root rather than baked in at
+/// registration. It used to be baked in, which is why a site could only ever
+/// be in one language until it was restarted: `load_and_activate` compiled
+/// the theme with exactly one locale file's strings and the registry is
+/// shared by every request. Now the registry carries all of them and each
+/// request picks.
 pub struct Translate {
-    pub translations: Arc<HashMap<String, String>>,
+    pub translations: Translations,
 }
 impl HelperDef for Translate {
     fn call_inner<'reg: 'rc, 'rc>(
         &self,
         h: &Helper<'rc>,
         _r: &'reg Handlebars<'reg>,
-        _ctx: &'rc Context,
-        _rc: &mut RenderContext<'reg, 'rc>,
+        ctx: &'rc Context,
+        rc: &mut RenderContext<'reg, 'rc>,
     ) -> Result<handlebars::ScopedJson<'rc>, handlebars::RenderError> {
         let key = h.param(0).and_then(|p| p.value().as_str()).unwrap_or_default().to_string();
         if key.is_empty() {
             return Ok(handlebars::ScopedJson::Derived(json!("")));
         }
+        // The request's language, then the site default's strings, then the
+        // key itself. A page in a language whose locale file is missing a
+        // string shows the English (or key) text rather than a blank.
+        let requested = root_get(rc, ctx, "locale").as_str().unwrap_or_default().to_string();
+        let lookup = |code: &str| {
+            self.translations
+                .get(code)
+                .and_then(|map| map.get(&key))
+                .filter(|t| !t.is_empty())
+                .cloned()
+        };
         // Ghost's locale files list every string with an empty value until
         // it is actually translated, and fall back to the key itself.
-        let mut s = self
-            .translations
-            .get(&key)
-            .filter(|t| !t.is_empty())
-            .cloned()
-            .unwrap_or(key);
+        let mut s = lookup(&requested).or_else(|| lookup("")).unwrap_or(key);
         for (k, v) in h.hash() {
             s = s.replace(&format!("{{{}}}", k), &value_to_plain(v.value()));
         }
@@ -1719,12 +1740,10 @@ impl HelperDef for MetaTitle {
         rc: &mut RenderContext<'reg, 'rc>,
         out: &mut dyn Output,
     ) -> HelperResult {
-        let mut t = meta_title_text(rc, ctx);
-        if let Some(suffix) = hash_str(h, "page") {
-            if let Some(page) = root_get(rc, ctx, "pagination.page").as_u64().filter(|p| *p > 1) {
-                t.push_str(&suffix.replace('%', &page.to_string()));
-            }
-        }
+        // The `page=` hash replaces the default paged suffix rather than
+        // adding to it, or a theme that localises it would get both.
+        let format = hash_str(h, "page");
+        let t = meta_title_with(rc, ctx, format.as_deref());
         write_out(rc, out, &t, true)
     }
 }
@@ -1944,22 +1963,55 @@ impl HelperDef for GhostHead {
         let relative = root_get(rc, ctx, "relativeUrl").as_str().unwrap_or("/").to_string();
         let mut tags: Vec<String> = Vec::new();
 
-        // charset + viewport (Ghost relies on themes; but ghost_head emits meta description etc.)
-        let title = crate::helpers::meta_title_text(rc, ctx);
-        tags.push(format!(r#"<title>{title}</title>"#));
+        // Everything a search engine or a social network reads is resolved in
+        // one place; see `crate::seo` for the precedence rules and why they
+        // are not inline here.
+        //
+        // Note what this does *not* emit: a `<title>`. Ghost's `ghost_head`
+        // never has — the theme owns it, through `<title>{{meta_title}}</title>`
+        // in its default layout, and gscan requires that tag to be there. This
+        // helper emitting one too put two `<title>` elements in every page,
+        // which is a validation error and leaves which one wins up to the
+        // parser.
+        let meta = crate::seo::PageMeta {
+            site: site.clone(),
+            resource: this.clone(),
+            context: root_get(rc, ctx, "context")
+                .as_array()
+                .map(|a| a.iter().filter_map(|c| c.as_str()).map(str::to_string).collect())
+                .unwrap_or_default(),
+            origin: origin.trim_end_matches('/').to_string(),
+            relative_url: relative.clone(),
+            pagination: root_get(rc, ctx, "pagination"),
+            meta_title: crate::helpers::meta_title_text(rc, ctx),
+            meta_description: crate::helpers::meta_description_text(rc, ctx),
+            structured_data: ghost_core::seo::flag(&site, "seo_structured_data"),
+        };
 
-        let desc = crate::helpers::meta_description_text(rc, ctx);
+        let desc = meta.meta_description.clone();
         if !desc.is_empty() {
             tags.push(format!(r#"<meta name="description" content="{}" />"#, html_escape(&desc)));
         }
 
-        // canonical — a post may point at the original it was reposted from
-        let canonical = this
-            .get("canonical_url")
-            .and_then(|v| v.as_str())
-            .filter(|s| !s.is_empty())
-            .map(str::to_string)
-            .unwrap_or_else(|| format!("{}{}", origin.trim_end_matches('/'), relative));
+        // The publication icon, which is also what a search result and a
+        // browser tab show. Ghost emits it only when one has been uploaded:
+        // with no icon the request would 302 to the built-in default, and a
+        // redirecting favicon is slower than no tag at all.
+        if let Some(icon) = site.get("icon").and_then(|v| v.as_str()).filter(|s| !s.is_empty()) {
+            let kind = match icon.rsplit('.').next().map(str::to_ascii_lowercase).as_deref() {
+                Some("png") => "png",
+                Some("svg") => "svg+xml",
+                Some("jpg") | Some("jpeg") => "jpeg",
+                Some("webp") => "webp",
+                _ => "x-icon",
+            };
+            tags.push(format!(
+                r#"<link rel="icon" href="{}" type="image/{kind}" />"#,
+                html_escape(icon)
+            ));
+        }
+
+        let canonical = meta.canonical();
         tags.push(format!(r#"<link rel="canonical" href="{}" />"#, html_escape(&canonical)));
 
         // The Markdown source of this entry, for AI tooling that prefers it to
@@ -1982,8 +2034,72 @@ impl HelperDef for GhostHead {
             ));
         }
 
+        // Whether this page should be indexed at all.
+        //
+        // Three cases say no outright. A **preview** is an unpublished draft
+        // behind a URL that is meant to be shareable with one reviewer, so
+        // Ghost gives it `noindex,nofollow` and a `same-origin` referrer, and
+        // so does this. An **error page** carries its status code, which is
+        // already enough for a crawler, but a 404 that gets indexed anyway is
+        // a page in the results that says "Page not found" — cheap to prevent.
+        // Neither is followed: there is nothing on either worth crawling.
+        //
+        // The three archive switches are this port's own and all default to
+        // off (see `ghost_core::seo::BOOL_SETTINGS`). Those keep `follow`:
+        // telling a crawler not to *list* a tag archive is not a reason to
+        // stop it reaching the posts on it.
+        let is_error = meta.context.iter().any(|c| c.starts_with("error-"));
+        let is_preview = meta.has("preview");
+        if is_preview || is_error {
+            tags.push(r#"<meta name="robots" content="noindex,nofollow" />"#.into());
+        } else if (meta.has("tag") && ghost_core::seo::flag(&site, "seo_noindex_tag_pages"))
+            || (meta.has("author") && ghost_core::seo::flag(&site, "seo_noindex_author_pages"))
+            || (meta.has("paged") && ghost_core::seo::flag(&site, "seo_noindex_paged_pages"))
+        {
+            tags.push(r#"<meta name="robots" content="noindex,follow" />"#.into());
+        }
+        tags.push(format!(
+            r#"<meta name="referrer" content="{}" />"#,
+            if is_preview { "same-origin" } else { ghost_core::seo::referrer_policy(&site) }
+        ));
+
+        // Every language this page exists in. Beside the canonical link
+        // because they answer the same question a crawler is asking —
+        // "which URL is the real one for this content" — and `hreflang`
+        // answers it per language rather than picking one.
+        if ghost_core::locales::hreflang_enabled(&site) {
+            let translations = root_get(rc, ctx, "translations");
+            let default_locale = ghost_core::locales::Locales::from_settings(
+                site.get("locale").and_then(Value::as_str),
+                site.get("locales_enabled"),
+            );
+            tags.extend(meta.hreflang_tags(&translations, default_locale.default_locale()));
+        }
+
+        // The rest of a paginated sequence. These stay on a paged archive
+        // even though the social tags do not: prev/next is exactly how a
+        // crawler is told that page 2 continues page 1 rather than duplicating
+        // it.
+        if let Some(prev) = meta.prev_url() {
+            tags.push(format!(r#"<link rel="prev" href="{}" />"#, html_escape(&prev)));
+        }
+        if let Some(next) = meta.next_url() {
+            tags.push(format!(r#"<link rel="next" href="{}" />"#, html_escape(&next)));
+        }
+
+        // Open Graph, Twitter cards and the schema.org block — suppressed
+        // together on a paged archive and when structured data is switched
+        // off, which is the decision `PageMeta` makes.
+        tags.extend(meta.structured_data_tags());
+        if let Some(schema) = meta.schema_tag() {
+            tags.push(schema);
+        }
+
         // generator
-        tags.push(r#"<meta name="generator" content="Ghost 1.0" />"#.into());
+        tags.push(format!(
+            r#"<meta name="generator" content="Ghost {}" />"#,
+            ghost_core::GHOST_VERSION_SAFE
+        ));
 
         // RSS alternate (site feed)
         tags.push(format!(
@@ -1991,54 +2107,6 @@ impl HelperDef for GhostHead {
             html_escape(site.get("title").and_then(|t| t.as_str()).unwrap_or("")),
             origin.trim_end_matches('/')
         ));
-
-        // og + twitter — Ghost's precedence: card-specific setting →
-        // meta title/description → base
-        let site_str = |key: &str| site.get(key).and_then(|v| v.as_str()).filter(|s| !s.is_empty());
-        // The resource's own card settings come first: a post that sets its
-        // own og:title must not be overruled by the site's.
-        let this_str = |key: &str| this.get(key).and_then(|v| v.as_str()).filter(|s| !s.is_empty());
-        let og_title = this_str("og_title").or_else(|| site_str("og_title")).unwrap_or(&title).to_string();
-        let og_desc = this_str("og_description").or_else(|| site_str("og_description")).unwrap_or(&desc).to_string();
-        let twitter_title = this_str("twitter_title").or_else(|| site_str("twitter_title")).unwrap_or(&og_title).to_string();
-        let twitter_desc = this_str("twitter_description").or_else(|| site_str("twitter_description")).unwrap_or(&og_desc).to_string();
-        tags.push(format!(r#"<meta property="og:site_name" content="{}" />"#, html_escape(site.get("title").and_then(|t| t.as_str()).unwrap_or(""))));
-        // Ghost marks a post as an article and a listing page as a website.
-        let is_article = root_get(rc, ctx, "context")
-            .as_array()
-            .map(|a| a.iter().any(|c| matches!(c.as_str(), Some("post") | Some("page"))))
-            .unwrap_or(false);
-        tags.push(format!(
-            r#"<meta property="og:type" content="{}" />"#,
-            if is_article { "article" } else { "website" }
-        ));
-        tags.push(format!(r#"<meta property="og:title" content="{}" />"#, html_escape(&og_title)));
-        if !og_desc.is_empty() {
-            tags.push(format!(r#"<meta property="og:description" content="{}" />"#, html_escape(&og_desc)));
-        }
-        tags.push(format!(r#"<meta property="og:url" content="{}{}" />"#, origin.trim_end_matches('/'), relative));
-        let og_image = this_str("og_image")
-            .or_else(|| this_str("feature_image"))
-            .or_else(|| site_str("og_image"))
-            .or_else(|| site_str("cover_image"));
-        let twitter_image = this_str("twitter_image").or_else(|| site_str("twitter_image")).or(og_image);
-        // these come out of `site`/the resource already carrying the base
-        // path, so the absolute form is built against the origin
-        if let Some(img) = og_image {
-            let img = ghost_core::url::absolute(&origin, img);
-            tags.push(format!(r#"<meta property="og:image" content="{}" />"#, html_escape(&img)));
-        }
-        if let Some(img) = twitter_image {
-            let img = ghost_core::url::absolute(&origin, img);
-            tags.push(format!(r#"<meta name="twitter:card" content="summary_large_image" />"#));
-            tags.push(format!(r#"<meta name="twitter:image" content="{}" />"#, html_escape(&img)));
-        } else {
-            tags.push(r#"<meta name="twitter:card" content="summary" />"#.into());
-        }
-        tags.push(format!(r#"<meta name="twitter:title" content="{}" />"#, html_escape(&twitter_title)));
-        if !twitter_desc.is_empty() {
-            tags.push(format!(r#"<meta name="twitter:description" content="{}" />"#, html_escape(&twitter_desc)));
-        }
 
         // Koenig card assets. A post can contain a gallery, a toggle or an
         // audio player whatever theme is active, so the styles that go with
@@ -2202,34 +2270,93 @@ impl HelperDef for GhostFoot {
     }
 }
 
+/// The title of the page being rendered — Ghost's `meta/title.js`.
+///
+/// `page_format` is the suffix a paged archive gets, with `%` standing in for
+/// the page number; `None` means Ghost's own default of `" (Page N)"`. It is
+/// a parameter because `{{meta_title page=(t " (Page %)")}}` is how a theme
+/// localises that suffix (Source does exactly that), and the helper and
+/// `{{ghost_head}}` must not disagree about the result.
+///
+/// Three things here are easy to get wrong, and all three were:
+///
+/// * **A post or page is titled with its own title, nothing appended.** Ghost
+///   returns `post.meta_title || post.title` and stops. Appending
+///   `" - {site title}"` to every post — which this did — is a choice some
+///   sites want, so it survives as the `seo_append_site_title` setting, off
+///   by default.
+/// * **The home page is the site title**, or the SEO title if one is set.
+///   Not the title and the description joined.
+/// * **A tag or author archive *does* get the site title appended** — that
+///   one is Ghost's own behaviour, and a tag's `meta_title` replaces the
+///   whole thing rather than just the name.
 pub fn meta_title_text(rc: &RenderContext, ctx: &Context) -> String {
+    meta_title_with(rc, ctx, None)
+}
+
+pub fn meta_title_with(rc: &RenderContext, ctx: &Context, page_format: Option<&str>) -> String {
     let this = current_resource(rc, ctx);
+    let site = root_get(rc, ctx, "site");
     let site_title = root_get(rc, ctx, "site.title").as_str().unwrap_or_default().to_string();
     let ctx_list = root_get(rc, ctx, "context");
-    let is_home = ctx_list.as_array().map(|a| a.iter().any(|c| c.as_str() == Some("home"))).unwrap_or(false);
-    if is_home {
-        let site_meta = root_get(rc, ctx, "site.meta_title").as_str().unwrap_or_default().to_string();
-        let desc = root_get(rc, ctx, "site.description").as_str().unwrap_or_default().to_string();
-        if !site_meta.is_empty() {
-            site_meta.to_string()
-        } else if !desc.is_empty() {
-            format!("{site_title} - {desc}")
-        } else {
-            site_title
-        }
-    } else {
-        let own = this
-            .get("meta_title")
+    let has = |name: &str| {
+        ctx_list
+            .as_array()
+            .map(|a| a.iter().any(|c| c.as_str() == Some(name)))
+            .unwrap_or(false)
+    };
+    let own = |key: &str| {
+        this.get(key)
             .and_then(|v| v.as_str())
+            .map(str::trim)
             .filter(|s| !s.is_empty())
             .map(str::to_string)
-            .or_else(|| this.get("name").and_then(|v| v.as_str()).map(str::to_string))
-            .or_else(|| this.get("title").and_then(|v| v.as_str()).map(str::to_string));
-        match own {
-            Some(o) => format!("{o} - {site_title}"),
-            None => site_title,
-        }
+    };
+
+    // The suffix a page past the first carries. Ghost keys this off
+    // `pagination.total > 1`, which counts *posts* and so labels the only
+    // page of a short archive "(Page 1)"; this reads the page number, which
+    // is what the suffix claims to be about.
+    let page = root_get(rc, ctx, "pagination.page").as_u64().unwrap_or(1);
+    let page_suffix = if page > 1 {
+        page_format.unwrap_or(" (Page %)").replace('%', &page.to_string())
+    } else {
+        String::new()
+    };
+    let with_site = |text: String| match site_title.is_empty() {
+        true => format!("{text}{page_suffix}"),
+        false => format!("{text} - {site_title}{page_suffix}"),
+    };
+
+    if has("home") {
+        let site_meta = root_get(rc, ctx, "site.meta_title").as_str().unwrap_or_default().trim().to_string();
+        return if site_meta.is_empty() { site_title } else { site_meta };
     }
+    if has("author") && this.get("id").is_some() {
+        return match own("meta_title") {
+            Some(t) => t,
+            None => with_site(own("name").unwrap_or_default()),
+        };
+    }
+    if has("tag") && this.get("id").is_some() {
+        return match own("meta_title") {
+            Some(t) => t,
+            None => with_site(own("name").unwrap_or_default()),
+        };
+    }
+    if has("post") || has("page") {
+        let title = own("meta_title").or_else(|| own("title")).unwrap_or_default();
+        if title.is_empty() {
+            return site_title;
+        }
+        // The site title is appended only if this site asked for it.
+        return if ghost_core::seo::flag(&site, "seo_append_site_title") && !site_title.is_empty() {
+            format!("{title} - {site_title}")
+        } else {
+            title
+        };
+    }
+    format!("{site_title}{page_suffix}")
 }
 
 pub fn meta_description_text(rc: &RenderContext, ctx: &Context) -> String {
@@ -2245,14 +2372,23 @@ pub fn meta_description_text(rc: &RenderContext, ctx: &Context) -> String {
             .unwrap_or_default()
             .to_string()
     } else {
+        // Only what a person wrote. Ghost stops here deliberately: it does
+        // *not* fall through to the automated 50-word excerpt, because a
+        // truncated first paragraph is a worse search snippet than the one a
+        // crawler composes from the page itself — and emitting one would hide
+        // the gap from the SEO report, which reads the same chain.
+        //
+        // The card descriptions do keep falling through to the excerpt; that
+        // chain lives in `crate::seo::PageMeta::card_description`, because a
+        // share preview with no text is just a grey box.
         this.get("meta_description")
             .and_then(|v| v.as_str())
-            .filter(|s| !s.is_empty())
-            .or_else(|| this.get("custom_excerpt").and_then(|v| v.as_str()))
-            .or_else(|| this.get("description").and_then(|v| v.as_str()))
-            .or_else(|| this.get("excerpt").and_then(|v| v.as_str()))
-            .or_else(|| this.get("bio").and_then(|v| v.as_str()))
+            .filter(|s| !s.trim().is_empty())
+            .or_else(|| this.get("custom_excerpt").and_then(|v| v.as_str()).filter(|s| !s.trim().is_empty()))
+            .or_else(|| this.get("description").and_then(|v| v.as_str()).filter(|s| !s.trim().is_empty()))
+            .or_else(|| this.get("bio").and_then(|v| v.as_str()).filter(|s| !s.trim().is_empty()))
             .unwrap_or_default()
+            .trim()
             .to_string()
     }
 }
@@ -3550,7 +3686,7 @@ impl HelperDef for HelperMissing {
 pub fn register_all(
     hb: &mut Handlebars<'_>,
     deps: &HelperDeps,
-    translations: HashMap<String, String>,
+    translations: HashMap<String, HashMap<String, String>>,
     blocks: BlockStore,
 ) {
     hb.register_helper("blockHelperMissing", Box::new(BlockHelperMissing));
