@@ -90,6 +90,8 @@ async fn fixture() -> Fixture {
         setup_done: Arc::new(std::sync::atomic::AtomicBool::new(true)),
         frontend_key: Arc::new(tokio::sync::RwLock::new(None)),
         limits: Arc::new(ghost_db::limits::Limits::default()),
+        // Empty: a fixture firewall lets everybody through.
+        firewall: ghost_db::repos::firewall::RuleCache::empty(),
     };
     Fixture { _db: test_db, state, owner: owner.id }
 }

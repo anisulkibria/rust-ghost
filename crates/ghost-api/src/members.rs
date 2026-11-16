@@ -2268,7 +2268,7 @@ async fn send_magic_link(
     // sender comes from. The integrity token above stops casual abuse; this
     // stops a determined run. Only reached once the address parses, so a
     // malformed request cannot consume somebody else's budget.
-    let ip = crate::brute::client_ip(&headers, peer);
+    let ip = crate::brute::client_ip_for(&state, &headers, peer);
     for (key, budget) in [
         (format!("{email}login"), &crate::brute::MEMBER_LOGIN),
         (format!("/members/api/send-magic-link:{ip}"), &crate::brute::GLOBAL_BLOCK),
@@ -2308,13 +2308,38 @@ async fn send_magic_link(
         );
     }
 
-    // Settings → Membership → Spam filters. Only signups are checked: a member
+    // Settings → Membership → Spam filters, and the Security module's
+    // built-in disposable-address list. Only signups are checked: a member
     // who already has an account keeps it (and their ability to sign in) if
     // their domain is blocked later, which is how Ghost treats the list.
-    if action == "signup" && state.settings.email_domain_is_blocked(&email) {
+    //
+    // Both lists are behind one call so the two cannot drift apart and so
+    // there is one place to add a third. The *caller* is told only that the
+    // address was not accepted — which list caught them is logged and not
+    // returned, because telling a spammer which filter fired is telling them
+    // which address to try next.
+    if action == "signup" {
+        if let Some(reason) = crate::firewall::signup_email_refused(&state, &email) {
+            tracing::debug!("members: refused a signup caught by {reason}");
+            return api_error(
+                StatusCode::BAD_REQUEST,
+                "Signups from that email domain are not allowed.",
+                "BadRequestError",
+            );
+        }
+    }
+
+    // Settings → Security → spam: require a signup to come from this site.
+    // Off by default, because a site that embeds its signup form elsewhere
+    // has a legitimate reason for cross-origin signups — but a site that does
+    // not is otherwise accepting signups posted from anywhere at all.
+    if action == "signup"
+        && crate::firewall::signup_same_origin_required(&state)
+        && !crate::forms::same_origin(&headers, &state.site_url())
+    {
         return api_error(
             StatusCode::BAD_REQUEST,
-            "Signups from that email domain are not allowed.",
+            "That signup did not come from this site.",
             "BadRequestError",
         );
     }

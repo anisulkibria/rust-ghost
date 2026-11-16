@@ -81,7 +81,60 @@ pub fn site_router(state: AppState) -> Router {
             state.clone(),
             private::guard,
         ))
+        // Outside even that, so the headers are on a private site's redirect
+        // and on its access-code screen as well as on a page.
+        .layer(axum::middleware::from_fn_with_state(
+            state.clone(),
+            security_headers,
+        ))
+        // Outermost of all: an address the firewall refuses is refused before
+        // the private gate, before a view is counted, before a page is
+        // rendered and before a theme is read. The whole point of a firewall
+        // is that the work does not happen.
+        .layer(axum::middleware::from_fn_with_state(
+            state.clone(),
+            ghost_api::firewall::public_guard,
+        ))
         .with_state(state)
+}
+
+/// The Security module's response headers on every public response.
+///
+/// Much shorter than the admin's set, and deliberately: see
+/// [`ghost_core::security::response_headers`]. A publication's pages are
+/// embedded on purpose and its own Portal runs in an iframe, so nothing
+/// framing-related belongs here, and the public site's referrer policy is the
+/// SEO module's setting and is already sent by the renderer.
+///
+/// What is left is `X-Content-Type-Options: nosniff`, which matters most on
+/// exactly this router: `/content/files/`, `/content/media/` and
+/// `/content/images/` serve files somebody uploaded, from the site's own
+/// origin. A `.txt` that a sniffing browser decides is HTML is stored XSS on
+/// the publication, and the declared type is the only type a response should
+/// have.
+///
+/// A header a handler set itself is never overwritten. The one that matters
+/// is the public file route's `Content-Security-Policy: sandbox` on an SVG,
+/// which is strictly stronger than anything here; clobbering it would be a
+/// downgrade dressed as hardening.
+async fn security_headers(
+    axum::extract::State(state): axum::extract::State<AppState>,
+    req: axum::extract::Request,
+    next: axum::middleware::Next,
+) -> axum::response::Response {
+    let headers = ghost_api::security_settings::response_headers(
+        &state,
+        ghost_core::security::Surface::Public,
+    );
+    let mut resp = next.run(req).await;
+    for (name, value) in headers {
+        let Ok(name) = axum::http::HeaderName::from_bytes(name.as_bytes()) else { continue };
+        let Ok(value) = value.parse::<axum::http::HeaderValue>() else { continue };
+        if !resp.headers().contains_key(&name) {
+            resp.headers_mut().insert(name, value);
+        }
+    }
+    resp
 }
 
 /// Async helper: read the current tree and wrap it.

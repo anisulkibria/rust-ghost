@@ -951,8 +951,19 @@ async fn update_setup(State(state): State<AppState>, headers: HeaderMap, Json(bo
         }
     }
     if let Some(password) = text("password") {
-        if password.len() < 10 {
-            return error(StatusCode::UNPROCESSABLE_ENTITY, "Password must be at least 10 characters.");
+        // `chars().count()`, not `len()`: `len()` is bytes, so a passphrase in
+        // any non-Latin script passed a ten-character check at three or four
+        // actual characters. The other two password paths already counted
+        // characters, so this was also the one door with a different rule.
+        //
+        // The minimum is the site's own, so raising it on the Security screen
+        // reaches this endpoint too.
+        let minimum = crate::security_settings::min_password_length(&state);
+        if password.chars().count() < minimum {
+            return error(
+                StatusCode::UNPROCESSABLE_ENTITY,
+                &crate::security_settings::password_too_short(&state),
+            );
         }
         let password = password.to_string();
         let Ok(Ok(hash)) = tokio::task::spawn_blocking(move || bcrypt::hash(&password, 12)).await else {
@@ -967,6 +978,29 @@ async fn update_setup(State(state): State<AppState>, headers: HeaderMap, Json(bo
             .is_err()
         {
             return error(StatusCode::INTERNAL_SERVER_ERROR, "The password could not be saved.");
+        }
+        // A password change invalidates every *other* session the account
+        // holds, so a cookie copied before the change stops working. The
+        // staff screen and the reset link have always done this; this door
+        // did not, which made it the way to change a password without
+        // withdrawing the access the old one had already bought. The caller's
+        // own session survives its own change — it is holding the cookie it
+        // just re-authenticated with.
+        if crate::security_settings::revoke_on_password_change(&state) {
+            let keep = crate::admin::session_id_from(&headers);
+            if let Err(e) =
+                ghost_db::repos::security::revoke_sessions_for_user(&state.db, &user.id, keep.as_deref()).await
+            {
+                // The password is already changed and the caller needs to
+                // know it worked; the sessions left behind are a warning in
+                // the log and a finding on the Security screen, not a reason
+                // to report a failure that did not happen.
+                tracing::error!(
+                    "changed the password for {} but could not revoke their other sessions: {}",
+                    user.id,
+                    e.message(),
+                );
+            }
         }
     }
     for (key, column) in [("name", "name"), ("email", "email")] {

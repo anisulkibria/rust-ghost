@@ -107,6 +107,8 @@ impl Fixture {
             redirects: Arc::new(RwLock::new(Arc::new(ghost_routing::redirects::Redirects::default()))),
             setup_done: Arc::new(AtomicBool::new(true)), frontend_key: Arc::new(RwLock::new(Some(content_key.clone()))),
             limits: Arc::new(ghost_db::limits::Limits::load(&host_settings)),
+            // Empty: a fixture firewall lets everybody through.
+            firewall: ghost_db::repos::firewall::RuleCache::empty(),
         };
         let app = Router::new().nest("/admin", ghost_api::admin::admin_router().merge(ghost_api::automations::automations_router()).merge(ghost_api::admin_comments::admin_comments_router()))
             .nest("/content", ghost_api::content::content_router(state.clone()))

@@ -32,6 +32,20 @@ pub struct AppState {
     /// (every API key authentication, every upload) where re-parsing it would
     /// be pure waste.
     pub limits: Arc<ghost_db::limits::Limits>,
+    /// The firewall's rules, in memory.
+    ///
+    /// Unlike [`Self::limits`] this *can* change while the process runs — the
+    /// Security screen writes rules — so it is a cache with a `reload` rather
+    /// than a value resolved once. It is here, on the state, because the
+    /// middleware that reads it runs before any handler and on every request,
+    /// including the requests it is about to refuse; a query there would mean
+    /// a database round trip per request at exactly the moment a site is
+    /// under the load that makes a firewall worth having.
+    ///
+    /// Empty by default, so a test or an embedder that builds an `AppState`
+    /// by hand gets a firewall that lets everybody through rather than one
+    /// that refuses everybody. See [`ghost_db::repos::firewall::RuleCache`].
+    pub firewall: ghost_db::repos::firewall::RuleCache,
 }
 
 impl AppState {

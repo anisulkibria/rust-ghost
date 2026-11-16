@@ -26,7 +26,9 @@ That is the shape every module from here on takes. The file must not grow back.
 
 A "module" here means a self-contained administrative feature with its own
 screens under `/ghost/<name>/`: Forms, Comments, Automations, Analytics,
-Media, SEO, Social web. Most of them predate this document.
+Media, Memberships, Newsletters, Security, SEO, Social web. Most of them
+predate this
+document.
 
 **Media (2026-11-14) is the first module built to this document from
 nothing**, so it is worth reading beside Forms. Two things in it are new and
@@ -78,6 +80,147 @@ that is *not* behind a single role. Three things in it are new:
   is the home, not a tool filed under one. Registrations 5, 6, 8 and 9 are
   empty too — no settings, no scripts, no tables.
 
+**Security (2026-11-16) is the fourth**, and is the one to read for a module
+whose settings are *defences* rather than preferences. Four things in it
+depart from the three above, each deliberately:
+
+- **Two of its defaults change behaviour on upgrade.** Every module before it
+  took the SEO line that installing it changes nothing until somebody moves a
+  switch. That is right for editorial preferences and wrong here: a hardening
+  switch that ships off is hardening nobody has. The line drawn instead is
+  *can this break a working site* — `security_headers` and
+  `security_private_fetch` ship on because no configuration exists in which
+  they break the admin, while `security_hsts` and the idle timeout ship off
+  because both are promises somebody has to choose. The migration states the
+  reasoning per key, and the report names anything still weak.
+- **It has one deliberately permissive default, and the report calls it
+  Critical.** `security_trust_proxy` preserves the old behaviour of believing
+  `X-Forwarded-For`, because turning it off on a proxied site gives the whole
+  internet one shared rate-limit budget and nothing inside the process can
+  tell whether there is a proxy. Where no default is safe, ship the one that
+  cannot break the site and make the report say so out loud.
+- **Its `ghost-core` module is a trust boundary twice over.** `trust_proxy`
+  decides whose address a rate limit is counted against, and
+  `private_fetch_blocked` decides whether the server will read its own
+  network. Both are named functions rather than `flag` calls at the call site,
+  so there is one place to change what they mean and one name to grep.
+- **Its form extractors are `#[serde(default)]` on purpose.** An axum
+  extractor runs *before* the handler, so a `String` field answers a stranger
+  `422` from the extractor rather than `302 /ghost/signin/` from `guard()` —
+  which makes rule 8's "every handler's first statement calls the guard"
+  untrue. Be lenient in the extractor and strict in the handler.
+
+Registrations 7 and 8 are empty: it needs no new glyph (`lock` already
+existed) and ships no scripts.
+
+**Its second half, the firewall (also 2026-11-16), is where it stops being a
+report and starts refusing requests**, and it is worth reading for three
+things the four modules before it had no reason to do:
+
+- **It is the first module whose middleware runs before everything else.**
+  `ghost_api::firewall::{public_guard, admin_guard}` are mounted outermost on
+  both routers — outside the private-site gate, outside the analytics
+  counter, outside the session read. An address that is barred is barred
+  before a theme is loaded or a cookie is parsed, which is the whole point of
+  a firewall: the work does not happen.
+- **It is the first module that can lock an administrator out of the admin.**
+  Three of its four actions can, so each simulates itself before it writes —
+  running the real `ghost_core::firewall::decide` over the real current rules
+  plus the change, against the author's own address read through the *same*
+  function the middleware will use. A special-case "is this my IP" check
+  would have been easier and would miss the case that actually catches people
+  out: the first admin *allow* rule naming somebody else's address, which
+  locks the author out by switching allowlist mode on rather than by matching
+  them. Turning the firewall off is never checked — an undo that can refuse
+  is not one.
+- **Its defaults point the opposite way from the rest of the module's**, and
+  so it has its own `BOOL_SETTINGS` table and its own reader
+  (`firewall::flag_spam`, beside `security::flag`). A missing `security_*`
+  row means the defence is **on**; a missing `spam_*` row means the filter is
+  **off**. Two tables rather than one, because a key looked up in the wrong
+  one reads as a plausible wrong default — and for a filter that refuses
+  people, that is the failure hardest to notice.
+
+**Memberships (2026-11-16) is the fifth**, and is the one to read for a module
+that is built out of features the admin already had. Four things in it are new:
+
+- **It owns nothing: no table, no setting, no migration, and no write.**
+  Members, tiers, offers, newsletters and subscriptions are all written by
+  somebody else, and every button on its screens either leads to the editor
+  that owns the thing or posts to the handler that already created it. SEO had
+  no table; this has no *data* at all. Its value is entirely in reading six
+  existing things together, because the commonest way a membership funnel is
+  broken is for every screen in it to be individually correct — paid tiers
+  that exist, Stripe that is not connected, a portal with no plan selected.
+  A fresh install is exactly that site, and nothing in the admin could say so
+  before.
+- **Its `guard` takes no `writes` flag.** There is no state-changing handler
+  in the module, so a flag nobody passes would be decoration, and the next
+  person to add a write would reuse a guard that never origin-checked
+  anything. The absence is documented at the guard rather than implied.
+- **It adopted another module's screen without moving it.** The members list
+  was a rail item; it is now the Memberships module's Members tab, and
+  `/ghost/members/` is unchanged — thirty-odd links inside the admin point at
+  it, as does every bookmark anybody has made. Rule 5's nav mapping (4) is how
+  the adoption is actually expressed: every members page now passes the nav key
+  `"memberships"` and lights Modules. Settings → Design and Navigation set the
+  precedent; this is the first time a *module* did it. The adopted screen gets
+  a back-chevron rather than the module's tab bar, because it already has a
+  segmented bar of its own and two stacked bars read as a mistake.
+- **It does not reuse `views_chart`, and says why.** That chart labels every
+  tooltip and its `aria-label` "views", and draws one series; a signup is not a
+  view, and the useful question here is what proportion of a day's arrivals
+  ended up paying, which is a stack. The geometry, the clean axis maximum and
+  the `compact` ticks are still shared. Rule 6 is about not restyling shared
+  primitives, not about using one that would have to lie.
+
+Registration 9 is empty (no tables), and so are 5 and 6 — Settings →
+Membership and its 24 `SETTINGS_INDEX` rows predate the module by a long way,
+and the module links to them rather than adding a page beside them. It needed
+registration 7: a `group` glyph, because the members rail item used `ghost`,
+which is this admin's brand rather than a picture of a readership.
+
+**Newsletters (2026-11-16) is the sixth**, built straight after Memberships
+and to the same shape — no table, no setting, no migration, one adopted screen
+(the newsletter list, left at `/ghost/settings/newsletters/` where its design
+editor lives). Three things in it are new:
+
+- **It owns exactly one verb, and that is why its `guard` has a `writes`
+  flag.** Retrying a failed edition is the fix for the thing the screen
+  reports, and a report that names a failure and cannot act on it sends people
+  to curl. The work is still `crate::retry_email`, the same function the Admin
+  API endpoint calls. Sending costs money per recipient and spends the site's
+  sending reputation, so the retry is origin-checked — the clearest case in the
+  admin for not resting a write on one browser behaviour.
+- **A rate is `Option<f64>`, and the `None` is the whole point.** With
+  `email_track_opens` off, every `opened_at` is NULL, so an open rate of "0%"
+  would be a measurement nobody took, reported as a result. `Programme::
+  open_rate` returns `None` when tracking is off and the screen renders a dash
+  and says why. Where a figure can be *unmeasured* as well as zero, the type
+  has to be able to say so.
+- **It asks the resolver, not the settings.** `transport_of` calls
+  `crate::resolve_bulk_transport` — the same function the send loop calls a
+  moment before it sends — rather than reading `newsletter_transport` and
+  reporting that. A screen that read the setting would say "Mailgun" for a site
+  whose Mailgun key is missing, which is the exact failure it exists to catch.
+  **When reporting whether something will work, call the thing that will do
+  it.**
+
+It also closed a real inconsistency rather than adding to it. "Subscribers" had
+two definitions: Settings → Newsletters counted `email_disabled = 0` and
+ignored the subscription status, while the Memberships card counted
+`status = 'confirmed'` and ignored the disabled flag, so one newsletter could
+show two different counts on two screens. Both halves are now one constant,
+`repos::newsletters::SUBSCRIBED`, and the per-newsletter query moved into the
+repo that owns the table — with Memberships re-exporting it under its own name.
+Picking up a second module that reads the same tables is when that kind of
+drift becomes visible; fix it then rather than matching it.
+
+The firewall is also what finally gave the Security module registration 9 (its
+`firewall_rules` table is in the wipe list) and pushed it past rule 1's
+1,500-line limit, so it is `security.rs` plus `security/{firewall,settings}.rs`
+— the second worked example of that split after `settings.rs`.
+
 It also replaced five separate `Redirect::to("/ghost/posts/")` literals with
 one `shell::ADMIN_HOME`. Those five are the ways into the admin and they have
 to agree; before, `/ghost/` went to the posts list while the rail's brand link
@@ -119,7 +262,7 @@ Where to look, and where a new screen goes. Everything under
 | `themes.rs` · `design.rs` · `navigation.rs` · `staff.rs` | the remaining settings groups with screens of their own |
 | `integrations.rs` · `apps.rs` | API keys, custom integrations, and the built-in apps |
 | `dashboard.rs` | the admin home at `/ghost/dashboard/`, where `/ghost/` and every sign-in land |
-| `analytics.rs` · `comments.rs` · `automations.rs` · `forms.rs` · `media.rs` + `media/` · `seo.rs` · `social.rs` · `click.rs` | the modules proper |
+| `analytics.rs` · `comments.rs` · `automations.rs` · `forms.rs` · `media.rs` + `media/` · `memberships.rs` + `memberships/` · `newsletters.rs` + `newsletters/` · `security.rs` + `security/` · `seo.rs` · `social.rs` · `click.rs` | the modules proper |
 | `preview.rs` · `schedule.rs` · `rest.rs` | supporting machinery |
 | `tests.rs` | tests for the shared chrome and for screens whose handlers sit elsewhere |
 

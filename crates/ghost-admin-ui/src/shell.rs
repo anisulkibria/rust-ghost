@@ -68,6 +68,11 @@ pub(crate) fn icon(name: &str) -> &'static str {
         // Material Symbols `warning`: a filled triangle with a bang. Used for
         // a finding a crawler cannot work around.
         "warning" => r#"<path d="M1 21h22L12 2 1 21zm12-3h-2v-2h2v2zm0-4h-2v-4h2v4z"/>"#,
+        // Material Symbols "group": two heads and two shoulders, one behind
+        // the other. The Memberships module's mark — the members rail item
+        // used the ghost glyph, which is this admin's brand rather than a
+        // picture of a readership.
+        "group" => r#"<path d="M16 11c1.66 0 2.99-1.34 2.99-3S17.66 5 16 5c-1.66 0-3 1.34-3 3s1.34 3 3 3zm-8 0c1.66 0 2.99-1.34 2.99-3S9.66 5 8 5C6.34 5 5 6.34 5 8s1.34 3 3 3zm0 2c-2.33 0-7 1.17-7 3.5V19h14v-2.5c0-2.33-4.67-3.5-7-3.5zm8 0c-.29 0-.62.02-.97.05 1.16.84 1.97 1.97 1.97 3.45V19h6v-2.5c0-2.33-4.67-3.5-7-3.5z"/>"#,
         "ghost" => r#"<path d="M12 2a8 8 0 0 0-8 8v10.6c0 .7.85 1.05 1.35.55l1.9-1.9 2.2 2.2c.3.3.78.3 1.08 0L12 20l1.47 1.45c.3.3.78.3 1.08 0l2.2-2.2 1.9 1.9c.5.5 1.35.15 1.35-.55V10a8 8 0 0 0-8-8zm-3 8.5A1.5 1.5 0 1 1 10.5 9 1.5 1.5 0 0 1 9 10.5zm6 0A1.5 1.5 0 1 1 16.5 9 1.5 1.5 0 0 1 15 10.5z"/>"#,
         "menu" => r#"<path d="M3 18h18v-2H3v2zm0-5h18v-2H3v2zm0-7v2h18V6H3z"/>"#,
         "comment" => r#"<path d="M20 2H4c-1.1 0-2 .9-2 2v18l4-4h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zM6 9h12v2H6V9zm8 5H6v-2h8v2zm4-6H6V6h12v2z"/>"#,
@@ -938,21 +943,27 @@ pub(crate) fn merge_night_shift(existing: Option<&str>, theme: &str) -> String {
 /// `user` supplies the account block at the bottom of the rail.
 pub(crate) fn rail(active: &str, user: Option<&ghost_core::models::User>, role: Role) -> String {
     let active = match active {
-        "analytics" | "comments" | "automations" | "forms" | "media" | "seo" | "languages" => "modules",
+        "analytics" | "comments" | "automations" | "forms" | "media" | "seo" | "languages"
+        | "security" | "memberships" | "newsletters" => "modules",
         other => other,
     };
     // Showing a link that only leads to "Not allowed" is worse than not
     // showing it, so the rail is filtered by the same capabilities the
     // handlers enforce.
     let items: &[(&str, &str, &str, &str, &str)] = &[
-        // Home leads the rail, as it does in Ghost. Every signed-in role may
-        // open it, so it carries no capability filter below.
-        ("dashboard", ADMIN_HOME, "Dashboard", "dashboard", "teal"),
+        // Dashboard is not a rail item: the brand mark above this list links
+        // to `ADMIN_HOME`, so a Dashboard row under it was a second control
+        // doing the same thing one line apart. The nav key `"dashboard"` is
+        // still passed by the home screen and simply lights nothing, which is
+        // correct — the brand is not a nav item and has no active state.
         ("posts", "/ghost/posts/", "Posts", "posts", "blue"),
         ("pages", "/ghost/pages/", "Pages", "pages", "green"),
         ("tags", "/ghost/tags/", "Tags", "tags", "amber"),
         ("themes", "/ghost/themes/", "Themes", "themes", "slate"),
-        ("members", "/ghost/members/", "Members", "ghost", "blue"),
+        // Members was a rail item of its own until the Memberships module
+        // adopted it. It is now that module's Members tab, reached through
+        // Modules → Memberships, and its URL is unchanged — see
+        // `crate::memberships` on why the URL stayed where it was.
         ("modules", "/ghost/modules/", "Modules", "integrations", "purple"),
         // Integrations is not a rail item: like Ghost, it lives under
         // Settings → Integrations.
@@ -963,7 +974,7 @@ pub(crate) fn rail(active: &str, user: Option<&ghost_core::models::User>, role: 
         .filter(|(key, _, _, _, _)| match *key {
             // Ghost grants the `comment` permission set to Administrator and
             // above only, so moderation is not offered below that.
-            "modules" | "themes" | "design" | "navigation" | "members" | "settings" => role.is_admin(),
+            "modules" | "themes" | "design" | "navigation" | "settings" => role.is_admin(),
             "tags" => role.can_manage_tags(),
             _ => true,
         })

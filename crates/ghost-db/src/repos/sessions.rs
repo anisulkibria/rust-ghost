@@ -44,8 +44,76 @@ async fn insert(pool: &Db, user_id: &str, verified: bool) -> Result<String> {
 
 /// The user a *verified* session belongs to — the lookup every admin guard
 /// goes through.
+///
+/// **Prefer [`get_user_within`].** This form applies no lifetime, which is
+/// what the session table did before the Security module existed: the cookie
+/// carried a seven-day `Max-Age` and the row behind it lived forever, so a
+/// session id read out of the database was a login with no expiry date. It is
+/// kept for the callers that are asking a different question — "whose
+/// pending sign-in is this" — and for the tests.
 pub async fn get_user(pool: &Db, session_id: &str) -> Result<Option<String>> {
     Ok(load(pool, session_id).await?.filter(|s| s.verified).map(|s| s.user_id))
+}
+
+/// The user a verified session belongs to, provided the session is still
+/// inside the site's session policy.
+///
+/// `max_age_secs` is the longest a session may live from when it was created,
+/// however much it is used; `idle_secs` is the longest it may sit unused, and
+/// `0` means there is no idle limit. Both come from the Security module's
+/// settings — see `ghost_core::security::session_max_age_secs`.
+///
+/// ## Why the expired row is deleted here
+///
+/// The alternative is to refuse it and leave it, and let the periodic sweep
+/// clear up. That works, and the sweep does run — but it makes the guard's
+/// correctness depend on a background task having been scheduled, and a
+/// deployment that never starts the sweeper would accumulate rows forever
+/// while still (correctly) refusing them. Deleting on the request that found
+/// it costs one statement on a path that was about to reject the request
+/// anyway, and means the policy is enforced by the thing that reads the
+/// session rather than by the thing that tidies up after it.
+///
+/// ## Why `updated_at` falls back to `created_at`
+///
+/// `updated_at` is written only when the session *data* changes, which for a
+/// session that never needed an emailed code is never. Reading a null as
+/// "last used at the dawn of time" would expire every ordinary session the
+/// moment an idle timeout was switched on. The fallback makes the idle clock
+/// start at sign-in, which is the only reading that is both safe and true.
+pub async fn get_user_within(
+    pool: &Db,
+    session_id: &str,
+    max_age_secs: i64,
+    idle_secs: i64,
+) -> Result<Option<String>> {
+    let Some(session) = load(pool, session_id).await? else { return Ok(None) };
+    if !session.verified {
+        return Ok(None);
+    }
+
+    let now = chrono::Utc::now();
+    let age_of = |stamp: &str| dates::from_db_string(stamp).map(|t| (now - t).num_seconds());
+
+    // A timestamp that will not parse is treated as expired rather than as
+    // fresh. It should not happen; if it does, the safe reading of "I cannot
+    // tell how old this session is" is not "it is new".
+    let too_old = max_age_secs > 0
+        && age_of(&session.created_at).map(|age| age > max_age_secs).unwrap_or(true);
+    let last_used = session
+        .updated_at
+        .as_deref()
+        .filter(|s| !s.is_empty())
+        .unwrap_or(&session.created_at);
+    let too_idle = idle_secs > 0 && age_of(last_used).map(|age| age > idle_secs).unwrap_or(true);
+
+    if too_old || too_idle {
+        // Ignored deliberately: the session is refused either way, and a
+        // failure to tidy up must not turn into a failure to log out.
+        let _ = destroy(pool, session_id).await;
+        return Ok(None);
+    }
+    Ok(Some(session.user_id))
 }
 
 /// The user a session belongs to whether or not it has been verified yet.
@@ -63,22 +131,28 @@ struct SessionRow {
     user_id: String,
     verified: bool,
     data: Value,
+    created_at: String,
+    /// Written only when the session data changes — accepting an emailed
+    /// code, and nothing else — so an ordinary session has none for its whole
+    /// life. [`get_user_within`] explains why that matters.
+    updated_at: Option<String>,
 }
 
 async fn load(pool: &Db, session_id: &str) -> Result<Option<SessionRow>> {
-    let row: Option<(String, String)> =
-        sqlx::query_as("SELECT user_id, session_data FROM sessions WHERE session_id = ?")
-            .bind(session_id)
-            .fetch_optional(pool)
-            .await
-            .map_err(super::dberr)?;
-    Ok(row.map(|(user_id, raw)| {
+    let row: Option<(String, String, String, Option<String>)> = sqlx::query_as(
+        "SELECT user_id, session_data, created_at, updated_at FROM sessions WHERE session_id = ?",
+    )
+    .bind(session_id)
+    .fetch_optional(pool)
+    .await
+    .map_err(super::dberr)?;
+    Ok(row.map(|(user_id, raw, created_at, updated_at)| {
         let data: Value = serde_json::from_str(&raw).unwrap_or_else(|_| json!({}));
         // Sessions minted before 2FA existed carry no `verified` key at all.
         // They predate the requirement, so they stay signed in rather than
         // every open tab being logged out the moment the setting is added.
         let verified = data.get("verified").and_then(Value::as_bool).unwrap_or(true);
-        SessionRow { user_id, verified, data }
+        SessionRow { user_id, verified, data, created_at, updated_at }
     }))
 }
 

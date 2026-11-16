@@ -307,10 +307,11 @@ pub(crate) async fn members_page(State(state): State<AppState>, headers: HeaderM
     page_for_role(
         actor_role,
         "Members",
-        "members",
+        "memberships",
         Some(&user),
         &format!(
-            r#"<header class="page-head rise"><div><h1>Members</h1><p class="sub">{count} {word}</p></div>
+            r#"<header class="page-head rise"><a class="icon-btn" style="transform:rotate(180deg)" href="/ghost/memberships/" title="Back to Memberships">{up}</a>
+<div><h1>Members</h1><p class="sub">{count} {word}</p></div>
 <div class="actions">
 <details class="head-pop" data-menu>
 <summary class="btn tonal">{upload} Import</summary>
@@ -328,6 +329,12 @@ pub(crate) async fn members_page(State(state): State<AppState>, headers: HeaderM
 </div></header>
 {banner}
 {list}"#,
+            // The list is the Memberships module's Members tab, so it leads
+            // back up to the overview the way every other child screen in
+            // this admin does. It does not carry the module's tab bar: it
+            // has a segmented bar of its own for the status filters, and two
+            // stacked bars read as a mistake rather than as navigation.
+            up = svg("chevron"),
             upload = svg("upload"),
             download = svg("open"),
             add = svg("add"),
@@ -707,7 +714,7 @@ pub(crate) async fn members_import(State(state): State<AppState>, headers: Heade
     };
     page_for_role(actor_role,
         "Import members",
-        "members",
+        "memberships",
         Some(&user),
         &format!(
             r#"<header class="page-head rise"><a class="icon-btn" style="transform:rotate(180deg)" href="/ghost/members/" title="Back to members">{back}</a>
@@ -1519,7 +1526,7 @@ pub(crate) async fn member_new_page(
     page_for_role(
         actor_role,
         "New member",
-        "members",
+        "memberships",
         Some(&user),
         &format!(
             r#"<header class="page-head rise"><a class="icon-btn" style="transform:rotate(180deg)" href="/ghost/members/" title="Back to members">{back}</a>
@@ -1595,7 +1602,7 @@ pub(crate) async fn member_edit_page(
     let initial = name.as_deref().unwrap_or(&email).chars().next().unwrap_or('?').to_uppercase().to_string();
     page_for_role(actor_role,
         "Member",
-        "members",
+        "memberships",
         Some(&user),
         &format!(
             r#"<header class="page-head rise"><a class="icon-btn" style="transform:rotate(180deg)" href="/ghost/members/" title="Back to members">{back}</a>

@@ -96,7 +96,7 @@ async fn content_key_brute(
     request: axum::extract::Request,
     next: axum::middleware::Next,
 ) -> Response {
-    let ip = crate::brute::client_ip(request.headers(), peer);
+    let ip = crate::brute::client_ip_for(&state, request.headers(), peer);
     let key = format!("content_api_key:{ip}");
     // Read-only on the way in, and charged only for a rejected request. This
     // API is public and cacheable and a busy front end hits it constantly, so

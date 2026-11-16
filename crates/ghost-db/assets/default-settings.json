@@ -1055,5 +1055,103 @@
         "type": "object",
         "flags": "",
         "value": "{}"
+    },
+    {
+        "group": "security",
+        "key": "security_headers",
+        "type": "boolean",
+        "flags": "",
+        "value": "true"
+    },
+    {
+        "group": "security",
+        "key": "security_hsts",
+        "type": "boolean",
+        "flags": "",
+        "value": "false"
+    },
+    {
+        "group": "security",
+        "key": "security_trust_proxy",
+        "type": "boolean",
+        "flags": "",
+        "value": "true"
+    },
+    {
+        "group": "security",
+        "key": "security_private_fetch",
+        "type": "boolean",
+        "flags": "",
+        "value": "true"
+    },
+    {
+        "group": "security",
+        "key": "security_revoke_on_password_change",
+        "type": "boolean",
+        "flags": "",
+        "value": "true"
+    },
+    {
+        "group": "security",
+        "key": "security_admin_referrer_policy",
+        "type": "string",
+        "flags": "",
+        "value": "same-origin"
+    },
+    {
+        "group": "security",
+        "key": "security_session_days",
+        "type": "string",
+        "flags": "",
+        "value": "7"
+    },
+    {
+        "group": "security",
+        "key": "security_session_idle_minutes",
+        "type": "string",
+        "flags": "",
+        "value": "0"
+    },
+    {
+        "group": "security",
+        "key": "security_min_password_length",
+        "type": "string",
+        "flags": "",
+        "value": "10"
+    },
+    {
+        "group": "security",
+        "key": "firewall_enabled",
+        "type": "boolean",
+        "flags": "",
+        "value": "false"
+    },
+    {
+        "group": "security",
+        "key": "spam_block_disposable_email",
+        "type": "boolean",
+        "flags": "",
+        "value": "false"
+    },
+    {
+        "group": "security",
+        "key": "spam_block_user_agents",
+        "type": "boolean",
+        "flags": "",
+        "value": "false"
+    },
+    {
+        "group": "security",
+        "key": "spam_signup_same_origin",
+        "type": "boolean",
+        "flags": "",
+        "value": "false"
+    },
+    {
+        "group": "security",
+        "key": "spam_blocked_user_agents",
+        "type": "string",
+        "flags": "",
+        "value": ""
     }
 ]

@@ -736,11 +736,21 @@ pub(crate) async fn newsletters_settings_page(State(state): State<AppState>, hea
 
     // The newsletters themselves. Each row opens the design editor, which is
     // where every setting that shapes the email lives.
+    // Subscriber counts come from `stats`, one query for every newsletter,
+    // rather than from `subscriber_count` per row — which was one query per
+    // newsletter and, worse, counted a different thing than the Newsletters
+    // module did. See `repos::newsletters::SUBSCRIBED`.
+    let counts: HashMap<String, i64> = repos::newsletters::stats(&state.db)
+        .await
+        .unwrap_or_default()
+        .into_iter()
+        .map(|n| (n.id, n.subscribers))
+        .collect();
     let mut newsletter_rows = String::new();
     match repos::newsletters::list(&state.db).await {
         Ok(list) if !list.is_empty() => {
             for nl in &list {
-                let count = repos::newsletters::subscriber_count(&state.db, &nl.id).await;
+                let count = counts.get(&nl.id).copied().unwrap_or(0);
                 newsletter_rows.push_str(&format!(
                     r#"<a class="row" href="/ghost/settings/newsletters/{id}/"><span class="ic tint-purple">{mail}</span>
 <div class="body"><span class="title">{name}</span><span class="detail">{count} subscriber{plural}{desc}</span></div>

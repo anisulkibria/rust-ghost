@@ -65,6 +65,23 @@ fn hash_code(code: &str, salt: &str) -> String {
     hex::encode(Sha256::digest(format!("{code}{salt}").as_bytes()))
 }
 
+/// Compare two secrets without letting the time taken say how far they
+/// matched.
+///
+/// `a == b` on a `&str` stops at the first differing byte, so how long it
+/// takes is a function of the shared prefix. That is a remote timing oracle
+/// on the access code, which is short, shared and never rotated — and unlike
+/// a password it is compared in plaintext, with no bcrypt in front of it to
+/// swamp the signal. The lengths are compared first and in the clear, because
+/// the length of the configured code is not the secret.
+fn secret_eq(a: &str, b: &str) -> bool {
+    let (a, b) = (a.as_bytes(), b.as_bytes());
+    if a.len() != b.len() {
+        return false;
+    }
+    a.iter().zip(b).fold(0u8, |acc, (x, y)| acc | (x ^ y)) == 0
+}
+
 fn cookie_value(headers: &HeaderMap) -> Option<String> {
     headers
         .get(header::COOKIE)?
@@ -91,7 +108,7 @@ pub fn has_access(state: &AppState, headers: &HeaderMap) -> bool {
     if salt.is_empty() || token.is_empty() {
         return false;
     }
-    hash_code(&code, salt) == token
+    secret_eq(&hash_code(&code, salt), token)
 }
 
 /// Mint the cookie for a correct code. `None` when the code is wrong, so the
@@ -104,7 +121,7 @@ fn grant(state: &AppState, submitted: &str) -> Option<String> {
         return None;
     }
     let code = access_code(state);
-    if code.trim().is_empty() || submitted.trim().is_empty() || code != submitted {
+    if code.trim().is_empty() || submitted.trim().is_empty() || !secret_eq(&code, submitted) {
         return None;
     }
     let salt = ghost_core::ids::random_hex(8);
@@ -302,8 +319,22 @@ pub async fn private_page(
 }
 
 /// `POST /private/` — check the code and let them in.
+///
+/// Rate-limited per address against `brute::PRIVATE_BLOCK`, which is Ghost's
+/// own `spam.private_block` budget. This endpoint is the entire access
+/// control of a private site and the code is one short shared string that
+/// nobody rotates, so without a budget it can be guessed at the speed of the
+/// network. The budget is deliberately generous — ninety-nine free attempts
+/// before an hour's wait — because a whole office arrives from one address
+/// and must not be locked out by one person's typo; what it stops is the
+/// unattended million-guess run, which is the attack that works.
+///
+/// The check runs *before* the code is compared, and a correct code clears
+/// the record, so somebody who mistypes twice and then gets it right has
+/// spent nothing.
 pub async fn private_login(
     State(state): State<AppState>,
+    ghost_api::brute::ClientAddr(peer): ghost_api::brute::ClientAddr,
     headers: HeaderMap,
     Query(q): Query<HashMap<String, String>>,
     Form(form): Form<PasswordForm>,
@@ -312,8 +343,23 @@ pub async fn private_login(
         return Redirect::to(&ghost_core::url::base("/")).into_response();
     }
     let forward = safe_redirect(q.get("r"));
+
+    let ip = ghost_api::brute::client_ip_for(&state, &headers, peer);
+    let key = format!("private_block:{ip}");
+    if ghost_api::brute::check(&state.db, &key, &ghost_api::brute::PRIVATE_BLOCK).await.is_err() {
+        // The theme's own `private.hbs` has no slot for "too many attempts",
+        // and inventing one would mean every theme needed updating. The
+        // wrong-code page is the honest answer to a refused attempt and it
+        // does not tell a guesser whether this particular guess was close.
+        return render_private(&state, headers, &forward, true).await;
+    }
+
     match grant(&state, &form.password) {
         Some(cookie) => {
+            // A correct code is not a guess, so it does not count towards a
+            // lockout — a reader who mistyped twice first is not then shut
+            // out of the site they just got into.
+            ghost_api::brute::reset(&state.db, &key).await;
             let mut resp = Redirect::to(&ghost_core::url::base(&forward)).into_response();
             if let Ok(v) = cookie.parse() {
                 resp.headers_mut().insert(header::SET_COOKIE, v);

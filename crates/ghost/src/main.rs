@@ -144,6 +144,38 @@ async fn main() {
     // 4. settings cache
     let settings = Arc::new(ghost_db::SettingsCache::load(&db).await.expect("settings").with_mail_config(&config.mail).with_managed_mail(&config.host_settings));
 
+    // Apply the Security module's session policy to what is already in the
+    // table: expire anything past its maximum age or idle limit, and drop
+    // sessions whose user no longer exists. This has to come after the
+    // settings cache, because the policy is two of its rows.
+    //
+    // It runs at boot rather than on a timer deliberately. The policy is
+    // enforced on every request by
+    // `ghost_db::repos::sessions::get_user_within`, which refuses an expired
+    // session *and* deletes it — so the correctness of the limit does not
+    // depend on this call happening at all. What this does is clear rows
+    // nobody will ever ask about again, which is housekeeping and does not
+    // need to be timely. A periodic task would be a second, slower answer to
+    // a question the guard already answers immediately.
+    {
+        let policy = ghost_core::security::session_max_age_secs(&serde_json::json!({
+            "security_session_days": settings.get("security_session_days"),
+        }));
+        let idle = ghost_core::security::session_idle_secs(&serde_json::json!({
+            "security_session_idle_minutes": settings.get("security_session_idle_minutes"),
+        }));
+        ghost_db::repos::security::sweep(&db, policy, idle).await;
+    }
+
+    // Firewall rules whose expiry has passed. Reads already filter them, so
+    // this only keeps the table from growing with rules nobody will ever see
+    // again.
+    match ghost_db::repos::firewall::sweep_expired(&db).await {
+        Ok(0) => {}
+        Ok(n) => tracing::info!("firewall: removed {n} expired rule(s)"),
+        Err(e) => tracing::warn!("firewall: could not sweep expired rules: {}", e.message()),
+    }
+
     // 5. routes.yaml
     let routes_path = config.content_path().join("routes.yaml");
     let routes_yaml = match tokio::fs::read_to_string(&routes_path).await {
@@ -198,6 +230,14 @@ async fn main() {
         std::process::exit(1);
     };
 
+    // Built before the state literal, which takes ownership of `db`.
+    let firewall_cache = match ghost_db::repos::firewall::RuleCache::load(&db).await {
+        Ok(cache) => cache,
+        Err(e) => {
+            tracing::error!("firewall: could not load the rules, starting with none: {}", e.message());
+            ghost_db::repos::firewall::RuleCache::empty()
+        }
+    };
     let state = AppState {
         db,
         config: config.clone(),
@@ -208,6 +248,16 @@ async fn main() {
         setup_done: Arc::new(AtomicBool::new(false)),
         frontend_key: Arc::new(RwLock::new(None)),
         limits: Arc::new(ghost_db::limits::Limits::load(&config.host_settings)),
+        // Loaded here rather than lazily on the first request: the firewall
+        // is consulted before anything else, and a first request that had to
+        // wait on a query to find out whether it was allowed would be the one
+        // request most likely to be arriving in a flood. A load that fails
+        // gives an **empty** firewall, which lets everybody through — the
+        // same choice `check` makes for an address it cannot parse, and for
+        // the same reason: a database hiccup must not take the site off the
+        // internet.
+        firewall: firewall_cache,
+
     };
     state.refresh_setup_flag().await;
     // the configured theme may be gone — record whichever one we fell back to

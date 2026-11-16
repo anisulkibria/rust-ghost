@@ -291,20 +291,65 @@ pub async fn sweep(pool: &Db) {
 
 /// The caller's address, for keys that are scoped per IP.
 ///
+/// **Prefer [`client_ip_for`].** This is the unconditional form, kept because
+/// it is what the tests and the one caller with no `AppState` to hand use; it
+/// believes the proxy headers, which is only correct behind a proxy.
+///
 /// Reads the proxy headers first, because Ghost runs with Express'
 /// `trust proxy` on and this port is normally behind one too; the socket
 /// address of a reverse proxy is the same for every visitor, which would make
 /// one budget shared by the whole internet. Only the left-most entry of
 /// `X-Forwarded-For` is used, as that is the original client.
 pub fn client_ip(headers: &axum::http::HeaderMap, socket: Option<std::net::IpAddr>) -> String {
-    let header = |name: &str| headers.get(name).and_then(|v| v.to_str().ok()).map(str::trim);
-    if let Some(forwarded) = header("x-forwarded-for") {
-        if let Some(first) = forwarded.split(',').next().map(str::trim).filter(|s| !s.is_empty()) {
-            return first.to_string();
+    client_ip_trusting(headers, socket, true)
+}
+
+/// The caller's address, honouring the site's `security_trust_proxy` setting.
+///
+/// This is the form every authentication path should call, and the reason the
+/// setting exists. A budget is counted per address; the address is whatever
+/// this function says it is; so if a caller can choose what it says, the
+/// caller can choose to never spend a budget.
+///
+/// Sending `X-Forwarded-For: <a fresh value>` on each request puts every
+/// guess on a key nobody has ever used, which turns sign-in, the emailed
+/// code, password resets, the member magic link and the private-site access
+/// code into unlimited endpoints. Behind a reverse proxy the header is the
+/// only way to tell two visitors apart and must be believed. There is no
+/// default that is right for both, and nothing inside this process can tell
+/// which situation it is in — hence the setting, and hence the Security
+/// report naming it as a critical finding while it is on.
+///
+/// See [`ghost_core::security::trust_proxy`].
+pub fn client_ip_for(
+    state: &crate::AppState,
+    headers: &axum::http::HeaderMap,
+    socket: Option<std::net::IpAddr>,
+) -> String {
+    client_ip_trusting(headers, socket, crate::security_settings::trust_proxy(state))
+}
+
+/// The shared body of both, with the trust decision already made.
+///
+/// With `trust_headers` false the socket address is the only answer, and
+/// `"unknown"` when there is not one — a single shared key, which is the
+/// correct failure: a caller with no address cannot be allowed its own
+/// private allowance.
+pub fn client_ip_trusting(
+    headers: &axum::http::HeaderMap,
+    socket: Option<std::net::IpAddr>,
+    trust_headers: bool,
+) -> String {
+    if trust_headers {
+        let header = |name: &str| headers.get(name).and_then(|v| v.to_str().ok()).map(str::trim);
+        if let Some(forwarded) = header("x-forwarded-for") {
+            if let Some(first) = forwarded.split(',').next().map(str::trim).filter(|s| !s.is_empty()) {
+                return first.to_string();
+            }
         }
-    }
-    if let Some(real) = header("x-real-ip").filter(|s| !s.is_empty()) {
-        return real.to_string();
+        if let Some(real) = header("x-real-ip").filter(|s| !s.is_empty()) {
+            return real.to_string();
+        }
     }
     socket.map(|ip| ip.to_string()).unwrap_or_else(|| "unknown".into())
 }

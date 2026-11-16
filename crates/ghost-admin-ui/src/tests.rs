@@ -170,10 +170,13 @@ async fn the_newsletters_tab_counts_what_sending_recorded() {
 
 #[test]
 fn module_pages_share_one_admin_only_sidebar_entry() {
-    for active in ["modules", "analytics", "comments", "automations", "forms", "media"] {
+    for active in ["modules", "analytics", "comments", "automations", "forms", "media", "memberships"] {
         let nav = super::rail(active, None, super::Role::Administrator);
         assert!(nav.contains(r#"class="nav-item active" href="/ghost/modules/""#), "{active} does not light Modules");
-        for href in ["analytics", "comments", "automations", "forms", "media"] {
+        // Members is on this list because the Memberships module adopted it:
+        // it had a rail item of its own until 2026-11-16, and the list screen
+        // now lights Modules like every other page of a module.
+        for href in ["analytics", "comments", "automations", "forms", "media", "memberships", "members"] {
             assert!(!nav.contains(&format!(r#"class="nav-item" href="/ghost/{href}/""#)));
             assert!(!nav.contains(&format!(r#"class="nav-item active" href="/ghost/{href}/""#)));
         }
@@ -831,13 +834,17 @@ fn settings_groups_match_ghosts_navigation() {
     // every page at once live here. Languages sits before it: which
     // languages a site publishes in decides what the SEO settings are
     // describing.
+    //
+    // Security is also this port's own, and sits after SEO and before
+    // Integrations: an Admin API key is one of the things its report counts,
+    // so the group that lists the keys reads as the next question.
     let titles: Vec<&str> = SETTINGS_GROUPS.iter().map(|g| g.title).collect();
     assert_eq!(
         titles,
         ["General settings", "Staff", "Analytics",
          "Design & branding", "Navigation", "Code injection", "Announcement",
          "Membership", "Machine payments", "Email", "Newsletters", "Growth",
-         "Features", "Forms", "Languages", "SEO", "Integrations",
+         "Features", "Forms", "Languages", "SEO", "Security", "Integrations",
          "Migration tools", "Advanced", "History", "Danger zone"]
     );
     // every group has a working page at its slug

@@ -2439,3 +2439,219 @@ textarea.lg-nav { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, mo
 .auth-status { margin: 14px 0 0; font-size: 13.5px; text-align: center;
   color: var(--on-surface-variant); }
 .auth-status:empty { display: none; }
+
+/* ---- security: the posture ring, the finding rows and the "ways in" tiles ---- */
+/* Everything else on these two screens is a shared primitive — .card.rows,
+   .row, .chip, .ic.tint-*, .seg-bar, .btn, .selbox, .switch — so what is here
+   is only the three things the module draws that nothing else does. */
+
+/* The hero: ring on the left, prose on the right, stacking under the ring on
+   a narrow viewport rather than squeezing the number. */
+.sec-hero { display: flex; align-items: center; gap: 26px; flex-wrap: wrap; }
+.sec-hero-body { flex: 1; min-width: 240px; }
+.sec-hero-body h2 { margin: 0 0 6px; font-size: 17px; font-weight: 600; }
+.sec-hero-body p { margin: 0; }
+
+/* The score ring. The number is laid over the SVG rather than drawn in it, so
+   it is selectable text in the page's own font and inherits the theme's
+   colours — an SVG <text> would need its own size and fill repeated here. */
+.sec-score { position: relative; width: 128px; height: 128px; flex: 0 0 auto; }
+.sec-ring { width: 128px; height: 128px; display: block; }
+/* `currentColor` on the arc, so one class carries the colour and there is one
+   rule per grade rather than one per element. Deliberately NOT the shared
+   `.tint-*` classes: those set a background as well as a foreground, which is
+   right for the `.ic` chip they were written for and would paint a block
+   behind the ring.
+   Nor the `--*-fg` variables: those are *text on the matching tint
+   background*, so in light mode they are near-black (`--amber-fg` is #483000)
+   and an arc drawn in one reads as muddy brown rather than as a grade. These
+   are the mid-tones of the same hues, chosen to carry at 10px on both
+   surfaces. */
+.sec-ring-green { color: #1E9E62; }
+.sec-ring-blue { color: var(--primary); }
+.sec-ring-amber { color: #C98A04; }
+.sec-ring-red { color: #D8453C; }
+html.dark .sec-ring-green { color: #4ED894; }
+html.dark .sec-ring-amber { color: #F1B434; }
+html.dark .sec-ring-red { color: #FF6F63; }
+.sec-score-text { position: absolute; inset: 0; display: flex; flex-direction: column;
+  align-items: center; justify-content: center; gap: 2px; pointer-events: none; }
+.sec-score-text .num { font-size: 34px; font-weight: 700; line-height: 1;
+  font-variant-numeric: tabular-nums; }
+.sec-score-text .grade { font-size: 12px; font-weight: 600; letter-spacing: .04em;
+  text-transform: uppercase; color: var(--on-surface-variant); }
+
+/* A finding's detail is two or three sentences, not a label, so it wraps
+   rather than ellipsing — the whole value of the row IS the sentence, and the
+   shared `.rows .row .detail` truncates it to one line. All three of
+   `white-space`, `overflow` and `text-overflow` have to be undone; setting
+   only the first leaves the ellipsis. The same three are what
+   `.settings .rows .row .detail` undoes, for the same reason. */
+/* Every selector here is qualified `.rows .row.sec-finding` rather than the
+   bare `.sec-finding` it reads as. It has to be: the rules being overridden
+   are `.rows .row .detail` and `.rows .row`, at specificity 0,3,0 and 0,2,0,
+   and a bare `.sec-finding .detail` is 0,2,0 — it loses the cascade and does
+   nothing at all, however late in the file it sits. (`.settings .rows .row
+   .detail`, which undoes the same truncation for the settings screens, is
+   qualified for the same reason.) */
+.rows .row.sec-finding .detail { white-space: normal; overflow: visible;
+  text-overflow: clip; line-height: 1.5; }
+/* …and the row's own `align-items: center` has to go with it: centred is
+   right for a one-line row and leaves the icon floating against the middle
+   of a three-line one. The trailing link stays centred, because a Fix link
+   level with the first line reads as part of the title. */
+.rows .row.sec-finding { align-items: flex-start; padding-top: 14px;
+  padding-bottom: 14px; }
+.rows .row.sec-finding .ic { margin-top: 2px; }
+.rows .row.sec-finding .trailing { align-self: center; }
+.rows .row.sec-finding .title { display: flex; align-items: center; gap: 8px;
+  flex-wrap: wrap; white-space: normal; overflow: visible; }
+
+/* The "ways in" tiles: a number, what it counts, and one line about it.
+   `minmax(240px, …)` rather than something narrower so the six of them land
+   as 3+3 or 2+2+2 — at 168px they fitted five across on a desktop and left
+   the sixth alone on its own row, which reads as a mistake rather than as a
+   grid. Auto-fit still reflows the whole thing without a breakpoint. */
+.sec-tiles { display: grid; gap: 12px;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); }
+.sec-tile { display: flex; flex-direction: column; gap: 2px; text-decoration: none;
+  color: inherit; transition: border-color .15s, transform .15s; }
+.sec-tile:hover { border-color: var(--outline); transform: translateY(-1px); }
+.sec-tile .ic { margin-bottom: 8px; }
+.sec-tile-value { font-size: 26px; font-weight: 700; line-height: 1.1;
+  font-variant-numeric: tabular-nums; }
+.sec-tile-label { font-size: 13.5px; font-weight: 600; }
+.sec-tile-detail { font-size: 12.5px; color: var(--on-surface-variant); line-height: 1.4; }
+
+/* ---- memberships: the hero sentence, the funnel tiles, the gap rows and the
+   stacked growth chart's legend ---- */
+/* Everything else on these three screens is a shared primitive — .card.rows,
+   .row, .chip, .avatar, .ic.tint-*, .seg-bar, .btn, .chart — so what is here
+   is only the five things this module draws that nothing else does. The
+   `mb-` prefix is this module's and nobody else's. */
+
+/* The hero: the verdict in a heading, the arithmetic under it. Its own block
+   rather than a bare .card.padded because the heading needs the page's
+   section size rather than an <h2>'s default, and because the prose line is
+   deliberately quieter than the sentence above it. */
+.mb-hero-body h2 { margin: 0 0 6px; font-size: 17px; font-weight: 600; }
+.mb-hero-body p { margin: 0; }
+
+/* The funnel tiles: a number, what it counts, and one line about it.
+   `minmax(240px, …)` for the same reason the Security module's tiles use it —
+   the six of them land as 3+3 or 2+2+2 rather than five across with the
+   sixth alone on its own row. Auto-fit reflows without a breakpoint. */
+.mb-tiles { display: grid; gap: 12px;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); }
+.mb-tile { display: flex; flex-direction: column; gap: 2px; text-decoration: none;
+  color: inherit; transition: border-color .15s, transform .15s; }
+/* Only the tiles that lead somewhere lift on hover. A tile with no
+   destination is rendered as a <div> (see `tile`), so this never promises a
+   click that does nothing. */
+a.mb-tile:hover { border-color: var(--outline); transform: translateY(-1px); }
+.mb-tile .ic { margin-bottom: 8px; }
+.mb-tile-value { font-size: 26px; font-weight: 700; line-height: 1.1;
+  font-variant-numeric: tabular-nums; }
+.mb-tile-label { font-size: 13.5px; font-weight: 600; }
+.mb-tile-detail { font-size: 12.5px; color: var(--on-surface-variant); line-height: 1.4; }
+
+/* Two cards side by side — where members came from, and who arrived — falling
+   to one column when there is no room for two. */
+.mb-two { display: grid; gap: 12px; align-items: start;
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); }
+
+/* A gap's detail is a sentence or two, not a label, so it wraps rather than
+   ellipsing — the whole value of the row IS the sentence.
+   Every selector is qualified `.rows .row.mb-gap` rather than the bare
+   `.mb-gap` it reads as, and it has to be: the rules being overridden are
+   `.rows .row .detail` and `.rows .row`, at specificity 0,3,0 and 0,2,0, so a
+   bare `.mb-gap .detail` at 0,2,0 loses the cascade and does nothing at all,
+   however late in the file it sits. The Security module's finding rows carry
+   the same comment for the same reason. */
+.rows .row.mb-gap .detail { white-space: normal; overflow: visible;
+  text-overflow: clip; line-height: 1.5; }
+/* …and the row's own `align-items: center` goes with it: centred is right for
+   a one-line row and leaves the icon floating against the middle of a
+   three-line one. The Fix link stays centred, because one level with the
+   first line reads as part of the title. */
+.rows .row.mb-gap { align-items: flex-start; padding-top: 14px; padding-bottom: 14px; }
+.rows .row.mb-gap .ic { margin-top: 2px; }
+.rows .row.mb-gap .trailing { align-self: center; }
+.rows .row.mb-gap .title { display: flex; align-items: center; gap: 8px;
+  flex-wrap: wrap; white-space: normal; overflow: visible; }
+
+/* The growth chart's legend. Two weights of one hue rather than two colours:
+   free is the same `--primary` at reduced opacity, which is what the chart
+   draws, so the key cannot drift from the bars. */
+.mb-legend { display: flex; align-items: center; gap: 6px; margin: 10px 0 0;
+  font-size: 12.5px; color: var(--on-surface-variant); }
+.mb-key { width: 10px; height: 10px; border-radius: 3px; display: inline-block; }
+.mb-key:not(:first-child) { margin-left: 10px; }
+.mb-key-paying { background: var(--primary); }
+.mb-key-free { background: var(--primary); opacity: .38; }
+
+/* ---- newsletters: the hero, the sending tiles, the gap rows and the
+   editions pager ---- */
+/* Everything else on these two screens is a shared primitive — .card.rows,
+   .row, .chip, .ic.tint-*, .seg-bar, .btn — so what is here is only the five
+   things this module draws that nothing else does. The `nl-` prefix is this
+   module's and nobody else's.
+   It is deliberately NOT sharing the Memberships module's `mb-` block: the
+   two look alike today and one of them restyling its tiles must not silently
+   restyle the other's. Duplicated declarations are cheaper than a shared rule
+   nobody dares touch. */
+
+/* The hero: the verdict, the arithmetic under it, and the window picker
+   pushed to the end of the row — the one place on these screens where a
+   control sits inside a card rather than above it, because the window it
+   picks is what the sentence beside it is about. */
+.nl-hero { display: flex; align-items: center; gap: 20px; flex-wrap: wrap; }
+.nl-hero-body { flex: 1; min-width: 260px; }
+.nl-hero-body h2 { margin: 0 0 6px; font-size: 17px; font-weight: 600; }
+.nl-hero-body p { margin: 0; }
+
+/* The sending tiles. `minmax(240px, …)` so the six land as 3+3 or 2+2+2
+   rather than five across with the sixth alone, which reads as a mistake. */
+.nl-tiles { display: grid; gap: 12px;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); }
+.nl-tile { display: flex; flex-direction: column; gap: 2px; text-decoration: none;
+  color: inherit; transition: border-color .15s, transform .15s; }
+/* Only a tile that leads somewhere lifts: one with no destination is rendered
+   as a <div>, so this never promises a click that does nothing. */
+a.nl-tile:hover { border-color: var(--outline); transform: translateY(-1px); }
+.nl-tile .ic { margin-bottom: 8px; }
+.nl-tile-value { font-size: 26px; font-weight: 700; line-height: 1.1;
+  font-variant-numeric: tabular-nums; }
+.nl-tile-label { font-size: 13.5px; font-weight: 600; }
+.nl-tile-detail { font-size: 12.5px; color: var(--on-surface-variant); line-height: 1.4; }
+
+/* Delivery beside the latest editions, falling to one column when there is no
+   room for two. */
+.nl-two { display: grid; gap: 12px; align-items: start;
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); }
+
+/* A gap's detail is a sentence or two, so it wraps rather than ellipsing — and
+   a provider's error, which is the longest thing on either screen, wraps for
+   the same reason.
+   Every selector is qualified `.rows .row.nl-gap` rather than the bare
+   `.nl-gap` it reads as, and it has to be: the rules being overridden are
+   `.rows .row .detail` and `.rows .row` at 0,3,0 and 0,2,0, so a bare
+   `.nl-gap .detail` at 0,2,0 loses the cascade and does nothing at all,
+   however late in the file it sits. */
+.rows .row.nl-gap .detail { white-space: normal; overflow: visible;
+  text-overflow: clip; line-height: 1.5; }
+.rows .row.nl-gap { align-items: flex-start; padding-top: 14px; padding-bottom: 14px; }
+.rows .row.nl-gap .ic { margin-top: 2px; }
+.rows .row.nl-gap .trailing { align-self: center; }
+.rows .row.nl-gap .title { display: flex; align-items: center; gap: 8px;
+  flex-wrap: wrap; white-space: normal; overflow: visible; }
+
+/* The date beside an edition's status chip. Tabular so a column of them lines
+   up, and quiet so the chip and the button beside it stay the row's subject. */
+.nl-when { margin-left: 10px; font-size: 12.5px; font-variant-numeric: tabular-nums; }
+.rows .row .trailing .nl-when + form { margin-left: 10px; }
+
+/* The editions pager. Centred rather than split to the edges: with only
+   Previous and Next there is nothing in the middle to anchor them. */
+.nl-pager { display: flex; align-items: center; justify-content: center; gap: 12px;
+  margin: 14px 0 0; font-size: 13px; }

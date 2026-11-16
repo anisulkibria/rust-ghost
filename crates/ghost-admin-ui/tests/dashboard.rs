@@ -199,6 +199,8 @@ async fn fixture_with(extra_settings: Vec<(String, serde_json::Value)>) -> Fixtu
         setup_done: Arc::new(std::sync::atomic::AtomicBool::new(true)),
         frontend_key: Arc::new(tokio::sync::RwLock::new(None)),
         limits: Arc::new(ghost_db::limits::Limits::default()),
+        // Empty: a fixture firewall lets everybody through.
+        firewall: ghost_db::repos::firewall::RuleCache::empty(),
     };
     Fixture { _db: test_db, state, owner: owner.id }
 }
@@ -412,9 +414,14 @@ async fn the_admin_root_lands_on_the_dashboard() {
     assert_eq!(anon.location, "/ghost/signin/");
 }
 
-/// Both the rail's brand link and its first item point home, and they agree.
+/// The rail's brand link leads home, and it is the *only* thing that does.
+///
+/// There was a Dashboard nav item under the brand until 2026-11-16, one line
+/// below a brand mark pointing at the same URL. Two controls for one
+/// destination is not redundancy worth keeping, so the row went and the brand
+/// is now the way home.
 #[tokio::test]
-async fn the_rail_leads_home() {
+async fn the_rail_leads_home_once() {
     let f = fixture().await;
     let reply = get(&f.state, "/posts/", &f.session().await).await;
     assert!(
@@ -423,8 +430,14 @@ async fn the_rail_leads_home() {
         reply.body
     );
     assert!(
-        reply.body.contains(r#"href="/ghost/dashboard/"><span class="ic tint-teal"#),
-        "the rail has no Dashboard item:\n{}",
+        !reply.body.contains(r#"class="nav-item" href="/ghost/dashboard/""#),
+        "the Dashboard nav item is back beside the brand:\n{}",
+        reply.body
+    );
+    assert_eq!(
+        reply.body.matches("/ghost/dashboard/").count(),
+        1,
+        "something other than the brand links home:\n{}",
         reply.body
     );
 }

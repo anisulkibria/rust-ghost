@@ -49,7 +49,7 @@ async fn request(
     // caller walking a list of staff addresses; per address stops a rotating
     // set of IPs flooding one person's inbox with reset mail. Ghost applies
     // both to this route (`globalReset` and `userReset`).
-    let ip = crate::brute::client_ip(&headers, peer);
+    let ip = crate::brute::client_ip_for(&state, &headers, peer);
     for (key, budget) in [
         (format!("/authentication/password_reset:{ip}"), &crate::brute::GLOBAL_RESET),
         (format!("{email}reset"), &crate::brute::USER_RESET),

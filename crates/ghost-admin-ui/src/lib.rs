@@ -21,11 +21,14 @@ pub mod dashboard;
 pub mod forms;
 pub mod history;
 pub mod languages;
+pub mod memberships;
+pub mod newsletters;
 pub mod posts;
 pub mod seo;
 pub mod social;
 pub mod rest;
 pub mod schedule;
+pub mod security;
 mod preview;
 
 // The crate's public surface, unchanged by the split: every one of these was
@@ -94,6 +97,52 @@ async fn with_admin_settings(
     next: axum::middleware::Next,
 ) -> Response {
     ADMIN_SETTINGS.scope(state.settings, next.run(req)).await
+}
+
+/// Put the Security module's response headers on every admin response.
+///
+/// One middleware rather than a helper each screen remembers to call: a
+/// security header that is only on the pages somebody thought about is not a
+/// security header. The set itself, and the argument for each member of it,
+/// is [`ghost_core::security::response_headers`] — this only decides *where*
+/// it is applied, which is everything under `/ghost/`.
+///
+/// Three things worth knowing about the placement:
+///
+/// * It runs **outside** `apply_base_path`, so it is the last thing to touch
+///   the response and a screen cannot accidentally be served without it.
+/// * It **does not overwrite** a header a handler set deliberately. Nothing
+///   under `/ghost/` currently sets one of these — the SVG route that serves
+///   `Content-Security-Policy: sandbox` is on the public router, not this one
+///   — but a handler that does will have a reason, and a blanket middleware
+///   silently replacing a stronger policy with a weaker one is a downgrade
+///   dressed as hardening.
+/// * `cache-control: no-store` is in the set, and the one thing in the admin
+///   that genuinely wants to be cached is the versioned editor runtime under
+///   `/ghost/assets/`, which sets its own `immutable` and is therefore left
+///   alone by the same rule.
+async fn with_security_headers(
+    State(state): State<AppState>,
+    req: axum::extract::Request,
+    next: axum::middleware::Next,
+) -> Response {
+    let headers = ghost_api::security_settings::response_headers(
+        &state,
+        ghost_core::security::Surface::Admin,
+    );
+    let mut resp = next.run(req).await;
+    for (name, value) in headers {
+        let Ok(name) = header::HeaderName::from_bytes(name.as_bytes()) else { continue };
+        // A value built from a setting, so it is parsed rather than trusted —
+        // `ghost_core::security` reduces every one of these to a value it
+        // offered, but a header value that would not parse must never panic
+        // a request.
+        let Ok(value) = value.parse::<header::HeaderValue>() else { continue };
+        if !resp.headers().contains_key(&name) {
+            resp.headers_mut().insert(name, value);
+        }
+    }
+    resp
 }
 
 fn admin_site_name() -> String {
@@ -183,6 +232,20 @@ pub fn admin_ui_router(state: AppState) -> Router<AppState> {
         .route("/members/{id}/delete/", post(member_delete))
         .route("/members/{id}/commenting/disable/", post(comments::member_commenting_disable))
         .route("/members/{id}/commenting/enable/", post(comments::member_commenting_enable))
+        // memberships: the funnel, its gaps, and the tier and offer
+        // inventories. The members list above is this module's Members tab
+        // and deliberately keeps its own URL — see the module docs. Nothing
+        // here is addressed by id and nothing here writes.
+        .route("/memberships/", get(memberships::memberships_page))
+        .route("/memberships/tiers/", get(memberships::tiers_page))
+        .route("/memberships/offers/", get(memberships::offers_page))
+        // newsletters: the sending programme, and every edition that went
+        // out. `retry` is a static segment under `editions` and nothing here
+        // is addressed by id — the one id the module takes comes back in a
+        // posted body rather than in a path.
+        .route("/newsletters/", get(newsletters::newsletters_page))
+        .route("/newsletters/editions/", get(newsletters::editions_page))
+        .route("/newsletters/editions/retry/", post(newsletters::edition_retry))
         // Comment moderation. Ghost puts this at /ghost/#/comments, so the
         // path a report notification deep-links to is the same one here.
         .route("/comments/", get(comments::comments_page))
@@ -203,6 +266,22 @@ pub fn admin_ui_router(state: AppState) -> Router<AppState> {
         .route("/forms/{id}/", get(forms::form_page).post(forms::form_save))
         .route("/forms/{id}/delete/", post(forms::form_delete))
         .route("/settings/forms/", get(forms::settings_page).post(forms::settings_save))
+        // security: the posture report, the live sessions and lockouts, and
+        // the switches behind them. Static segments only — nothing here is
+        // addressed by id, because the two things that are (a session, a
+        // lockout key) are posted in a body rather than named in a path.
+        .route("/security/", get(security::security_page))
+        .route("/security/sessions/", get(security::sessions_page))
+        .route("/security/sessions/revoke/", post(security::session_revoke))
+        .route("/security/sessions/revoke-all/", post(security::sessions_revoke_all))
+        .route("/security/lockouts/clear/", post(security::lockout_clear))
+        .route("/security/lockouts/clear-all/", post(security::lockouts_clear_all))
+        .route("/security/firewall/", get(security::firewall_page))
+        .route("/security/firewall/add/", post(security::firewall_add))
+        .route("/security/firewall/delete/", post(security::firewall_delete))
+        .route("/security/firewall/clear/", post(security::firewall_clear))
+        .route("/security/firewall/toggle/", post(security::firewall_toggle))
+        .route("/settings/security/", get(security::settings_page).post(security::settings_save))
         // seo: the report, and the switches behind it. Static `content`
         // before any `{id}` this module might grow.
         .route("/seo/", get(seo::seo_page))
@@ -422,7 +501,15 @@ pub fn admin_ui_router(state: AppState) -> Router<AppState> {
         // binary and cached hard behind the version in the path
         .route("/assets/{version}/{file}", get(admin_asset))
         .layer(axum::middleware::from_fn(apply_base_path))
-        .layer(axum::middleware::from_fn_with_state(state, with_admin_settings))
+        .layer(axum::middleware::from_fn_with_state(state.clone(), with_security_headers))
+        .layer(axum::middleware::from_fn_with_state(state.clone(), with_admin_settings))
+        // Outermost: an address the firewall refuses is refused before the
+        // session cookie is read, so a barred address is barred whether or
+        // not it holds a valid login.
+        .layer(axum::middleware::from_fn_with_state(
+            state,
+            ghost_api::firewall::admin_guard,
+        ))
 }
 
 /// `PUT /emails/{id}/retry`, for merging into the Admin API.

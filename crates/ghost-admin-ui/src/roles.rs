@@ -198,6 +198,23 @@ pub(crate) async fn current_user(state: &AppState, headers: &HeaderMap) -> Optio
     // Through the shared reader, so this and `ghost_api` can never disagree
     // about what the cookie is called.
     let sid = ghost_api::admin::session_id_from(headers)?;
-    let user_id = repos::sessions::get_user(&state.db, &sid).await.ok()??;
-    repos::users::find_by_id(&state.db, &user_id).await.ok()?
+    // And through `get_user_within`, so the site's session policy applies to
+    // the admin UI and the Admin API alike — see
+    // `ghost_db::repos::sessions::get_user_within`.
+    let (max_age, idle) = ghost_api::security_settings::session_policy(state);
+    let user_id = repos::sessions::get_user_within(&state.db, &sid, max_age, idle).await.ok()??;
+    // `status` is checked here as well as in `verify_password`, and the two
+    // are not redundant: that one refuses a *new* sign-in from a suspended
+    // account, and this one refuses a browser that was already signed in when
+    // the suspension happened. Suspending somebody now revokes their sessions
+    // outright (see `staff::staff_set_status`), so in ordinary operation
+    // there is nothing here to catch — but a suspension that fails half way,
+    // or a status changed by any route that does not revoke, must not leave a
+    // working admin session behind. The Admin API's own `current_user` has
+    // always filtered on this; the admin UI did not, which made the UI the
+    // more permissive of the two doors.
+    repos::users::find_by_id(&state.db, &user_id)
+        .await
+        .ok()?
+        .filter(|user| user.status.as_deref() == Some("active"))
 }

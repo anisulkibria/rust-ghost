@@ -17,14 +17,17 @@ pub mod actions;
 pub mod automations;
 pub mod comments;
 pub mod dashboard;
+pub mod firewall;
 pub mod forms;
 pub mod integrations;
 pub mod locales;
 pub mod media;
+pub mod memberships;
 pub mod metafields;
 pub mod newsletters;
 pub mod offers;
 pub mod recommendations;
+pub mod security;
 pub mod seo;
 pub mod webhooks;
 

@@ -272,7 +272,7 @@ async fn resend_signin_code(
     // Sending mail on request is worth rate-limiting on its own: without this
     // the endpoint is a way to post a stream of mail to a staff address.
     // Ghost's `sendVerificationCode` budget, per IP.
-    let ip = ghost_api::brute::client_ip(&headers, peer);
+    let ip = ghost_api::brute::client_ip_for(&state, &headers, peer);
     if let Err(blocked) = ghost_api::brute::check(
         &state.db,
         &format!("send_verification_code:{ip}"),
@@ -312,7 +312,7 @@ async fn verify_signin_code(
 ) -> Response {
     // A six-digit code is guessable in a million tries; Ghost's
     // `userVerification` budget is what keeps that out of reach.
-    let ip = ghost_api::brute::client_ip(&headers, peer);
+    let ip = ghost_api::brute::client_ip_for(&state, &headers, peer);
     let key = format!("user_verification:{ip}");
     if let Err(blocked) =
         ghost_api::brute::check(&state.db, &key, &ghost_api::brute::USER_VERIFICATION).await

@@ -480,7 +480,13 @@ pub async fn current_user(state: &AppState, headers: &HeaderMap) -> Option<ghost
         return user_from_api_key(state, headers).await;
     }
     let sid = session_id_from(headers)?;
-    let user_id = repos::sessions::get_user(&state.db, &sid).await.ok()??;
+    // Through `get_user_within`, so the site's session policy is applied by
+    // the thing that reads the session rather than only by the sweep. Before
+    // this the cookie carried a seven-day `Max-Age` and the row behind it
+    // lived forever, which made an id read out of the database a login with
+    // no expiry date.
+    let (max_age, idle) = crate::security_settings::session_policy(state);
+    let user_id = repos::sessions::get_user_within(&state.db, &sid, max_age, idle).await.ok()??;
     repos::users::find_by_id(&state.db, &user_id).await.ok()?.filter(|user| user.status.as_deref() == Some("active"))
 }
 
@@ -639,7 +645,7 @@ async fn login(
     // that catches a distributed run at this one endpoint. Counted before the
     // password is checked and cleared below once it turns out to be right, so
     // only failures accumulate.
-    let ip = crate::brute::client_ip(&headers, peer);
+    let ip = crate::brute::client_ip_for(&state, &headers, peer);
     let login_key = format!("user_login:{ip}");
     let route_key = format!("/session:{ip}");
     for (key, budget) in

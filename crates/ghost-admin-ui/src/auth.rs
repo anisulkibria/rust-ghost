@@ -34,14 +34,19 @@ pub(crate) fn auth_error(message: &str) -> String {
 /// `autocomplete` differs by screen: `current-password` on sign-in lets a
 /// manager fill it, `new-password` on setup and invite stops it offering an
 /// existing one for a brand-new account.
-pub(crate) fn password_field(label: &str, autocomplete: &str, new_password: bool) -> String {
+///
+/// `min` is the site's own minimum length on a screen that sets a password,
+/// and `None` on the sign-in screen, which must not advertise a length at all
+/// — a `minlength` there would refuse to submit an existing shorter password
+/// and so lock out exactly the account that needs to sign in and change it.
+pub(crate) fn password_field(label: &str, autocomplete: &str, min: Option<usize>) -> String {
     format!(
         r#"<div class="field auth-pw"><input name="password" type="password" placeholder=" " required autocomplete="{autocomplete}"{min}><span>{label}</span>
 <button type="button" class="auth-reveal" aria-pressed="false" aria-label="Show password" title="Show password">{eye}{hide}</button></div>"#,
         autocomplete = esc(autocomplete),
         // The server enforces this too; the attribute only moves the
         // complaint to before the round trip.
-        min = if new_password { r#" minlength="10""# } else { "" },
+        min = min.map(|n| format!(r#" minlength="{n}""#)).unwrap_or_default(),
         label = esc(label),
         eye = svg_class("eye", "on"),
         hide = svg_class("hide", "off"),
@@ -86,6 +91,10 @@ pub(crate) async fn setup_page(State(state): State<AppState>) -> Response {
         return Redirect::to("/ghost/signin/").into_response();
     }
     let title = state.settings.get_str("title").unwrap_or_else(|| "Ghost".into());
+    // The site's own minimum, so a site that has raised it on the Security
+    // screen does not have a setup form still promising ten.
+    let min_len = ghost_api::security_settings::min_password_length(&state);
+    let min_label = format!("Password · min {min_len} characters");
     page_u(
         "Setup",
         "",
@@ -108,7 +117,7 @@ pub(crate) async fn setup_page(State(state): State<AppState>) -> Response {
             logo = BRAND_GLYPH,
             title = esc(&title),
             title_v = esc(&title),
-            password = password_field("Password · min 10 characters", "new-password", true),
+            password = password_field(&min_label, "new-password", Some(min_len)),
             assets = ASSETS,
             auth_hash = auth_script_hash(),
         ),
@@ -129,21 +138,30 @@ pub(crate) async fn setup_submit(State(state): State<AppState>, Form(form): Form
     if repos::users::is_setup(&state.db).await.unwrap_or(false) {
         return Redirect::to("/ghost/signin/").into_response();
     }
+    // Checked before hashing, not after: bcrypt at cost 12 is deliberately
+    // expensive, and spending it on a password that is about to be refused
+    // made a rejected setup form as slow as an accepted one.
+    //
+    // The minimum is the site's own, so raising it on the Security screen
+    // raises it here too — see `ghost_api::security_settings`.
+    if form.password.chars().count() < ghost_api::security_settings::min_password_length(&state) {
+        return page_u(
+            "Setup",
+            "",
+            None,
+            &format!(
+                "<div class='banner error'>{}</div>",
+                esc(&ghost_api::security_settings::password_too_short(&state)),
+            ),
+            false,
+        )
+        .into_response();
+    }
     let pw = form.password.clone();
     let hash = match tokio::task::spawn_blocking(move || bcrypt::hash(pw.as_str(), 12)).await {
         Ok(Ok(h)) => h,
         _ => return page_u("Setup", "", None, "<div class='banner error'>Password hashing failed</div>", false).into_response(),
     };
-    if form.password.len() < 10 {
-        return page_u(
-            "Setup",
-            "",
-            None,
-            "<div class='banner error'>Password must be at least 10 characters.</div>",
-            false,
-        )
-        .into_response();
-    }
     match repos::users::setup_owner(&state.db, &form.name, &form.email, &hash).await {
         Ok(_) => {
             let seeded_title = state.settings.get_str("title").unwrap_or_default();
@@ -202,7 +220,7 @@ pub(crate) async fn login_page(State(state): State<AppState>, headers: HeaderMap
             logo = BRAND_GLYPH,
             title = esc(&state.settings.get_str("title").unwrap_or_else(|| "Ghost".into())),
             err = err,
-            password = password_field("Password", "current-password", false),
+            password = password_field("Password", "current-password", None),
             assets = ASSETS,
             auth_hash = auth_script_hash(),
         ),
@@ -248,7 +266,7 @@ pub(crate) async fn login_submit(
     // the API endpoint just moves the guessing here. The key is shared with
     // that endpoint deliberately: it is one allowance per address, not one
     // per door.
-    let ip = ghost_api::brute::client_ip(&headers, peer);
+    let ip = ghost_api::brute::client_ip_for(&state, &headers, peer);
     let login_key = format!("user_login:{ip}");
     if ghost_api::brute::check(&state.db, &login_key, &ghost_api::brute::USER_LOGIN).await.is_err() {
         return Redirect::to("/ghost/signin/?throttled=1").into_response();
@@ -370,6 +388,11 @@ pub(crate) async fn verify_page(State(state): State<AppState>, headers: HeaderMa
         _ => match q.get("error").map(String::as_str) {
             Some("incorrect") => auth_error("That code is not right. Check the email and try again."),
             Some("expired") => auth_error("That code has expired. Send yourself a new one."),
+            // As on the sign-in screen, deliberately silent about how long:
+            // naming the wait tells a guesser exactly when to resume.
+            Some("throttled") => auth_error(
+                "Too many attempts. Wait a while before trying again, or start signing in afresh.",
+            ),
             _ => String::new(),
         },
     };
@@ -408,13 +431,44 @@ pub(crate) struct VerifyForm {
     code: String,
 }
 
-pub(crate) async fn verify_submit(State(state): State<AppState>, headers: HeaderMap, Form(form): Form<VerifyForm>) -> Response {
+/// Finish a sign-in with the emailed code.
+///
+/// Rate-limited per address against `USER_VERIFICATION`, on the same argument
+/// [`login_submit`] makes about the password: this HTML form is a second door
+/// onto the same check as `PUT /session/verify`, so budgeting only the JSON
+/// endpoint moves the guessing here rather than stopping it. The key is
+/// shared with that endpoint deliberately — one allowance per address, not
+/// one per door.
+///
+/// The per-session five-try cap in
+/// [`ghost_db::repos::sessions::verify_auth_code`] is not enough on its own:
+/// it expires the code after five wrong guesses, and the resend button issues
+/// a fresh one, so five-then-resend repeated without a budget is an unbounded
+/// search of a six-digit space.
+pub(crate) async fn verify_submit(
+    State(state): State<AppState>,
+    ghost_api::brute::ClientAddr(peer): ghost_api::brute::ClientAddr,
+    headers: HeaderMap,
+    Form(form): Form<VerifyForm>,
+) -> Response {
     use ghost_db::repos::sessions::CodeCheck;
     let Some(sid) = session_id_from(&headers) else {
         return Redirect::to("/ghost/signin/").into_response();
     };
+    let ip = ghost_api::brute::client_ip_for(&state, &headers, peer);
+    let verify_key = format!("user_verification:{ip}");
+    if ghost_api::brute::check(&state.db, &verify_key, &ghost_api::brute::USER_VERIFICATION)
+        .await
+        .is_err()
+    {
+        return Redirect::to("/ghost/signin/verify/?error=throttled").into_response();
+    }
     match repos::sessions::verify_auth_code(&state.db, &sid, &form.code).await {
         Ok(CodeCheck::Verified) => {
+            // The right code is not a guess, so it does not count against the
+            // budget: somebody who mistyped twice first is not then locked
+            // out of their own admin.
+            ghost_api::brute::reset(&state.db, &verify_key).await;
             if let Ok(Some(user_id)) = repos::sessions::get_user(&state.db, &sid).await {
                 let _ = repos::users::update_last_seen(&state.db, &user_id).await;
             }
@@ -426,10 +480,32 @@ pub(crate) async fn verify_submit(State(state): State<AppState>, headers: Header
 }
 
 /// Issue a replacement code for a session still waiting on one.
-pub(crate) async fn verify_resend(State(state): State<AppState>, headers: HeaderMap) -> Response {
+///
+/// Budgeted per address against `SEND_VERIFICATION_CODE`, sharing its key
+/// with `POST /session/verify`. Two reasons, and the second is the one that
+/// matters: unbudgeted, this is a button that posts a stream of mail to a
+/// staff address, *and* it is the refill behind the code-guessing described
+/// on [`verify_submit`] — the five-try cap on a code means nothing if a sixth
+/// try is one click away.
+pub(crate) async fn verify_resend(
+    State(state): State<AppState>,
+    ghost_api::brute::ClientAddr(peer): ghost_api::brute::ClientAddr,
+    headers: HeaderMap,
+) -> Response {
     let Some(sid) = session_id_from(&headers) else {
         return Redirect::to("/ghost/signin/").into_response();
     };
+    let ip = ghost_api::brute::client_ip_for(&state, &headers, peer);
+    if ghost_api::brute::check(
+        &state.db,
+        &format!("send_verification_code:{ip}"),
+        &ghost_api::brute::SEND_VERIFICATION_CODE,
+    )
+    .await
+    .is_err()
+    {
+        return Redirect::to("/ghost/signin/verify/?error=throttled").into_response();
+    }
     if !repos::sessions::is_unverified(&state.db, &sid).await.unwrap_or(false) {
         return Redirect::to("/ghost/signin/").into_response();
     }

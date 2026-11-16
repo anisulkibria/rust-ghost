@@ -10,7 +10,10 @@ pub(crate) const MODULES: &[(&str, &str, &str, &str, &str)] = &[
     ("Automations", "/ghost/automations/", "flow", "blue", "Manage automated workflows and their activity."),
     ("Forms", "/ghost/forms/", "form", "amber", "Build contact forms and read the responses visitors send."),
     ("Media", "/ghost/media/", "library", "pink", "Upload and manage every image, video and file on your site."),
+    ("Memberships", "/ghost/memberships/", "group", "purple", "Members, tiers, offers and what is stopping the next person joining or paying."),
+    ("Newsletters", "/ghost/newsletters/", "send", "amber", "What goes out, who gets it, how it was opened, and what stopped it."),
     ("Languages", "/ghost/languages/", "globe", "teal", "Publish this site in more than one language, and keep the translations in step."),
+    ("Security", "/ghost/security/", "lock", "red", "See what is holding this site shut, who is signed in, and what is not protected."),
     ("SEO", "/ghost/seo/", "trending", "blue", "See what search engines read on this site, and what is stopping them."),
     ("Social web", "/ghost/social/", "share", "teal", "Read, publish notes and connect with the fediverse."),
 ];

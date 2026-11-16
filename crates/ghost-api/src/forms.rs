@@ -518,9 +518,11 @@ fn success_message(form: &Form) -> &str {
 
 /// The caller's address, if it really is one. The proxy headers are text a
 /// client can set, so anything that does not parse is discarded rather than
-/// stored or used as a key.
-fn caller_ip(headers: &HeaderMap, peer: Option<std::net::IpAddr>) -> Option<String> {
-    brute::client_ip(headers, peer).parse::<std::net::IpAddr>().ok().map(|ip| ip.to_string())
+/// stored or used as a key — and whether they are read at all is the site's
+/// `security_trust_proxy` setting, because a per-address submission budget an
+/// address can choose is not a budget. See [`brute::client_ip_for`].
+fn caller_ip(state: &AppState, headers: &HeaderMap, peer: Option<std::net::IpAddr>) -> Option<String> {
+    brute::client_ip_for(state, headers, peer).parse::<std::net::IpAddr>().ok().map(|ip| ip.to_string())
 }
 
 /// `GET /forms/api/{id}/token/` — a fresh token for a form already on the
@@ -567,7 +569,7 @@ async fn submit(
         return refuse(&headers, StatusCode::UNSUPPORTED_MEDIA_TYPE, "type", "The form was sent in a format this site does not accept.");
     }
 
-    let ip = caller_ip(&headers, peer);
+    let ip = caller_ip(&state, &headers, peer);
     let ip_key = format!("form_submit:{}", ip.as_deref().unwrap_or("unknown"));
     if let Err(blocked) = brute::check(&state.db, &ip_key, &SUBMIT_PER_IP).await {
         return too_many(&headers, &blocked);

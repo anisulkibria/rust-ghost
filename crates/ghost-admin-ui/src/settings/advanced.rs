@@ -1319,7 +1319,7 @@ pub(crate) const SITE_TABLES: &[&str] = &[
     "recommendation_subscribe_events", "labels",
     "comments", "comment_likes", "comment_reports",
     "integrations", "api_keys", "webhooks", "custom_theme_settings",
-    "brute", "tokens", "milestones",
+    "brute", "tokens", "milestones", "firewall_rules",
     // Responses are visitors' personal data, so deleting the site deletes
     // them; children first, so it holds whether or not the engine cascades.
     "form_submissions", "forms",

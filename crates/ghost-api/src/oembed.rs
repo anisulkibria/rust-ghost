@@ -12,6 +12,23 @@
 //! Fetching is deliberately conservative: the admin is handing us a URL a
 //! signed-in author typed, but the server still only follows http(s), caps
 //! the response and gives up quickly.
+//!
+//! ## This endpoint is a server-side request forgery unless it is guarded
+//!
+//! Its whole job is to take a URL and have the server read it, and the answer
+//! comes partly back to the caller — a bookmark payload carries the fetched
+//! page's title, description and icon. The caller only has to be signed in,
+//! and the lowest staff role is Contributor, who may write a draft and
+//! nothing else.
+//!
+//! So unless the site has turned it off, every URL — the one the author typed
+//! *and* the oEmbed endpoint the fetched page nominates, which is less
+//! trustworthy than the first, not more — goes through
+//! [`crate::mentions::fetchable`], and redirects are followed through
+//! [`crate::mentions::guarded_redirect`] so that a public hostname answering
+//! `302 Location: http://169.254.169.254/` does not walk around the check.
+//! The switch is the Security module's `security_private_fetch` and it
+//! defaults to blocking; see [`fetch_text`].
 use axum::extract::{Query, State};
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
@@ -50,13 +67,30 @@ async fn oembed(State(state): State<AppState>, headers: HeaderMap, Query(q): Que
     };
     let want_bookmark = q.get("type").map(String::as_str) == Some("bookmark");
 
-    let Some(page) = fetch_text(url).await else {
+    // Whether this endpoint may read the server's own network. See
+    // [`fetch_text`] for what the two answers mean; the setting is the
+    // Security module's `security_private_fetch` and defaults to blocking.
+    let guarded = crate::security_settings::private_fetch_blocked(&state);
+    if guarded && crate::mentions::fetchable(url).is_none() {
+        return error(
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "That URL is not reachable from this server. Private and loopback addresses are refused.",
+        );
+    }
+
+    let Some(page) = fetch_text(url, guarded).await else {
         return error(StatusCode::UNPROCESSABLE_ENTITY, "Could not fetch that URL");
     };
 
     if !want_bookmark {
         if let Some(endpoint) = discover_oembed(&page) {
-            if let Some(body) = fetch_text(&endpoint).await {
+            // The discovered endpoint is a URL *the fetched page chose*, so
+            // it is less trustworthy than the one the author typed, not more.
+            // It goes through the same guard.
+            if guarded && crate::mentions::fetchable(&endpoint).is_none() {
+                return Json(bookmark_payload(url, &page)).into_response();
+            }
+            if let Some(body) = fetch_text(&endpoint, guarded).await {
                 if let Ok(mut payload) = serde_json::from_str::<Value>(&body) {
                     // Koenig keys the card off `type`; providers that omit it
                     // still render as a rich embed.
@@ -73,8 +107,37 @@ async fn oembed(State(state): State<AppState>, headers: HeaderMap, Query(q): Que
     Json(bookmark_payload(url, &page)).into_response()
 }
 
-async fn fetch_text(url: &str) -> Option<String> {
-    let client = reqwest::Client::builder().timeout(TIMEOUT).user_agent(USER_AGENT).build().ok()?;
+/// Read a page, optionally refusing anything inside this server's network.
+///
+/// ## Why this endpoint is a server-side request forgery if it is not guarded
+///
+/// It takes a URL and has the server read it, which is the whole feature. The
+/// URL comes from a signed-in staff member — but the lowest staff role is
+/// Contributor, who may write a draft and nothing else, and "nothing else"
+/// should not include reading the server's cloud metadata service or the
+/// admin interface of a database on localhost. Worse, part of the answer
+/// comes back: a bookmark payload carries the fetched page's title,
+/// description and icon, so this is not even blind.
+///
+/// With `guarded` on, the caller has already run the URL through
+/// [`crate::mentions::fetchable`] — only http(s), no credentials in the URL,
+/// no host that resolves inside this network — and the redirect policy
+/// re-runs that same check on every hop, because a public hostname answering
+/// `302 Location: http://169.254.169.254/` defeats a one-shot check entirely.
+/// That policy is [`crate::mentions::guarded_redirect`], shared with the
+/// webmention metadata fetchers for exactly this reason.
+///
+/// With it off the old behaviour is restored, redirects and all, which is a
+/// choice a site behind its own private registry might legitimately want and
+/// which the Security report names as a critical finding.
+async fn fetch_text(url: &str, guarded: bool) -> Option<String> {
+    let mut builder = reqwest::Client::builder().timeout(TIMEOUT).user_agent(USER_AGENT);
+    if guarded {
+        // Four hops: `http` → `https` → apex → `www` is three on its own, and
+        // a chain longer than that is not a page anybody meant to bookmark.
+        builder = builder.redirect(crate::mentions::guarded_redirect(4));
+    }
+    let client = builder.build().ok()?;
     let response = client.get(url).send().await.ok()?;
     if !response.status().is_success() {
         return None;

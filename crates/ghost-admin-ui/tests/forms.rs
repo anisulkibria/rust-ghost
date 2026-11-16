@@ -58,6 +58,8 @@ async fn fixture_with(extra_settings: Vec<(String, serde_json::Value)>) -> (ghos
         setup_done: Arc::new(std::sync::atomic::AtomicBool::new(true)),
         frontend_key: Arc::new(tokio::sync::RwLock::new(None)),
         limits: Arc::new(ghost_db::limits::Limits::default()),
+        // Empty: a fixture firewall lets everybody through.
+        firewall: ghost_db::repos::firewall::RuleCache::empty(),
     };
     (test_db, state, owner.id)
 }

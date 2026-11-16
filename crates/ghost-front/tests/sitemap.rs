@@ -93,6 +93,8 @@ impl Fixture {
             setup_done: Arc::new(AtomicBool::new(true)),
             frontend_key: Arc::new(RwLock::new(None)),
             limits: Arc::new(ghost_db::limits::Limits::default()),
+        // Empty: a fixture firewall lets everybody through.
+        firewall: ghost_db::repos::firewall::RuleCache::empty(),
         };
         let app = ghost_front::site_router(state.clone());
         Self { _db: test_db, state, app }
@@ -363,9 +365,14 @@ async fn the_index_dates_each_sub_sitemap() {
     let f = Fixture::new().await;
     f.post("welcome", "Welcome").await;
     let reply = f.get("/sitemap.xml").await;
-    assert!(
-        reply.body.contains(&format!("<loc>{ORIGIN}/sitemap-posts.xml</loc><lastmod>2026-11-14T")),
-        "{}",
-        reply.body
-    );
+    // The *shape*, not today's date: this assertion used to name
+    // `2026-11-14` and started failing on 2026-11-15, when the calendar
+    // rolled over rather than when anything changed. What the test is for is
+    // that the index carries a `lastmod` per entry at all.
+    let dated = regex::Regex::new(&format!(
+        r"<loc>{}/sitemap-posts\.xml</loc><lastmod>\d{{4}}-\d{{2}}-\d{{2}}T",
+        regex::escape(ORIGIN),
+    ))
+    .unwrap();
+    assert!(dated.is_match(&reply.body), "{}", reply.body);
 }

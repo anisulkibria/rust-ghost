@@ -442,11 +442,48 @@ pub(crate) async fn staff_set_status(
         return profile_flash(&slug, "error", "You cannot suspend that person.");
     }
     match repos::staff::set_user_status(&state.db, &target.id, &form.status).await {
-        Ok(()) => profile_flash(
-            &slug,
-            "ok",
-            if form.status == "inactive" { "Account suspended." } else { "Account reactivated." },
-        ),
+        Ok(()) => {
+            if form.status == "inactive" {
+                // A suspension has to reach a browser that is already signed
+                // in. `verify_password` refuses a *new* sign-in from a
+                // non-active account, but nothing in the session guard looks
+                // at `status` — so without this, suspending somebody who is
+                // sitting in the admin did nothing at all until they chose to
+                // sign out. Checking `status` on every request instead would
+                // put a second query on every admin page load to enforce a
+                // state that changes once; revoking here costs one statement
+                // at the moment the decision is made.
+                match repos::security::revoke_sessions_for_user(&state.db, &target.id, None).await {
+                    Ok(n) => {
+                        return profile_flash(
+                            &slug,
+                            "ok",
+                            &if n > 0 {
+                                format!(
+                                    "Account suspended — {} signed out.",
+                                    crate::countable(n as i64, "session"),
+                                )
+                            } else {
+                                "Account suspended.".to_string()
+                            },
+                        );
+                    }
+                    Err(e) => {
+                        // The suspension itself succeeded. Say so, and say
+                        // what did not, rather than reporting a flat failure
+                        // for a change that has already been written.
+                        tracing::error!("suspended {} but could not revoke sessions: {}", target.id, e.message());
+                        return profile_flash(
+                            &slug,
+                            "error",
+                            "Account suspended, but their existing sessions could not be signed out — \
+                             revoke them from the Security screen.",
+                        );
+                    }
+                }
+            }
+            profile_flash(&slug, "ok", "Account reactivated.")
+        }
         Err(e) => profile_flash(&slug, "error", &e.message()),
     }
 }
@@ -481,6 +518,7 @@ pub(crate) async fn staff_delete(State(state): State<AppState>, headers: HeaderM
 pub(crate) async fn invite_accept_page(State(state): State<AppState>, Path(token): Path<String>) -> Response {
     let invite = repos::staff::find_invite_by_token(&state.db, &token).await.ok().flatten();
     let title = state.settings.get_str("title").unwrap_or_else(|| "Ghost".into());
+    let min_len = ghost_api::security_settings::min_password_length(&state);
     let body = match &invite {
         Some(i) if !i.is_expired() => format!(
             r#"<div class="auth"><div class="blob b1"></div><div class="blob b2"></div><div class="blob b3"></div>
@@ -500,7 +538,11 @@ pub(crate) async fn invite_accept_page(State(state): State<AppState>, Path(token
             role = esc(&i.role),
             token = esc(&token),
             email = esc(&i.email),
-            password = auth::password_field("Password · min 10 characters", "new-password", true),
+            password = auth::password_field(
+                &format!("Password · min {min_len} characters"),
+                "new-password",
+                Some(min_len),
+            ),
             assets = ASSETS,
             auth_hash = auth::auth_script_hash(),
         ),
@@ -1222,8 +1264,14 @@ pub(crate) async fn profile_password(
     if form.new_password != form.confirm_password {
         return profile_flash(&slug, "error", "The new passwords do not match.");
     }
-    if form.new_password.chars().count() < 10 {
-        return profile_flash(&slug, "error", "Password must be at least 10 characters.");
+    // The site's own minimum, so the Security screen's setting reaches every
+    // password path rather than only the ones that remembered a number.
+    if form.new_password.chars().count() < ghost_api::security_settings::min_password_length(&state) {
+        return profile_flash(
+            &slug,
+            "error",
+            &ghost_api::security_settings::password_too_short(&state),
+        );
     }
     if is_self {
         let email = user.email.clone().unwrap_or_default();
