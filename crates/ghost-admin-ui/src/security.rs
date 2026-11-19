@@ -176,7 +176,7 @@ fn tabs(active: &str) -> String {
 /// Everything measured in one place so that [`rules::audit`] stays a pure
 /// function of facts and the screen cannot accidentally judge something it
 /// has not looked up.
-async fn measure(state: &AppState) -> ghost_core::Result<(Posture, repo::Counts)> {
+pub(crate) async fn measure(state: &AppState) -> ghost_core::Result<(Posture, repo::Counts)> {
     let settings = ghost_api::security_settings::snapshot(state);
     let (max_age, idle) = ghost_api::security_settings::session_policy(state);
     let counts = repo::counts(&state.db, max_age).await?;

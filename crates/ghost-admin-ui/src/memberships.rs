@@ -489,6 +489,24 @@ fn funnel_of(state: &AppState, counts: &repo::Counts, mrr_cents: i64) -> Funnel 
     }
 }
 
+/// Count the funnel and assemble the [`Funnel`] over a window of `days`.
+///
+/// Separate from the page so the admin home can ask this module what it thinks
+/// rather than guessing at the same question with a different query — the home
+/// screen reports *how many* blocking gaps there are and links here for the
+/// list, and `mrr_cents` is already shared with it in the other direction.
+///
+/// Two round trips, not one: see [`repo::mrr_cents`] on why the `SUM` over a
+/// `REAL` column stays out of the counts query.
+pub(crate) async fn measure(state: &AppState, days: i64) -> ghost_core::Result<Funnel> {
+    let now = chrono::Utc::now();
+    let since = ghost_core::dates::to_db_string(&(now - chrono::Duration::days(days)));
+    let before = ghost_core::dates::to_db_string(&(now - chrono::Duration::days(days * 2)));
+    let counts = repo::funnel(&state.db, &since, &before).await?;
+    let mrr = repo::mrr_cents(&state.db).await;
+    Ok(funnel_of(state, &counts, mrr))
+}
+
 pub async fn memberships_page(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -499,16 +517,15 @@ pub async fn memberships_page(
         Err(r) => return r,
     };
     let days = rules::window_days(q.get("days").map(|s| s.as_str()));
-    let now = chrono::Utc::now();
-    let since = ghost_core::dates::to_db_string(&(now - chrono::Duration::days(days)));
-    let before = ghost_core::dates::to_db_string(&(now - chrono::Duration::days(days * 2)));
-
-    let counts = match repo::funnel(&state.db, &since, &before).await {
-        Ok(c) => c,
+    // The same window `measure` counts over, for the charts below it.
+    let since = ghost_core::dates::to_db_string(
+        &(chrono::Utc::now() - chrono::Duration::days(days)),
+    );
+    let funnel = match measure(&state, days).await {
+        Ok(f) => f,
         Err(e) => return server_error(&e),
     };
-    let mrr = repo::mrr_cents(&state.db).await;
-    let funnel = funnel_of(&state, &counts, mrr);
+    let mrr = funnel.mrr_cents;
     let gaps = rules::audit(&funnel);
 
     let currency = Some(funnel.currency.as_str()).filter(|c| !c.is_empty());

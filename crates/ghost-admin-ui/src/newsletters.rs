@@ -256,7 +256,7 @@ fn transport_of(state: &AppState) -> (Option<String>, Option<String>) {
 /// Assemble the [`Programme`] the rules judge, from the settings and the
 /// counts, in one place — so [`rules::audit`] stays a pure function of facts
 /// and the screen cannot judge something it forgot to look up.
-async fn measure(state: &AppState, days: i64) -> ghost_core::Result<(Programme, repo::Counts)> {
+pub(crate) async fn measure(state: &AppState, days: i64) -> ghost_core::Result<(Programme, repo::Counts)> {
     let now = chrono::Utc::now();
     let since = ghost_core::dates::to_db_string(&(now - chrono::Duration::days(days)));
     let counts = repo::programme(&state.db, &since).await?;

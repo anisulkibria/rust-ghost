@@ -11,9 +11,26 @@
 //! 1. the greeting, and the two or three things you came here to start;
 //! 2. what is still undone about setting the site up, while it is undone;
 //! 3. the queues waiting on a person, faults before chores;
-//! 4. the drafts and scheduled posts to pick up;
-//! 5. the headline figures, with a link to the full report;
-//! 6. what went out lately, and how it has been read.
+//! 4. what the modules that audit themselves are reporting — Security,
+//!    Newsletters and Memberships — when any of them is reporting that
+//!    somebody is stopped;
+//! 5. the drafts and scheduled posts to pick up;
+//! 6. the headline figures, with a link to the full report;
+//! 7. what went out lately, and how it has been read.
+//!
+//! ## What section 4 is, and is not
+//!
+//! It is a **count and a link, never a copy**. Security, Memberships and
+//! Newsletters each audit themselves and each own the words for what they
+//! find; this page says how many of those findings stop somebody and sends you
+//! there. Reproducing a finding would mean two screens that have to keep
+//! agreeing about the same sentence, and the one with less room would lose.
+//!
+//! Only the levels that mean *somebody is stopped* reach it — `Critical` from
+//! Security, `Blocking` from the other two. Their `Opportunity` and `Note`
+//! levels are growth advice and deliberate choices, and a home screen listing
+//! those is a list nobody finishes. The ranking between the modules is
+//! [`ghost_core::dashboard::health`]'s, tested there without a database.
 //!
 //! ## Who sees what
 //!
@@ -44,7 +61,7 @@
 
 use super::*;
 
-use ghost_core::dashboard::{Pending, Setup};
+use ghost_core::dashboard::{Audits, Health, Pending, Setup};
 use ghost_db::repos::dashboard as repo;
 
 /// The window the headline figures and the sparkline cover.
@@ -60,6 +77,15 @@ const WINDOW_DAYS: i64 = 7;
 /// is to be read at a glance and then left — anything longer belongs on the
 /// posts list, which both cards link to.
 const LIST_LIMIT: i64 = 5;
+
+/// The window the self-auditing modules are asked to report over.
+///
+/// Thirty days, which is [`ghost_core::windows`]' default and therefore what
+/// Memberships and Newsletters each count over when they are opened with no
+/// `?days=`. That matters: the number on this page is a count of *their*
+/// findings, and a different window here would let home say "two" where the
+/// module it links to says "three".
+const AUDIT_DAYS: i64 = 30;
 
 /// The role check. Any signed-in staff member may see this page; see the
 /// module docs on why, and on how the sections are gated instead.
@@ -106,9 +132,22 @@ pub async fn dashboard_page(State(state): State<AppState>, headers: HeaderMap) -
     let queue = repo::work_queue(&state.db, mine, LIST_LIMIT).await.unwrap_or_default();
     let recent = repo::recent_published(&state.db, mine, LIST_LIMIT).await.unwrap_or_default();
 
+    // What the modules that audit themselves are reporting. Administrator-only
+    // like the sections it feeds, which is also what keeps its three extra
+    // reads off a writer's home screen.
+    let audits = match role.is_admin() {
+        true => audits(&state).await,
+        false => Audits::default(),
+    };
+
     let head = header(&actor, &timezone, now);
-    let checklist = if role.is_admin() { setup_card(&state, &snapshot).await } else { String::new() };
+    let checklist = if role.is_admin() {
+        setup_card(&state, &snapshot, &audits).await
+    } else {
+        String::new()
+    };
     let attention = if role.is_admin() { pending_card(&snapshot) } else { String::new() };
+    let modules = if role.is_admin() { health_card(&audits) } else { String::new() };
     let work = work_card(&queue, &timezone, role);
     let figures = if role.is_admin() {
         figures_section(&state, &snapshot, &window, &previous).await
@@ -120,8 +159,12 @@ pub async fn dashboard_page(State(state): State<AppState>, headers: HeaderMap) -
     // `--i` staggers the rise animation down the page; the numbers only have
     // to increase, and a section that is not rendered simply leaves a gap in
     // the sequence rather than shifting everything after it.
+    // One wrapper, so this screen's glass treatment can be written as
+    // `.dash .card` and so on. The shared primitives stay solid everywhere
+    // else — the module-pattern rule is that a module never edits a shared
+    // rule to suit itself, and a class to scope by is how it keeps that.
     page_for_role(role, "Dashboard", "dashboard", Some(&actor.user), &format!(
-        "{head}{checklist}{attention}{work}{figures}{published}"
+        r#"<div class="dash">{head}{checklist}{attention}{modules}{work}{figures}{published}</div>"#
     ), true)
     .into_response()
 }
@@ -195,7 +238,7 @@ fn header(actor: &Actor, timezone: &str, now: chrono::DateTime<chrono::Utc>) -> 
 /// nobody below Administrator may open, and because the fifth ("publish
 /// something") is a judgement about the site as a whole rather than about the
 /// viewer's own work.
-async fn setup_card(state: &AppState, snapshot: &repo::Snapshot) -> String {
+async fn setup_card(state: &AppState, snapshot: &repo::Snapshot, audits: &Audits) -> String {
     let has = |key: &str| {
         state
             .settings
@@ -215,6 +258,9 @@ async fn setup_card(state: &AppState, snapshot: &repo::Snapshot) -> String {
         sells_memberships: signup != "none" && snapshot.paid_tiers > 0,
         stripe_connected: has("stripe_connect_account_id") || has("stripe_secret_key"),
         analytics_on: state.settings.get_bool("web_analytics"),
+        // When Memberships is reporting blocking gaps a few rows below, it is
+        // already saying this and saying more of it; see the field's own doc.
+        funnel_reported_blocking: audits.membership_blocking > 0,
     };
 
     let steps = ghost_core::dashboard::setup(&site);
@@ -328,12 +374,17 @@ fn pending_row(item: Pending) -> String {
             "Past the time it should have gone out. The publishing scheduler may have stopped.".to_string(),
             "/ghost/posts/?filter=scheduled",
         ),
+        // Editions, not the posts list: a failed send is a *send* that failed,
+        // and the editions screen is the only one that says why and offers to
+        // try again. Before the Newsletters module existed this row had
+        // nowhere better to go than `/ghost/posts/?filter=sent`, which showed
+        // the post looking perfectly published.
         Pending::FailedEmails(n) => (
             "mail",
             "red",
             format!("{} that failed to send", countable(n, "newsletter")),
-            "The post published, but the email did not reach its recipients.".to_string(),
-            "/ghost/posts/?filter=sent",
+            "The post published, but the email did not reach its recipients. Sending again reaches only the subscribers the first attempt missed.".to_string(),
+            "/ghost/newsletters/editions/",
         ),
         Pending::ReportedComments(n) => (
             "flag",
@@ -366,7 +417,199 @@ fn pending_row(item: Pending) -> String {
 }
 
 // ---------------------------------------------------------------------------
-// section 4: the work in progress
+// section 4: what the self-auditing modules report
+// ---------------------------------------------------------------------------
+
+/// Ask Security, Memberships and Newsletters what they are reporting.
+///
+/// Each module's own `measure` is called rather than its queries being
+/// repeated here, which is the whole point: the count on this page is a count
+/// of the rows on that page, and there is no second query to drift from the
+/// first. `memberships::measure` also reaches `dashboard::mrr_minor`, so the
+/// revenue figure further down this page and the one behind these gaps are
+/// already the same number.
+///
+/// The three run concurrently: they are independent reads and the home screen
+/// should not pay for them end to end. None of them holds a transaction, so a
+/// one-connection pool serialises them rather than deadlocking — the trap
+/// worth naming, because *inside* a transaction this would hang.
+///
+/// A module whose measurement fails is reported as having nothing to say, with
+/// the error logged. Being louder would be wrong: this section is not where a
+/// broken read should be argued about, and the module's own screen reports its
+/// failures properly.
+async fn audits(state: &AppState) -> Audits {
+    use ghost_core::dashboard::Security;
+
+    let security = async {
+        match security::measure(state).await {
+            Ok((posture, _counts)) => {
+                let findings = ghost_core::security::audit(&posture);
+                let at = |severity| {
+                    findings.iter().filter(|f| f.severity == severity).count() as i64
+                };
+                Some(Security {
+                    score: ghost_core::security::score(&findings),
+                    critical: at(ghost_core::security::Severity::Critical),
+                    warnings: at(ghost_core::security::Severity::Warning),
+                    lockouts: posture.lockouts,
+                })
+            }
+            Err(e) => {
+                tracing::error!("dashboard could not measure the security posture: {e}");
+                None
+            }
+        }
+    };
+
+    let memberships = async {
+        match memberships::measure(state, AUDIT_DAYS).await {
+            Ok(funnel) => ghost_core::memberships::audit(&funnel)
+                .iter()
+                .filter(|g| g.severity == ghost_core::memberships::Severity::Blocking)
+                .count() as i64,
+            Err(e) => {
+                tracing::error!("dashboard could not measure the membership funnel: {e}");
+                0
+            }
+        }
+    };
+
+    let newsletters = async {
+        match newsletters::measure(state, AUDIT_DAYS).await {
+            Ok((programme, _counts)) => ghost_core::newsletters::audit(&programme)
+                .iter()
+                .filter(|g| g.severity == ghost_core::newsletters::Severity::Blocking)
+                .count() as i64,
+            Err(e) => {
+                tracing::error!("dashboard could not measure the sending programme: {e}");
+                0
+            }
+        }
+    };
+
+    let (security, membership_blocking, newsletter_blocking) =
+        futures::join!(security, memberships, newsletters);
+    Audits { security, membership_blocking, newsletter_blocking }
+}
+
+/// "Your modules report" — one row per module with something stopping
+/// somebody, or nothing at all.
+///
+/// Administrator-only, like every destination it links to.
+fn health_card(audits: &Audits) -> String {
+    let items = ghost_core::dashboard::health(audits);
+    if items.is_empty() {
+        return String::new();
+    }
+    let rows: String = items.iter().map(|item| health_row(*item)).collect();
+    format!(
+        r#"<div class="section dash-head">Your modules report<a class="dash-more" href="/ghost/modules/">All modules {chev}</a></div>
+<div class="card rows dash-rows rise" style="--i:3">{rows}</div>"#,
+        chev = svg("chevron"),
+    )
+}
+
+/// One module's report as a row.
+///
+/// The icon and the tint are the module's own, as the Modules hub draws them,
+/// so a row is recognisable as *which* module before it is read. The chip
+/// carries the count, and `error` versus `tonal` follows
+/// [`Health::is_fault`] — the words say which it is either way.
+fn health_row(item: Health) -> String {
+    let (icon_name, tint, title, detail, href) = match item {
+        Health::SecurityCritical { critical, score } => (
+            "lock",
+            "red",
+            countable(critical, "critical security finding"),
+            format!(
+                "A defence this site relies on is absent or bypassable. The posture score is {score} out of 100.",
+            ),
+            "/ghost/security/",
+        ),
+        // Written out rather than built with `countable`, which pluralises by
+        // adding an `s` to what it is given — "3 addresss".
+        Health::Lockouts(n) => (
+            "warning",
+            "amber",
+            match n {
+                1 => "1 address locked out of signing in".to_string(),
+                n => format!("{n} addresses locked out of signing in"),
+            },
+            "Either somebody is guessing at a password, or a colleague cannot get into their own account.".to_string(),
+            "/ghost/security/sessions/",
+        ),
+        Health::Newsletters(n) => (
+            "send",
+            "red",
+            format!("{} the newsletter from reaching anybody", stopping(n)),
+            "A post emailed today would be lost. Nothing recovers a send that never happened.".to_string(),
+            "/ghost/newsletters/",
+        ),
+        Health::Memberships(n) => (
+            "group",
+            "red",
+            format!("{} somebody joining or paying", stopping(n)),
+            "A visitor who wanted to pay cannot, and leaves without saying so.".to_string(),
+            "/ghost/memberships/",
+        ),
+        // "Security could be stronger" rather than "Security is reasonable":
+        // the grade is a reading and this row is a thing to do. The grade and
+        // the score are in the detail, where they belong — the row exists
+        // because the score is below Strong, so saying so is the content.
+        Health::SecurityPosture { score, warnings } => (
+            "lock",
+            "amber",
+            "Security could be stronger".to_string(),
+            match warnings {
+                0 => format!(
+                    "Nothing critical. The posture reads {grade} at {score} out of 100, and the report says what would raise it.",
+                    grade = ghost_core::security::grade(score).0.to_lowercase(),
+                ),
+                n => format!(
+                    "{warnings} on the report — defences weaker than they should be. The posture reads {grade} at {score} out of 100.",
+                    warnings = countable(n, "warning"),
+                    grade = ghost_core::security::grade(score).0.to_lowercase(),
+                ),
+            },
+            "/ghost/security/",
+        ),
+    };
+    let count = match item {
+        Health::SecurityCritical { critical, .. } => critical,
+        Health::Lockouts(n) | Health::Newsletters(n) | Health::Memberships(n) => n,
+        // The posture row's figure is the score, not a number of things.
+        Health::SecurityPosture { score, .. } => score,
+    };
+    format!(
+        r#"<a class="row" href="{href}"><span class="ic tint-{tint}">{ic}</span>
+<div class="body"><span class="title">{title}</span><span class="detail">{detail}</span></div>
+<div class="trailing"><span class="chip {chip}">{count}</span>{chev}</div></a>"#,
+        href = href,
+        tint = tint,
+        ic = svg(icon_name),
+        title = esc(&title),
+        detail = esc(&detail),
+        chip = if item.is_fault() { "error" } else { "tonal" },
+        count = count,
+        chev = svg("chevron"),
+    )
+}
+
+/// "One thing stops" / "3 things stop", for a row that reads as a sentence.
+///
+/// `countable` would give "1 things stop" the agreement but not the verb,
+/// which is the half of it that makes a row read like a readout instead of a
+/// sentence.
+fn stopping(n: i64) -> String {
+    match n {
+        1 => "One thing stops".to_string(),
+        n => format!("{n} things stop"),
+    }
+}
+
+// ---------------------------------------------------------------------------
+// section 5: the work in progress
 // ---------------------------------------------------------------------------
 
 /// "Pick up where you left off" — scheduled entries then drafts.
@@ -391,7 +634,7 @@ fn work_card(entries: &[repo::Entry], timezone: &str, role: Role) -> String {
     };
     format!(
         r#"<div class="section dash-head">Pick up where you left off<a class="dash-more" href="/ghost/posts/?filter=draft">All drafts {chev}</a></div>
-<div class="card rows dash-rows rise" style="--i:3">{body}</div>"#,
+<div class="card rows dash-rows rise" style="--i:4">{body}</div>"#,
         chev = svg("chevron"),
     )
 }
@@ -454,7 +697,7 @@ fn work_row(entry: &repo::Entry, timezone: &str) -> String {
 }
 
 // ---------------------------------------------------------------------------
-// section 5: the headline figures
+// section 6: the headline figures
 // ---------------------------------------------------------------------------
 
 /// The four tiles and the sparkline, with a link to the full report.
@@ -500,7 +743,7 @@ async fn figures_section(
     // tiles — the same kind of statement in the same place, so it is reused
     // rather than restyled.
     let members_note = format!(
-        r#"<p class="live-note rise" style="--i:4">{joined} in the last 30 days · <a href="/ghost/members/">Manage members</a></p>"#,
+        r#"<p class="live-note rise" style="--i:5">{joined} in the last 30 days · <a href="/ghost/members/">Manage members</a></p>"#,
         // "new member" rather than "member joined": `countable` pluralises by
         // adding an `s` to what it is given, which would make "3 member joineds".
         joined = esc(&countable(snapshot.new_members, "new member")),
@@ -510,9 +753,9 @@ async fn figures_section(
         // Connected: Click is the authority, and it is the only thing offered.
         Ok(Some(_)) => format!(
             r#"<div class="section">Your publication</div>
-<div class="tiles rise" style="--i:4">{members_tile}{mrr_tile}{content_tile}</div>
+<div class="tiles rise" style="--i:5">{members_tile}{mrr_tile}{content_tile}</div>
 {members_note}
-<div class="card padded rise" style="--i:5"><p class="muted" style="margin:0">
+<div class="card padded rise" style="--i:6"><p class="muted" style="margin:0">
 Web traffic for this site is reported by Vuuut Click.
 <a href="/ghost/analytics/">Open the report</a></p></div>"#,
         ),
@@ -535,9 +778,9 @@ Web traffic for this site is reported by Vuuut Click.
             let chart = sparkline(&state.db, &window.from).await;
             format!(
                 r#"<div class="section dash-head">Your publication<a class="dash-more" href="/ghost/analytics/">Full report {chev}</a></div>
-<div class="tiles rise" style="--i:4">{visitors_tile}{members_tile}{mrr_tile}{content_tile}</div>
+<div class="tiles rise" style="--i:5">{visitors_tile}{members_tile}{mrr_tile}{content_tile}</div>
 {members_note}
-<div class="card padded rise" style="--i:5">{chart}</div>"#,
+<div class="card padded rise" style="--i:6">{chart}</div>"#,
                 chev = svg("chevron"),
             )
         }
@@ -569,7 +812,7 @@ async fn sparkline(db: &ghost_db::Db, from: &str) -> String {
 }
 
 // ---------------------------------------------------------------------------
-// section 6: what went out lately
+// section 7: what went out lately
 // ---------------------------------------------------------------------------
 
 /// "Recently published", with how each entry has been read.
@@ -651,7 +894,7 @@ async fn published_card(
 
     format!(
         r#"<div class="section dash-head">Recently published<span class="dash-note">readers in the last 30 days</span></div>
-<div class="card rows dash-rows rise" style="--i:6">{rows}</div>"#,
+<div class="card rows dash-rows rise" style="--i:7">{rows}</div>"#,
     )
 }
 
@@ -815,7 +1058,95 @@ mod tests {
         assert!(pending_row(Pending::ReportedComments(1)).contains("filter=reported"));
         assert!(pending_row(Pending::NewResponses(1)).contains("status=new"));
         assert!(pending_row(Pending::OverdueScheduled(1)).contains("filter=scheduled"));
-        assert!(pending_row(Pending::FailedEmails(1)).contains("filter=sent"));
+        // A failed send goes to the editions list, which is the only screen
+        // that says why it failed and offers to try again.
+        assert!(pending_row(Pending::FailedEmails(1)).contains("/ghost/newsletters/editions/"));
+    }
+
+    /// Nothing wrong means no module card at all — and an unmeasured site
+    /// counts as nothing wrong rather than as everything wrong, which is the
+    /// failure this would show on every admin's home screen if it were wrong.
+    #[test]
+    fn a_site_with_nothing_to_report_shows_no_module_card() {
+        assert!(health_card(&Audits::default()).is_empty());
+        assert!(health_card(&Audits {
+            security: Some(ghost_core::dashboard::Security {
+                score: 100,
+                ..Default::default()
+            }),
+            ..Audits::default()
+        })
+        .is_empty());
+    }
+
+    /// Every row a module report can produce points at that module, carries a
+    /// count and reads as a sentence.
+    #[test]
+    fn every_module_row_links_to_the_module_that_reported_it() {
+        let cases = [
+            (Health::SecurityCritical { critical: 2, score: 50 }, "/ghost/security/"),
+            (Health::Lockouts(1), "/ghost/security/sessions/"),
+            (Health::Newsletters(1), "/ghost/newsletters/"),
+            (Health::Memberships(3), "/ghost/memberships/"),
+            (Health::SecurityPosture { score: 80, warnings: 2 }, "/ghost/security/"),
+        ];
+        for (item, href) in cases {
+            let html = health_row(item);
+            assert!(html.contains(&format!(r#"href="{href}""#)), "{item:?} -> {html}");
+            assert!(html.contains("chip "), "{item:?} -> {html}");
+        }
+    }
+
+    /// A fault is chipped as an error and a working defence is not, and the
+    /// counts agree with their nouns and their verbs.
+    #[test]
+    fn a_module_row_colours_a_fault_and_reads_as_a_sentence() {
+        let critical = health_row(Health::SecurityCritical { critical: 1, score: 75 });
+        assert!(critical.contains("chip error"), "{critical}");
+        assert!(critical.contains("1 critical security finding<"), "{critical}");
+        assert!(critical.contains("75 out of 100"), "{critical}");
+
+        let lockout = health_row(Health::Lockouts(1));
+        assert!(lockout.contains("chip tonal"), "{lockout}");
+        assert!(lockout.contains("1 address locked out"), "{lockout}");
+        // Not "3 addresss", which is what `countable` would have made of it.
+        assert!(health_row(Health::Lockouts(3)).contains("3 addresses"), "{lockout}");
+
+        assert!(health_row(Health::Memberships(1)).contains("One thing stops somebody joining"));
+        assert!(health_row(Health::Memberships(3)).contains("3 things stop somebody joining"));
+        assert!(health_row(Health::Newsletters(1)).contains("One thing stops the newsletter"));
+
+        // The posture row carries the score in the chip, not a count of
+        // things, and is not an alarm.
+        let posture = health_row(Health::SecurityPosture { score: 80, warnings: 2 });
+        assert!(posture.contains("chip tonal"), "{posture}");
+        assert!(posture.contains(">80<"), "{posture}");
+        assert!(posture.contains("Security could be stronger"), "{posture}");
+        assert!(posture.contains("2 warnings"), "{posture}");
+        assert!(posture.contains("reasonable at 80 out of 100"), "{posture}");
+        // The grade is the security report's own word for the score.
+        let weak = health_row(Health::SecurityPosture { score: 50, warnings: 5 });
+        assert!(weak.contains("weak at 50 out of 100"), "{weak}");
+    }
+
+    /// The card keeps the ranking the rules decided, with the worst at the
+    /// top, and offers the way to the rest of the modules.
+    #[test]
+    fn the_module_card_leads_with_the_worst_thing() {
+        let html = health_card(&Audits {
+            security: Some(ghost_core::dashboard::Security {
+                score: 40,
+                critical: 1,
+                warnings: 2,
+                lockouts: 0,
+            }),
+            membership_blocking: 2,
+            newsletter_blocking: 0,
+        });
+        let security_at = html.find("critical security finding").unwrap();
+        let members_at = html.find("joining or paying").unwrap();
+        assert!(security_at < members_at, "{html}");
+        assert!(html.contains(r#"href="/ghost/modules/""#), "{html}");
     }
 
     /// Counts agree with their nouns, which is the detail that makes a row

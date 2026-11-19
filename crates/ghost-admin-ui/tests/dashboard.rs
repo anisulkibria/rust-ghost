@@ -274,6 +274,13 @@ async fn a_contributor_gets_the_page_but_none_of_the_administrators_sections() {
         "reported comment",
         "Your publication",
         "Finish setting up",
+        // The module reports are Administrator-only, like every screen they
+        // link to — a writer has no business with the posture score or with
+        // what is stopping a payment.
+        "Your modules report",
+        "/ghost/security/",
+        "/ghost/memberships/",
+        "/ghost/newsletters/",
         "/ghost/media/",
         "/ghost/comments/",
         "/ghost/settings/general/",
@@ -396,9 +403,48 @@ async fn the_setup_checklist_appears_only_while_something_is_undone() {
         .await
         .unwrap();
     let reply = get(&done.state, "/dashboard/", &done.session().await).await;
-    assert!(reply.body.contains("Finish setting up"), "{}", reply.body);
-    assert!(reply.body.contains("Connect Stripe"), "{}", reply.body);
-    assert!(reply.body.contains("nobody can pay for one yet"), "{}", reply.body);
+    // ...and the Memberships module answers it, not this checklist. That
+    // module measures the whole funnel — no Stripe, no plan in the portal —
+    // so a one-line "Connect Stripe" above its own row would be the same
+    // request made twice, worse, two sections apart.
+    assert!(
+        reply.body.contains("somebody joining or paying"),
+        "Memberships did not report the shop it cannot run:\n{}",
+        reply.body
+    );
+    assert!(reply.body.contains(r#"href="/ghost/memberships/""#), "{}", reply.body);
+    assert!(
+        !reply.body.contains("Connect Stripe"),
+        "the checklist repeated what Memberships already said:\n{}",
+        reply.body
+    );
+}
+
+/// The modules that audit themselves are reported on the home screen as a
+/// count and a link, and never as a copy of their findings.
+///
+/// A seeded site genuinely cannot take a payment and genuinely cannot send an
+/// email — the Memberships and Newsletters modules each pin that about
+/// themselves — so this is the state a fresh install is actually in, and the
+/// home screen saying so is the point of the section.
+#[tokio::test]
+async fn the_home_screen_reports_what_the_modules_found() {
+    let f = fixture().await;
+    let reply = get(&f.state, "/dashboard/", &f.session().await).await;
+    assert_eq!(reply.status, StatusCode::OK);
+    assert!(reply.body.contains("Your modules report"), "{}", reply.body);
+
+    // Newsletters: a seeded site has no working bulk transport, so a post
+    // emailed today reaches nobody — and that outranks the shop below it.
+    assert!(reply.body.contains("the newsletter from reaching anybody"), "{}", reply.body);
+    assert!(reply.body.contains(r#"href="/ghost/newsletters/""#), "{}", reply.body);
+    let sending_at = reply.body.find("the newsletter from reaching").unwrap();
+    let modules_at = reply.body.find("Your modules report").unwrap();
+    assert!(modules_at < sending_at, "{}", reply.body);
+
+    // And the words belong to the modules: the home screen counts, it does not
+    // reproduce a finding.
+    assert!(!reply.body.contains("gap-no-transport"), "{}", reply.body);
 }
 
 /// `/ghost/` is the dashboard, which is the change this module exists to make.

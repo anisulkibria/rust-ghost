@@ -42,6 +42,36 @@
   --dur: .18s;
   --shadow-1: 0 1px 2px rgba(0,0,0,.08), 0 1px 3px 1px rgba(0,0,0,.04);
   --shadow-2: 0 1px 2px rgba(0,0,0,.1), 0 2px 6px 2px rgba(0,0,0,.05);
+  /* ---- glass ----
+     Material 3 says what a surface *means* (tonal elevation); these say what
+     it is made of. A glass surface is a translucent tint, a blur that
+     saturates what shows through it, a hairline edge, and a specular highlight
+     along its top — Apple's material, drawn in this palette rather than in
+     grey, so the pink the admin is built from keeps coming through it.
+     Used by the rail and the dashboard; everything else still takes the solid
+     `--sc-*` surfaces. */
+  --glass: color-mix(in srgb, #fff 62%, transparent);
+  --glass-strong: color-mix(in srgb, #fff 80%, transparent);
+  --glass-film: color-mix(in srgb, #fff 55%, transparent);
+  --glass-stroke: color-mix(in srgb, var(--outline-variant) 58%, transparent);
+  /* Hover and press on glass. NOT `--glass-film`: a white film over a pane
+     that is already 80% white is invisible, which is exactly what happened to
+     every hover state in the rail. What reads on light glass is a tint of the
+     palette's own colour; what reads on dark glass is the white film. One
+     pair of names, so a control does not have to know which it is on. */
+  --glass-hover: color-mix(in srgb, var(--primary) 13%, transparent);
+  --glass-press: color-mix(in srgb, var(--primary) 20%, transparent);
+  /* What a pane of glass resolves to once it is composited, as a solid
+     colour. A floating label punches a notch in its field's outline by
+     painting over it, so the notch has to be the colour of what is behind
+     the field — and on glass that is neither `--sc-lowest` nor `--surface`.
+     Getting it wrong is invisible in light mode and a dark sticker behind
+     every label in dark mode. */
+  --notch: color-mix(in srgb, #fff 62%, var(--sc-low));
+  --glass-edge: rgba(255,255,255,.85);
+  --glass-blur: saturate(185%) blur(22px);
+  --glass-shadow: 0 1px 1px rgba(62,7,29,.04), 0 10px 30px -14px rgba(62,7,29,.22);
+  --glass-shadow-lift: 0 1px 1px rgba(62,7,29,.05), 0 18px 42px -16px rgba(62,7,29,.28);
 }
 /* The dark scheme rides a class on <html> rather than the OS media query, so
    the Appearance switcher can force it — `system` is the media query resolved
@@ -66,6 +96,19 @@ html.dark {
   --red-bg: #6A1B16; --red-fg: #FFB4AB;
   --slate-bg: #2C2F36; --slate-fg: #C6CAD8;
   --shadow-1: 0 1px 2px rgba(0,0,0,.5); --shadow-2: 0 2px 8px rgba(0,0,0,.55);
+  /* Dark glass is the same material with the light behind it taken away: the
+     tint goes to a thin white film over a dark surface rather than inverting
+     to black, which is what keeps it reading as glass and not as a hole. */
+  --glass: color-mix(in srgb, #fff 7%, color-mix(in srgb, var(--sc-low) 72%, transparent));
+  --glass-strong: color-mix(in srgb, #fff 9%, color-mix(in srgb, var(--sc) 82%, transparent));
+  --glass-film: color-mix(in srgb, #fff 8%, transparent);
+  --glass-stroke: color-mix(in srgb, #fff 12%, transparent);
+  --glass-hover: color-mix(in srgb, #fff 11%, transparent);
+  --glass-press: color-mix(in srgb, #fff 18%, transparent);
+  --notch: color-mix(in srgb, #fff 7%, var(--sc));
+  --glass-edge: rgba(255,255,255,.16);
+  --glass-shadow: 0 1px 1px rgba(0,0,0,.4), 0 14px 34px -16px rgba(0,0,0,.7);
+  --glass-shadow-lift: 0 1px 1px rgba(0,0,0,.45), 0 22px 48px -18px rgba(0,0,0,.8);
 }
 /* One switch, one repaint: while the class flips, colours and shadows ease
    instead of snapping. The class is gone again within two frames — its own
@@ -89,10 +132,35 @@ svg.i { width: 22px; height: 22px; flex: none; display: block; }
    beneath it, pill-shaped tabs. It is sticky and never scrolls itself — the
    nav list inside it does — so the appearance popover in its foot can reach
    past its edge instead of growing the rail a scrollbar. */
-.shell { display: flex; min-height: 100vh; --rail-w: 246px; }
-.rail { width: var(--rail-w); flex: none; padding: 28px 16px 16px; display: flex; flex-direction: column;
-  background: var(--sc-low); position: sticky; top: 0; height: 100vh; z-index: 30;
-  border-right: 1px solid color-mix(in srgb, var(--outline-variant) 55%, transparent); }
+.shell { display: flex; min-height: 100vh; --rail-w: 246px; position: relative; isolation: isolate; }
+/* The light the glass has to refract. Without something coloured behind it, a
+   blurred translucent panel over a flat surface is just a slightly different
+   flat surface — the blur has nothing to do. Three soft tonal fields, fixed so
+   they do not travel with the scroll, at an opacity that reads as a tint
+   rather than as a picture. */
+.shell::before { content: ""; position: fixed; inset: 0; z-index: -1; pointer-events: none;
+  background:
+    radial-gradient(900px 620px at 6% -6%, color-mix(in srgb, var(--primary-container) 72%, transparent), transparent 70%),
+    radial-gradient(780px 560px at 94% 2%, color-mix(in srgb, var(--purple-bg) 48%, transparent), transparent 72%),
+    radial-gradient(1000px 700px at 70% 102%, color-mix(in srgb, var(--teal-bg) 34%, transparent), transparent 72%);
+  opacity: .55; }
+html.dark .shell::before { opacity: .38; }
+.rail { width: var(--rail-w); flex: none; padding: 28px 14px 14px; display: flex; flex-direction: column;
+  position: sticky; top: 0; height: 100vh; z-index: 30;
+  /* Tinted glass, not clear: a panel of pure white film beside a white page
+     is only a seam, and the rail has to read as a pane in front of the page.
+     The tint is the primary container at a tenth of its strength, so the
+     column is the palette's own pink rather than grey. */
+  background: linear-gradient(180deg,
+    color-mix(in srgb, var(--primary-container) 14%, var(--glass-strong)),
+    color-mix(in srgb, var(--primary-container) 26%, var(--glass)));
+  backdrop-filter: var(--glass-blur); -webkit-backdrop-filter: var(--glass-blur);
+  border-right: 1px solid var(--glass-stroke); }
+/* The specular edge: a glass panel catches the light along the side it is lit
+   from, and that one highlight is most of what separates this from a tinted
+   rectangle. */
+.rail::after { content: ""; position: absolute; inset: 0 0 0 auto; width: 1px; pointer-events: none;
+  background: linear-gradient(180deg, var(--glass-edge), transparent 42%); }
 .rail .nav-scroll { flex: 1 1 auto; min-height: 0; overflow-y: auto; overflow-x: hidden;
   scrollbar-width: thin; scrollbar-color: var(--outline-variant) transparent;
   margin: 0 -6px; padding: 0 6px; }
@@ -102,7 +170,7 @@ svg.i { width: 22px; height: 22px; flex: none; display: block; }
    so the column reads as masthead, then navigation, rather than one list. */
 .brand { display: flex; align-items: center; justify-content: flex-start; gap: 12px; min-height: 64px;
   padding: 10px 12px; margin: 0 0 40px; color: inherit; text-decoration: none; border-radius: 16px; }
-.brand:hover { background: color-mix(in srgb, var(--on-surface) 6%, transparent); }
+.brand:hover { background: var(--glass-hover); box-shadow: inset 0 1px 0 var(--glass-edge); }
 .brand:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
 .brand .brand-logo { display: block; max-width: 100%; }
 .brand .brand-logo img { display: block; max-width: 100%; width: auto; height: auto;
@@ -112,7 +180,10 @@ svg.i { width: 22px; height: 22px; flex: none; display: block; }
    dashboard's mark, drawn at this rail's scale. */
 .brand-mark { font-family: Georgia, 'Iowan Old Style', serif; font-style: italic; font-weight: 400;
   width: 40px; height: 43px; border-radius: 14px 14px 14px 4px; display: grid; place-items: center;
-  background: var(--primary); color: var(--on-primary); font-size: 37px; line-height: 1;
+  background: linear-gradient(160deg, color-mix(in srgb, #fff 22%, var(--primary)), var(--primary) 62%,
+    color-mix(in srgb, #000 12%, var(--primary)));
+  color: var(--on-primary); font-size: 37px; line-height: 1;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.45), 0 8px 18px -10px rgba(62,7,29,.7);
   position: relative; flex: none; }
 .brand-mark span { position: absolute; font-family: var(--font); font-style: normal; font-weight: 600;
   font-size: 16px; line-height: 1; right: 3px; top: 2px; }
@@ -127,18 +198,35 @@ svg.i { width: 22px; height: 22px; flex: none; display: block; }
    between them so the selected one reads as a shape, not a stripe. */
 .nav-item { display: flex; align-items: center; gap: 14px; padding: 9px 14px; margin: 4px 0; border-radius: 999px;
   text-decoration: none; color: var(--on-surface-variant); font-size: 13.5px; font-weight: 500;
-  transition: background var(--dur) var(--ease), color var(--dur) var(--ease); position: relative; }
-.nav-item:hover { background: color-mix(in srgb, var(--on-surface) 6%, transparent); color: var(--on-surface); }
-.nav-item.active { background: var(--secondary-container); color: var(--on-secondary-container); font-weight: 600; }
+  transition: background var(--dur) var(--ease), color var(--dur) var(--ease),
+    box-shadow var(--dur) var(--ease), transform var(--dur) var(--ease); position: relative; }
+.nav-item:hover { background: var(--glass-hover); color: var(--on-surface);
+  box-shadow: inset 0 1px 0 var(--glass-edge); }
+/* The selected tab is the one solid object in the rail: a tinted lozenge with
+   a lit top edge and a shadow under it, so it reads as sitting on the glass
+   rather than being painted into it. */
+.nav-item.active { color: var(--on-secondary-container); font-weight: 600;
+  background: linear-gradient(180deg,
+    color-mix(in srgb, #fff 26%, var(--secondary-container)), var(--secondary-container));
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.6), 0 6px 16px -10px rgba(62,7,29,.55); }
+html.dark .nav-item.active { background: linear-gradient(180deg,
+    color-mix(in srgb, #fff 10%, var(--secondary-container)), var(--secondary-container));
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.14), 0 8px 18px -12px rgba(0,0,0,.9); }
 .nav-item:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
 .nav-item .nav-label { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 /* The rail runs at its own, tighter scale: the tinted squares elsewhere in
    the admin lead 56px-tall list rows, where 40px is right, but as navigation
    they only have to read at a glance. 26px inside a 9px-padded pill makes
    the 44px row. */
-.rail .ic { width: 26px; height: 26px; border-radius: 8px; }
+.rail .ic { width: 26px; height: 26px; border-radius: 9px;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.55), inset 0 0 0 1px rgba(255,255,255,.14); }
+html.dark .rail .ic { box-shadow: inset 0 1px 0 rgba(255,255,255,.12); }
 .rail .ic svg { width: 16px; height: 16px; }
-.ic { width: 40px; height: 40px; border-radius: 14px; display: grid; place-items: center; flex: none; }
+/* The tinted square that leads a row. The lit top edge is what makes it an
+   object sitting on the glass rather than a swatch painted into it. */
+.ic { width: 40px; height: 40px; border-radius: 15px; display: grid; place-items: center; flex: none;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.55), inset 0 0 0 1px rgba(255,255,255,.12); }
+html.dark .ic { box-shadow: inset 0 1px 0 rgba(255,255,255,.1); }
 .ic svg { width: 21px; height: 21px; }
 .tint-blue { background: var(--blue-bg); color: var(--blue-fg); }
 .tint-green { background: var(--green-bg); color: var(--green-fg); }
@@ -148,10 +236,19 @@ svg.i { width: 22px; height: 22px; flex: none; display: block; }
 .tint-teal { background: var(--teal-bg); color: var(--teal-fg); }
 .tint-red { background: var(--red-bg); color: var(--red-fg); }
 .tint-slate { background: var(--slate-bg); color: var(--slate-fg); }
-.rail-foot { margin-top: auto; padding-top: 14px;
-  border-top: 1px solid color-mix(in srgb, var(--outline-variant) 55%, transparent); }
-.who { display: flex; align-items: center; gap: 8px; padding: 6px 4px 0; }
-.avatar { width: 30px; height: 30px; border-radius: 50%; background: var(--primary); color: var(--on-primary);
+/* The account block is its own pane of glass, floated inside the rail rather
+   than divided off it by a rule: the hairline was doing the work of a shape,
+   and a shape is what says "this is you, and these are your controls". */
+.rail-foot { margin-top: auto; padding: 8px; border-radius: 20px;
+  background: var(--glass-film); border: 1px solid var(--glass-stroke);
+  box-shadow: inset 0 1px 0 var(--glass-edge); }
+/* 6px, not 8, and 30px buttons: the pane the foot sits in costs the row 20px
+   of width, and the first thing that loses is the name — "Ada Lovel…" where
+   "Ada Lovelace" fitted before. */
+.who { display: flex; align-items: center; gap: 6px; padding: 2px; }
+.avatar { width: 30px; height: 30px; border-radius: 50%; color: var(--on-primary);
+  background: linear-gradient(160deg, color-mix(in srgb, #fff 24%, var(--primary)), var(--primary));
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.4);
   display: grid; place-items: center; font-weight: 600; font-size: 13px; flex: none; }
 .avatar.lg { width: 64px; height: 64px; font-size: 26px; object-fit: cover; }
 .who b { font-size: 13px; font-weight: 600; display: block; line-height: 1.2; }
@@ -159,14 +256,16 @@ svg.i { width: 22px; height: 22px; flex: none; display: block; }
    in the same block. Catching it here left the initial 11px and painted in
    the muted text colour, which on the primary disc is all but invisible. */
 .who span:not(.avatar) { font-size: 11px; color: var(--on-surface-variant); }
-.rail .icon-btn { width: 32px; height: 32px; }
+.rail .icon-btn { width: 30px; height: 30px; border-radius: 999px;
+  transition: background var(--dur) var(--ease); }
+.rail .icon-btn:hover { background: var(--glass-hover); }
 .rail .icon-btn svg.i { width: 18px; height: 18px; }
 /* the account block is a link to your own profile; keep it looking like the
    block it replaced, and keep long names/emails from pushing out the rail */
 .who-link { display: flex; align-items: center; gap: 10px; flex: 1; min-width: 0;
   color: inherit; text-decoration: none; border-radius: 999px; padding: 4px; margin: -4px;
   transition: background var(--dur) var(--ease); }
-.who-link:hover { background: color-mix(in srgb, var(--on-surface) 6%, transparent); }
+.who-link:hover { background: var(--glass-hover); }
 .who-link:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
 .who-link > div { min-width: 0; }
 /* Clipping applies to the two lines of text. The avatar is excluded because
@@ -191,8 +290,10 @@ html.dark .theme-menu > summary .t-sun { display: none; }
    so it spans the rail's width and opens upward from its foot; the icon rail
    gives it a fixed width instead, since 80px holds no menu */
 .theme-menu .pop { position: absolute; left: 0; right: 0; bottom: calc(100% + 10px); z-index: 45;
-  background: var(--sc-lowest); border: 1px solid var(--outline-variant); border-radius: 14px;
-  box-shadow: var(--shadow-2); padding: 6px; }
+  background: var(--glass-strong); backdrop-filter: var(--glass-blur);
+  -webkit-backdrop-filter: var(--glass-blur);
+  border: 1px solid var(--glass-stroke); border-radius: 18px;
+  box-shadow: var(--glass-shadow-lift), inset 0 1px 0 var(--glass-edge); padding: 6px; }
 .theme-menu .pop-title { margin: 6px 12px 8px; font-size: 11px; font-weight: 600; letter-spacing: .06em;
   text-transform: uppercase; color: var(--on-surface-variant); }
 /* .menu-item elsewhere is an <a>; as a button it needs the chrome stripped */
@@ -216,11 +317,18 @@ html.dark .theme-menu > summary .t-sun { display: none; }
    description — so the card is smaller rather than the same card with less
    room in it. The breakpoints then step 4 → 3 → 2 → 1. */
 .module-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 16px; margin-top: 20px; }
+/* Glass without the blur: twelve of these land on one screen, and at this
+   size the blur buys nothing a dozen compositor passes are worth. The tint,
+   the hairline and the lit edge are what carry the material. */
 .module-card { display: flex; flex-direction: column; align-items: flex-start; gap: 14px; min-width: 0;
-  padding: 20px; border-radius: 22px; background: var(--sc-low); color: var(--on-surface);
-  text-decoration: none; border: 1px solid var(--outline-variant);
-  transition: background var(--dur) var(--ease), box-shadow var(--dur) var(--ease); }
-.module-card:hover { background: var(--sc-high); box-shadow: var(--shadow-1); }
+  padding: 20px; border-radius: 24px; background: var(--glass); color: var(--on-surface);
+  text-decoration: none; border: 1px solid var(--glass-stroke);
+  box-shadow: var(--glass-shadow), inset 0 1px 0 var(--glass-edge);
+  transition: background var(--dur) var(--ease), box-shadow var(--dur) var(--ease),
+    transform var(--dur) var(--ease); }
+.module-card:hover { background: var(--glass-strong); transform: translateY(-2px);
+  box-shadow: var(--glass-shadow-lift), inset 0 1px 0 var(--glass-edge); }
+@media (prefers-reduced-motion: reduce) { .module-card:hover { transform: none; } }
 .module-card:focus-visible { outline: 3px solid var(--primary); outline-offset: 4px; }
 .module-card .ic { width: 44px; height: 44px; border-radius: 14px; }
 .module-card .ic svg { width: 22px; height: 22px; }
@@ -275,32 +383,74 @@ html.dark .theme-menu > summary .t-sun { display: none; }
 .vfc-note { margin: 12px 0 0; font-size: 13px; line-height: 1.5; color: var(--on-surface-variant); }
 .vfc-note a { color: var(--primary); }
 
-/* ---- page head (sticky top app bar per page) ---- */
+/* ---- page head (sticky top app bar per page) ----
+   No `backdrop-filter` here, deliberately (user's call, 2026-11-19). It is the
+   one place in this admin where the filter earned nothing: the header is
+   opaque where the title sits, so there is nothing to see through and nothing
+   to blur, while the filter still cost a compositor pass on every scroll of
+   every screen and clipped itself to a rectangle the width of the text column.
+   The scrim does the whole job on its own — opaque under the title, thinning
+   over the last fifth — and the two masks keep it from drawing edges. */
 .page-head { position: sticky; top: 0; z-index: 20; display: flex; align-items: center; gap: 16px;
-  padding: 22px 4px 16px; margin-bottom: 8px;
-  background: color-mix(in srgb, var(--surface) 82%, transparent); backdrop-filter: blur(16px);
-  -webkit-backdrop-filter: blur(16px); }
+  padding: 22px calc(var(--gutter, 24px) + 4px) 16px;
+  margin: 0 calc(var(--gutter, 24px) * -1) 8px;
+  /* Opaque where the title is, thinning only over the last fifth. A scrim has
+     to hide what passes under it — at 88% the section heading scrolling
+     through stayed legible straight across the greeting, which is worse than
+     no frost: two sentences on top of each other. */
+  /* Opaque for three quarters of the height, then out. With the blur gone
+     there is nothing smearing what passes underneath, so the scrim has to be
+     solid for the whole band the text occupies — at 58% the section heading
+     scrolling through still ghosted beside the date. */
+  background: linear-gradient(180deg,
+    var(--surface) 0 76%,
+    color-mix(in srgb, var(--surface) 82%, transparent) 90%,
+    color-mix(in srgb, var(--surface) 40%, transparent));
+  /* Two masks intersected, which is what removes the rectangle: fade the last
+     14px of the height, and fade 28px at each side. Both fades land in the
+     gutter and the padding, never on a glyph. Chrome and Safari spell the
+     compositing differently; both keywords mean "keep where the two overlap". */
+  -webkit-mask-image: linear-gradient(180deg, #000 calc(100% - 14px), transparent),
+    linear-gradient(90deg, transparent, #000 28px, #000 calc(100% - 28px), transparent);
+  mask-image: linear-gradient(180deg, #000 calc(100% - 14px), transparent),
+    linear-gradient(90deg, transparent, #000 28px, #000 calc(100% - 28px), transparent);
+  -webkit-mask-composite: source-in; mask-composite: intersect; }
 .page-head h1 { margin: 0; font-size: 24px; font-weight: 600; letter-spacing: 0; }
 .page-head .sub { margin: 2px 0 0; font-size: 13.5px; color: var(--on-surface-variant); }
 .page-head .actions { margin-left: auto; display: flex; gap: 10px; align-items: center; flex-wrap: wrap; justify-content: flex-end; }
 
-/* ---- groups + cards + rows ---- */
-.section { font-size: 13px; font-weight: 600; color: var(--on-surface-variant);
-  padding: 20px 16px 10px; letter-spacing: .2px; }
+/* ---- groups + cards + rows ----
+   These are the admin's material, and since 2026-11-19 that material is
+   glass: a translucent tint over the ambient field `.shell::before` paints, a
+   hairline edge, and a specular highlight along the top. It began on the
+   dashboard and now belongs to every screen, so it lives here on the shared
+   primitives rather than behind a page's own class.
+   Where the blur goes is a judgement about cost, not taste: the big
+   containers (`.card`, `.tile`) filter their backdrop, while small repeated
+   tiles — a dozen module cards in a grid — take the tint and the edge
+   without it. A 220px card over a soft gradient looks the same blurred or
+   not, and a dozen backdrop filters on one screen is real work for the
+   compositor. */
+/* Section headings as M3 overlines: small, tracked out, uppercase. They label
+   what is beneath them instead of competing with the titles inside it. */
+.section { font-size: 11.5px; font-weight: 700; color: var(--on-surface-variant);
+  padding: 26px 8px 11px; letter-spacing: .1em; text-transform: uppercase; }
 /* A section that heads a whole gallery rather than a card or two: sized as
    a heading, in the text colour, so the two theme collections read as the
    page's main divisions. */
 .section.big { font-size: 20px; font-weight: 700; color: var(--on-surface); letter-spacing: -.2px;
-  padding: 28px 16px 12px; }
-.card { background: var(--sc-lowest); border-radius: 24px; margin-bottom: 12px; overflow: hidden;
-  box-shadow: var(--shadow-1); }
+  padding: 28px 16px 12px; text-transform: none; }
+.card { background: var(--glass); backdrop-filter: var(--glass-blur);
+  -webkit-backdrop-filter: var(--glass-blur);
+  border: 1px solid var(--glass-stroke); border-radius: 26px; margin-bottom: 14px; overflow: hidden;
+  box-shadow: var(--glass-shadow), inset 0 1px 0 var(--glass-edge); }
 .card.padded { padding: 20px; }
 .rows .row { display: flex; align-items: center; gap: 16px; padding: 13px 20px; position: relative;
   text-decoration: none; color: inherit; transition: background .15s var(--ease); }
 .rows .row + .row::before { content: ""; position: absolute; top: 0; left: 76px; right: 0; height: 1px;
-  background: var(--outline-variant); }
-.rows .row:hover { background: color-mix(in srgb, var(--on-surface) 4%, transparent); }
-.rows .row:active { background: color-mix(in srgb, var(--on-surface) 8%, transparent); }
+  background: var(--glass-stroke); }
+.rows .row:hover { background: var(--glass-hover); }
+.rows .row:active { background: var(--glass-press); }
 .rows .row .body { flex: 1; min-width: 0; }
 /* Title over detail, each clipped to the body's width. They used to be plain
    inline spans, so a long value (a post's slug, say) ran past the body box
@@ -315,8 +465,8 @@ html.dark .theme-menu > summary .t-sun { display: none; }
 .chev { color: var(--on-surface-variant); opacity: .7; }
 
 /* ---- chips ---- */
-.chip { display: inline-flex; align-items: center; gap: 6px; height: 26px; padding: 0 12px;
-  border-radius: 8px; font-size: 12px; font-weight: 600; letter-spacing: .2px; white-space: nowrap; }
+.chip { display: inline-flex; align-items: center; gap: 6px; height: 24px; padding: 0 12px;
+  border-radius: 999px; font-size: 11.5px; font-weight: 600; letter-spacing: .02em; white-space: nowrap; }
 .chip.published { background: var(--green-bg); color: var(--green-fg); }
 .chip.draft { background: var(--amber-bg); color: var(--amber-fg); }
 .chip.scheduled { background: var(--blue-bg); color: var(--blue-fg); }
@@ -402,7 +552,7 @@ html.dark .theme-menu > summary .t-sun { display: none; }
 .field textarea { resize: vertical; min-height: 96px; }
 .field textarea.code, .field input.code { font-family: var(--mono); font-size: 13px; line-height: 1.6; }
 .field > span { position: absolute; left: 11px; top: 15px; font-size: 15px; color: var(--on-surface-variant);
-  padding: 0 5px; pointer-events: none; transition: all .15s var(--ease); background: var(--sc-lowest); }
+  padding: 0 5px; pointer-events: none; transition: all .15s var(--ease); background: var(--notch); }
 .field input:focus, .field textarea:focus, .field select:focus { border-color: var(--primary);
   box-shadow: inset 0 0 0 1px var(--primary); }
 /* Asked of the field, not of the input's next sibling. `input + span` is the
@@ -421,8 +571,8 @@ html.dark .theme-menu > summary .t-sun { display: none; }
 .field:has(textarea:not(:placeholder-shown)) > span,
 .field:has(input[placeholder]:not([placeholder=" "]):not([placeholder=""])) > span,
 .field.fixed > span, .field:has(textarea) > span { top: -8px; font-size: 12px; font-weight: 600; color: var(--primary);
-  background: var(--sc-lowest); border-radius: 4px; }
-.field:has(textarea.code) > span { background: var(--sc-lowest); }
+  background: var(--notch); border-radius: 4px; }
+.field:has(textarea.code) > span { background: var(--notch); }
 .field select { appearance: none; cursor: pointer; padding-right: 40px; }
 .field .car { position: absolute; right: 12px; top: 50%; transform: translateY(-50%); pointer-events: none;
   color: var(--on-surface-variant); width: 20px; height: 20px; }
@@ -692,9 +842,17 @@ html.dark .tok-prp { color: #9FC4FF; }
 html.dark .tok-hed { color: #FF9FB6; }
 
 /* ---- analytics: stat tiles + chart ---- */
-.tiles { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 12px; }
-.tile { background: var(--sc-lowest); border-radius: 24px; padding: 18px 20px; box-shadow: var(--shadow-1); }
-.tile .label { font-size: 13px; font-weight: 500; color: var(--on-surface-variant); }
+.tiles { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; margin-bottom: 14px; }
+.tile { background: var(--glass); backdrop-filter: var(--glass-blur);
+  -webkit-backdrop-filter: var(--glass-blur);
+  border: 1px solid var(--glass-stroke); border-radius: 26px; padding: 18px 20px 20px;
+  box-shadow: var(--glass-shadow), inset 0 1px 0 var(--glass-edge);
+  transition: transform var(--dur) var(--ease), box-shadow var(--dur) var(--ease); }
+.tile:hover { transform: translateY(-2px);
+  box-shadow: var(--glass-shadow-lift), inset 0 1px 0 var(--glass-edge); }
+@media (prefers-reduced-motion: reduce) { .tile:hover { transform: none; } }
+.tile .label { font-size: 11.5px; font-weight: 700; letter-spacing: .1em;
+  text-transform: uppercase; color: var(--on-surface-variant); }
 .tile .value { font-size: 30px; font-weight: 600; font-variant-numeric: proportional-nums;
   line-height: 1.25; margin-top: 2px; }
 .tile .delta { font-size: 12.5px; color: var(--on-surface-variant); }
@@ -1027,12 +1185,25 @@ a.sw-count:hover { color: var(--on-surface); }
    it 4px in, over the caret, instead. The button only ever shows on an empty
    line, so covering the caret's position costs nothing. Koenig's own offset
    is a utility class injected after this sheet, hence the `!important`. */
-.editor-main { min-width: 0; position: relative; }
+/* The canvas is a sheet of the same glass as the panels beside it. Without
+   one the writing area was the only thing on the screen with no surface under
+   it — title and body floating straight on the ambient field while every
+   control around them sat on something. A sheet also gives the measure an
+   edge, which is what makes a text column read as a page to write on. */
+.editor-main { min-width: 0; position: relative;
+  background: var(--glass); backdrop-filter: var(--glass-blur);
+  -webkit-backdrop-filter: var(--glass-blur);
+  border: 1px solid var(--glass-stroke); border-radius: 28px;
+  box-shadow: var(--glass-shadow), inset 0 1px 0 var(--glass-edge);
+  padding: 30px 34px 34px; }
 #koenig-mount [data-kg-plus-button] { left: 4px !important; }
 #koenig-mount [data-kg-plus-button] > button { width: 32px !important; height: 32px !important; }
+/* Set in the display serif, because that is what this same title will be in
+   the posts list and on the site — the editor should not be the one place it
+   is drawn in something else. */
 .editor-title { width: 100%; border: none; outline: none; background: transparent; resize: none; overflow: hidden;
-  font-family: var(--font); font-size: 30px; font-weight: 700; line-height: 1.2; letter-spacing: -.3px;
-  color: var(--on-surface); padding: 0; margin: 2px 0 10px; caret-color: var(--primary); display: block; }
+  font-family: var(--display); font-size: 34px; font-weight: 600; line-height: 1.15; letter-spacing: -.5px;
+  color: var(--on-surface); padding: 0; margin: 2px 0 14px; caret-color: var(--primary); display: block; }
 .editor-title::placeholder { color: color-mix(in srgb, var(--on-surface-variant) 42%, var(--surface)); opacity: 1; font-weight: 500; }
 #koenig-mount { min-height: 52vh; }
 /* Koenig paints its own surface; this only gives the canvas somewhere to sit
@@ -1041,10 +1212,12 @@ a.sw-count:hover { color: var(--on-surface); }
 /* The word count, as Ghost has it since its own editor's redesign: a quiet
    pill floating in the bottom corner of the canvas, not a footer that has to
    be scrolled to. It says nothing until there are words to count. */
-.wc-pill { position: absolute; right: 0; bottom: 10px; z-index: 6; padding: 6px 14px; border-radius: 999px;
-  background: color-mix(in srgb, var(--sc-lowest) 82%, transparent); backdrop-filter: blur(8px);
-  -webkit-backdrop-filter: blur(8px); color: var(--on-surface-variant); font-size: 12.5px;
-  font-weight: 500; pointer-events: none; box-shadow: var(--shadow-1); }
+.wc-pill { position: absolute; right: 18px; bottom: 16px; z-index: 6; padding: 6px 14px; border-radius: 999px;
+  background: var(--glass-strong); backdrop-filter: var(--glass-blur);
+  -webkit-backdrop-filter: var(--glass-blur); border: 1px solid var(--glass-stroke);
+  color: var(--on-surface-variant); font-size: 12.5px;
+  font-weight: 500; pointer-events: none;
+  box-shadow: var(--glass-shadow), inset 0 1px 0 var(--glass-edge); }
 .wc-pill:empty { display: none; }
 
 /* The `hidden` attribute has to actually hide things.
@@ -1129,7 +1302,7 @@ a.sw-count:hover { color: var(--on-surface); }
 
 /* ---- the settings rail, and the control that hides it ---- */
 .editor-side { position: sticky; top: 76px; max-height: calc(100vh - 96px); overflow-y: auto;
-  display: flex; flex-direction: column; gap: 10px; padding: 2px 4px 24px 0;
+  display: flex; flex-direction: column; gap: 12px; padding: 2px 4px 24px 0;
   scrollbar-width: thin; scrollbar-color: var(--outline-variant) transparent; }
 /* Flex children shrink to fit a capped container by default, which collapsed
    every panel to a sliver and overlapped the one below it. The rail scrolls;
@@ -1150,12 +1323,12 @@ body:has(#side-toggle:checked) .editor-main { max-width: none; }
 .panel > summary { display: flex; align-items: center; gap: 11px; padding: 12px 15px; cursor: pointer;
   list-style: none; font-size: 13.5px; font-weight: 600; user-select: none; }
 .panel > summary::-webkit-details-marker { display: none; }
-.panel > summary .ic { width: 30px; height: 30px; border-radius: 9px; }
+.panel > summary .ic { width: 30px; height: 30px; border-radius: 10px; }
 .panel > summary .ic svg { width: 16px; height: 16px; }
 .panel > summary .twist { margin-left: auto; color: var(--on-surface-variant); transition: transform .2s var(--ease); }
 .panel > summary .twist svg { width: 18px; height: 18px; display: block; }
 .panel[open] > summary .twist { transform: rotate(180deg); }
-.panel > summary:hover { background: color-mix(in srgb, var(--on-surface) 4%, transparent); }
+.panel > summary:hover { background: var(--glass-hover); }
 .panel .panel-body { padding: 2px 15px 15px; }
 .panel .panel-body > .field:last-child { margin-bottom: 0; }
 /* The shared field is sized for a 860px settings page; in a 316px rail the
@@ -1165,7 +1338,7 @@ body:has(#side-toggle:checked) .editor-main { max-width: none; }
   font-size: 13.5px; padding: 17px 12px 5px; border-radius: 10px; }
 .panel .field textarea { min-height: 62px; }
 .panel .field textarea.code { font-size: 12px; }
-.panel .field > span { background: var(--sc-lowest); font-size: 13.5px; top: 12px; left: 9px; }
+.panel .field > span { background: var(--notch); font-size: 13.5px; top: 12px; left: 9px; }
 .panel .field:focus-within > span,
 .panel .field:has(input:not(:placeholder-shown)) > span,
 .panel .field:has(textarea:not(:placeholder-shown)) > span,
@@ -1184,8 +1357,10 @@ body:has(#side-toggle:checked) .editor-main { max-width: none; }
 .panel .chips { max-height: 220px; overflow-y: auto; }
 .editor-side .btn.text.danger { width: 100%; justify-content: center; }
 /* ---- the feature image box ---- */
-.fimg-drop { position: relative; border-radius: 14px; overflow: hidden; background: var(--sc);
-  margin-bottom: 11px; }
+.fimg-drop { position: relative; border-radius: 16px; overflow: hidden;
+  background: color-mix(in srgb, var(--sc-high) 42%, transparent);
+  border: 1px solid var(--glass-stroke);
+  box-shadow: inset 0 1px 0 var(--glass-edge); margin-bottom: 11px; }
 .fimg-empty { display: grid; place-items: center; aspect-ratio: 16 / 10; padding: 12px; }
 .fimg-btns { display: flex; gap: 8px; }
 /* Ghost draws its image actions over the picture as translucent pills. The
@@ -1404,8 +1579,10 @@ dialog.unsplash button:focus-visible, .u-chip:focus-visible { outline: 2px solid
 }
 
 /* ---- search bar ---- */
-.search { display: flex; align-items: center; gap: 12px; background: var(--sc-lowest); border-radius: 999px;
-  box-shadow: var(--shadow-1); padding: 0 18px; height: 46px; margin: 4px 0 14px; color: var(--on-surface-variant); }
+.search { display: flex; align-items: center; gap: 12px; border-radius: 999px;
+  background: var(--glass); backdrop-filter: var(--glass-blur); -webkit-backdrop-filter: var(--glass-blur);
+  border: 1px solid var(--glass-stroke); box-shadow: var(--glass-shadow), inset 0 1px 0 var(--glass-edge);
+  padding: 0 18px; height: 46px; margin: 4px 0 14px; color: var(--on-surface-variant); }
 .search input { flex: 1; border: none; outline: none; background: transparent; font-family: inherit;
   font-size: 14.5px; color: var(--on-surface); height: 100%; }
 
@@ -1432,8 +1609,10 @@ dialog.unsplash button:focus-visible, .u-chip:focus-visible { outline: 2px solid
    the batch bar's popovers use — no native select left on this toolbar */
 .sort-menu { position: relative; flex: none; }
 .sort-menu > summary { list-style: none; display: flex; align-items: center; gap: 6px;
-  height: 46px; padding: 0 13px 0 18px; border-radius: 999px; background: var(--sc-lowest);
-  box-shadow: var(--shadow-1); cursor: pointer; font-size: 14px; font-weight: 500;
+  height: 46px; padding: 0 13px 0 18px; border-radius: 999px;
+  background: var(--glass); backdrop-filter: var(--glass-blur); -webkit-backdrop-filter: var(--glass-blur);
+  border: 1px solid var(--glass-stroke); box-shadow: var(--glass-shadow), inset 0 1px 0 var(--glass-edge);
+  cursor: pointer; font-size: 14px; font-weight: 500;
   color: var(--on-surface); user-select: none; }
 .sort-menu > summary::-webkit-details-marker { display: none; }
 .sort-menu > summary .car { width: 18px; height: 18px; color: var(--on-surface-variant);
@@ -1441,8 +1620,9 @@ dialog.unsplash button:focus-visible, .u-chip:focus-visible { outline: 2px solid
 .sort-menu[open] > summary .car { transform: rotate(180deg); }
 .sort-menu > summary:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
 .sort-menu .pop { position: absolute; right: 0; top: calc(100% + 8px); min-width: 210px; z-index: 45;
-  background: var(--sc-lowest); border: 1px solid var(--outline-variant); border-radius: 14px;
-  box-shadow: var(--shadow-2); padding: 6px; }
+  border-radius: 18px; padding: 6px;
+  background: var(--glass-strong); backdrop-filter: var(--glass-blur); -webkit-backdrop-filter: var(--glass-blur);
+  border: 1px solid var(--glass-stroke); box-shadow: var(--glass-shadow-lift), inset 0 1px 0 var(--glass-edge); }
 .menu-item { display: flex; align-items: center; gap: 10px; padding: 9px 12px; border-radius: 9px;
   font-size: 13.5px; font-weight: 500; color: var(--on-surface); text-decoration: none; }
 .menu-item:hover { background: color-mix(in srgb, var(--on-surface) 7%, transparent); }
@@ -1499,8 +1679,9 @@ dialog.unsplash button:focus-visible, .u-chip:focus-visible { outline: 2px solid
 .seg.on .seg-count { background: color-mix(in srgb, var(--on-secondary-container) 14%, transparent); }
 
 /* ---- the list ---- */
-.post-list { background: var(--sc-lowest); border-radius: 20px; overflow: hidden;
-  box-shadow: var(--shadow-1); }
+.post-list { border-radius: 24px; overflow: hidden;
+  background: var(--glass); backdrop-filter: var(--glass-blur); -webkit-backdrop-filter: var(--glass-blur);
+  border: 1px solid var(--glass-stroke); box-shadow: var(--glass-shadow), inset 0 1px 0 var(--glass-edge); }
 .post-row { display: flex; align-items: center; position: relative; }
 .post-row + .post-row::before { content: ""; position: absolute; top: 0; left: 170px; right: 16px;
   height: 1px; background: var(--outline-variant); }
@@ -1600,8 +1781,10 @@ html.dark .post-row-chip.scheduled { color: var(--green-fg); }
 .row-check { flex: none; display: inline-grid; place-items: center; width: 40px; height: 40px;
   margin-left: 8px; border-radius: 50%; cursor: pointer; position: relative;
   transition: background .15s var(--ease); }
-.row-check:hover { background: color-mix(in srgb, var(--on-surface) 7%, transparent); }
-.row-check:active { background: color-mix(in srgb, var(--on-surface) 12%, transparent); }
+/* The state layer is the tonal film, not grey: a grey disc over a glass list
+   reads as a smudge on it. */
+.row-check:hover { background: var(--glass-hover); }
+.row-check:active { background: var(--glass-press); }
 /* the input fills the cell rather than sitting at the size of the drawn box:
    the whole 40px is then one target on the control itself, which is both the
    M3 touch size and what makes shift-click ranges work from anywhere in it */
@@ -1611,14 +1794,36 @@ html.dark .post-row-chip.scheduled { color: var(--green-fg); }
    click off it: the label forwards an activation either way, but a click
    that lands on the input itself is the one that carries shift into the
    range-select handler */
-.row-check .box { width: 18px; height: 18px; border-radius: 3px; border: 2px solid var(--on-surface-variant);
-  display: grid; place-items: center; color: transparent; background: transparent; pointer-events: none;
-  transition: background .16s var(--ease), border-color .16s var(--ease), color .16s var(--ease); }
+/* The resting box: a 1.5px outline at a fraction of the text colour, and a
+   6px radius that belongs to the same family as the 24px cards around it.
+   It was 2px of near-black at 3px radius — a hard dark square on soft glass,
+   which is most of why the lists looked crude. A checkbox nobody has ticked
+   should be a quiet outline, not the heaviest mark on the row. */
+.row-check .box { width: 19px; height: 19px; border-radius: 6px;
+  border: 1.5px solid color-mix(in srgb, var(--on-surface-variant) 52%, transparent);
+  display: grid; place-items: center; color: transparent; pointer-events: none;
+  background: color-mix(in srgb, var(--sc-lowest) 55%, transparent);
+  transition: background .16s var(--ease), border-color .16s var(--ease),
+    color .16s var(--ease), box-shadow .16s var(--ease), transform .16s var(--ease); }
+/* On a dark row, `--sc-lowest` is darker than the list it sits in, so the
+   resting box read as a hole punched in the row. A thin white film instead:
+   an empty control should look like empty glass, not like absence. */
+html.dark .row-check .box { background: color-mix(in srgb, #fff 6%, transparent); }
+.row-check:hover .box { border-color: color-mix(in srgb, var(--on-surface-variant) 80%, transparent); }
+.row-check:active .box { transform: scale(.92); }
 .row-check .box svg { width: 14px; height: 14px; display: block;
   transform: scale(.55); opacity: 0;
   transition: transform .18s var(--ease), opacity .12s var(--ease); }
+/* Ticked, it becomes one of the admin's solid objects — the same lit top edge
+   and soft drop shadow the brand mark and the selected rail tab carry, so a
+   selection reads as something placed on the row. */
 .row-check input:checked + .box, .row-check input:indeterminate + .box {
-  background: var(--primary); border-color: var(--primary); color: var(--on-primary); }
+  background: linear-gradient(180deg, color-mix(in srgb, #fff 20%, var(--primary)), var(--primary));
+  border-color: var(--primary); color: var(--on-primary);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.45), 0 3px 8px -3px rgba(62,7,29,.55); }
+html.dark .row-check input:checked + .box,
+html.dark .row-check input:indeterminate + .box {
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.18), 0 3px 8px -4px rgba(0,0,0,.8); }
 .row-check input:checked + .box svg { transform: scale(1); opacity: 1; }
 .row-check input:indeterminate + .box svg { display: none; }
 .row-check input:indeterminate + .box::after { content: ""; width: 10px; height: 2.5px;
@@ -1690,8 +1895,9 @@ body:has(.row-check input[name="ids"]:checked) .batch-bar {
 .batch-pop > summary { list-style: none; }
 .batch-pop > summary::-webkit-details-marker { display: none; }
 .batch-pop .pop { position: absolute; bottom: calc(100% + 14px); right: 0; width: 300px;
-  background: var(--sc-lowest); border: 1px solid var(--outline-variant); border-radius: 16px;
-  box-shadow: var(--shadow-2); padding: 16px; text-align: left; }
+  border-radius: 20px; padding: 16px; text-align: left;
+  background: var(--glass-strong); backdrop-filter: var(--glass-blur); -webkit-backdrop-filter: var(--glass-blur);
+  border: 1px solid var(--glass-stroke); box-shadow: var(--glass-shadow-lift), inset 0 1px 0 var(--glass-edge); }
 .batch-pop .pop::after { content: ""; position: absolute; bottom: -7px; right: 26px; width: 12px;
   height: 12px; background: var(--sc-lowest); border-right: 1px solid var(--outline-variant);
   border-bottom: 1px solid var(--outline-variant); transform: rotate(45deg); }
@@ -1716,8 +1922,9 @@ body:has(.row-check input[name="ids"]:checked) .batch-bar {
    the admin read as one product: checkbox, face, who they are, what they
    belong to, where they stand, when they arrived.
 --------------------------------------------------------------------------- */
-.member-list { background: var(--sc-lowest); border-radius: 20px; overflow: hidden;
-  box-shadow: var(--shadow-1); }
+.member-list { border-radius: 24px; overflow: hidden;
+  background: var(--glass); backdrop-filter: var(--glass-blur); -webkit-backdrop-filter: var(--glass-blur);
+  border: 1px solid var(--glass-stroke); box-shadow: var(--glass-shadow), inset 0 1px 0 var(--glass-edge); }
 .member-row { display: flex; align-items: center; position: relative; }
 .member-row + .member-row::before { content: ""; position: absolute; top: 0; left: 120px; right: 16px;
   height: 1px; background: var(--outline-variant); }
@@ -1760,8 +1967,9 @@ body:has(.row-check input[name="ids"]:checked) .batch-bar {
 .head-pop > summary { list-style: none; }
 .head-pop > summary::-webkit-details-marker { display: none; }
 .head-pop .pop { position: absolute; right: 0; top: calc(100% + 12px); width: min(400px, 92vw);
-  z-index: 45; background: var(--sc-lowest); border: 1px solid var(--outline-variant);
-  border-radius: 20px; box-shadow: var(--shadow-2); padding: 20px; text-align: left; }
+  z-index: 45; border-radius: 22px; padding: 20px; text-align: left;
+  background: var(--glass-strong); backdrop-filter: var(--glass-blur); -webkit-backdrop-filter: var(--glass-blur);
+  border: 1px solid var(--glass-stroke); box-shadow: var(--glass-shadow-lift), inset 0 1px 0 var(--glass-edge); }
 .head-pop .pop .btn { width: 100%; }
 
 @media (max-width: 1100px) {
@@ -1836,8 +2044,10 @@ html.dark .content:has(.post-list)::after { mix-blend-mode: screen; opacity: .04
   box-shadow: var(--shadow-1), 0 0 0 1px var(--outline-variant); }
 
 /* ---- dialog + snackbar ---- */
-dialog { border: none; border-radius: 28px; background: var(--sc-lowest); color: var(--on-surface);
-  padding: 24px; min-width: 320px; max-width: min(420px, 90vw); box-shadow: var(--shadow-2); }
+dialog { border-radius: 28px; color: var(--on-surface);
+  padding: 24px; min-width: 320px; max-width: min(420px, 90vw);
+  background: var(--glass-strong); backdrop-filter: var(--glass-blur); -webkit-backdrop-filter: var(--glass-blur);
+  border: 1px solid var(--glass-stroke); box-shadow: var(--glass-shadow-lift), inset 0 1px 0 var(--glass-edge); }
 dialog::backdrop { background: rgba(0,0,0,.4); }
 
 /* ---- the publishing preview ----.
@@ -2122,7 +2332,8 @@ input.ml-pick:focus-visible + label.btn { outline: 3px solid var(--primary); out
    breakpoints. */
 .ml-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 16px; }
 .ml-tile { position: relative; display: flex; flex-direction: column; min-width: 0;
-  border-radius: 18px; background: var(--sc-low); border: 1px solid var(--outline-variant);
+  border-radius: 20px; background: var(--glass); border: 1px solid var(--glass-stroke);
+  box-shadow: var(--glass-shadow), inset 0 1px 0 var(--glass-edge);
   transition: background var(--dur) var(--ease), box-shadow var(--dur) var(--ease); }
 .ml-tile:hover { background: var(--sc-high); box-shadow: var(--shadow-1); }
 .ml-tile:focus-within { outline: 3px solid var(--primary); outline-offset: 3px; }
@@ -2389,6 +2600,56 @@ textarea.lg-nav { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, mo
    look like a condensed version of the screens it links to. What is new here
    is a section heading that carries a link or a note on its right, and a
    caption above the one chart. */
+
+/* What is left here is only what this screen does differently. The glass
+   itself — cards, tiles, rows, chips, icon squares, overline headings — is
+   now the shared material in the "groups + cards + rows" section above, so
+   every screen wears it and the home screen goes on looking like a condensed
+   version of the ones it links to. */
+
+/* The greeting is the one line of display type in the admin's chrome.
+   Fraunces at this size is drawn with the contrast its optical-size axis
+   gives a headline, which is what makes it read as somebody saying hello
+   rather than as a page title. */
+.dash .page-head { padding: 26px calc(var(--gutter, 24px) + 4px) 18px; }
+.dash .page-head h1 { font-family: var(--display); font-size: 31px; font-weight: 600;
+  letter-spacing: -.4px; line-height: 1.12; }
+.dash .page-head .sub { font-size: 13px; letter-spacing: .01em; margin-top: 5px; }
+
+/* The header's actions. The filled button gets the lit top edge and the drop
+   shadow the brand mark has, so the primary action on the home screen is the
+   same object as the mark in the rail; the tonal one beside it is glass, and
+   the text ones stay flat — three weights, in order. */
+.dash .page-head .btn { height: 40px; }
+.dash .page-head .btn:not(.tonal):not(.text) {
+  background: linear-gradient(180deg, color-mix(in srgb, #fff 16%, var(--primary)), var(--primary));
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.4), 0 8px 18px -10px rgba(62,7,29,.7); }
+.dash .page-head .btn.tonal { background: var(--glass-strong); color: var(--on-secondary-container);
+  border: 1px solid var(--glass-stroke); box-shadow: inset 0 1px 0 var(--glass-edge); }
+.dash .page-head .btn.tonal:hover { background: var(--secondary-container); }
+
+/* A row on the home screen carries a sentence under its title, so it is a
+   little taller and its title a little heavier than a list row elsewhere. */
+.dash .rows .row { padding: 15px 20px; }
+.dash .rows .row + .row::before { left: 72px; }
+.dash .rows .row .title { font-size: 15px; font-weight: 600; letter-spacing: -.1px; }
+.dash .rows .row .detail { font-size: 12.8px; }
+
+/* The headline figures are the biggest numbers in the admin; nothing else
+   needs a 34px value, so the size stays here rather than on `.tile`. */
+.dash .tile .value { font-size: 34px; font-weight: 600; letter-spacing: -1px;
+  font-variant-numeric: tabular-nums; margin: 6px 0 2px; }
+@media (prefers-reduced-motion: reduce) { .dash .tile:hover { transform: none; } }
+
+/* The door out of a card, and the note that qualifies one. Both sit inside a
+   `.section`, which is uppercase and tracked out — neither of them is a
+   label, so both opt back out of it. The door is a glass pill: small enough
+   to read as a way out rather than a second title. */
+.dash-more { text-transform: none; letter-spacing: .01em; font-size: 12px;
+  padding: 4px 10px; border-radius: 999px; background: var(--glass-film);
+  border: 1px solid var(--glass-stroke); transition: background var(--dur) var(--ease); }
+.dash-more:hover { text-decoration: none; background: var(--glass-hover); }
+.dash-note { text-transform: none; letter-spacing: .01em; font-size: 12px; }
 
 /* A `.section` with something on its right. The heading keeps its own type
    and padding from the shared rule; this only lays the two parts out, so the

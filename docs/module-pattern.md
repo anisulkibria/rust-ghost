@@ -326,7 +326,7 @@ same_origin`) rather than reimplementing them.
 
 ### 5. Registrations only, and each one has an address
 
-A module announces itself in nine places. Each is one line or one array entry,
+A module announces itself in ten places. Each is one line or one array entry,
 and each has a fixed home — **only the first two are in `lib.rs`**. Anything
 beyond this list means the module is leaking into shared files.
 
@@ -341,6 +341,24 @@ beyond this list means the module is leaking into shared files.
 | 7 | An `icon()` arm, if the glyph is new: Material Symbols path data, 24×24, filled, with a one-line comment saying what it depicts | `shell.rs` |
 | 8 | `admin_asset` arms — one `include_str!` per script | `assets.rs` |
 | 9 | Table names in the delete-site wipe list, children before parents | `settings/advanced.rs` |
+| 10 | If the module audits itself: a count on the admin home — see below | `dashboard.rs` + `ghost-core/src/dashboard.rs` |
+
+**10, in full.** A module that reports on itself — Security's findings,
+Memberships' and Newsletters' gaps — and that has a severity meaning *somebody
+is stopped* (`Critical`, `Blocking`) says so on the admin home. Three lines:
+
+* the module exposes `pub(crate) async fn measure(&AppState, …)` returning the
+  struct its own `audit()` judges, and its page is changed to call it, so home
+  and the module cannot count different things;
+* `dashboard::audits` calls it and keeps the count of that one severity;
+* `ghost_core::dashboard::{Audits, Health, health}` gain a field and a variant,
+  and `health` is where the new module is ranked against the others — with a
+  test, because a ranking is exactly the kind of judgement that goes quietly
+  wrong.
+
+The home screen shows **a count and a link, never a copy of a finding**. Two
+screens that have to keep agreeing about one sentence is how they stop
+agreeing. `Opportunity` and `Note` levels stay on the module's own screen.
 
 Routes: static segments go before `{id}` — `/forms/new/` and
 `/forms/responses/` precede `/forms/{id}/`, or the literal is read as an id.
@@ -545,6 +563,8 @@ registrations — one line each, in the file named:
 [ ] settings.rs           SETTINGS_GROUPS entry  (if it has settings)
 [ ] settings.rs           SETTINGS_INDEX rows    (if it has settings)
 [ ] settings/advanced.rs  wipe-list tables, children first
+[ ] dashboard.rs          audits() count + ghost-core health() ranking
+                                                 (if the module audits itself)
 
 Before calling it done:
 [ ] guard() on every handler; writes also origin-checked
