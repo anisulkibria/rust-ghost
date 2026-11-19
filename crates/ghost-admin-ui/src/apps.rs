@@ -36,10 +36,10 @@ pub(crate) async fn zapier_page(
     page_for_role(
         actor_role,
         "Zapier",
-        "settings",
+        "tools",
         Some(&user),
         &format!(
-            r#"<header class="page-head rise"><a class="icon-btn" style="transform:rotate(180deg)" href="/ghost/settings/integrations/" title="Back to integrations">{back}</a>
+            r#"<header class="page-head rise"><a class="icon-btn" style="transform:rotate(180deg)" href="/ghost/integrations/" title="Back to integrations">{back}</a>
 <div><h1>Zapier</h1><p class="sub">Automate Ghost with 6,000+ apps</p></div></header>
 {banner}
 <div class="banner info rise" style="--i:1">{bulb}<span class="msg">Paste these into Zapier when it asks to connect to Ghost. The Admin API key lets a Zap create and edit content, so treat it like a password.</span></div>
@@ -84,21 +84,21 @@ pub(crate) async fn slack_page(
         .unwrap_or_else(|| "Ghost".into());
     let configured = !url.trim().is_empty();
     let test = match configured {
-        true => r#"<form method="post" action="/ghost/settings/integrations/slack/test/" style="margin-top:14px"><button class="btn tonal" type="submit">Send test notification</button></form>"#,
+        true => r#"<form method="post" action="/ghost/integrations/slack/test/" style="margin-top:14px"><button class="btn tonal" type="submit">Send test notification</button></form>"#,
         false => "",
     };
 
     page_for_role(
         actor_role,
         "Slack",
-        "settings",
+        "tools",
         Some(&user),
         &format!(
-            r#"<header class="page-head rise"><a class="icon-btn" style="transform:rotate(180deg)" href="/ghost/settings/integrations/" title="Back to integrations">{back}</a>
+            r#"<header class="page-head rise"><a class="icon-btn" style="transform:rotate(180deg)" href="/ghost/integrations/" title="Back to integrations">{back}</a>
 <div><h1>Slack</h1><p class="sub">Post to a channel when you publish</p></div></header>
 {banner}
 <div class="banner info rise" style="--i:1">{bulb}<span class="msg">Create an <b>Incoming Webhook</b> in Slack (Slack → Apps → Incoming WebHooks), pick a channel, and paste the URL it gives you. The URL is a credential — anyone with it can post to that channel.</span></div>
-<div class="card padded rise" style="--i:2"><form method="post" action="/ghost/settings/integrations/slack/">
+<div class="card padded rise" style="--i:2"><form method="post" action="/ghost/integrations/slack/">
 {url_field}{name_field}
 <div style="margin-top:14px"><button class="btn" type="submit">Save</button></div></form>
 {test}</div>"#,
@@ -180,13 +180,13 @@ pub(crate) async fn firstpromoter_page(
     page_for_role(
         actor_role,
         "FirstPromoter",
-        "settings",
+        "tools",
         Some(&user),
         &format!(
-            r#"<header class="page-head rise"><a class="icon-btn" style="transform:rotate(180deg)" href="/ghost/settings/integrations/" title="Back to integrations">{back}</a>
+            r#"<header class="page-head rise"><a class="icon-btn" style="transform:rotate(180deg)" href="/ghost/integrations/" title="Back to integrations">{back}</a>
 <div><h1>FirstPromoter</h1><p class="sub">Referral and affiliate tracking for members</p></div></header>
 {banner}
-<div class="card padded rise" style="--i:1"><form method="post" action="/ghost/settings/integrations/firstpromoter/">
+<div class="card padded rise" style="--i:1"><form method="post" action="/ghost/integrations/firstpromoter/">
 {toggle}
 <div style="margin-top:14px">{id_field}</div>
 <p class="muted" style="margin:10px 0 0">{note}</p>
@@ -228,13 +228,13 @@ pub(crate) async fn pintura_page(
     page_for_role(
         actor_role,
         "Pintura",
-        "settings",
+        "tools",
         Some(&user),
         &format!(
-            r#"<header class="page-head rise"><a class="icon-btn" style="transform:rotate(180deg)" href="/ghost/settings/integrations/" title="Back to integrations">{back}</a>
+            r#"<header class="page-head rise"><a class="icon-btn" style="transform:rotate(180deg)" href="/ghost/integrations/" title="Back to integrations">{back}</a>
 <div><h1>Pintura</h1><p class="sub">Edit images without leaving the editor</p></div></header>
 {banner}
-<div class="card padded rise" style="--i:1"><form method="post" action="/ghost/settings/integrations/pintura/">
+<div class="card padded rise" style="--i:1"><form method="post" action="/ghost/integrations/pintura/">
 {toggle}
 <div class="grid2" style="gap:12px;margin-top:14px">{js_field}{css_field}</div>
 <p class="muted" style="margin:10px 0 0">Pintura is a commercial library Ghost does not ship. Buy a licence, host the two files
@@ -268,13 +268,13 @@ pub(crate) async fn transistor_page(
     page_for_role(
         actor_role,
         "Transistor.fm",
-        "settings",
+        "tools",
         Some(&user),
         &format!(
-            r#"<header class="page-head rise"><a class="icon-btn" style="transform:rotate(180deg)" href="/ghost/settings/integrations/" title="Back to integrations">{back}</a>
+            r#"<header class="page-head rise"><a class="icon-btn" style="transform:rotate(180deg)" href="/ghost/integrations/" title="Back to integrations">{back}</a>
 <div><h1>Transistor.fm</h1><p class="sub">Private podcast feeds for your members</p></div></header>
 {banner}
-<div class="card padded rise" style="--i:1"><form method="post" action="/ghost/settings/integrations/transistor/">
+<div class="card padded rise" style="--i:1"><form method="post" action="/ghost/integrations/transistor/">
 {toggle}
 <label class="field" style="margin:14px 0 0"><input name="transistor_portal_url_template" value="{url_template}" placeholder="https://partner.transistor.fm/ghost/{{uuid}}"><span>Private feed URL template</span></label>
 <p class="muted" style="margin:6px 0 0">Use <code>{{uuid}}</code> where the member's own identifier goes — that is what makes each feed private to them.</p>
@@ -385,13 +385,13 @@ pub(crate) async fn unsplash_page(
     page_for_role(
         actor_role,
         "Unsplash",
-        "settings",
+        "tools",
         Some(&user),
         &format!(
-            r#"<header class="page-head rise"><a class="icon-btn" style="transform:rotate(180deg)" href="/ghost/settings/integrations/" title="Back to integrations">{back}</a>
+            r#"<header class="page-head rise"><a class="icon-btn" style="transform:rotate(180deg)" href="/ghost/integrations/" title="Back to integrations">{back}</a>
 <div><h1>Unsplash</h1><p class="sub">Free photography inside the editor</p></div></header>
 {banner}
-<div class="card padded rise" style="--i:1"><form method="post" action="/ghost/settings/integrations/unsplash/">
+<div class="card padded rise" style="--i:1"><form method="post" action="/ghost/integrations/unsplash/">
 {toggle}
 <div style="margin-top:14px">{key_field}</div>
 <p class="muted" style="margin:10px 0 0">{note}</p>

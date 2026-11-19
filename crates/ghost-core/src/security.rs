@@ -602,7 +602,7 @@ pub fn audit(p: &Posture) -> Vec<Finding> {
                 invite = if p.expired_invites == 1 { "invitation is" } else { "invitations are" },
                 its = if p.expired_invites == 1 { "its" } else { "their" },
             ),
-            Some(("Staff", "/ghost/settings/staff/")),
+            Some(("Staff", "/ghost/staffs/")),
         );
     }
 
@@ -618,7 +618,7 @@ pub fn audit(p: &Posture) -> Vec<Finding> {
                 n = p.admin_api_keys,
                 key = if p.admin_api_keys == 1 { "key is" } else { "keys are" },
             ),
-            Some(("Integrations", "/ghost/settings/integrations/")),
+            Some(("Integrations", "/ghost/integrations/")),
         );
     }
 
@@ -643,7 +643,7 @@ pub fn audit(p: &Posture) -> Vec<Finding> {
             "There is one Owner or Administrator. That is a reasonable way to run a site and it is also a \
              single account whose compromise is the whole site, with nobody else able to lock it out."
                 .into(),
-            Some(("Staff", "/ghost/settings/staff/")),
+            Some(("Staff", "/ghost/staffs/")),
         );
     }
 

@@ -81,7 +81,7 @@ pub(crate) fn design_flash(kind: &str, message: &str) -> Response {
     let encoded: String = form_urlencoded::Serializer::new(String::new())
         .append_pair(kind, message)
         .finish();
-    Redirect::to(&format!("/ghost/design/?{encoded}")).into_response()
+    Redirect::to(&format!("/ghost/customizations/?{encoded}")).into_response()
 }
 
 pub(crate) fn design_field_row(f: &CustomField, value: &serde_json::Value) -> String {
@@ -261,16 +261,17 @@ pub(crate) async fn design_page(State(state): State<AppState>, headers: HeaderMa
 
     let s = |k: &str| esc(&state.settings.get_str(k).unwrap_or_default());
     page_for_role(actor_role,
-        "Design & branding",
-        "settings",
+        "Customizations",
+        "tools",
         Some(&user),
         &format!(
-            r#"<header class="page-head rise"><a class="icon-btn" style="transform:rotate(180deg)" href="/ghost/settings/" title="Back to settings">{back}</a>
-<div><h1>Design &amp; branding</h1><p class="sub">{name} theme</p></div>
+            r#"<header class="page-head rise"><a class="icon-btn" style="transform:rotate(180deg)" href="/ghost/tools/" title="Back to tools">{back}</a>
+<div><h1>Customizations</h1><p class="sub">Brand, typography and the {name} theme's own settings</p></div>
 <div class="actions"><button class="btn text danger" type="submit" form="reset-form">Reset to defaults</button>
+<a class="btn tonal" href="/ghost/themes/{name_url}/edit/">{code_ic} Edit theme code</a>
 <button class="btn" type="submit" form="design-form">{check} Save</button></div></header>
 {banner}
-<form method="post" action="/ghost/design/" id="design-form" data-unsplash="{unsplash_headers}">
+<form method="post" action="/ghost/customizations/" id="design-form" data-unsplash="{unsplash_headers}">
 <div class="section">Brand</div>
 <div class="card rows rise" style="--i:2">
 <div class="row"><span class="ic tint-pink">{palette}</span>
@@ -290,9 +291,11 @@ pub(crate) async fn design_page(State(state): State<AppState>, headers: HeaderMa
 </div>
 {custom_html}
 </form>
-<form method="post" action="/ghost/design/reset/" id="reset-form" data-confirm="Reset theme settings|Custom settings for {name} go back to the theme's defaults."></form>
+<form method="post" action="/ghost/customizations/reset/" id="reset-form" data-confirm="Reset theme settings|Custom settings for {name} go back to the theme's defaults."></form>
 <script src="{assets}/unsplash-picker.js" defer></script>"#,
             name = esc(&theme.name),
+            name_url = esc(&theme.name),
+            code_ic = svg("code"),
             assets = ASSETS,
             unsplash_headers = esc(&unsplash_headers(&state).to_string()),
             back = svg("chevron"),

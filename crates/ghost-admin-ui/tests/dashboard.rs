@@ -266,7 +266,7 @@ async fn a_contributor_gets_the_page_but_none_of_the_administrators_sections() {
     // None of the Administrator-only sections, and nothing linking into them.
     // `/ghost/settings/` is deliberately not on this list: the rail's account
     // block links a signed-in person to their *own* profile at
-    // `/ghost/settings/staff/<slug>/`, which every role may open. The three
+    // `/ghost/staffs/<slug>/`, which every role may open. The three
     // settings screens the checklist would have linked to are covered by
     // "Finish setting up" not being here.
     for forbidden in [

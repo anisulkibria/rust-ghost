@@ -11,6 +11,7 @@ mod features;
 mod membership;
 mod growth;
 mod advanced;
+mod backups;
 
 pub(crate) use general::*;
 pub(crate) use email::*;
@@ -19,6 +20,7 @@ pub(crate) use features::*;
 pub(crate) use membership::*;
 pub(crate) use growth::*;
 pub(crate) use advanced::*;
+pub(crate) use backups::*;
 
 // ---------------------------------------------------------------------------
 // settings hub (Ghost's settings navigation. Every group has a page; the
@@ -38,32 +40,21 @@ pub(crate) struct SettingsGroup {
 impl SettingsGroup {
     /// Where this group's row points.
     ///
-    /// Most groups are a page under `/ghost/settings/`. Design and Navigation
-    /// keep the top-level pages they already had and are linked from the hub
-    /// rather than copied under it, so their URLs — and any bookmark or link
-    /// into them — keep working.
+    /// Every group is a page under `/ghost/settings/`. Customizations,
+    /// Navigations, Code injection, Announcement, Redirects, Routes and Staff
+    /// used to be groups here; they are Tools now (see `crate::tools`).
     pub(crate) fn path(&self) -> String {
-        match self.slug {
-            "design" => "/ghost/design/".to_string(),
-            "navigation" => "/ghost/navigation/".to_string(),
-            other => format!("/ghost/settings/{other}/"),
-        }
+        format!("/ghost/settings/{}/", self.slug)
     }
 }
 
 pub(crate) const SETTINGS_GROUPS: &[SettingsGroup] = &[
     SettingsGroup { slug: "general", title: "General settings", icon: "settings", tint: "pink", items: &["Name, title & description", "Timezone", "Meta data", "Social accounts"] },
-    SettingsGroup { slug: "staff", title: "Staff", icon: "ghost", tint: "teal", items: &["People", "Roles", "Invitations"] },
     SettingsGroup { slug: "analytics", title: "Analytics", icon: "chart", tint: "green", items: &["Web analytics", "Email opens", "Email clicks", "Member sources", "Outbound link tagging"] },
-    SettingsGroup { slug: "design", title: "Design & branding", icon: "tune", tint: "purple", items: &["Brand", "Site-wide colors", "Theme settings"] },
-    SettingsGroup { slug: "navigation", title: "Navigation", icon: "menu", tint: "red", items: &["Primary menu", "Secondary menu"] },
-    SettingsGroup { slug: "code-injection", title: "Code injection", icon: "code", tint: "purple", items: &["Site head", "Site foot"] },
-    SettingsGroup { slug: "site", title: "Announcement", icon: "flag", tint: "amber", items: &["Announcement bar", "Background", "Visibility"] },
     SettingsGroup { slug: "membership", title: "Membership", icon: "ghost", tint: "teal", items: &["Access", "Spam filters", "Tiers", "Signup portal", "Gift subscriptions", "Tips & donations", "Custom fields"] },
     // This port's own feature, so it has no Ghost sidebar slot to mirror; it
     // sits with Membership because it is the other thing readers (and agents)
     // can be charged for.
-    SettingsGroup { slug: "machine-payments", title: "Machine payments", icon: "integrations", tint: "pink", items: &["Access", "Pricing", "Stripe cards & Link", "Stablecoins", "Payment activity"] },
     SettingsGroup { slug: "email", title: "Email", icon: "mail", tint: "blue", items: &["Transactional email", "SMTP server", "Sender identity", "Send a test"] },
     SettingsGroup { slug: "newsletters", title: "Newsletters", icon: "send", tint: "purple", items: &["Newsletter sending", "Default recipients", "Amazon SES", "Mailgun", "Region"] },
     SettingsGroup { slug: "growth", title: "Growth", icon: "globe", tint: "slate", items: &["Network", "Ghost Explore", "Recommendations", "Signup forms", "Offers"] },
@@ -80,10 +71,7 @@ pub(crate) const SETTINGS_GROUPS: &[SettingsGroup] = &[
     // every session and every response at once. It sits after Integrations
     // because API keys are one of the things the report counts.
     SettingsGroup { slug: "security", title: "Security", icon: "lock", tint: "red", items: &["Sign-in", "Sessions", "Response headers", "Requests this server makes and trusts", "Spam", "Firewall"] },
-    SettingsGroup { slug: "integrations", title: "Integrations", icon: "integrations", tint: "red", items: &["Built-in apps", "Custom integrations", "Content API"] },
-    SettingsGroup { slug: "migration", title: "Migration tools", icon: "import", tint: "blue", items: &["Import content", "Export all data", "Members", "Post analytics", "Themes"] },
-    SettingsGroup { slug: "advanced", title: "Advanced", icon: "code", tint: "red", items: &["Redirects & routes"] },
-    SettingsGroup { slug: "history", title: "History", icon: "history", tint: "slate", items: &["Site activity"] },
+    SettingsGroup { slug: "backups", title: "Backups", icon: "history", tint: "blue", items: &["Automatic backups", "Back up now", "Restore", "Export all data", "Members", "Post analytics", "Themes"] },
     SettingsGroup { slug: "danger", title: "Danger zone", icon: "delete", tint: "red", items: &["Delete all content", "Delete site"] },
 ];
 
@@ -168,15 +156,6 @@ pub(crate) const SETTINGS_INDEX: &[(&str, &str, &str)] = &[
     ("analytics", "Analytics", "Email clicks"),
     ("analytics", "Analytics", "Member sources"),
     ("analytics", "Analytics", "Outbound link tagging"),
-    ("site", "Announcement bar", "Announcement"),
-    ("site", "Announcement bar", "Background"),
-    ("site", "Announcement bar", "Visibility"),
-    ("design", "Brand", "Accent color"),
-    ("design", "Brand", "Publication icon"),
-    ("design", "Brand", "Publication logo"),
-    ("design", "Brand", "Publication cover"),
-    ("navigation", "Primary menu", "Primary navigation"),
-    ("navigation", "Secondary menu", "Secondary navigation"),
     ("email", "Transactional email", "Transport"),
     ("email", "SMTP server", "Host"),
     ("email", "SMTP server", "Port"),
@@ -215,15 +194,6 @@ pub(crate) const SETTINGS_INDEX: &[(&str, &str, &str)] = &[
     ("membership", "Spam filters", "Blocked email domains"),
     ("membership", "Custom fields", "Field name"),
     ("membership", "Custom fields", "Member access"),
-    ("machine-payments", "Access", "Paid Markdown access"),
-    ("machine-payments", "Pricing", "Price per article"),
-    ("machine-payments", "Pricing", "Currency"),
-    ("machine-payments", "Stripe cards & Link", "Stripe business network profile ID"),
-    ("machine-payments", "Stablecoins", "Tempo USDC"),
-    ("machine-payments", "Stablecoins", "Base USDC"),
-    ("machine-payments", "Stablecoins", "Settlement network"),
-    ("machine-payments", "Stablecoins", "Deposit addresses"),
-    ("machine-payments", "Payment activity", "Recent payment attempts"),
     ("growth", "Offers", "Discount code"),
     ("growth", "Offers", "Free trial"),
     ("membership", "Gift subscriptions", "Shareable link"),
@@ -236,25 +206,20 @@ pub(crate) const SETTINGS_INDEX: &[(&str, &str, &str)] = &[
     ("features", "Automations", "Automations"),
     ("features", "Beta features", "Feature flags"),
     ("features", "Private features", "Developer experiments"),
-    ("code-injection", "Site head", "Head"),
-    ("code-injection", "Site foot", "Foot"),
-    ("advanced", "Redirects & routes", "Redirects"),
-    ("advanced", "Redirects & routes", "Routes"),
-    // What someone actually types when they are moving a site in or out.
-    ("migration", "Import", "Import content"),
-    ("migration", "Import", "Universal import"),
-    ("migration", "Import", "Ghost export file"),
-    ("migration", "Import", "WordPress"),
-    ("migration", "Import", "Substack"),
-    ("migration", "Import", "CSV"),
-    ("migration", "Import", "Migrate from another platform"),
-    ("migration", "Export", "Export all data"),
-    ("migration", "Export", "Content & settings"),
-    ("migration", "Export", "Members"),
-    ("migration", "Export", "Post analytics"),
-    ("migration", "Export", "Themes"),
-    ("migration", "Export", "Media files"),
-    ("migration", "Export", "Backup"),
+    // What someone actually types when they are backing up or moving out.
+    ("backups", "Automatic backups", "Daily backups"),
+    ("backups", "Automatic backups", "Weekly backups"),
+    ("backups", "Automatic backups", "Monthly backups"),
+    ("backups", "Backups", "Back up now"),
+    ("backups", "Backups", "Restore a backup"),
+    ("backups", "Backups", "Upload a backup"),
+    ("backups", "Export", "Export all data"),
+    ("backups", "Export", "Content & settings"),
+    ("backups", "Export", "Members"),
+    ("backups", "Export", "Post analytics"),
+    ("backups", "Export", "Themes"),
+    ("backups", "Export", "Media files"),
+    ("backups", "Export", "Backup"),
 ];
 
 /// Sub-pages and on-page headings the group rows do not already carry:
@@ -264,9 +229,6 @@ pub(crate) const SETTINGS_INDEX: &[(&str, &str, &str)] = &[
 /// the thing actually lives.
 pub(crate) const SETTINGS_PLACES: &[(&str, &str, &str)] = &[
     // (path under /ghost/settings/, what you are looking for, parent group slug)
-    ("integrations/zapier/", "Zapier", "integrations"),
-    ("integrations/slack/", "Slack", "integrations"),
-    ("integrations/unsplash/", "Unsplash", "integrations"),
     ("membership/", "Stripe", "membership"),
     ("growth/", "Coming later", "growth"),
 ];
@@ -633,26 +595,6 @@ pub(crate) fn textbox(name: &str, label: &str, value: &str) -> String {
 /// Redirect back to a settings group page carrying a one-shot banner.
 /// A settings flash, or the same message as JSON for an API client.
 ///
-/// The four file-handling handlers below are reached two ways: from the
-/// admin's own forms, which want a redirect and a banner, and from the Admin
-/// API, where a redirect to an HTML page is useless. One handler either way
-/// means the validation and the writing cannot drift between them.
-pub(crate) fn flash(headers: &HeaderMap, group: &str, kind: &str, message: &str) -> Response {
-    if !wants_json(headers) {
-        return settings_flash(group, kind, message);
-    }
-    let status = if kind == "error" { StatusCode::UNPROCESSABLE_ENTITY } else { StatusCode::OK };
-    if kind == "error" {
-        (
-            status,
-            axum::Json(serde_json::json!({"errors":[{"message":message,"errorType":"ValidationError"}]})),
-        )
-            .into_response()
-    } else {
-        (status, axum::Json(serde_json::json!({"meta":{"message":message}}))).into_response()
-    }
-}
-
 pub(crate) fn settings_flash(group: &str, kind: &str, message: &str) -> Response {
     let encoded: String = form_urlencoded::Serializer::new(String::new())
         .append_pair(kind, message)

@@ -287,6 +287,8 @@ async fn main() {
     ghost_api::tinybird_sync::spawn(state.clone());
     ghost_api::click::spawn(state.clone());
     ghost_api::explore::spawn(state.clone());
+    // Automatic backups, on the schedule set in Settings → Backups.
+    ghost_api::backups::spawn(state.clone());
     ghost_api::federation::spawn(state.clone());
     let app = mount(build_app(state), subdir);
 

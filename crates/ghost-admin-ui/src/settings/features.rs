@@ -287,14 +287,13 @@ pub(crate) async fn site_page(State(state): State<AppState>, headers: HeaderMap,
             )
         })
         .collect();
-    let group = SETTINGS_GROUPS.iter().find(|g| g.slug == "site").unwrap();
     page_for_role(actor_role,
         "Announcement",
-        "settings",
+        "tools",
         Some(&user),
         &format!(
             r#"{head}{banner}
-<form method="post" action="/ghost/settings/site/" id="site-form">
+<form method="post" action="/ghost/announcement/" id="site-form">
 <div class="section">Announcement bar</div>
 <div class="card rows rise" style="--i:1">
 <div class="row" style="align-items:flex-start"><span class="ic tint-amber">{megaphone}</span>
@@ -308,7 +307,7 @@ pub(crate) async fn site_page(State(state): State<AppState>, headers: HeaderMap,
 <p class="muted" style="margin:8px 0 0">At least one audience must be selected for the bar to appear. Member audiences take effect once members are available.</p></div></div>
 </div>
 </form>"#,
-            head = group_head(group, Some("site-form")),
+            head = crate::tools::tool_head("announcement", Some("site-form"), ""),
             banner = flash_banner(&q),
             megaphone = svg("flag"),
             palette = svg("themes"),
@@ -388,8 +387,8 @@ pub(crate) async fn site_save(State(state): State<AppState>, headers: HeaderMap,
             .await
             .is_ok();
     if ok {
-        settings_saved(&state, "site", "Site settings saved.")
+        crate::tools::tool_saved(&state, "/ghost/announcement/", "Announcement saved.")
     } else {
-        settings_flash("site", "error", "Saving failed — check the logs.")
+        crate::tools::tool_flash("/ghost/announcement/", "error", "Saving failed — check the logs.")
     }
 }

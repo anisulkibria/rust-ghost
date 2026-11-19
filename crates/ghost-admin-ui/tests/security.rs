@@ -630,7 +630,7 @@ async fn suspending_an_account_signs_it_out_of_the_browser_it_is_already_in() {
     let suspended = admin(
         &state,
         "POST",
-        "/settings/staff/ada/status/",
+        "/staffs/ada/status/",
         Some(&mine),
         Some(ORIGIN),
         Some("status=inactive"),

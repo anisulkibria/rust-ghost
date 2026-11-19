@@ -67,6 +67,7 @@ pub(crate) async fn admin_asset(Path((version, file)): Path<(String, String)>) -
         "machine-payments.js" => include_str!("../assets/machine-payments.js"),
         "checkout-design.js" => include_str!("../assets/checkout-design.js"),
         "analytics-map.js" => include_str!("../assets/analytics-map.js"),
+        "tools-editor.js" => include_str!("../assets/tools-editor.js"),
         // Country outlines for the Locations choropleth: Natural Earth
         // v5.1.2 (public domain), projected and simplified to the size this
         // map is drawn at. Big enough to be worth fetching once — which the

@@ -8,6 +8,7 @@ pub mod admin_comments;
 pub mod automations;
 pub mod automation_designs;
 pub mod automations_engine;
+pub mod backups;
 pub mod brute;
 pub mod collision;
 pub mod comments;

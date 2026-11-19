@@ -61,6 +61,10 @@
      pair of names, so a control does not have to know which it is on. */
   --glass-hover: color-mix(in srgb, var(--primary) 13%, transparent);
   --glass-press: color-mix(in srgb, var(--primary) 20%, transparent);
+  /* Hover on something that is NOT a target (a plain row whose only
+     controls are its buttons). Barely there: enough to track the pointer
+     along a list, never enough to read as "this whole row is clickable". */
+  --hover-quiet: color-mix(in srgb, var(--primary) 4%, transparent);
   /* What a pane of glass resolves to once it is composited, as a solid
      colour. A floating label punches a notch in its field's outline by
      painting over it, so the notch has to be the colour of what is behind
@@ -105,6 +109,7 @@ html.dark {
   --glass-stroke: color-mix(in srgb, #fff 12%, transparent);
   --glass-hover: color-mix(in srgb, #fff 11%, transparent);
   --glass-press: color-mix(in srgb, #fff 18%, transparent);
+  --hover-quiet: color-mix(in srgb, #fff 3%, transparent);
   --notch: color-mix(in srgb, #fff 7%, var(--sc));
   --glass-edge: rgba(255,255,255,.16);
   --glass-shadow: 0 1px 1px rgba(0,0,0,.4), 0 14px 34px -16px rgba(0,0,0,.7);
@@ -341,6 +346,154 @@ html.dark .theme-menu > summary .t-sun { display: none; }
 @media (max-width: 1000px) { .module-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 @media (max-width: 640px) { .module-grid { grid-template-columns: minmax(0, 1fr); gap: 12px; } }
 
+/* ---- Tools: a hub of cards related to the module cards but not the same.
+   A module is somewhere you go; a tool is something already set up on the
+   site, so each card leads with its icon and a corner arrow and ends on a
+   live line of state, under a hairline. Three across, a little wider, so
+   that state line has room. ---- */
+.tool-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; margin-top: 20px; }
+.tool-card { display: flex; flex-direction: column; gap: 12px; min-width: 0; padding: 18px 18px 0;
+  border-radius: 22px; background: var(--glass); color: var(--on-surface); text-decoration: none;
+  border: 1px solid var(--glass-stroke); box-shadow: var(--glass-shadow), inset 0 1px 0 var(--glass-edge);
+  transition: background var(--dur) var(--ease), box-shadow var(--dur) var(--ease), transform var(--dur) var(--ease); }
+.tool-card:hover { background: var(--glass-strong); transform: translateY(-2px);
+  box-shadow: var(--glass-shadow-lift), inset 0 1px 0 var(--glass-edge); }
+@media (prefers-reduced-motion: reduce) { .tool-card:hover { transform: none; } }
+.tool-card:focus-visible { outline: 3px solid var(--primary); outline-offset: 4px; }
+.tool-top { display: flex; align-items: center; justify-content: space-between; }
+.tool-card .ic { width: 40px; height: 40px; border-radius: 13px; }
+.tool-card .ic svg { width: 20px; height: 20px; }
+.tool-go { display: grid; place-items: center; width: 30px; height: 30px; border-radius: 50%;
+  color: var(--on-surface-variant); transform: rotate(-45deg);
+  transition: background var(--dur) var(--ease), color var(--dur) var(--ease), transform var(--dur) var(--ease); }
+.tool-go svg { width: 18px; height: 18px; }
+.tool-card:hover .tool-go { background: var(--glass-hover); color: var(--primary); transform: rotate(0); }
+.tool-text h2 { margin: 0 0 4px; font-size: 16.5px; font-weight: 600; letter-spacing: -.2px; }
+.tool-text p { margin: 0; color: var(--on-surface-variant); font-size: 13px; line-height: 1.5; }
+.tool-state { display: flex; align-items: center; gap: 8px; margin-top: auto; padding: 11px 0 13px;
+  border-top: 1px solid var(--glass-stroke); font-size: 12.5px; font-weight: 500; color: var(--on-surface-variant);
+  min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.tool-state i, .rt-live i { flex: none; width: 7px; height: 7px; border-radius: 50%;
+  background: color-mix(in srgb, var(--on-surface-variant) 45%, transparent); }
+.tool-state.on i, .rt-live.on i { background: #2E9D5B; box-shadow: 0 0 0 3px color-mix(in srgb, #2E9D5B 22%, transparent); }
+@media (max-width: 1100px) { .tool-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 640px) { .tool-grid { grid-template-columns: minmax(0, 1fr); gap: 12px; } }
+
+/* ---- Redirects and Routes editors ---- */
+.test-result { display: flex; gap: 12px; align-items: flex-start; margin-top: 14px; padding: 12px 14px;
+  border-radius: 14px; background: color-mix(in srgb, var(--on-surface) 4%, transparent); }
+.test-result.hit { background: color-mix(in srgb, #2E9D5B 10%, transparent); }
+.test-result .ic { width: 32px; height: 32px; border-radius: 10px; flex: none; }
+.test-result .ic svg { width: 17px; height: 17px; }
+.test-result b { display: block; font-size: 14.5px; margin-bottom: 2px; }
+.test-result span:not(.ic) { font-size: 13.5px; color: var(--on-surface-variant); line-height: 1.5; }
+.test-result code, .rt-live code, .rt-title code { font-size: .92em; padding: 1px 5px; border-radius: 6px;
+  background: color-mix(in srgb, var(--on-surface) 7%, transparent); color: var(--on-surface); }
+
+.rx-card { padding: 6px 0 0; }
+.rx-row { display: grid; grid-template-columns: 26px 168px minmax(0, 1fr) 18px minmax(0, 1fr) 76px auto;
+  gap: 10px; align-items: end; padding: 12px 16px; position: relative; transition: background .15s var(--ease); }
+.rx-row + .rx-row { border-top: 1px solid var(--glass-stroke); }
+.rx-row:hover { background: var(--hover-quiet); }
+.rx-row.rx-hit { background: color-mix(in srgb, #2E9D5B 12%, transparent);
+  box-shadow: inset 3px 0 0 #2E9D5B; }
+.rx-row.rx-moved, .rt-card.rx-moved { animation: rx-flash .6s var(--ease); }
+@keyframes rx-flash { from { background: var(--glass-hover); } }
+.rx-num, .rt-num { align-self: center; justify-self: center; font-size: 12px; font-weight: 700;
+  color: var(--on-surface-variant); font-variant-numeric: tabular-nums; }
+.rx-num { margin-top: 18px; }
+.rx-cell { display: flex; flex-direction: column; gap: 5px; min-width: 0; }
+.rx-lbl { font-size: 11.5px; font-weight: 600; color: var(--on-surface-variant); padding-left: 2px; }
+.rx-row:not(:first-child) .rx-lbl { display: none; }
+.rx-row:not(:first-child) .rx-num, .rx-row:not(:first-child) .rx-arrow,
+.rx-row:not(:first-child) .rx-kind, .rx-row:not(:first-child) .rx-tools { margin-top: 0; }
+.rx-in { width: 100%; height: 40px; padding: 0 12px; border-radius: 10px; font: inherit; font-size: 14px;
+  color: var(--on-surface); background: color-mix(in srgb, var(--sc-lowest) 70%, transparent);
+  border: 1px solid var(--outline-variant); transition: border-color .15s var(--ease); }
+.rx-in.mono { font-family: var(--mono); font-size: 13px; }
+.rx-in:focus { outline: none; border-color: var(--primary); box-shadow: 0 0 0 1px var(--primary); }
+select.rx-in { appearance: none; cursor: pointer; padding-right: 10px; }
+.rx-arrow { align-self: end; height: 40px; display: grid; place-items: center; color: var(--on-surface-variant); }
+.rx-arrow svg { width: 18px; height: 18px; }
+.rx-kind { align-self: end; height: 40px; justify-content: center; border-radius: 10px; font-size: 12px;
+  background: color-mix(in srgb, var(--on-surface) 6%, transparent); color: var(--on-surface-variant); cursor: help; }
+.rx-kind.pat { background: var(--purple-bg); color: var(--purple-fg); }
+.rx-tools { display: flex; align-items: center; gap: 2px; align-self: end; height: 40px; }
+.rx-tools .icon-btn { width: 34px; height: 34px; }
+.rx-tools .icon-btn svg { width: 18px; height: 18px; }
+.rx-row:first-child .rx-tools, .rx-row:first-child .rx-kind, .rx-row:first-child .rx-arrow { margin-top: 0; }
+.rx-empty { display: flex; gap: 14px; align-items: center; padding: 18px 20px; }
+.rx-empty .ic { width: 36px; height: 36px; border-radius: 12px; flex: none; }
+.rx-empty b { display: block; font-size: 14.5px; }
+.rx-empty span:not(.ic) { font-size: 13px; color: var(--on-surface-variant); }
+.rx-list:has([data-row]) > .rx-empty, .rt-list:has([data-row]) > .rx-empty { display: none; }
+.rx-foot { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; padding: 12px 16px 14px;
+  border-top: 1px solid var(--glass-stroke); }
+.file-view { margin-top: 14px; }
+.file-view summary { cursor: pointer; display: inline-flex; align-items: center; gap: 8px; font-size: 13.5px;
+  font-weight: 500; color: var(--primary); list-style: none; }
+.file-view summary::-webkit-details-marker { display: none; }
+.file-view summary svg { width: 17px; height: 17px; }
+.file-view pre { margin: 10px 0 0; padding: 14px 16px; max-height: 360px; overflow: auto; border-radius: 14px;
+  font: 12.5px/1.6 var(--mono); background: color-mix(in srgb, var(--on-surface) 5%, transparent);
+  border: 1px solid var(--glass-stroke); white-space: pre; }
+
+.rt-list { display: flex; flex-direction: column; gap: 12px; }
+.rt-list > .rx-empty { border-radius: 22px; background: var(--glass); border: 1px dashed var(--outline-variant); }
+.rt-card { padding: 14px 18px 12px; border-radius: 22px; background: var(--glass);
+  border: 1px solid var(--glass-stroke); box-shadow: var(--glass-shadow), inset 0 1px 0 var(--glass-edge); }
+.rt-head { display: flex; align-items: center; gap: 10px; margin-bottom: 14px; min-width: 0; }
+.rt-num { width: 24px; height: 24px; display: grid; place-items: center; border-radius: 50%;
+  background: color-mix(in srgb, var(--on-surface) 7%, transparent); }
+.rt-title { flex: 1; min-width: 0; font-size: 13.5px; color: var(--on-surface-variant);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.rt-head .rx-tools { height: auto; }
+.rt-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 0 12px; }
+.rt-grid .field { margin-bottom: 12px; }
+.rt-live { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin: 0; padding-top: 10px;
+  border-top: 1px solid var(--glass-stroke); font-size: 12.8px; color: var(--on-surface-variant); }
+.rt-add { margin: 10px 0 0; }
+.rt-tax { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 12px; align-items: center; }
+.rt-tax .field { margin-bottom: 12px; }
+.switch-line { display: flex; gap: 12px; align-items: center; cursor: pointer; margin-bottom: 12px; }
+.switch-line input { width: 18px; height: 18px; accent-color: var(--primary); flex: none; }
+.switch-line b { display: block; font-size: 14.5px; font-weight: 600; }
+.switch-line .muted { display: block; }
+@media (max-width: 1100px) { .rt-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 860px) {
+  .rx-row { grid-template-columns: 22px minmax(0, 1fr) auto; align-items: center; }
+  .rx-row .rx-cell, .rx-row .rx-status-cell { grid-column: 2 / 4; }
+  .rx-row .rx-lbl { display: block !important; }
+  .rx-arrow { display: none; }
+  .rx-num { grid-row: 1; margin-top: 0; }
+  .rx-kind { grid-column: 2; justify-self: start; padding: 0 12px; height: 32px; }
+  .rx-tools { grid-column: 3; height: 32px; }
+}
+@media (max-width: 640px) { .rt-grid, .rt-tax { grid-template-columns: minmax(0, 1fr); } }
+
+/* ---- Settings → Backups ---- */
+.bk-sched-row { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
+.bk-head { display: flex; align-items: center; gap: 12px; }
+.bk-head > span:first-child { flex: none; }
+.bk-meter { display: flex; gap: 3px; flex: 1; max-width: 220px; }
+.bk-meter i { flex: 1; height: 6px; border-radius: 3px;
+  background: color-mix(in srgb, var(--on-surface-variant) 18%, transparent); }
+.bk-meter i.on { background: var(--primary); }
+.bk-count { font-weight: 600; letter-spacing: 0; text-transform: none; font-size: 12px; }
+.bk-actions { flex-wrap: wrap; gap: 12px; }
+.bk-actions form { margin: 0; }
+.bk-upload { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-left: auto !important; }
+.bk-row .title { display: flex !important; align-items: center; gap: 8px; flex-wrap: wrap; white-space: normal !important; }
+.bk-row .title .chip { height: 22px; font-size: 11.5px; padding: 0 9px; }
+.bk-row .detail { white-space: normal; }
+.bk-row .trailing { display: flex; align-items: center; gap: 6px; }
+.bk-row .trailing form { margin: 0; }
+@media (max-width: 760px) {
+  .bk-row { flex-wrap: wrap; }
+  .bk-row .trailing { width: 100%; justify-content: flex-end; }
+  .bk-upload { margin-left: 0 !important; }
+}
+
 /* ---- forms: the builder's field cards, and a response's answers ---- */
 .fb-list { display: grid; gap: 12px; }
 .fb-field { background: var(--sc-lowest); border-radius: 24px; padding: 16px 20px 6px; }
@@ -449,8 +602,11 @@ html.dark .theme-menu > summary .t-sun { display: none; }
   text-decoration: none; color: inherit; transition: background .15s var(--ease); }
 .rows .row + .row::before { content: ""; position: absolute; top: 0; left: 76px; right: 0; height: 1px;
   background: var(--glass-stroke); }
-.rows .row:hover { background: var(--glass-hover); }
-.rows .row:active { background: var(--glass-press); }
+/* Only a row that IS a link gets the full state layer; a <div> row is not a
+   target (its buttons are), so it gets the quiet tint and no press. */
+.rows .row:hover { background: var(--hover-quiet); }
+.rows a.row:hover, .rows label.row:hover { background: var(--glass-hover); }
+.rows a.row:active, .rows label.row:active { background: var(--glass-press); }
 .rows .row .body { flex: 1; min-width: 0; }
 /* Title over detail, each clipped to the body's width. They used to be plain
    inline spans, so a long value (a post's slug, say) ran past the body box
@@ -1114,6 +1270,16 @@ a.sw-count:hover { color: var(--on-surface); }
   object-fit: cover; object-position: top center; }
 .gallery .shot::after { content: ""; position: absolute; inset: 0;
   box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--on-surface) 6%, transparent); }
+/* Same lift as a module card: the card is a destination (Preview, Install,
+   Activate), so it answers the pointer the way the dashboard modules do. */
+.gallery .card { transition: background var(--dur) var(--ease), box-shadow var(--dur) var(--ease),
+    transform var(--dur) var(--ease); }
+.gallery .card:hover { background: var(--glass-strong); transform: translateY(-2px);
+  box-shadow: var(--glass-shadow-lift), inset 0 1px 0 var(--glass-edge); }
+@media (prefers-reduced-motion: reduce) { .gallery .card:hover { transform: none; } }
+/* Each card enters with `.rise`; its `both` fill would keep owning
+   `transform` after the entrance and pin the card in place on hover. */
+.gallery .card.rise { animation-fill-mode: backwards; }
 .gallery .meta { display: flex; align-items: center; gap: 10px; padding: 14px 16px; }
 .gallery .meta .body { flex: 1; min-width: 0; }
 .gallery .meta .title { display: block; font-size: 15px; font-weight: 600; }

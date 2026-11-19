@@ -246,7 +246,7 @@ async fn an_untranslated_or_draft_entry_keeps_its_original_link() {
 #[tokio::test]
 async fn the_navigation_page_edits_both_menus_of_every_language() {
     let (f, cookie) = bilingual().await;
-    let page = send(&f.state, "GET", "/navigation/", Some(&cookie), None, None).await;
+    let page = send(&f.state, "GET", "/navigations/", Some(&cookie), None, None).await;
     assert_eq!(page.status, StatusCode::OK);
     for kind in ["primary", "secondary", "primary.bn", "secondary.bn"] {
         assert!(page.body.contains(&format!(r#"value="add-{kind}""#)), "no {kind} menu");
@@ -257,7 +257,7 @@ async fn the_navigation_page_edits_both_menus_of_every_language() {
     let added = send(
         &f.state,
         "POST",
-        "/navigation/",
+        "/navigations/",
         Some(&cookie),
         Some(ORIGIN),
         Some(&[
@@ -271,7 +271,7 @@ async fn the_navigation_page_edits_both_menus_of_every_language() {
     let saved = send(
         &f.state,
         "POST",
-        "/navigation/",
+        "/navigations/",
         Some(&cookie),
         Some(ORIGIN),
         Some(&[
@@ -421,7 +421,7 @@ async fn changing_the_publication_language_keeps_the_others_and_their_menus() {
     assert_eq!(f.state.settings.get("navigation_locales").unwrap()["en"], english_menu, "English lost its menu");
 
     // Opening the Navigation page must not tidy anything away.
-    let page = send(&f.state, "GET", "/navigation/", Some(&cookie), None, None).await;
+    let page = send(&f.state, "GET", "/navigations/", Some(&cookie), None, None).await;
     assert!(page.body.contains(r#"value="add-primary.en""#), "no English menu on the page");
     assert_eq!(f.state.settings.get("navigation_locales").unwrap()["en"], english_menu);
 

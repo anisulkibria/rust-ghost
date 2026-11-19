@@ -946,7 +946,7 @@ pub async fn settings_page(
             .iter()
             .map(|code| {
                 format!(
-                    r##"<a class="chip tonal" href="/ghost/navigation/#nav-{anchor}">{name}</a> "##,
+                    r##"<a class="chip tonal" href="/ghost/navigations/#nav-{anchor}">{name}</a> "##,
                     anchor = if locales.is_default(code) { "default".to_string() } else { esc(&code.to_ascii_lowercase()) },
                     name = esc(&ghost_core::locales::native_name(code)),
                 )
@@ -954,7 +954,7 @@ pub async fn settings_page(
             .collect();
         format!(
             r#"<div class="card padded rise" style="--i:4">
-<p class="muted" style="margin:0 0 10px">Every language has its own primary and secondary menu. A language you switch on here gets both, generated from the default language's menus and pointing at their translations. Edit them, and add the language switcher, in <a href="/ghost/navigation/">Navigation</a>.</p>
+<p class="muted" style="margin:0 0 10px">Every language has its own primary and secondary menu. A language you switch on here gets both, generated from the default language's menus and pointing at their translations. Edit them, and add the language switcher, in <a href="/ghost/navigations/">Tools → Navigations</a>.</p>
 <p style="margin:0">{chips}</p></div>"#
         )
     } else {

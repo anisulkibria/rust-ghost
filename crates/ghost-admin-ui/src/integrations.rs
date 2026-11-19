@@ -9,9 +9,6 @@ use super::*;
 /// Integrations used to be a top-level rail item, then lived under Settings →
 /// Advanced before becoming a settings page of its own; this keeps links from
 /// both eras working.
-pub(crate) async fn integrations_redirect() -> Response {
-    Redirect::permanent("/ghost/settings/integrations/").into_response()
-}
 
 /// The three apps Ghost ships with. Slug, label, blurb, icon, tint.
 ///
@@ -32,7 +29,7 @@ pub(crate) fn integrations_flash(sub: &str, kind: &str, message: &str) -> Respon
     let encoded: String = form_urlencoded::Serializer::new(String::new())
         .append_pair(kind, message)
         .finish();
-    Redirect::to(&format!("/ghost/settings/integrations/{sub}?{encoded}")).into_response()
+    Redirect::to(&format!("/ghost/integrations/{sub}?{encoded}")).into_response()
 }
 
 /// A secret with a copy button. Long keys are shown in full — they have to be
@@ -72,7 +69,7 @@ pub(crate) async fn integrations_page(
             _ => r#"<span class="chip tonal">Not set up</span>"#,
         };
         apps.push_str(&format!(
-            r#"<a class="row" href="/ghost/settings/integrations/{slug}/"><span class="ic tint-{tint}">{ic}</span>
+            r#"<a class="row" href="/ghost/integrations/{slug}/"><span class="ic tint-{tint}">{ic}</span>
 <div class="body"><span class="title">{name}</span><span class="detail">{blurb}</span></div>
 <div class="trailing">{status}</div></a>"#,
             slug = slug,
@@ -94,7 +91,7 @@ pub(crate) async fn integrations_page(
             .filter(|d| !d.is_empty())
             .unwrap_or_else(|| format!("/{}", i.slug.clone().unwrap_or_default()));
         custom_rows.push_str(&format!(
-            r#"<a class="row" href="/ghost/settings/integrations/custom/{id}/"><span class="ic tint-teal">{ic}</span>
+            r#"<a class="row" href="/ghost/integrations/custom/{id}/"><span class="ic tint-teal">{ic}</span>
 <div class="body"><span class="title">{name}</span><span class="detail">{detail}</span></div>
 <span class="chip tonal">2 keys</span></a>"#,
             id = esc(&i.id),
@@ -125,10 +122,10 @@ pub(crate) async fn integrations_page(
     page_for_role(
         actor_role,
         "Integrations",
-        "settings",
+        "tools",
         Some(&user),
         &format!(
-            r#"<header class="page-head rise"><a class="icon-btn" style="transform:rotate(180deg)" href="/ghost/settings/" title="Back to settings">{back}</a>
+            r#"<header class="page-head rise"><a class="icon-btn" style="transform:rotate(180deg)" href="/ghost/tools/" title="Back to tools">{back}</a>
 <div><h1>Integrations</h1><p class="sub">Built-in apps, API keys &amp; your own scripts</p></div>
 <div class="actions"><a class="btn text" href="https://ghost.org/integrations/" target="_blank" rel="noopener">Browse integrations</a></div></header>
 {banner}
@@ -136,7 +133,7 @@ pub(crate) async fn integrations_page(
 <div class="card rows rise" style="--i:1">{apps}</div>
 <div class="section">Custom integrations</div>
 <div class="card rows rise" style="--i:2">{custom_rows}</div>
-<div class="card padded rise" style="--i:3"><form method="post" action="/ghost/settings/integrations/">
+<div class="card padded rise" style="--i:3"><form method="post" action="/ghost/integrations/">
 <div class="section" style="margin-top:0">Add a custom integration</div>
 <p class="muted" style="margin:0 0 12px">Creates a Content API key and an Admin API key you can use from your own code.</p>
 <div class="inline-form">
@@ -242,7 +239,7 @@ pub(crate) async fn custom_integration_page(
 <div class="body"><span class="title">{label}{name}</span><span class="detail">{url}</span>
 <div style="margin-top:6px">{last}</div></div>
 <div class="trailing">
-<form method="post" action="/ghost/settings/integrations/custom/{iid}/webhooks/{wid}/delete/" data-confirm="Delete webhook|Nothing will be sent to {url} when this event fires.">
+<form method="post" action="/ghost/integrations/custom/{iid}/webhooks/{wid}/delete/" data-confirm="Delete webhook|Nothing will be sent to {url} when this event fires.">
 <button class="icon-btn danger" title="Delete" aria-label="Delete">{del}</button></form></div></div>"#,
             ic = svg("share"),
             label = esc(ghost_api::webhooks::event_label(&h.event)),
@@ -264,13 +261,13 @@ pub(crate) async fn custom_integration_page(
     page_for_role(
         actor_role,
         &i.name,
-        "settings",
+        "tools",
         Some(&user),
         &format!(
-            r#"<header class="page-head rise"><a class="icon-btn" style="transform:rotate(180deg)" href="/ghost/settings/integrations/" title="Back to integrations">{back}</a>
+            r#"<header class="page-head rise"><a class="icon-btn" style="transform:rotate(180deg)" href="/ghost/integrations/" title="Back to integrations">{back}</a>
 <div><h1>{name}</h1><p class="sub">Custom integration</p></div></header>
 {banner}
-<div class="card padded rise" style="--i:1"><form method="post" action="/ghost/settings/integrations/custom/{id}/">
+<div class="card padded rise" style="--i:1"><form method="post" action="/ghost/integrations/custom/{id}/">
 {name_field}{desc_field}
 <div style="margin-top:14px"><button class="btn" type="submit">Save</button></div></form></div>
 <div class="section">API keys</div>
@@ -280,7 +277,7 @@ pub(crate) async fn custom_integration_page(
 <div class="section">Webhooks</div>
 <div class="card rows rise" style="--i:4">{webhook_rows}</div>
 <div class="card padded rise" style="--i:4">
-<form method="post" action="/ghost/settings/integrations/custom/{id}/webhooks/new/" class="inline-form">
+<form method="post" action="/ghost/integrations/custom/{id}/webhooks/new/" class="inline-form">
 <label class="field" style="min-width:160px;margin:0"><input name="name" placeholder=" " maxlength="191"><span>Name · optional</span></label>
 <label class="field fixed" style="min-width:230px;margin:0"><select name="event" required>{event_opts}</select><span>Event</span>{car}</label>
 <label class="field" style="flex:1;min-width:220px;margin:0"><input name="target_url" type="url" placeholder="https://example.com/hook" maxlength="2000" required><span>Target URL</span></label>
@@ -293,7 +290,7 @@ delivery from anyone who learned the URL.</p>
 </div>
 <div class="section">Danger zone</div>
 <div class="card padded rise" style="--i:4">
-<form method="post" action="/ghost/settings/integrations/custom/{id}/delete/" data-confirm="Delete integration|&#8220;{name}&#8221; and its API keys will be removed. Anything using them will stop working.">
+<form method="post" action="/ghost/integrations/custom/{id}/delete/" data-confirm="Delete integration|&#8220;{name}&#8221; and its API keys will be removed. Anything using them will stop working.">
 <button class="btn danger" type="submit">{del} Delete integration</button></form></div>"#,
             back = svg("chevron"),
             banner = flash_banner(&q),
@@ -549,7 +546,7 @@ pub(crate) struct WebhookForm {
 pub(crate) fn integration_flash(id: &str, kind: &str, message: &str) -> Response {
     let encoded: String =
         form_urlencoded::Serializer::new(String::new()).append_pair(kind, message).finish();
-    Redirect::to(&format!("/ghost/settings/integrations/custom/{id}/?{encoded}"))
+    Redirect::to(&format!("/ghost/integrations/custom/{id}/?{encoded}"))
         .into_response()
 }
 

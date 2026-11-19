@@ -965,6 +965,9 @@ pub(crate) fn rail(active: &str, user: Option<&ghost_core::models::User>, role: 
         // Modules → Memberships, and its URL is unchanged — see
         // `crate::memberships` on why the URL stayed where it was.
         ("modules", "/ghost/modules/", "Modules", "integrations", "purple"),
+        // The site-building screens: customizations, menus, code injection,
+        // announcement, redirects, routes and staff. See `crate::tools`.
+        ("tools", "/ghost/tools/", "Tools", "tune", "teal"),
         // Integrations is not a rail item: like Ghost, it lives under
         // Settings → Integrations.
         ("settings", "/ghost/settings/", "Settings", "settings", "pink"),
@@ -974,7 +977,7 @@ pub(crate) fn rail(active: &str, user: Option<&ghost_core::models::User>, role: 
         .filter(|(key, _, _, _, _)| match *key {
             // Ghost grants the `comment` permission set to Administrator and
             // above only, so moderation is not offered below that.
-            "modules" | "themes" | "design" | "navigation" | "settings" => role.is_admin(),
+            "modules" | "tools" | "themes" | "settings" => role.is_admin(),
             "tags" => role.can_manage_tags(),
             _ => true,
         })
@@ -1016,7 +1019,7 @@ pub(crate) fn rail(active: &str, user: Option<&ghost_core::models::User>, role: 
         // ellipsed, so the tooltip carries them rather than restating what
         // the link obviously is.
         Some(slug) => format!(
-            r#"<a class="who-link" href="/ghost/settings/staff/{slug}/" title="{name} · {email}">{who_inner}</a>"#,
+            r#"<a class="who-link" href="/ghost/staffs/{slug}/" title="{name} · {email}">{who_inner}</a>"#,
             slug = esc(slug),
             name = name,
             email = email,

@@ -11,6 +11,8 @@ content/logs/
 content/images/
 content/media/
 content/files/
+# whole-site backups (Settings → Backups): they hold every password hash and API key
+content/backups/
 .DS_Store
 
 # local config (contains your local db path / secrets)

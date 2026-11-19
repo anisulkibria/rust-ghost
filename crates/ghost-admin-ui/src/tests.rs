@@ -816,12 +816,10 @@ fn settings_groups_match_ghosts_navigation() {
     // and so is Machine payments, which slots in beside Membership as
     // the other thing readers (and agents) can be charged for.
     //
-    // Design & branding and Navigation moved here out of the left rail,
-    // which is also where Ghost keeps them; Announcement is what is left
-    // of the old Site group once its Theme row — a second door onto
-    // Design — was taken away. Integrations and Code injection are
-    // Ghost's own settings pages too; they lived under Advanced here
-    // until each grew a Save button of its own.
+    // Staff, Design & branding (now Customizations), Navigation, Code
+    // injection, Announcement and Advanced's redirects and routes moved
+    // out to Tools: they are the site-building screens, worked on rather
+    // than set once.
     //
     // Meta data and Social accounts are no longer groups: they are
     // sections of General settings, beside the title and description
@@ -841,11 +839,10 @@ fn settings_groups_match_ghosts_navigation() {
     let titles: Vec<&str> = SETTINGS_GROUPS.iter().map(|g| g.title).collect();
     assert_eq!(
         titles,
-        ["General settings", "Staff", "Analytics",
-         "Design & branding", "Navigation", "Code injection", "Announcement",
-         "Membership", "Machine payments", "Email", "Newsletters", "Growth",
-         "Features", "Forms", "Languages", "SEO", "Security", "Integrations",
-         "Migration tools", "Advanced", "History", "Danger zone"]
+        ["General settings", "Analytics",
+         "Membership", "Email", "Newsletters", "Growth",
+         "Features", "Forms", "Languages", "SEO", "Security",
+         "Backups", "Danger zone"]
     );
     // every group has a working page at its slug
     assert!(SETTINGS_GROUPS.iter().all(|g| !g.slug.is_empty() && !g.items.is_empty()));
@@ -853,18 +850,15 @@ fn settings_groups_match_ghosts_navigation() {
     // empty square where every other row has a glyph
     assert!(SETTINGS_GROUPS.iter().all(|g| !icon(g.icon).is_empty()), "missing icon");
     assert!(MODULES.iter().all(|m| !icon(m.2).is_empty()), "missing icon");
-    // the two groups that keep their own top-level page are the only ones
-    // that do not live under /ghost/settings/
-    for g in SETTINGS_GROUPS {
-        let expected_top_level = matches!(g.slug, "design" | "navigation");
-        assert_eq!(
-            !g.path().starts_with("/ghost/settings/"),
-            expected_top_level,
-            "{} points at {}",
-            g.title,
-            g.path()
-        );
-    }
+    assert!(crate::tools::TOOLS.iter().all(|t| !icon(t.icon).is_empty()), "missing icon");
+    // every group lives under /ghost/settings/; what moved out is a Tool
+    assert!(SETTINGS_GROUPS.iter().all(|g| g.path().starts_with("/ghost/settings/")));
+    assert_eq!(
+        crate::tools::TOOLS.iter().map(|t| t.href).collect::<Vec<_>>(),
+        ["/ghost/customizations/", "/ghost/navigations/", "/ghost/code-injection/", "/ghost/announcement/",
+         "/ghost/redirects/", "/ghost/routes/", "/ghost/integrations/", "/ghost/machine-payments/",
+         "/ghost/migrations/", "/ghost/settings/backups/", "/ghost/staffs/", "/ghost/history/"]
+    );
 }
 
 #[test]

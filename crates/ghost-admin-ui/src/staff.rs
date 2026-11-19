@@ -13,7 +13,7 @@ pub(crate) fn staff_flash(kind: &str, message: &str) -> Response {
     let encoded: String = form_urlencoded::Serializer::new(String::new())
         .append_pair(kind, message)
         .finish();
-    Redirect::to(&format!("/ghost/settings/staff/?{encoded}")).into_response()
+    Redirect::to(&format!("/ghost/staffs/?{encoded}")).into_response()
 }
 
 /// Whether `user` may administer other staff. Ghost allows Owner and
@@ -97,7 +97,7 @@ pub(crate) async fn staff_page(State(state): State<AppState>, headers: HeaderMap
             );
             let body = if openable {
                 format!(
-                    r#"<a class="body" href="/ghost/settings/staff/{slug}/">{body}</a>"#,
+                    r#"<a class="body" href="/ghost/staffs/{slug}/">{body}</a>"#,
                     slug = esc(m.slug.as_deref().unwrap_or("")),
                     body = body,
                 )
@@ -125,8 +125,8 @@ pub(crate) async fn staff_page(State(state): State<AppState>, headers: HeaderMap
                 r#"<div class="row"><span class="ic tint-blue">{ic}</span>
 <div class="body"><span class="title">{email}</span><span class="detail">Invited as {role} · {state_label}</span></div>
 <div class="trailing">
-<form method="post" action="/ghost/settings/staff/invite/{id}/resend/"><button class="btn tonal small" type="submit">Resend</button></form>
-<form method="post" action="/ghost/settings/staff/invite/{id}/revoke/" data-confirm="Revoke invitation|The link emailed to {email} will stop working.">
+<form method="post" action="/ghost/staffs/invite/{id}/resend/"><button class="btn tonal small" type="submit">Resend</button></form>
+<form method="post" action="/ghost/staffs/invite/{id}/revoke/" data-confirm="Revoke invitation|The link emailed to {email} will stop working.">
 <button class="icon-btn danger" title="Revoke" aria-label="Revoke">{del}</button></form></div></div>"#,
                 ic = svg("mail"),
                 email = esc(&i.email),
@@ -142,7 +142,7 @@ pub(crate) async fn staff_page(State(state): State<AppState>, headers: HeaderMap
         format!(
             r#"<div class="section">Invite people</div>
 <div class="card padded rise" style="--i:2">
-<form method="post" action="/ghost/settings/staff/invite/" class="inline-form">
+<form method="post" action="/ghost/staffs/invite/" class="inline-form">
 <label class="field" style="flex:1;min-width:220px;margin:0"><input name="email" type="email" placeholder=" " required><span>Email address</span></label>
 <label class="field fixed" style="min-width:190px;margin:0"><select name="role">{roles}</select><span>Role</span>{car}</label>
 <button class="btn tonal" type="submit">{add} Send invitation</button>
@@ -178,7 +178,7 @@ pub(crate) async fn staff_page(State(state): State<AppState>, headers: HeaderMap
         format!(
             r#"<div class="section">Security settings</div>
 <div class="card rows rise" style="--i:4">
-<form method="post" action="/ghost/settings/staff/security/" id="staff-security">
+<form method="post" action="/ghost/staffs/security/" id="staff-security">
 <div class="row"><span class="ic tint-amber">{lock}</span>
 <div class="body"><span class="title">Require email 2FA codes on staff logins</span>
 <span class="detail">Require email 2FA codes to be used on all staff logins</span></div>
@@ -195,11 +195,11 @@ code by email and has five minutes to enter it. Sessions already signed in stay 
 
     page_for(
         "Staff",
-        "settings",
+        "tools",
         Some(&user),
         actor_role,
         &format!(
-            r#"<header class="page-head rise"><a class="icon-btn" style="transform:rotate(180deg)" href="/ghost/settings/" title="Back to settings">{back}</a>
+            r#"<header class="page-head rise"><a class="icon-btn" style="transform:rotate(180deg)" href="/ghost/tools/" title="Back to tools">{back}</a>
 <div><h1>Staff</h1><p class="sub">{count} {word}</p></div></header>
 {banner}
 <div class="section">Active people</div>
@@ -275,7 +275,7 @@ pub(crate) async fn staff_security_save(State(state): State<AppState>, headers: 
     };
     let kind = if saved { "ok" } else { "error" };
     let encoded: String = form_urlencoded::Serializer::new(String::new()).append_pair(kind, message).finish();
-    Redirect::to(&format!("/ghost/settings/staff/?{encoded}")).into_response()
+    Redirect::to(&format!("/ghost/staffs/?{encoded}")).into_response()
 }
 
 pub(crate) async fn staff_invite(State(state): State<AppState>, headers: HeaderMap, Form(form): Form<InviteForm>) -> Response {
@@ -681,7 +681,7 @@ pub(crate) fn profile_flash_tab(slug: &str, tab: &str, kind: &str, message: &str
     let encoded: String = form_urlencoded::Serializer::new(String::new())
         .append_pair(kind, message)
         .finish();
-    Redirect::to(&format!("/ghost/settings/staff/{slug}/?tab={tab}&{encoded}")).into_response()
+    Redirect::to(&format!("/ghost/staffs/{slug}/?tab={tab}&{encoded}")).into_response()
 }
 
 /// Ghost lets an owner/admin open any staff member's profile, and everyone
@@ -748,7 +748,7 @@ pub(crate) async fn profile_page(
 <div class="card rows rise" style="--i:5">
 <div class="row" style="align-items:flex-start"><span class="ic tint-pink">{people}</span>
 <div class="body" style="width:100%">
-<form method="post" action="/ghost/settings/staff/{slug}/role/" class="inline-form">
+<form method="post" action="/ghost/staffs/{slug}/role/" class="inline-form">
 <label class="field fixed" style="min-width:200px;margin:0"><select name="role">{role_opts}</select><span>Role</span>{car}</label>
 <button class="btn tonal small" type="submit">Change role</button>
 </form>
@@ -775,7 +775,7 @@ pub(crate) async fn profile_page(
                 format!(
                     r#"<div class="row"><span class="ic tint-amber">{flag}</span>
 <div class="body"><span class="title">{title}</span><span class="detail">{detail}</span></div>
-<div class="trailing"><form method="post" action="/ghost/settings/staff/{slug}/status/">
+<div class="trailing"><form method="post" action="/ghost/staffs/{slug}/status/">
 <input type="hidden" name="status" value="{next}">
 <button class="btn tonal small" type="submit">{label}</button></form></div></div>"#,
                     flag = svg("flag"),
@@ -794,7 +794,7 @@ pub(crate) async fn profile_page(
                 r#"<button class="btn tonal small" disabled>Delete</button>"#.to_string()
             } else {
                 format!(
-                    r#"<form method="post" action="/ghost/settings/staff/{slug}/delete/" data-confirm="Remove staff member|&#8220;{name}&#8221; will lose access to this site.">
+                    r#"<form method="post" action="/ghost/staffs/{slug}/delete/" data-confirm="Remove staff member|&#8220;{name}&#8221; will lose access to this site.">
 <button class="btn tonal small danger" type="submit">Delete</button></form>"#,
                     slug = esc(&slug),
                     name = esc(target.name.as_deref().unwrap_or("")),
@@ -815,7 +815,7 @@ pub(crate) async fn profile_page(
 <div class="card rows rise" style="--i:4">
 <div class="row" style="align-items:flex-start"><span class="ic tint-red">{lock}</span>
 <div class="body" style="width:100%">
-<form method="post" action="/ghost/settings/staff/{slug}/password/" class="grid2" style="gap:12px">
+<form method="post" action="/ghost/staffs/{slug}/password/" class="grid2" style="gap:12px">
 {current_row}
 <label class="field" style="margin:0"><input type="password" name="new_password" placeholder=" " autocomplete="new-password" minlength="10" required><span>New password · min 10 characters</span></label>
 <label class="field" style="margin:0"><input type="password" name="confirm_password" placeholder=" " autocomplete="new-password" minlength="10" required><span>Confirm new password</span></label>
@@ -850,7 +850,7 @@ pub(crate) async fn profile_page(
             .iter()
             .map(|(key, label)| {
                 format!(
-                    r#"<a class="seg{on}" href="/ghost/settings/staff/{slug}/?tab={key}">{label}</a>"#,
+                    r#"<a class="seg{on}" href="/ghost/staffs/{slug}/?tab={key}">{label}</a>"#,
                     on = if *key == tab { " on" } else { "" },
                     slug = esc(&slug),
                     key = key,
@@ -868,7 +868,7 @@ pub(crate) async fn profile_page(
     // --- Profile: Ghost's field order (name, slug, email, location, bio) --
     let profile_body = if tab == "profile" {
         format!(
-            r#"<form method="post" action="/ghost/settings/staff/{slug}/" id="profile-form">
+            r#"<form method="post" action="/ghost/staffs/{slug}/" id="profile-form">
 <div class="section">Details</div>
 <div class="card rows rise" style="--i:2">
 <div class="row" style="align-items:flex-start"><span class="ic tint-pink">{person}</span>
@@ -931,7 +931,7 @@ pub(crate) async fn profile_page(
             )
         };
         format!(
-            r#"<form method="post" action="/ghost/settings/staff/{slug}/social/" id="social-form">
+            r#"<form method="post" action="/ghost/staffs/{slug}/social/" id="social-form">
 <div class="section">Social links</div>
 <div class="card rows rise" style="--i:2">
 <div class="row" style="align-items:flex-start"><span class="ic tint-blue">{link}</span>
@@ -1067,7 +1067,7 @@ pub(crate) async fn profile_page(
             String::new()
         };
         format!(
-            r#"<form method="post" action="/ghost/settings/staff/{slug}/notifications/" id="notify-form">{engagement}{growth}</form>"#,
+            r#"<form method="post" action="/ghost/staffs/{slug}/notifications/" id="notify-form">{engagement}{growth}</form>"#,
             slug = esc(&slug),
             engagement = engagement,
             growth = growth,
@@ -1078,11 +1078,11 @@ pub(crate) async fn profile_page(
 
     page_for(
         "Profile",
-        "settings",
+        "tools",
         Some(&user),
         viewer_role,
         &format!(
-            r#"<header class="page-head rise"><a class="icon-btn" style="transform:rotate(180deg)" href="/ghost/settings/staff/" title="Back to staff">{back}</a>
+            r#"<header class="page-head rise"><a class="icon-btn" style="transform:rotate(180deg)" href="/ghost/staffs/" title="Back to staff">{back}</a>
 <div><h1>{name}</h1><p class="sub">{role_label}</p></div>
 <div class="actions"><button class="btn" type="submit" form="{save_form}">{check} Save</button></div></header>
 {banner}

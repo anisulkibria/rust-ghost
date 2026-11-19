@@ -151,7 +151,8 @@ pub struct RouterTree {
     preview_re: Regex,
 }
 
-fn route_name(path: &str) -> String {
+/// The name a collection or route is known by (`/blog/` → `blog`, `/` → `index`).
+pub fn route_name(path: &str) -> String {
     let n = path.trim_matches('/');
     if n.is_empty() {
         "index".into()

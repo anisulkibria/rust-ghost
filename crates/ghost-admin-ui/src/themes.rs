@@ -106,7 +106,7 @@ pub(crate) async fn themes_page(State(state): State<AppState>, headers: HeaderMa
             // The active theme's "edit" is its settings, which live on the
             // Design page — there is nowhere else to customise it from.
             let customise = if t.active {
-                r#"<a class="btn tonal small" href="/ghost/design/">Customize</a>"#.to_string()
+                r#"<a class="btn tonal small" href="/ghost/customizations/">Customize</a>"#.to_string()
             } else {
                 String::new()
             };

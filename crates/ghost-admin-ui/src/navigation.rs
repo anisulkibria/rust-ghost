@@ -511,7 +511,7 @@ pub(crate) fn navigation_flash(kind: &str, message: &str) -> Response {
     let encoded: String = form_urlencoded::Serializer::new(String::new())
         .append_pair(kind, message)
         .finish();
-    Redirect::to(&format!("/ghost/navigation/?{encoded}")).into_response()
+    Redirect::to(&format!("/ghost/navigations/?{encoded}")).into_response()
 }
 
 fn row_buttons(kind: &str, i: usize) -> String {
@@ -694,12 +694,12 @@ pub(crate) fn navigation_form_html(form: &NavForm, locales: &Locales, banner: &s
     };
 
     format!(
-        r#"<header class="page-head rise"><a class="icon-btn" style="transform:rotate(180deg)" href="/ghost/settings/" title="Back to settings">{back}</a>
-<div><h1>Navigation</h1><p class="sub">Menus shown on your site</p></div>
+        r#"<header class="page-head rise"><a class="icon-btn" style="transform:rotate(180deg)" href="/ghost/tools/" title="Back to tools">{back}</a>
+<div><h1>Navigations</h1><p class="sub">Menus shown on your site</p></div>
 <div class="actions"><button class="btn" type="submit" form="nav-form" name="action" value="save">{check} Save</button></div></header>
 {banner}
 {intro}
-<form method="post" action="/ghost/navigation/" id="nav-form">
+<form method="post" action="/ghost/navigations/" id="nav-form">
 <button type="submit" name="action" value="save" hidden></button>
 {body}
 </form>"#,
@@ -729,8 +729,8 @@ pub(crate) async fn navigation_page(State(state): State<AppState>, headers: Head
     let locales = crate::settings::site_locales(&state);
     let form = stored_form(&state, &locales);
     page_for_role(actor_role,
-        "Navigation",
-        "settings",
+        "Navigations",
+        "tools",
         Some(&user),
         &navigation_form_html(&form, &locales, &banner),
         true,
@@ -748,8 +748,8 @@ pub(crate) async fn navigation_save(State(state): State<AppState>, headers: Head
     let action = form.action.clone();
     let rerender = |form: &NavForm, banner: &str| {
         page_for_role(actor_role,
-            "Navigation",
-            "settings",
+            "Navigations",
+            "tools",
             Some(&user),
             &navigation_form_html(form, &locales, banner),
             true,

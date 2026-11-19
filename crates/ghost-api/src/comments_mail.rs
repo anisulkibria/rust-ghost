@@ -262,8 +262,8 @@ pub async fn notify_report(state: &AppState, comment: &repo::Comment, reporter: 
 fn staff_notifications_url(state: &AppState, slug: Option<&str>) -> String {
     let base = state.admin_url();
     match slug {
-        Some(slug) => format!("{base}/settings/staff/{slug}/"),
-        None => format!("{base}/settings/staff/"),
+        Some(slug) => format!("{base}/staffs/{slug}/"),
+        None => format!("{base}/staffs/"),
     }
 }
 

@@ -182,9 +182,93 @@ pub fn parse_routes_yaml(yaml: &str) -> Result<RouteSettings> {
     Ok(settings)
 }
 
+/// Write settings back out as routes.yaml, in Ghost's shape: each section a
+/// map keyed by path. One `template` is written as `template:`, several as
+/// `templates:`. A route with a filter is a channel, and says so with
+/// `controller: channel` so Ghost reads the file the same way this does.
+pub fn to_yaml(settings: &RouteSettings) -> String {
+    use serde_yaml::{Mapping, Value};
+    fn put(m: &mut Mapping, key: &str, value: Option<Value>) {
+        if let Some(v) = value {
+            m.insert(key.into(), v);
+        }
+    }
+    fn templates(m: &mut Mapping, list: &[String]) {
+        match list {
+            [] => {}
+            [one] => put(m, "template", Some(one.clone().into())),
+            many => put(m, "templates", Some(many.iter().cloned().map(Value::from).collect::<Vec<_>>().into())),
+        }
+    }
+    let section = |m: Mapping| if m.is_empty() { Value::Null } else { Value::Mapping(m) };
+
+    let mut routes = Mapping::new();
+    for r in &settings.routes {
+        let mut m = Mapping::new();
+        if r.filter.is_some() {
+            put(&mut m, "controller", Some("channel".into()));
+        }
+        templates(&mut m, &r.templates);
+        put(&mut m, "filter", r.filter.clone().map(Value::from));
+        put(&mut m, "order", r.order.clone().map(Value::from));
+        put(&mut m, "limit", r.limit.clone());
+        put(&mut m, "data", r.data.clone());
+        put(&mut m, "content_type", r.content_type.clone().map(Value::from));
+        routes.insert(r.path.clone().into(), section(m));
+    }
+    let mut collections = Mapping::new();
+    for c in &settings.collections {
+        let mut m = Mapping::new();
+        put(&mut m, "permalink", Some(c.permalink.clone().into()));
+        templates(&mut m, &c.templates);
+        put(&mut m, "filter", c.filter.clone().map(Value::from));
+        put(&mut m, "order", c.order.clone().map(Value::from));
+        put(&mut m, "limit", c.limit.clone());
+        put(&mut m, "rss", c.rss.map(Value::from));
+        put(&mut m, "data", c.data.clone());
+        collections.insert(c.path.clone().into(), Value::Mapping(m));
+    }
+    let mut taxonomies = Mapping::new();
+    put(&mut taxonomies, "tag", settings.taxonomies.tag.clone().map(Value::from));
+    put(&mut taxonomies, "author", settings.taxonomies.author.clone().map(Value::from));
+
+    let mut doc = Mapping::new();
+    doc.insert("routes".into(), section(routes));
+    doc.insert("collections".into(), section(collections));
+    doc.insert("taxonomies".into(), section(taxonomies));
+    serde_yaml::to_string(&doc).unwrap_or_default()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn written_settings_read_back_the_same() {
+        let yaml = r#"
+routes:
+  /about/team/:
+    template: team
+  /podcast/:
+    controller: channel
+    filter: tag:podcast
+    templates: [podcast, index]
+collections:
+  /blog/:
+    permalink: /blog/{slug}/
+    filter: tag:blog
+    rss: false
+  /:
+    permalink: /{slug}/
+    template: index
+taxonomies:
+  tag: /topic/{slug}/
+"#;
+        let a = parse_routes_yaml(yaml).unwrap();
+        let b = parse_routes_yaml(&to_yaml(&a)).unwrap();
+        assert_eq!(serde_json::to_value(&a).unwrap(), serde_json::to_value(&b).unwrap());
+        assert!(b.taxonomies.author.is_none());
+    }
 
     #[test]
     fn parses_default() {

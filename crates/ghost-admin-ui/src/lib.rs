@@ -73,6 +73,8 @@ mod tags;
 use tags::*;
 mod themes;
 use themes::*;
+pub(crate) mod tools;
+use tools::*;
 
 /// Upload ceiling for theme zips and content imports. Ghost's own limit is
 /// also in this range; it exists to bound memory, since multipart bodies are
@@ -86,6 +88,9 @@ const ONE_MB_BYTES: usize = 1024 * 1024;
 /// the body is read before anything knows which. The family's real limit is
 /// then applied per file by `ghost_api::images::store`.
 const MAX_MEDIA_BYTES: usize = 200 * 1024 * 1024;
+/// Body limit for uploading a backup taken elsewhere: it holds the whole
+/// media library and every theme, not one file.
+const MAX_BACKUP_BYTES: usize = 2 * 1024 * 1024 * 1024;
 
 tokio::task_local! {
     static ADMIN_SETTINGS: Arc<ghost_db::SettingsCache>;
@@ -218,7 +223,7 @@ pub fn admin_ui_router(state: AppState) -> Router<AppState> {
         .route("/social/read/", post(social_mark_read))
         // Machine payments was a module card before it moved in with the other
         // payment settings; the old path keeps any bookmark working.
-        .route("/machine-payments/", get(|| async { Redirect::to("/ghost/settings/machine-payments/") }))
+        .route("/machine-payments/", get(machine_payments_page))
         .route("/settings/checkout/", get(checkout_design_page))
         .route("/members/", get(members_page).post(member_create))
         .route("/members/bulk/", post(members_bulk))
@@ -369,9 +374,31 @@ pub fn admin_ui_router(state: AppState) -> Router<AppState> {
         .route("/themes/{name}/edit/delete/", post(theme_file_delete))
         .route("/themes/{name}/activate/", post(theme_activate))
         .route("/themes/{name}/delete/", post(theme_delete))
-        .route("/design/", get(design_page).post(design_save))
-        .route("/design/preview/", post(design_preview))
-        .route("/design/reset/", post(design_reset))
+        // Tools: the site-building screens, each at a top-level URL. Their
+        // old homes (mostly under Settings) redirect, so bookmarks still land.
+        .route("/tools/", get(tools_page))
+        .route("/customizations/", get(design_page).post(design_save))
+        .route("/customizations/preview/", post(design_preview))
+        .route("/customizations/reset/", post(design_reset))
+        .route("/design/", get(|| async { Redirect::permanent("/ghost/customizations/") }))
+        .route("/navigations/", get(navigation_page).post(navigation_save))
+        .route("/navigation/", get(|| async { Redirect::permanent("/ghost/navigations/") }))
+        .route("/code-injection/", get(code_injection_page).post(code_injection_save))
+        .route("/settings/code-injection/", get(|| async { Redirect::permanent("/ghost/code-injection/") }))
+        .route("/announcement/", get(site_page).post(site_save))
+        .route("/settings/site/", get(|| async { Redirect::permanent("/ghost/announcement/") }))
+        .route("/redirects/", get(redirects_page).post(redirects_save))
+        .route("/redirects/download/", get(redirects_download))
+        .route("/redirects/upload/", post(redirects_upload).layer(axum::extract::DefaultBodyLimit::max(ONE_MB_BYTES)))
+        .route("/routes/", get(routes_page).post(routes_save))
+        .route("/routes/download/", get(routes_download))
+        .route("/routes/upload/", post(routes_upload).layer(axum::extract::DefaultBodyLimit::max(ONE_MB_BYTES)))
+        .route("/settings/advanced/", get(|| async { Redirect::permanent("/ghost/tools/") }))
+        .route("/settings/staff/", get(|| async { Redirect::permanent("/ghost/staffs/") }))
+        .route(
+            "/settings/staff/{slug}/",
+            get(|Path(slug): Path<String>| async move { Redirect::permanent(&format!("/ghost/staffs/{slug}/")) }),
+        )
         .route("/settings/", get(settings_page))
         .route("/settings/general/", get(general_page).post(general_save))
         // Meta data and Social accounts are sections of General settings now.
@@ -381,9 +408,8 @@ pub fn admin_ui_router(state: AppState) -> Router<AppState> {
         .route("/settings/social/", get(|| async { Redirect::to("/ghost/settings/general/") }))
         .route("/settings/analytics/", get(analytics_settings_page).post(analytics_settings_save))
         .route("/settings/features/", get(features_page).post(features_save))
-        .route("/settings/site/", get(site_page).post(site_save))
         .route("/settings/membership/", get(membership_page).post(membership_save))
-        .route("/settings/machine-payments/", get(machine_payments_page))
+        .route("/settings/machine-payments/", get(|| async { Redirect::permanent("/ghost/machine-payments/") }))
         .route("/settings/membership/stripe/connect/", post(stripe_connect))
         .route("/settings/membership/stripe/oauth/start/", post(stripe_oauth_start))
         .route("/settings/membership/stripe/oauth/finish/", post(stripe_oauth_finish))
@@ -414,22 +440,40 @@ pub fn admin_ui_router(state: AppState) -> Router<AppState> {
         .route("/settings/growth/offers/new/", post(offer_new))
         .route("/settings/growth/offers/{id}/", get(offer_edit_page).post(offer_save))
         .route("/settings/growth/offers/{id}/status/", post(offer_set_status))
-        .route("/settings/history/", get(history_page))
+        .route("/history/", get(history_page))
+        .route("/settings/history/", get(|| async { Redirect::permanent("/ghost/history/") }))
         .route("/settings/danger/", get(danger_page))
         .route("/settings/danger/content/", post(danger_delete_content))
         .route("/settings/danger/site/", post(danger_delete_site))
         .route("/settings/danger/auth/", post(danger_reset_auth))
         .route("/settings/danger/gifts/", post(danger_reset_gifts))
         .route("/settings/about/", get(about_page))
-        .route("/settings/code-injection/", get(code_injection_page).post(code_injection_save))
-        .route("/settings/advanced/", get(advanced_page))
         // Migration tools. Import and export used to live under Advanced;
         // Ghost gives them a screen of their own, and so does this.
-        .route("/settings/migration/", get(migration_page))
+        // Importing is Tools → Migrations; exporting and backups are
+        // Settings → Backups. The old Migration tools URLs land on the right one.
+        .route("/migrations/", get(migrations_page))
+        .route(
+            "/migrations/import/",
+            post(migration_import).layer(axum::extract::DefaultBodyLimit::max(MAX_UPLOAD_BYTES)),
+        )
+        .route("/settings/migration/", get(|| async { Redirect::permanent("/ghost/migrations/") }))
         .route(
             "/settings/migration/import/",
             post(migration_import).layer(axum::extract::DefaultBodyLimit::max(MAX_UPLOAD_BYTES)),
         )
+        .route("/settings/backups/", get(backups_page))
+        .route("/settings/backups/schedule/", post(backups_schedule_save))
+        .route("/settings/backups/create/", post(backups_create))
+        .route("/settings/backups/restore/", post(backups_restore))
+        .route("/settings/backups/delete/", post(backups_delete))
+        .route("/settings/backups/download/{name}", get(backups_download))
+        // a backup carries every image and theme, so it is allowed to be big
+        .route("/settings/backups/upload/", post(backups_upload).layer(axum::extract::DefaultBodyLimit::max(MAX_BACKUP_BYTES)))
+        .route("/settings/backups/export/", get(migration_export_all))
+        .route("/settings/backups/export/content/", get(migration_export_content))
+        .route("/settings/backups/export/analytics/", get(migration_export_analytics))
+        .route("/settings/backups/export/themes/", get(migration_export_themes))
         .route("/settings/migration/export/", get(migration_export_all))
         .route("/settings/migration/export/content/", get(migration_export_content))
         .route("/settings/migration/export/analytics/", get(migration_export_analytics))
@@ -442,61 +486,66 @@ pub fn admin_ui_router(state: AppState) -> Router<AppState> {
             "/settings/advanced/routes/",
             get(routes_download).post(routes_upload).layer(axum::extract::DefaultBodyLimit::max(ONE_MB_BYTES)),
         )
-        .route("/settings/staff/", get(staff_page))
-        .route("/settings/staff/security/", post(staff_security_save))
-        .route("/settings/staff/invite/", post(staff_invite))
-        .route("/settings/staff/invite/{id}/resend/", post(staff_invite_resend))
-        .route("/settings/staff/invite/{id}/revoke/", post(staff_invite_revoke))
-        .route("/settings/staff/{slug}/", get(profile_page).post(profile_save))
-        .route("/settings/staff/{slug}/social/", post(profile_social_save))
-        .route("/settings/staff/{slug}/notifications/", post(profile_notifications))
-        .route("/settings/staff/{slug}/password/", post(profile_password))
-        .route("/settings/staff/{slug}/role/", post(staff_set_role))
-        .route("/settings/staff/{slug}/status/", post(staff_set_status))
-        .route("/settings/staff/{slug}/delete/", post(staff_delete))
+        .route("/staffs/", get(staff_page))
+        .route("/staffs/security/", post(staff_security_save))
+        .route("/staffs/invite/", post(staff_invite))
+        .route("/staffs/invite/{id}/resend/", post(staff_invite_resend))
+        .route("/staffs/invite/{id}/revoke/", post(staff_invite_revoke))
+        .route("/staffs/{slug}/", get(profile_page).post(profile_save))
+        .route("/staffs/{slug}/social/", post(profile_social_save))
+        .route("/staffs/{slug}/notifications/", post(profile_notifications))
+        .route("/staffs/{slug}/password/", post(profile_password))
+        .route("/staffs/{slug}/role/", post(staff_set_role))
+        .route("/staffs/{slug}/status/", post(staff_set_status))
+        .route("/staffs/{slug}/delete/", post(staff_delete))
         // redeeming an invitation is the one staff route a signed-out person
         // must reach
         .route("/invite/{token}/", get(invite_accept_page).post(invite_accept_submit))
-        .route("/settings/integrations/", get(integrations_page).post(integration_create))
+        .route("/integrations/", get(integrations_page).post(integration_create))
         // the built-in apps. Static segments, so they cannot be shadowed by a
         // custom integration's id — which is why those live under /custom/.
-        .route("/settings/integrations/zapier/", get(zapier_page))
-        .route("/settings/integrations/slack/", get(slack_page).post(slack_save))
-        .route("/settings/integrations/slack/test/", post(slack_test))
-        .route("/settings/integrations/unsplash/", get(unsplash_page).post(unsplash_save))
-        .route("/settings/integrations/firstpromoter/", get(firstpromoter_page).post(firstpromoter_save))
-        .route("/settings/integrations/pintura/", get(pintura_page).post(pintura_save))
-        .route("/settings/integrations/transistor/", get(transistor_page).post(transistor_save))
+        .route("/integrations/zapier/", get(zapier_page))
+        .route("/integrations/slack/", get(slack_page).post(slack_save))
+        .route("/integrations/slack/test/", post(slack_test))
+        .route("/integrations/unsplash/", get(unsplash_page).post(unsplash_save))
+        .route("/integrations/firstpromoter/", get(firstpromoter_page).post(firstpromoter_save))
+        .route("/integrations/pintura/", get(pintura_page).post(pintura_save))
+        .route("/integrations/transistor/", get(transistor_page).post(transistor_save))
         .route(
-            "/settings/integrations/custom/{id}/",
+            "/integrations/custom/{id}/",
             get(custom_integration_page).post(custom_integration_save),
         )
         .route(
-            "/settings/integrations/custom/{id}/webhooks/new/",
+            "/integrations/custom/{id}/webhooks/new/",
             post(webhook_new),
         )
         .route(
-            "/settings/integrations/custom/{id}/webhooks/{wid}/delete/",
+            "/integrations/custom/{id}/webhooks/{wid}/delete/",
             post(webhook_delete),
         )
         .route(
-            "/settings/integrations/custom/{id}/delete/",
+            "/integrations/custom/{id}/delete/",
             post(custom_integration_delete),
         )
         // bookmarks and in-page links from before Integrations became a
         // settings page of its own still resolve, wherever they pointed
-        .route("/integrations/", get(integrations_redirect))
+        .route("/settings/integrations/", get(|| async { Redirect::permanent("/ghost/integrations/") }))
+        .route(
+            "/settings/integrations/{*rest}",
+            get(|Path(rest): Path<String>| async move {
+                Redirect::permanent(&format!("/ghost/integrations/{rest}"))
+            }),
+        )
         .route(
             "/settings/advanced/integrations/",
-            get(|| async { Redirect::permanent("/ghost/settings/integrations/") }),
+            get(|| async { Redirect::permanent("/ghost/integrations/") }),
         )
         .route(
             "/settings/advanced/integrations/{*rest}",
             get(|Path(rest): Path<String>| async move {
-                Redirect::permanent(&format!("/ghost/settings/integrations/{rest}"))
+                Redirect::permanent(&format!("/ghost/integrations/{rest}"))
             }),
         )
-        .route("/navigation/", get(navigation_page).post(navigation_save))
         // the editor's vendored runtime (React + Koenig), served from the
         // binary and cached hard behind the version in the path
         .route("/assets/{version}/{file}", get(admin_asset))

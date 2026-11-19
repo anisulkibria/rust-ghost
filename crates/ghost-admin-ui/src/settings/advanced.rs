@@ -4,54 +4,6 @@ use super::*;
 
 // --- advanced: integrations (existing page), import/export, code injection, labs ---
 
-pub(crate) async fn advanced_page(State(state): State<AppState>, headers: HeaderMap, Query(q): Query<HashMap<String, String>>) -> Response {
-    let (user, actor_role) = match require_role(&state, &headers, Role::Administrator).await {
-        Ok(a) => (a.user, a.role),
-        Err(r) => return r,
-    };
-
-    // Beta and private feature flags used to sit here; they live on the
-    // Features page now, where the rest of what a publisher can switch on and
-    // off already is. What is left on this page is plumbing — import, export,
-    // redirects, routes — and none of it posts a form, so the header carries
-    // no Save.
-    let group = SETTINGS_GROUPS.iter().find(|g| g.slug == "advanced").unwrap();
-    page_for_role(actor_role,
-        "Advanced",
-        "settings",
-        Some(&user),
-        &format!(
-            r#"{head}{banner}
-<div class="section">Redirects &amp; routes</div>
-<div class="card rows rise" style="--i:2">
-<div class="row" style="align-items:flex-start"><span class="ic tint-red">{redirects_ic}</span>
-<div class="body" style="width:100%"><span class="title" style="display:block;margin-bottom:8px">Redirects</span>
-<div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap">
-<a class="btn tonal small" href="/ghost/settings/advanced/redirects/">Download</a>
-<form method="post" action="/ghost/settings/advanced/redirects/" enctype="multipart/form-data" style="display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin:0">
-<input type="file" name="file" accept=".yaml,.yml,.json" required class="filefield">
-<button class="btn tonal small" type="submit">Upload redirects</button></form></div>
-<p class="muted" style="margin:10px 0 0">Ghost-format redirects, YAML or JSON — <code>301: /old/ -> /new/</code>. The file is validated before anything takes effect.</p></div></div>
-<div class="row" style="align-items:flex-start"><span class="ic tint-red">{routes_ic}</span>
-<div class="body" style="width:100%"><span class="title" style="display:block;margin-bottom:8px">Routes</span>
-<div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap">
-<a class="btn tonal small" href="/ghost/settings/advanced/routes/">Download</a>
-<form method="post" action="/ghost/settings/advanced/routes/" enctype="multipart/form-data" style="display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin:0">
-<input type="file" name="file" accept=".yaml,.yml" required class="filefield">
-<button class="btn tonal small" type="submit">Upload routes</button></form></div>
-<p class="muted" style="margin:10px 0 0">routes.yaml defines the site's URL structure — collections, channels and custom templates. Uploading rebuilds routing and the active theme immediately.</p></div></div>
-</div>
-<p class="muted" style="margin:14px 2px 0">Looking for something else? Beta and private features are in <a href="/ghost/settings/features/">Settings → Features</a>, and importing and exporting moved to <a href="/ghost/settings/migration/">Settings → Migration tools</a>.</p>"#,
-            head = group_head(group, None),
-            banner = flash_banner(&q),
-            redirects_ic = svg("link"),
-            routes_ic = svg("layout"),
-        ),
-        true,
-    )
-    .into_response()
-}
-
 // --- migration tools: import and export ------------------------------------
 
 /// The platforms a publisher most often arrives from, and what to feed the
@@ -70,7 +22,9 @@ pub(crate) const MIGRATION_SOURCES: &[(&str, &str)] = &[
     ("Squarespace", "Settings → Import & Export → Export, which produces a WordPress-format file."),
 ];
 
-pub(crate) async fn migration_page(
+/// Tools → Migrations: bringing content in. Taking it out — exports and
+/// backups — is Settings → Backups.
+pub(crate) async fn migrations_page(
     State(state): State<AppState>,
     headers: HeaderMap,
     Query(q): Query<HashMap<String, String>>,
@@ -79,37 +33,6 @@ pub(crate) async fn migration_page(
         Ok(a) => (a.user, a.role),
         Err(r) => return r,
     };
-    let group = SETTINGS_GROUPS.iter().find(|g| g.slug == "migration").unwrap();
-
-    // What the archive would actually contain, so the checkbox list can say
-    // how much there is rather than only what there is.
-    let member_count: i64 =
-        sqlx::query_scalar("SELECT COUNT(*) FROM members").fetch_one(&state.db).await.unwrap_or(0);
-    let post_count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM posts WHERE type = 'post'")
-        .fetch_one(&state.db)
-        .await
-        .unwrap_or(0);
-    let page_count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM posts WHERE type = 'page'")
-        .fetch_one(&state.db)
-        .await
-        .unwrap_or(0);
-    let theme_count = ghost_api::themes::list(&state).len();
-
-    let components: String = EXPORT_COMPONENTS
-        .iter()
-        .map(|(key, label, detail, default_on)| {
-            format!(
-                r#"<label class="fchip exp"><input type="checkbox" name="{key}" value="1"{on}><span class="ck">{check}</span>
-<span class="expl"><b>{label}</b><span>{detail}</span></span></label>"#,
-                key = esc(key),
-                on = if *default_on { " checked" } else { "" },
-                check = svg("check"),
-                label = esc(label),
-                detail = esc(detail),
-            )
-        })
-        .collect();
-
     let sources: String = MIGRATION_SOURCES
         .iter()
         .map(|(platform, how)| {
@@ -125,27 +48,22 @@ pub(crate) async fn migration_page(
 
     page_for_role(
         actor_role,
-        "Migration tools",
-        "settings",
+        "Migrations",
+        "tools",
         Some(&user),
         &format!(
             r#"{head}{banner}
-<div class="mtabs">
-<input type="radio" name="mtab" id="mtab-import" checked>
-<input type="radio" name="mtab" id="mtab-export">
-<div class="mtab-bar"><label for="mtab-import">Import</label><label for="mtab-export">Export</label></div>
-
-<div class="mtab-panel" data-tab="import">
 <div class="section">Universal import</div>
 <div class="card padded rise" style="--i:1">
-<form method="post" action="/ghost/settings/migration/import/" enctype="multipart/form-data" class="inline-form" style="align-items:center">
+<form method="post" action="/ghost/migrations/import/" enctype="multipart/form-data" class="inline-form" style="align-items:center">
 <input type="file" name="file" accept=".json,.zip,application/json,application/zip" required class="filefield">
 <button class="btn tonal" type="submit">{upload} Import</button>
 </form>
 <p class="muted" style="margin:12px 0 0">A Ghost export — either the <code>.json</code> file or a <code>.zip</code> holding one.
 A zip's <code>content/images</code> and <code>content/files</code> are restored alongside the content, so posts keep their pictures.</p>
 <p class="muted" style="margin:8px 0 0">Posts, pages and tags are added; Markdown is re-rendered on the way in. Nothing already on this
-site is replaced or removed, so importing the same file twice gives you two copies rather than one updated one.</p>
+site is replaced or removed, so importing the same file twice gives you two copies rather than one updated one.
+To put the whole site back as it was instead, restore a backup in <a href="/ghost/settings/backups/">Settings → Backups</a>.</p>
 </div>
 <div class="section">Members</div>
 <div class="card rows rise" style="--i:2">
@@ -156,53 +74,12 @@ site is replaced or removed, so importing the same file twice gives you two copi
 <div class="section">Coming from another platform</div>
 <div class="card rows rise" style="--i:3">{sources}</div>
 <p class="muted" style="margin:10px 2px 0">Ghost(Pro) runs a hosted migration service for these. This is a self-hosted site, so
-the route is the same but manual: export from the old platform, then feed the file to the importer above.</p>
-</div>
-
-<div class="mtab-panel" data-tab="export">
-<div class="section">Export all data</div>
-<form class="card padded rise" style="--i:1" method="get" action="/ghost/settings/migration/export/">
-<p class="muted" style="margin:0 0 14px">Pick what to put in the archive. This is the one to take before an upgrade, or when moving the site somewhere else.</p>
-<div class="expgrid">{components}</div>
-<div style="margin-top:16px"><button class="btn" type="submit">{download} Download archive</button></div>
-</form>
-<div class="section">Individual files</div>
-<div class="card rows rise" style="--i:2">
-<div class="row"><span class="ic tint-blue">{notes}</span>
-<div class="body"><span class="title">Content &amp; settings</span><span class="detail">{posts} posts and {pages} pages, with their tags · JSON</span></div>
-<div class="trailing"><a class="btn tonal small" href="/ghost/settings/migration/export/content/">Download</a></div></div>
-<div class="row"><span class="ic tint-blue">{people}</span>
-<div class="body"><span class="title">Members</span><span class="detail">{members} members with labels, tiers and Stripe ids · CSV</span></div>
-<div class="trailing"><a class="btn tonal small" href="/ghost/members/export/">Download</a></div></div>
-<div class="row"><span class="ic tint-blue">{chart}</span>
-<div class="body"><span class="title">Post analytics</span><span class="detail">Sends, opens, views and feedback, one row per post · CSV</span></div>
-<div class="trailing"><a class="btn tonal small" href="/ghost/settings/migration/export/analytics/">Download</a></div></div>
-<div class="row"><span class="ic tint-blue">{themes_ic}</span>
-<div class="body"><span class="title">Themes</span><span class="detail">{themes} installed, including anything edited in the browser · ZIP</span></div>
-<div class="trailing"><a class="btn tonal small" href="/ghost/settings/migration/export/themes/">Download</a></div></div>
-<div class="row"><span class="ic tint-blue">{link}</span>
-<div class="body"><span class="title">Redirects &amp; routes</span><span class="detail">The two YAML files, downloadable one at a time</span></div>
-<div class="trailing"><a class="btn tonal small" href="/ghost/settings/advanced/">Go to Advanced</a></div></div>
-</div>
-<p class="muted" style="margin:10px 2px 0">An export is a copy, not a backup of the database itself — it holds your content, members and
-files, not sessions, API keys or password hashes.</p>
-</div>
-</div>"#,
-            head = group_head(group, None),
+the route is the same but manual: export from the old platform, then feed the file to the importer above.</p>"#,
+            head = crate::tools::tool_head("migrations", None, ""),
             banner = flash_banner(&q),
             upload = svg("upload"),
-            download = svg("import"),
             people = svg("person"),
-            notes = svg("notes"),
-            chart = svg("chart"),
-            themes_ic = svg("themes"),
-            link = svg("link"),
             sources = sources,
-            components = components,
-            posts = post_count,
-            pages = page_count,
-            members = member_count,
-            themes = theme_count,
         ),
         true,
     )
@@ -217,14 +94,13 @@ pub(crate) async fn code_injection_page(State(state): State<AppState>, headers: 
         Err(r) => return r,
     };
     let s = |k: &str| esc(&state.settings.get_str(k).unwrap_or_default());
-    let group = SETTINGS_GROUPS.iter().find(|g| g.slug == "code-injection").unwrap();
     page_for_role(actor_role,
         "Code injection",
-        "settings",
+        "tools",
         Some(&user),
         &format!(
             r#"{head}{banner}
-<form method="post" action="/ghost/settings/code-injection/" id="codeinjection-form">
+<form method="post" action="/ghost/code-injection/" id="codeinjection-form">
 <div class="section">Site head</div>
 <div class="card rows rise" style="--i:1">
 <div class="row" style="align-items:flex-start"><span class="ic tint-purple">{code}</span>
@@ -238,7 +114,7 @@ pub(crate) async fn code_injection_page(State(state): State<AppState>, headers: 
 </form>
 <p class="muted" style="margin:10px 2px 0">Styles, scripts or analytics for the whole site — pasted as-is, so tags and quotes
 stay exactly as written.</p>"#,
-            head = group_head(group, Some("codeinjection-form")),
+            head = crate::tools::tool_head("code-injection", Some("codeinjection-form"), ""),
             banner = flash_banner(&q),
             code = svg("code"),
             cih = s("codeinjection_head"),
@@ -259,9 +135,9 @@ pub(crate) async fn code_injection_save(State(state): State<AppState>, headers: 
         ok &= state.settings.set(&state.db, key, &serde_json::json!(value)).await.is_ok();
     }
     if ok {
-        settings_saved(&state, "code-injection", "Code injection saved.")
+        crate::tools::tool_saved(&state, "/ghost/code-injection/", "Code injection saved.")
     } else {
-        settings_flash("code-injection", "error", "Saving failed — check the logs.")
+        crate::tools::tool_flash("/ghost/code-injection/", "error", "Saving failed — check the logs.")
     }
 }
 
@@ -511,7 +387,7 @@ pub(crate) async fn migration_export_analytics(State(state): State<AppState>, he
     }
     match build_post_analytics_csv(&state).await {
         Some(body) => csv_download(&format!("posts.analytics.{}.csv", export_date_stamp()), body),
-        None => settings_flash("migration", "error", "Could not build the analytics export."),
+        None => settings_flash("backups", "error", "Could not build the analytics export."),
     }
 }
 
@@ -808,13 +684,13 @@ pub(crate) async fn migration_export_all(
     }
     let want = |key: &str| q.get(key).map(|v| v == "1").unwrap_or(false);
     if !EXPORT_COMPONENTS.iter().any(|(k, _, _, _)| want(k)) {
-        return settings_flash("migration", "error", "Pick at least one thing to export.");
+        return settings_flash("backups", "error", "Pick at least one thing to export.");
     }
     match build_export_archive(&state, &want).await {
         Some(body) => {
             zip_download(&format!("ghost-backup.{}.zip", export_date_stamp()), body)
         }
-        None => settings_flash("migration", "error", "Could not build the archive."),
+        None => settings_flash("backups", "error", "Could not build the archive."),
     }
 }
 
@@ -825,7 +701,7 @@ pub(crate) async fn migration_export_themes(State(state): State<AppState>, heade
     let only_themes = |key: &str| key == "themes";
     match build_export_archive(&state, &only_themes).await {
         Some(body) => zip_download(&format!("themes.{}.zip", export_date_stamp()), body),
-        None => settings_flash("migration", "error", "Could not build the themes archive."),
+        None => settings_flash("backups", "error", "Could not build the themes archive."),
     }
 }
 
@@ -975,10 +851,10 @@ pub(crate) async fn migration_import(
         let filename = field.file_name().unwrap_or_default().to_ascii_lowercase();
         let data = match field.bytes().await {
             Ok(d) => d.to_vec(),
-            Err(e) => return flash(&headers, "migration", "error", &format!("Upload failed: {e}")),
+            Err(e) => return crate::tools::tool_flash_or_json(&headers, "/ghost/migrations/", "error", &format!("Upload failed: {e}")),
         };
         if data.is_empty() {
-            return flash(&headers, "migration", "error", "That file is empty.");
+            return crate::tools::tool_flash_or_json(&headers, "/ghost/migrations/", "error", "That file is empty.");
         }
 
         // A zip starts "PK\x03\x04". Sniffing the bytes rather than trusting
@@ -996,22 +872,22 @@ pub(crate) async fn migration_import(
                     match contents.export {
                         Some(bytes) => (bytes, note),
                         None if contents.media_restored > 0 => {
-                            return flash(&headers, 
-                                "migration",
+                            return crate::tools::tool_flash_or_json(&headers,
+                                "/ghost/migrations/",
                                 "ok",
                                 &format!("No export file in that archive, but{note}"),
                             )
                         }
                         None => {
-                            return flash(&headers, 
-                                "migration",
+                            return crate::tools::tool_flash_or_json(&headers,
+                                "/ghost/migrations/",
                                 "error",
                                 "That archive holds no Ghost export file and no media.",
                             )
                         }
                     }
                 }
-                Err(e) => return flash(&headers, "migration", "error", &e.message()),
+                Err(e) => return crate::tools::tool_flash_or_json(&headers, "/ghost/migrations/", "error", &e.message()),
             }
         } else {
             (data, String::new())
@@ -1020,7 +896,7 @@ pub(crate) async fn migration_import(
         let parsed: serde_json::Value = match serde_json::from_slice(&json) {
             Ok(v) => v,
             Err(e) => {
-                return flash(&headers, "migration", "error", &format!("Not a valid JSON file: {e}"))
+                return crate::tools::tool_flash_or_json(&headers, "/ghost/migrations/", "error", &format!("Not a valid JSON file: {e}"))
             }
         };
         let data = parsed
@@ -1031,134 +907,18 @@ pub(crate) async fn migration_import(
         return match data {
             Some(data) => match run_import(&state, &user.id, data).await {
                 Ok(counts) => {
-                    flash(&headers, "migration", "ok", &format!("{}{media_note}", counts.message()))
+                    crate::tools::tool_flash_or_json(&headers, "/ghost/migrations/", "ok", &format!("{}{media_note}", counts.message()))
                 }
-                Err(e) => flash(&headers, "migration", "error", &e.message()),
+                Err(e) => crate::tools::tool_flash_or_json(&headers, "/ghost/migrations/", "error", &e.message()),
             },
-            None => flash(&headers, 
-                "migration",
+            None => crate::tools::tool_flash_or_json(&headers,
+                "/ghost/migrations/",
                 "error",
                 "That file doesn't look like a Ghost export (no db[0].data).",
             ),
         };
     }
-    flash(&headers, "migration", "error", "No file was uploaded.")
-}
-
-// --- labs: the redirects and routes files, uploadable and downloadable ---
-
-/// The current redirects.yaml, as Ghost's Labs screen offers it. A site that
-/// has never uploaded any gets the neutral document rather than an error.
-pub(crate) async fn redirects_download(State(state): State<AppState>, headers: HeaderMap) -> Response {
-    if let Err(r) = require_role(&state, &headers, Role::Administrator).await {
-        return r;
-    }
-    let body = tokio::fs::read_to_string(state.config.content_path().join("redirects.yaml"))
-        .await
-        .unwrap_or_else(|_| "# No redirects configured yet.\n".to_string());
-    (
-        StatusCode::OK,
-        [
-            (header::CONTENT_TYPE, "text/yaml; charset=utf-8"),
-            (header::CONTENT_DISPOSITION, "attachment; filename=\"redirects.yaml\""),
-        ],
-        body,
-    )
-        .into_response()
-}
-
-pub(crate) async fn redirects_upload(State(state): State<AppState>, headers: HeaderMap, mut multipart: Multipart) -> Response {
-    if let Err(r) = require_role(&state, &headers, Role::Administrator).await {
-        return r;
-    }
-    while let Ok(Some(field)) = multipart.next_field().await {
-        if !matches!(field.name(), Some("file" | "redirects")) {
-            continue;
-        }
-        let text = match field.text().await {
-            Ok(t) => t,
-            Err(e) => return flash(&headers, "advanced", "error", &format!("Upload failed: {e}")),
-        };
-        // Parse before writing anything: a malformed file never reaches the
-        // disk, let alone the live redirect table.
-        let parsed = match ghost_routing::redirects::parse_redirects_yaml(&text) {
-            Ok(r) => r,
-            Err(e) => return flash(&headers, "advanced", "error", &format!("Not a valid redirects file: {e}")),
-        };
-        let path = state.config.content_path().join("redirects.yaml");
-        if let Err(e) = tokio::fs::write(&path, &text).await {
-            return flash(&headers, "advanced", "error", &format!("Could not write redirects.yaml: {e}"));
-        }
-        let count = ghost_routing::redirects::rules_map(&parsed).len();
-        *state.redirects.write().await = Arc::new(parsed);
-        fire_site_changed(&state);
-        return flash(&headers, "advanced", "ok", &format!("Redirects uploaded — {count} rule{s} in force.", s = if count == 1 { "" } else { "s" }));
-    }
-    flash(&headers, "advanced", "error", "No file was uploaded.")
-}
-
-pub(crate) async fn routes_download(State(state): State<AppState>, headers: HeaderMap) -> Response {
-    if let Err(r) = require_role(&state, &headers, Role::Administrator).await {
-        return r;
-    }
-    let body = tokio::fs::read_to_string(state.config.content_path().join("routes.yaml"))
-        .await
-        .unwrap_or_else(|_| ghost_routing::DEFAULT_ROUTES_YAML.to_string());
-    (
-        StatusCode::OK,
-        [
-            (header::CONTENT_TYPE, "text/yaml; charset=utf-8"),
-            (header::CONTENT_DISPOSITION, "attachment; filename=\"routes.yaml\""),
-        ],
-        body,
-    )
-        .into_response()
-}
-
-/// Upload a routes.yaml. Routing is live configuration, so the file is
-/// parsed *and* built into a router tree before anything is written — then
-/// the tree is swapped in and the active theme is recompiled against it,
-/// because a theme's resolvers and template choices are derived from routes.
-pub(crate) async fn routes_upload(State(state): State<AppState>, headers: HeaderMap, mut multipart: Multipart) -> Response {
-    if let Err(r) = require_role(&state, &headers, Role::Administrator).await {
-        return r;
-    }
-    while let Ok(Some(field)) = multipart.next_field().await {
-        if !matches!(field.name(), Some("file" | "routes")) {
-            continue;
-        }
-        let text = match field.text().await {
-            Ok(t) => t,
-            Err(e) => return flash(&headers, "advanced", "error", &format!("Upload failed: {e}")),
-        };
-        let settings = match ghost_routing::routes_yaml::parse_routes_yaml(&text) {
-            Ok(s) => s,
-            Err(e) => return flash(&headers, "advanced", "error", &format!("Not a valid routes file: {e}")),
-        };
-        let tree = match ghost_routing::RouterTree::build(&settings) {
-            Ok(t) => t,
-            Err(e) => return flash(&headers, "advanced", "error", &format!("These routes cannot be routed: {e}")),
-        };
-        let path = state.config.content_path().join("routes.yaml");
-        if let Err(e) = tokio::fs::write(&path, &text).await {
-            return flash(&headers, "advanced", "error", &format!("Could not write routes.yaml: {e}"));
-        }
-        *state.router.write().await = Arc::new(tree);
-        // The theme was compiled against the old routes; recompile it against
-        // the new ones. A failure here leaves routing updated but the old
-        // theme in place — said out loud rather than half-reported.
-        let theme = ghost_api::themes::active_theme_name(&state);
-        if let Err(e) = ghost_api::themes::activate(&state, &theme).await {
-            return flash(&headers, 
-                "advanced",
-                "error",
-                &format!("Routes are in force, but the theme could not be rebuilt against them: {}", e.message()),
-            );
-        }
-        fire_site_changed(&state);
-        return flash(&headers, "advanced", "ok", "Routes uploaded — routing and the theme have been rebuilt.");
-    }
-    flash(&headers, "advanced", "error", "No file was uploaded.")
+    crate::tools::tool_flash_or_json(&headers, "/ghost/migrations/", "error", "No file was uploaded.")
 }
 
 // --- history: the actions audit log ---
@@ -1232,7 +992,7 @@ pub(crate) async fn history_page(
         )
     };
     let filter_bar = format!(
-        r#"<form method="get" action="/ghost/settings/history/" class="card padded rise" style="--i:1">
+        r#"<form method="get" action="/ghost/history/" class="card padded rise" style="--i:1">
 <input type="hidden" name="f" value="1">
 <span class="detail" style="display:block;margin-bottom:8px">Event</span>
 <div class="chips">{events}</div>
@@ -1269,10 +1029,9 @@ pub(crate) async fn history_page(
             ));
         }
     }
-    let group = SETTINGS_GROUPS.iter().find(|g| g.slug == "history").unwrap();
-    page_for_role(actor_role, 
+    page_for_role(actor_role,
         "History",
-        "settings",
+        "tools",
         Some(&user),
         &format!(
             r#"{head}
@@ -1281,7 +1040,7 @@ pub(crate) async fn history_page(
 <div class="section">Site activity</div>
 <div class="card rows rise" style="--i:2">{rows}</div>
 <p class="muted" style="margin:4px 0 0 16px">The last 100 matching events from the actions audit log.</p>"#,
-            head = group_head(group, None),
+            head = crate::tools::tool_head("history", None, ""),
             filter_bar = filter_bar,
             rows = rows,
         ),
@@ -1522,14 +1281,13 @@ release above for its admin, Content API and theme behaviour; it is not affiliat
 
 pub(crate) async fn machine_payments_page(State(state):State<AppState>,headers:HeaderMap)->Response{
     let actor=match require_role(&state,&headers,Role::Administrator).await{Ok(actor)=>actor,Err(response)=>return response};
-    let group=SETTINGS_GROUPS.iter().find(|g|g.slug=="machine-payments").unwrap();
-    page_for_role(actor.role,"Machine payments","settings",Some(&actor.user),&format!(
+    page_for_role(actor.role,"Machine payments","tools",Some(&actor.user),&format!(
         r#"{head}<div id="machine-payments"><div class="card padded"><p class="muted" role="status" style="margin:0">Loading payment settings…</p></div></div><script src="{assets}/machine-payments.js" defer></script>"#,
         // No header Save button: the form the JS builds carries its own, and
         // saving has to run through the JSON API rather than a form POST.
         // The host is a bare container because the page builds its own
         // section cards — a card around all of them nests one inside another.
-        head=group_head(group,None),
+        head=crate::tools::tool_head("machine-payments",None,""),
         assets=ASSETS,
     ),true).into_response()
 }

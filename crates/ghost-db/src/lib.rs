@@ -16,4 +16,5 @@ pub use ghost_core::dialect;
 pub use settings_cache::SettingsCache;
 
 pub mod transfer;
+pub mod snapshot;
 pub mod types;

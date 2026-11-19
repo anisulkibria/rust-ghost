@@ -385,7 +385,7 @@ pub async fn security_page(
                 "Can change settings",
                 counts.admins.to_string(),
                 "Owner and Administrator accounts",
-                "/ghost/settings/staff/",
+                "/ghost/staffs/",
                 "person",
                 "pink",
             ),
@@ -405,7 +405,7 @@ pub async fn security_page(
                 "API keys",
                 format!("{} + {}", counts.admin_api_keys, counts.content_api_keys),
                 "Admin keys, then Content keys",
-                "/ghost/settings/integrations/",
+                "/ghost/integrations/",
                 "integrations",
                 "blue",
             ),
@@ -417,7 +417,7 @@ pub async fn security_page(
                 } else {
                     "Each one is a way to a new account"
                 },
-                "/ghost/settings/staff/",
+                "/ghost/staffs/",
                 "mail",
                 if counts.expired_invites > 0 { "amber" } else { "purple" },
             ),
@@ -584,7 +584,7 @@ pub async fn sessions_page(
 {clear_all}
 
 <div class="section" id="activity">Recent access changes</div>
-<p class="muted rise" style="--i:7;margin:0 0 10px">From the site's audit log, narrowed to the events that change who can get in — staff, invitations, API keys, integrations, webhooks and settings. Everything else the log records is under <a href="/ghost/settings/history/">History</a>.</p>
+<p class="muted rise" style="--i:7;margin:0 0 10px">From the site's audit log, narrowed to the events that change who can get in — staff, invitations, API keys, integrations, webhooks and settings. Everything else the log records is under <a href="/ghost/history/">History</a>.</p>
 {events_card}"#,
             head = head("sessions"),
             banner = flash_banner(&q),
