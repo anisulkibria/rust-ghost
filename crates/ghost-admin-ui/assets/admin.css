@@ -22,7 +22,13 @@
   --error: #BA1A1A; --error-container: #FFDAD6; --on-error-container: #410002;
   --surface: #FFF8F8; --on-surface: #201A1B; --on-surface-variant: #514347;
   --sc-lowest: #FFFFFF; --sc-low: #FAEFF1; --sc: #F4EAEC; --sc-high: #EFDFE3; --sc-highest: #E9DBDF;
-  --outline: #847375; --outline-variant: #D7C3C7;
+  /* The outline is a tint of its own variant rather than M3's solid grey, so
+     a border picks up whatever it is drawn over — the glass panels, the
+     tonal fields — instead of laying a neutral line across them. (Declared
+     after the variant only to read in order: custom properties resolve at
+     computed-value time, so the order inside the block does not matter.) */
+  --outline-variant: #D7C3C7;
+  --outline: color-mix(in srgb, var(--outline-variant) 58%, transparent);
   --inverse-surface: #352F30; --inverse-on-surface: #F9EDEF;
   --blue-bg: #D8E2FF; --blue-fg: #001A41;
   --green-bg: #C4EED0; --green-fg: #0C3D24;
@@ -152,15 +158,71 @@ svg.i { width: 22px; height: 22px; flex: none; display: block; }
 html.dark .shell::before { opacity: .38; }
 .rail { width: var(--rail-w); flex: none; padding: 28px 14px 14px; display: flex; flex-direction: column;
   position: sticky; top: 0; height: 100vh; z-index: 30;
-  /* Tinted glass, not clear: a panel of pure white film beside a white page
-     is only a seam, and the rail has to read as a pane in front of the page.
-     The tint is the primary container at a tenth of its strength, so the
-     column is the palette's own pink rather than grey. */
+  /* ---- the rail is DEEP in both schemes ----
+     Its colour is the vuuut family's own. The click (:8082) and pro (:8080)
+     landings paint the same four-corner aurora over `--surface` — pink
+     #FED7E4 top-left, peach #FFE8DD top-right, lilac #F2E8F8 bottom-right,
+     blue #E8EEF8 bottom-left — and the rail is that aurora taken several
+     stops deeper: the same hues at a fifth of the lightness, run top to
+     bottom down the column (rose → plum → indigo) instead of corner to
+     corner. Navigation is chrome; chrome recedes, and against a light page
+     the way it recedes is by being the deep object the page sits beside.
+
+     This is done by re-declaring the DARK SCHEME'S TOKENS on `.rail` rather
+     than by hand-colouring its parts. Every descendant — nav labels, the
+     brand, the tinted icon squares, the account pane, the appearance popover —
+     already reads `--on-surface`, `--*-bg`, `--glass-*`, so scoping the dark
+     palette here flips all of them at once and keeps `html.dark` a no-op on
+     this column. Hand-colouring instead means tracking ~20 descendants, and
+     the ones you forget (the `--glass-film` account pane, the `--glass-strong`
+     popover) come out as white stickers on a black rail.
+
+     The rail is also near-opaque (~96%), which is not decoration:
+     `.shell::before` puts its brightest tonal field at the top-left, directly
+     behind this column, and `saturate(185%)` boosts it — at 62–80% the
+     backdrop, not the tint, decided the rail's value, and it photographed
+     *lighter* than the content it is supposed to sit behind. */
+  --primary: #FFB1C8; --on-primary: #5E1133;
+  --primary-container: #7B294B; --on-primary-container: #FFD9E0;
+  /* Back to the dark scheme's own pair. The light container lived here while
+     the selected tab was a pale pink lozenge; the tab is glass now, so
+     nothing in this column should be carrying a light-scheme surface. */
+  --secondary-container: #5B4149; --on-secondary-container: #FFD9DE;
+  --tertiary-container: #6B5300; --on-tertiary-container: #FFE396;
+  --error: #FFB4AB; --error-container: #93000A; --on-error-container: #FFDAD6;
+  --on-surface: #ECE0E3; --on-surface-variant: #D0C2C6;
+  --sc-lowest: #120E10; --sc-low: #1F1A1C; --sc: #241F21; --sc-high: #2F292B; --sc-highest: #3A3436;
+  --outline: #998D91; --outline-variant: #4B3F42;
+  --blue-bg: #1F3E75; --blue-fg: #AECBFF;
+  --green-bg: #173B23; --green-fg: #9CD8AA;
+  --amber-bg: #54420A; --amber-fg: #F1CE7F;
+  --purple-bg: #4A3085; --purple-fg: #D0BCFF;
+  --pink-bg: #672739; --pink-fg: #FFB1C8;
+  --teal-bg: #0C4A58; --teal-fg: #8FD8EA;
+  --red-bg: #6A1B16; --red-fg: #FFB4AB;
+  --slate-bg: #2C2F36; --slate-fg: #C6CAD8;
+  --glass: color-mix(in srgb, #fff 7%, color-mix(in srgb, var(--sc-low) 72%, transparent));
+  --glass-strong: color-mix(in srgb, #fff 9%, color-mix(in srgb, var(--sc) 82%, transparent));
+  --glass-film: color-mix(in srgb, #fff 8%, transparent);
+  --glass-stroke: color-mix(in srgb, #fff 12%, transparent);
+  --glass-hover: color-mix(in srgb, #fff 11%, transparent);
+  --glass-press: color-mix(in srgb, #fff 18%, transparent);
+  --hover-quiet: color-mix(in srgb, #fff 3%, transparent);
+  --glass-edge: rgba(255,255,255,.16);
+  /* The aurora, deepened: #FED7E4 → #4E1B33, #F2E8F8 → #331C3C,
+     #E8EEF8 → #1E2340. Same hues, a fifth of the lightness. */
+  --rail-1: #4E1B33; --rail-2: #331C3C; --rail-3: #1E2340;
+  color: var(--on-surface);
   background: linear-gradient(180deg,
-    color-mix(in srgb, var(--primary-container) 14%, var(--glass-strong)),
-    color-mix(in srgb, var(--primary-container) 26%, var(--glass)));
+    color-mix(in srgb, var(--rail-1) 96%, transparent),
+    color-mix(in srgb, var(--rail-2) 97%, transparent) 54%,
+    color-mix(in srgb, var(--rail-3) 98%, transparent));
   backdrop-filter: var(--glass-blur); -webkit-backdrop-filter: var(--glass-blur);
   border-right: 1px solid var(--glass-stroke); }
+/* On a dark page the page itself is already near-black, and the rail still has
+   to be the darker of the two — so the same three hues go down again rather
+   than the column going lighter than the content it fronts. */
+html.dark .rail { --rail-1: #180A12; --rail-2: #110A15; --rail-3: #0B0D18; }
 /* The specular edge: a glass panel catches the light along the side it is lit
    from, and that one highlight is most of what separates this from a tinted
    rectangle. */
@@ -174,7 +236,28 @@ html.dark .shell::before { opacity: .38; }
    beside a label. The 40px beneath is what separates it from the first tab,
    so the column reads as masthead, then navigation, rather than one list. */
 .brand { display: flex; align-items: center; justify-content: flex-start; gap: 12px; min-height: 64px;
-  padding: 10px 12px; margin: 0 0 40px; color: inherit; text-decoration: none; border-radius: 16px; }
+  padding: 10px 12px; margin: 0 0 20px; color: inherit; text-decoration: none; border-radius: 16px; }
+/* ---- the rail's search box ----
+   Between the brand and the first nav item: the one control that reaches
+   every screen, above the list of screens. It is a button drawn as a field —
+   the real input is the one in the modal — so it takes the nav items' pill
+   shape at a quieter weight, and reads as a thing to click rather than a row
+   to navigate to. */
+.rail-search { display: flex; align-items: center; gap: 10px; width: 100%; margin: 0 0 18px;
+  padding: 9px 12px; border-radius: 999px; cursor: pointer; font: inherit; font-size: 13px;
+  color: var(--on-surface-variant); text-align: left;
+  background: var(--glass-film); border: 1px solid var(--glass-stroke);
+  box-shadow: inset 0 1px 0 var(--glass-edge);
+  transition: background var(--dur) var(--ease), color var(--dur) var(--ease); }
+.rail-search:hover { background: var(--glass-hover); color: var(--on-surface); }
+.rail-search:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
+.rail-search svg.i { width: 18px; height: 18px; flex: none; }
+.rail-search-label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* The shortcut, shown because a key nobody knows about is not a shortcut. */
+.rail-search-key { flex: none; font-family: var(--mono); font-size: 10px; line-height: 1;
+  padding: 3px 6px; border-radius: 6px; color: var(--on-surface-variant);
+  background: color-mix(in srgb, #fff 10%, transparent);
+  border: 1px solid var(--glass-stroke); }
 .brand:hover { background: var(--glass-hover); box-shadow: inset 0 1px 0 var(--glass-edge); }
 .brand:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
 .brand .brand-logo { display: block; max-width: 100%; }
@@ -214,9 +297,26 @@ html.dark .shell::before { opacity: .38; }
   background: linear-gradient(180deg,
     color-mix(in srgb, #fff 26%, var(--secondary-container)), var(--secondary-container));
   box-shadow: inset 0 1px 0 rgba(255,255,255,.6), 0 6px 16px -10px rgba(62,7,29,.55); }
-html.dark .nav-item.active { background: linear-gradient(180deg,
-    color-mix(in srgb, #fff 10%, var(--secondary-container)), var(--secondary-container));
-  box-shadow: inset 0 1px 0 rgba(255,255,255,.14), 0 8px 18px -12px rgba(0,0,0,.9); }
+/* The rail's selected tab is the same MATERIAL as its hover, not a different
+   object: a pale pink lozenge on a deep plum column was the one opaque,
+   high-chroma shape in the rail and it read as a sticker stuck over the
+   navigation. This is the hover film carried further — roughly twice its
+   white, falling off down the lozenge, closed with a hairline ring and a lit
+   top edge so it still sits in front of the column.
+   Hover is a flat 11% white; selected opens at 22% and keeps the ring, which
+   is enough to tell the two apart without changing substance.
+   `.rail` and `html.dark` both, since the rail is dark in either scheme. */
+.rail .nav-item.active, html.dark .nav-item.active {
+  color: var(--on-surface);
+  background: linear-gradient(180deg,
+    color-mix(in srgb, #fff 22%, transparent),
+    color-mix(in srgb, #fff 13%, transparent));
+  box-shadow: inset 0 1px 0 var(--glass-edge),
+    inset 0 0 0 1px var(--glass-stroke),
+    0 6px 16px -12px rgba(0,0,0,.75); }
+/* The leading square keeps its tint, so the selected row is still the one
+   with a lit edge on its glyph. */
+.rail .nav-item.active .ic { box-shadow: inset 0 1px 0 rgba(255,255,255,.2); }
 .nav-item:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
 .nav-item .nav-label { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 /* The rail runs at its own, tighter scale: the tinted squares elsewhere in
@@ -225,7 +325,9 @@ html.dark .nav-item.active { background: linear-gradient(180deg,
    the 44px row. */
 .rail .ic { width: 26px; height: 26px; border-radius: 9px;
   box-shadow: inset 0 1px 0 rgba(255,255,255,.55), inset 0 0 0 1px rgba(255,255,255,.14); }
-html.dark .rail .ic { box-shadow: inset 0 1px 0 rgba(255,255,255,.12); }
+/* Same reason: the 55%-white lit edge belongs on a pale tint, and every tint
+   in this column is now a dark one. */
+.rail .ic { box-shadow: inset 0 1px 0 rgba(255,255,255,.12); }
 .rail .ic svg { width: 16px; height: 16px; }
 /* The tinted square that leads a row. The lit top edge is what makes it an
    object sitting on the glass rather than a swatch painted into it. */
@@ -315,45 +417,14 @@ html.dark .theme-menu > summary .t-sun { display: none; }
 .main { flex: 1; min-width: 0; }
 .content { --gutter: clamp(24px, 3vw, 48px); max-width: 1500px; margin: 0 auto; padding: 0 var(--gutter) 64px; }
 
-/* Material 3 filled cards for the publication's modules.
-   Four across on a wide screen: the hub is a menu, and a menu that reads at a
-   glance beats six cards the size of posters. Every size inside the card is
-   scaled down to match — the padding, the icon tile, the heading and the
-   description — so the card is smaller rather than the same card with less
-   room in it. The breakpoints then step 4 → 3 → 2 → 1. */
-.module-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 16px; margin-top: 20px; }
-/* Glass without the blur: twelve of these land on one screen, and at this
-   size the blur buys nothing a dozen compositor passes are worth. The tint,
-   the hairline and the lit edge are what carry the material. */
-.module-card { display: flex; flex-direction: column; align-items: flex-start; gap: 14px; min-width: 0;
-  padding: 20px; border-radius: 24px; background: var(--glass); color: var(--on-surface);
-  text-decoration: none; border: 1px solid var(--glass-stroke);
-  box-shadow: var(--glass-shadow), inset 0 1px 0 var(--glass-edge);
-  transition: background var(--dur) var(--ease), box-shadow var(--dur) var(--ease),
-    transform var(--dur) var(--ease); }
-.module-card:hover { background: var(--glass-strong); transform: translateY(-2px);
-  box-shadow: var(--glass-shadow-lift), inset 0 1px 0 var(--glass-edge); }
-@media (prefers-reduced-motion: reduce) { .module-card:hover { transform: none; } }
-.module-card:focus-visible { outline: 3px solid var(--primary); outline-offset: 4px; }
-.module-card .ic { width: 44px; height: 44px; border-radius: 14px; }
-.module-card .ic svg { width: 22px; height: 22px; }
-.module-card h2 { margin: 0 0 6px; font-size: 17px; font-weight: 600; letter-spacing: -.2px; }
-.module-card p { margin: 0; color: var(--on-surface-variant); font-size: 13px; line-height: 1.55; }
-.module-open { display: flex; align-items: center; gap: 6px; margin-top: auto; padding-top: 6px;
-  color: var(--primary); font-size: 13px; font-weight: 600; }
-.module-open svg { width: 16px; height: 16px; }
-@media (max-width: 1320px) { .module-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
-@media (max-width: 1000px) { .module-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
-@media (max-width: 640px) { .module-grid { grid-template-columns: minmax(0, 1fr); gap: 12px; } }
-
 /* ---- Tools: a hub of cards related to the module cards but not the same.
    A module is somewhere you go; a tool is something already set up on the
    site, so each card leads with its icon and a corner arrow and ends on a
-   live line of state, under a hairline. Three across, a little wider, so
-   that state line has room. ---- */
-.tool-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; margin-top: 20px; }
-.tool-card { display: flex; flex-direction: column; gap: 12px; min-width: 0; padding: 18px 18px 0;
-  border-radius: 22px; background: var(--glass); color: var(--on-surface); text-decoration: none;
+   live line of state, under a hairline. Five across and small: a tool is a
+   thing you already know by name, so the card only has to be findable. ---- */
+.tool-grid { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 12px; margin-top: 20px; }
+.tool-card { display: flex; flex-direction: column; gap: 9px; min-width: 0; padding: 13px 13px 0;
+  border-radius: 18px; background: var(--glass); color: var(--on-surface); text-decoration: none;
   border: 1px solid var(--glass-stroke); box-shadow: var(--glass-shadow), inset 0 1px 0 var(--glass-edge);
   transition: background var(--dur) var(--ease), box-shadow var(--dur) var(--ease), transform var(--dur) var(--ease); }
 .tool-card:hover { background: var(--glass-strong); transform: translateY(-2px);
@@ -361,23 +432,26 @@ html.dark .theme-menu > summary .t-sun { display: none; }
 @media (prefers-reduced-motion: reduce) { .tool-card:hover { transform: none; } }
 .tool-card:focus-visible { outline: 3px solid var(--primary); outline-offset: 4px; }
 .tool-top { display: flex; align-items: center; justify-content: space-between; }
-.tool-card .ic { width: 40px; height: 40px; border-radius: 13px; }
-.tool-card .ic svg { width: 20px; height: 20px; }
-.tool-go { display: grid; place-items: center; width: 30px; height: 30px; border-radius: 50%;
+.tool-card .ic { width: 32px; height: 32px; border-radius: 11px; }
+.tool-card .ic svg { width: 17px; height: 17px; }
+.tool-go { display: grid; place-items: center; width: 24px; height: 24px; border-radius: 50%;
   color: var(--on-surface-variant); transform: rotate(-45deg);
   transition: background var(--dur) var(--ease), color var(--dur) var(--ease), transform var(--dur) var(--ease); }
-.tool-go svg { width: 18px; height: 18px; }
+.tool-go svg { width: 15px; height: 15px; }
 .tool-card:hover .tool-go { background: var(--glass-hover); color: var(--primary); transform: rotate(0); }
-.tool-text h2 { margin: 0 0 4px; font-size: 16.5px; font-weight: 600; letter-spacing: -.2px; }
-.tool-text p { margin: 0; color: var(--on-surface-variant); font-size: 13px; line-height: 1.5; }
-.tool-state { display: flex; align-items: center; gap: 8px; margin-top: auto; padding: 11px 0 13px;
-  border-top: 1px solid var(--glass-stroke); font-size: 12.5px; font-weight: 500; color: var(--on-surface-variant);
+.tool-text h2 { margin: 0 0 3px; font-size: 14px; font-weight: 600; letter-spacing: -.1px; }
+.tool-text p { margin: 0; color: var(--on-surface-variant); font-size: 12px; line-height: 1.45;
+  display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 3; line-clamp: 3; overflow: hidden; }
+.tool-state { display: flex; align-items: center; gap: 7px; margin-top: auto; padding: 8px 0 10px;
+  border-top: 1px solid var(--glass-stroke); font-size: 11.5px; font-weight: 500; color: var(--on-surface-variant);
   min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .tool-state i, .rt-live i { flex: none; width: 7px; height: 7px; border-radius: 50%;
   background: color-mix(in srgb, var(--on-surface-variant) 45%, transparent); }
 .tool-state.on i, .rt-live.on i { background: #2E9D5B; box-shadow: 0 0 0 3px color-mix(in srgb, #2E9D5B 22%, transparent); }
-@media (max-width: 1100px) { .tool-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
-@media (max-width: 640px) { .tool-grid { grid-template-columns: minmax(0, 1fr); gap: 12px; } }
+@media (max-width: 1320px) { .tool-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); } }
+@media (max-width: 1100px) { .tool-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+@media (max-width: 820px) { .tool-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 560px) { .tool-grid { grid-template-columns: minmax(0, 1fr); gap: 10px; } }
 
 /* ---- Redirects and Routes editors ---- */
 .test-result { display: flex; gap: 12px; align-items: flex-start; margin-top: 14px; padding: 12px 14px;
@@ -705,12 +779,51 @@ select.rx-in { appearance: none; cursor: pointer; padding-right: 10px; }
   color: var(--on-surface); background: transparent; border: 1px solid var(--outline);
   border-radius: 12px; padding: 22px 14px 6px; outline: none; caret-color: var(--primary);
   transition: border-color .15s var(--ease), box-shadow .15s var(--ease); }
+/* Dark fields take the same treatment the light `--outline` now has: a tint
+   of the outline variant rather than a solid line. The dark scheme's
+   `--outline` is #998D91, a light grey, and on a near-black card that drew a
+   hard bright rectangle around every input — the opposite of the light side,
+   where the border settles into the surface. Scoped to the field controls
+   rather than changed on the token, so buttons, segmented controls and chips
+   keep the outline they are drawn with.
+   `:not(:focus)` is load-bearing, not decoration. `html.dark .field input`
+   scores (0,2,2) against `.field input:focus`'s (0,2,1), so without it this
+   rule outranks the focus state wherever it is written in the file and a
+   focused field in dark mode would keep the quiet border instead of taking
+   the `--primary` one. Excluding the focused case lets the focus rule win on
+   the only elements it cares about. */
+html.dark .field input:not(:focus),
+html.dark .field textarea:not(:focus),
+html.dark .field select:not(:focus) {
+  border-color: color-mix(in srgb, var(--outline-variant) 58%, transparent); }
 .field textarea { resize: vertical; min-height: 96px; }
 .field textarea.code, .field input.code { font-family: var(--mono); font-size: 13px; line-height: 1.6; }
 .field > span { position: absolute; left: 11px; top: 15px; font-size: 15px; color: var(--on-surface-variant);
   padding: 0 5px; pointer-events: none; transition: all .15s var(--ease); background: var(--notch); }
-.field input:focus, .field textarea:focus, .field select:focus { border-color: var(--primary);
-  box-shadow: inset 0 0 0 1px var(--primary); }
+/* ---- focus: quieter, but still unmistakable ----
+   This was the full `--primary` on the border AND a 1px inset ring of the
+   same colour, which is a doubled 2px line at full chroma — next to the
+   blended resting border it landed like a shout. What replaces it keeps the
+   line single and lets a soft halo do the rest of the work: a tint of the
+   primary for the border, and a 3px ring at about a seventh of its strength
+   bleeding outwards.
+   The alphas are picked to stay above the 3:1 a focus indicator needs, not
+   by eye — 72% of #984059 on white is ~3.6:1, and 65% of #FFB1C8 on the dark
+   card is ~4.7:1. "Polite" is the weight and the spread, not the visibility.
+   The halo is an OUTER shadow, so a field at the very edge of a clipping
+   container can have it cropped; every field here sits inside a padded card,
+   and the border alone still carries the state if it ever is. */
+.field input:focus, .field textarea:focus, .field select:focus {
+  border-color: color-mix(in srgb, var(--primary) 72%, transparent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--primary) 14%, transparent); }
+/* Dark runs a touch softer on both counts: the dark scheme's primary is a
+   bright pink that glows against a near-black card where the light scheme's
+   wine simply sits there. */
+html.dark .field input:focus,
+html.dark .field textarea:focus,
+html.dark .field select:focus {
+  border-color: color-mix(in srgb, var(--primary) 65%, transparent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--primary) 11%, transparent); }
 /* Asked of the field, not of the input's next sibling. `input + span` is the
    obvious way to write a floating label and it breaks in the wild: password
    managers inject their own button directly after the input they offer to
@@ -1362,7 +1475,10 @@ a.sw-count:hover { color: var(--on-surface); }
   border: 1px solid var(--glass-stroke); border-radius: 28px;
   box-shadow: var(--glass-shadow), inset 0 1px 0 var(--glass-edge);
   padding: 30px 34px 34px; }
-#koenig-mount [data-kg-plus-button] { left: 4px !important; }
+/* The ＋ sits in the sheet's left margin, just before the caret — never on
+   top of the text. The sheet's 48px padding is its room; the clip below
+   keeps a margin that wide on the left for it. */
+#koenig-mount [data-kg-plus-button] { left: -42px !important; }
 #koenig-mount [data-kg-plus-button] > button { width: 32px !important; height: 32px !important; }
 /* Set in the display serif, because that is what this same title will be in
    the posts list and on the site — the editor should not be the one place it
@@ -1398,8 +1514,11 @@ a.sw-count:hover { color: var(--on-surface); }
 
 /* The save state beside the header's Save button: "Saving…", "Saved", "*
    Unsaved changes" while the autosave is beaten only by the typing. */
-.save-state { font-size: 12.5px; color: var(--on-surface-variant); align-self: center; white-space: nowrap; }
-.save-state:empty { display: none; }
+/* A fixed slot, right-aligned: the text changes as a post saves ("Saving…",
+   "Saved", "* Unsaved changes") and must never resize the header, or every
+   button beside it shifts under the pointer. */
+.save-state { font-size: 12.5px; color: var(--on-surface-variant); align-self: center; white-space: nowrap; min-width: 128px; text-align: right; }
+.save-state:empty { visibility: hidden; }
 .save-state.saved { color: var(--green-fg); }
 .save-state.error { color: var(--error); }
 .save-state.unsaved { font-style: italic; }
@@ -1432,12 +1551,22 @@ a.sw-count:hover { color: var(--on-surface); }
    come out smaller than a regular one. Cards render at the column's width
    while editing; `cardWidth` is untouched, so the post still breaks out on
    the site. */
+/* One geometry in every state. Koenig gives a card 12px of side padding
+   while it is hovered or selected and cancels it with a -12px margin, so the
+   outline has room and the text does not move. Pinning the margin to 0 (as
+   this rule used to) kept the padding and lost the cancel: on hover every
+   line moved 12px right and rewrapped, which moved the text out from under a
+   pointer near its edge, which ended the hover, which moved it back — the
+   card shook left and right for as long as the pointer stayed. The padding
+   and its cancel are now fixed for good, hovered or not. */
 #koenig-mount [data-kg-card] {
-  width: 100% !important;
+  width: calc(100% + 24px) !important;
   min-width: 0 !important;
-  max-width: 100% !important;
-  margin-left: 0 !important;
-  margin-right: 0 !important;
+  max-width: calc(100% + 24px) !important;
+  padding-left: 12px !important;
+  padding-right: 12px !important;
+  margin-left: -12px !important;
+  margin-right: -12px !important;
   transform: none !important;
   left: auto !important;
   right: auto !important;
@@ -1452,7 +1581,10 @@ a.sw-count:hover { color: var(--on-surface); }
    button with it, back when the button sat in the padding to the left of
    the column — it floats over the column's start now, and this outer clip
    is the line that keeps breakout cards inside the page. */
-#koenig-mount > .koenig-react-editor { overflow-x: clip; }
+/* No clip on the wrapper any more: cards are held to the column by the rule
+   above, and the writing sheet is its own scroll area, so it clips at its own
+   edge — which leaves the ＋ in the margin visible. */
+#koenig-mount > .koenig-react-editor { overflow: visible; }
 /* The "Begin writing…" placeholder is a separate element with its own font. */
 #koenig-mount .koenig-lexical .font-serif { font-family: var(--font); }
 #koenig-mount .editor-body-placeholder { color: color-mix(in srgb, var(--on-surface-variant) 42%, var(--surface)); font-weight: 400; }
@@ -2216,6 +2348,58 @@ dialog { border-radius: 28px; color: var(--on-surface);
   border: 1px solid var(--glass-stroke); box-shadow: var(--glass-shadow-lift), inset 0 1px 0 var(--glass-edge); }
 dialog::backdrop { background: rgba(0,0,0,.4); }
 
+/* ---- the admin-wide search modal ----
+   A command palette: near the top of the viewport rather than centred,
+   because the list grows downwards and a centred box jumps as it fills.
+   Like the preview and Unsplash dialogs, this restates every clamp the
+   shared `dialog` rule sets — inheriting its 420px and 24px padding would
+   make a palette the width of a confirm box. */
+dialog.omni { width: min(640px, calc(100vw - 24px)); min-width: 0; max-width: none;
+  padding: 0; border-radius: 24px; overflow: hidden;
+  margin: 12vh auto auto; }
+dialog.omni::backdrop { background: rgba(14,8,12,.46); backdrop-filter: blur(3px); -webkit-backdrop-filter: blur(3px); }
+.omni-box { display: flex; flex-direction: column; max-height: min(66vh, 560px); }
+/* The field: one row, the icon and the escape hint pinned either side. */
+.omni-field { display: flex; align-items: center; gap: 12px; padding: 16px 18px; flex: none;
+  border-bottom: 1px solid var(--glass-stroke); color: var(--on-surface-variant); }
+.omni-field svg.i { width: 20px; height: 20px; flex: none; }
+.omni-field input { flex: 1; min-width: 0; border: 0; background: none; outline: none;
+  font: inherit; font-size: 16px; color: var(--on-surface); }
+/* The clear button Safari and Chrome add to a type=search sits on top of the
+   escape hint and does a different thing from Escape. */
+.omni-field input::-webkit-search-decoration,
+.omni-field input::-webkit-search-cancel-button { -webkit-appearance: none; appearance: none; }
+.omni-esc { flex: none; font-family: var(--mono); font-size: 10px; line-height: 1; padding: 4px 7px;
+  border-radius: 6px; color: var(--on-surface-variant); border: 1px solid var(--glass-stroke);
+  background: color-mix(in srgb, var(--on-surface) 6%, transparent); }
+.omni-results { overflow-y: auto; overscroll-behavior: contain; padding: 6px; flex: 1 1 auto; }
+.omni-group + .omni-group { margin-top: 2px; border-top: 1px solid var(--glass-stroke); padding-top: 6px; }
+.omni-label { margin: 6px 10px 4px; font-size: 10px; font-weight: 700; letter-spacing: .09em;
+  text-transform: uppercase; color: var(--on-surface-variant); }
+.omni-hit { display: flex; align-items: center; gap: 12px; padding: 8px 10px; border-radius: 14px;
+  text-decoration: none; color: inherit; }
+/* One highlight, driven by the keyboard and by the pointer alike (`.on` is
+   set on mousemove too), so there is never a hovered row and a selected row
+   disagreeing about what Enter will open. */
+.omni-hit.on, .omni-more.on { background: var(--glass-hover); }
+.omni-hit .ic { width: 32px; height: 32px; border-radius: 11px; }
+.omni-hit .ic svg { width: 18px; height: 18px; }
+.omni-text { min-width: 0; flex: 1; display: flex; flex-direction: column; }
+.omni-title { font-size: 14px; font-weight: 550; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.omni-detail { font-size: 11.5px; color: var(--on-surface-variant);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.omni-go { flex: none; color: var(--on-surface-variant); opacity: 0; transition: opacity var(--dur) var(--ease); }
+.omni-go svg.i { width: 18px; height: 18px; }
+.omni-hit.on .omni-go { opacity: 1; }
+.omni-more { display: block; padding: 8px 12px; margin: 2px 0 0; border-radius: 12px;
+  font-size: 12px; font-weight: 600; color: var(--primary); text-decoration: none; }
+.omni-empty { margin: 0; padding: 26px 18px; text-align: center; font-size: 13px;
+  color: var(--on-surface-variant); }
+@media (max-width: 650px) {
+  dialog.omni { margin-top: 6vh; width: calc(100vw - 16px); }
+  .omni-box { max-height: 76vh; }
+}
+
 /* ---- the publishing preview ----.
    The shared `dialog` rule above clamps confirm dialogs to 420px, which is
    narrower than a phone: a preview left under it rendered every device at
@@ -2321,6 +2505,10 @@ dialog .d-actions { display: flex; justify-content: flex-end; gap: 8px; }
   .brand .brand-logo img { max-height: 40px; }
   .brand-mark { width: 38px; height: 41px; font-size: 35px; }
   .brand-mark + .brand-name { display: none; }
+  /* The search collapses to its glyph on the icon rail, keeping the 44px
+     target the nav items keep. */
+  .rail-search { width: 44px; height: 44px; padding: 0; justify-content: center; margin: 0 auto 14px; border-radius: 999px; }
+  .rail-search-label, .rail-search-key { display: none; }
   .nav-item { width: 44px; height: 44px; padding: 0; margin: 4px auto; gap: 0; justify-content: center; }
   .nav-item .nav-label { position: absolute; width: 1px; height: 1px; overflow: hidden;
     clip: rect(0 0 0 0); white-space: nowrap; }
@@ -2341,6 +2529,13 @@ dialog .d-actions { display: flex; justify-content: flex-end; gap: 8px; }
   /* The rail is the full page width here, so centring the mark would strand
      it in the middle of the strip. It sits at the start instead. */
   .brand { padding: 14px 10px 10px; margin: 0 6px; justify-content: flex-start; min-height: 0; }
+  /* The strip is a column, so the search takes its own line under the brand
+     and keeps its label — on a phone a full-width search bar is the shape
+     people expect, and the icon-only pill of the 80px rail would be a 44px
+     target floating in a 100%-wide row. The key hint goes: there is no
+     keyboard to press it on. */
+  .rail-search { width: auto; margin: 0 12px 10px; }
+  .rail-search-key { display: none; }
   .rail .nav-scroll { display: flex; flex: none; gap: 4px; margin: 0; overflow-x: auto; overflow-y: hidden;
     padding: 4px 12px 12px; scrollbar-width: none; scroll-snap-type: x proximity; scroll-padding-inline: 12px; }
   .rail .nav-scroll::-webkit-scrollbar { display: none; }
@@ -3082,3 +3277,816 @@ a.nl-tile:hover { border-color: var(--outline); transform: translateY(-1px); }
    Previous and Next there is nothing in the middle to anchor them. */
 .nl-pager { display: flex; align-items: center; justify-content: center; gap: 12px;
   margin: 14px 0 0; font-size: 13px; }
+
+/* ---- permissions: the Owner's role × resource matrix ----
+   Every row is a shared `.rows .row` with a select in its trailing slot; the
+   only thing this block adds is the width that keeps 40-odd of those selects
+   in one column instead of each sizing to its longest option. */
+.pm-intro { margin: -6px 2px 18px; font-size: 12.5px; }
+.pm-pick { margin: 0; min-width: 210px; }
+.pm-pick select { padding-top: 12px; padding-bottom: 12px; font-size: 14px; }
+/* The fallback row sits above the named ones and reads as their heading
+   rather than as another entry, so it loses the hairline and gains the tint
+   of the card it opens. */
+.rows .row.pm-default { background: var(--hover-quiet); }
+.rows .row.pm-default .title { font-weight: 600; }
+@media (max-width: 639px) {
+  .pm-pick { min-width: 0; width: 100%; }
+}
+
+/* ---- popups: the module's figures and its editor controls ----
+   Reuses `.card.padded` for the tiles and `.rows .row` for the editor, as
+   Newsletters and Memberships do; what is here is the grid they sit in and
+   the width that keeps a column of selects from each sizing to its longest
+   option. */
+.pu-tiles { display: grid; gap: 12px; margin-bottom: 18px;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); }
+.pu-tile { display: flex; flex-direction: column; gap: 2px; text-decoration: none;
+  color: inherit; transition: border-color .15s, transform .15s; }
+/* Only a tile that leads somewhere lifts: one with no destination is a
+   <div>, so this never promises a click that does nothing. */
+a.pu-tile:hover { border-color: var(--outline); transform: translateY(-1px); }
+.pu-tile .ic { margin-bottom: 8px; }
+.pu-tile-value { font-size: 26px; font-weight: 700; line-height: 1.1;
+  font-variant-numeric: tabular-nums; }
+.pu-tile-label { font-size: 13.5px; font-weight: 600; }
+.pu-tile-detail { font-size: 12.5px; color: var(--on-surface-variant); line-height: 1.4; }
+
+/* The editor's right-hand column. A fixed minimum rather than `auto` so the
+   selects line up down the card instead of stepping in and out with the
+   length of "Once, then wait a while".
+   `flex-end` is what that minimum costs: a select fills the 232px, but a
+   switch is 52px wide and would otherwise sit at the LEFT edge of the block
+   — floating in the middle of the row while every select beside it reached
+   the margin. */
+.pu-control { min-width: 232px; display: flex; justify-content: flex-end; align-items: center; }
+.pu-control .field { width: 100%; }
+@media (max-width: 639px) {
+  .pu-control { min-width: 0; width: 100%; }
+}
+
+/* ---- media › images: the optimisation card and Settings → Images ----
+   The card sits above the library's tabs and says what optimisation is doing
+   to new uploads, how much of the library is done, and offers the next batch.
+   One row on a wide screen; the actions drop under the words on a narrow one. */
+.im-card { display: flex; align-items: center; gap: 16px; margin-bottom: 16px; flex-wrap: wrap; }
+.im-card > .ic { flex: none; }
+.im-text { flex: 1 1 320px; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.im-title { font-size: 14.5px; font-weight: 600; }
+.im-detail { font-size: 12.5px; color: var(--on-surface-variant); line-height: 1.45; }
+.im-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+/* Settings → Images: the same right-aligned column as the popups editor, so
+   a switch reaches the margin a number field does. */
+.im-control { min-width: 160px; display: flex; justify-content: flex-end; align-items: center; }
+@media (max-width: 639px) {
+  .im-actions { width: 100%; }
+  .im-control { min-width: 0; width: 100%; justify-content: flex-start; }
+}
+
+/* ---- cookies: the consent overview, the banner preview, the declaration
+   and the log ----
+   Tiles, rows, chips and fields are the shared primitives. What is here is
+   the hero (status beside a drawing of the banner), the category bars, and
+   the preview itself — a static sketch in the site's own shapes, NOT the
+   site stylesheet, so it reads the admin's tokens. The preview is a small
+   repeated-free element and takes tint + hairline, no backdrop filter. */
+.ck-tiles { display: grid; gap: 12px; margin: 14px 0 4px;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); }
+.ck-tile { display: flex; flex-direction: column; gap: 2px; text-decoration: none;
+  color: inherit; transition: border-color .15s, transform .15s; }
+a.ck-tile:hover { border-color: var(--outline); transform: translateY(-1px); }
+.ck-tile .ic { margin-bottom: 8px; }
+.ck-tile-value { font-size: 26px; font-weight: 700; line-height: 1.1; font-variant-numeric: tabular-nums; }
+.ck-tile-label { font-size: 13.5px; font-weight: 600; }
+.ck-tile-detail { font-size: 12.5px; color: var(--on-surface-variant); line-height: 1.4; }
+
+.ck-hero { display: grid; grid-template-columns: minmax(0, 1fr) minmax(260px, 380px); gap: 28px;
+  align-items: center; padding: 24px 24px 24px 28px; margin-top: 16px; }
+.ck-hero h2 { margin: 12px 0 6px; font-size: 22px; line-height: 1.25; font-weight: 650; letter-spacing: -.01em; }
+.ck-hero p { margin: 0; max-width: 52ch; }
+.ck-hero-actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 18px; }
+.ck-hero-actions form { margin: 0; }
+@media (max-width: 860px) { .ck-hero { grid-template-columns: 1fr; } }
+
+/* The banner, sketched over a sketched page. Layout classes move the card
+   the way the real banner moves. */
+.ck-preview { position: relative; min-height: 210px; border-radius: 18px; overflow: hidden;
+  border: 1px solid var(--glass-stroke);
+  background: linear-gradient(160deg, color-mix(in srgb, var(--primary) 7%, var(--surface, #fff)),
+    color-mix(in srgb, var(--blue-bg) 70%, var(--surface, #fff))); }
+.ck-pv-page { position: absolute; inset: 18px 18px auto; display: grid; gap: 8px; }
+.ck-pv-page i { display: block; height: 8px; border-radius: 4px; background: color-mix(in srgb, var(--on-surface) 9%, transparent); }
+.ck-pv-page i:first-child { height: 14px; width: 55%; margin-bottom: 4px; }
+.ck-pv-page i:nth-child(3) { width: 85%; }
+.ck-pv-page i:last-child { width: 70%; }
+.ck-pv-card { position: absolute; left: 12px; bottom: 12px; width: min(78%, 280px); padding: 12px 12px 10px;
+  border-radius: 16px; background: var(--glass-strong); border: 1px solid var(--glass-stroke);
+  box-shadow: var(--glass-shadow-lift), inset 0 1px 0 var(--glass-edge); }
+.ck-pv-card b { display: block; font-size: 12.5px; margin-bottom: 3px; }
+.ck-pv-card p { margin: 0; font-size: 10.5px; line-height: 1.4; color: var(--on-surface-variant);
+  display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+.ck-pv-card u { color: var(--primary); }
+.ck-pv-actions { display: flex; gap: 4px; justify-content: flex-end; margin-top: 8px; flex-wrap: wrap; }
+.ck-pv-btn { font-size: 9.5px; font-weight: 600; height: 20px; padding: 0 9px; border-radius: 999px;
+  display: inline-flex; align-items: center; white-space: nowrap; }
+.ck-pv-btn.text { color: var(--primary); padding: 0 4px; }
+.ck-pv-btn.tonal { background: var(--secondary-container); color: var(--on-secondary-container); }
+.ck-pv-btn.filled { background: var(--primary); color: var(--on-primary); }
+.ck-pv-bar .ck-pv-card { left: 8px; right: 8px; width: auto; display: grid;
+  grid-template-columns: 1fr auto; column-gap: 10px; align-items: end; }
+.ck-pv-bar .ck-pv-card p { -webkit-line-clamp: 2; }
+.ck-pv-bar .ck-pv-actions { grid-column: 2; grid-row: 1 / span 2; margin: 0; flex-wrap: nowrap; }
+.ck-pv-modal::after { content: ""; position: absolute; inset: 0; background: rgba(20, 10, 15, .22); }
+.ck-pv-modal .ck-pv-card { z-index: 1; left: 50%; top: 50%; bottom: auto; transform: translate(-50%, -50%); }
+.ck-pv-label { position: absolute; top: 10px; right: 12px; z-index: 2; font-size: 11px; font-weight: 600;
+  letter-spacing: .04em; text-transform: uppercase; color: var(--on-surface-variant); }
+
+.ck-split { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 0 16px; }
+.ck-bars { display: grid; gap: 14px; }
+.ck-bar-head { display: flex; justify-content: space-between; font-size: 13.5px; margin-bottom: 6px; }
+.ck-bar-head b { font-variant-numeric: tabular-nums; }
+.ck-bar-track { height: 8px; border-radius: 999px; overflow: hidden;
+  background: color-mix(in srgb, var(--on-surface) 8%, transparent); }
+/* The tint class supplies the colour; the fill is that colour solid. */
+.ck-bar-track span { display: block; height: 100%; border-radius: inherit; background: currentColor;
+  transition: width .4s cubic-bezier(.2, 0, 0, 1); }
+
+.ck-name { font: 600 13px/1.3 ui-monospace, SFMono-Regular, Menlo, monospace; word-break: break-all; }
+.ck-cat-desc { margin: -4px 4px 10px; font-size: 13px; max-width: 72ch; }
+.ck-embed-hint { display: flex; gap: 14px; align-items: flex-start; margin-top: 16px; }
+.ck-embed-hint p { margin: 4px 0 0; font-size: 13px; }
+.ck-embed-hint code, .ck-hero code { font-size: 12px; }
+.ck-add { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 0 12px; }
+.ck-add .ck-wide { grid-column: 1 / -1; }
+.ck-search { display: flex; gap: 10px; align-items: center; margin: 16px 0 6px; }
+.ck-log-note { margin: 0 4px 14px; font-size: 12.5px; }
+
+.ck-settings-split { display: grid; grid-template-columns: minmax(0, 1fr) minmax(260px, 360px); gap: 16px; align-items: start; }
+.ck-settings-split .ck-preview { position: sticky; top: 96px; min-height: 240px; }
+@media (max-width: 860px) { .ck-settings-split { grid-template-columns: 1fr; } }
+.ck-control { min-width: 232px; display: flex; justify-content: flex-end; align-items: center; }
+.ck-control .field { width: 100%; }
+@media (max-width: 639px) { .ck-control { min-width: 0; width: 100%; } }
+.ck-wrap .row .detail { white-space: normal; overflow: visible; text-overflow: clip; }
+
+/* ---- site search (Tools → Search and Filtering): engine cards, weights,
+   the tester's scores and the insights bars ----
+   Cards, rows, fields and switches are the shared primitives. The engine
+   cards are radio labels — the whole card is the hit area — and take tint
+   and a hairline, not a backdrop filter: three on a row. */
+.ss-lead { margin: -2px 4px 10px; font-size: 13px; max-width: 76ch; }
+.ss-engines { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; }
+.ss-engine { position: relative; display: flex; flex-direction: column; gap: 4px; padding: 18px 18px 14px;
+  cursor: pointer; transition: border-color .15s, box-shadow .15s, transform .15s; }
+.ss-engine:hover { transform: translateY(-1px); }
+.ss-engine input { position: absolute; opacity: 0; pointer-events: none; }
+.ss-engine-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
+.ss-radio { width: 20px; height: 20px; border-radius: 50%; border: 2px solid var(--outline); transition: border-color .15s; }
+.ss-engine:has(input:checked) { border-color: var(--primary); box-shadow: 0 0 0 1px var(--primary), var(--glass-shadow-lift); }
+.ss-engine:has(input:checked) .ss-radio { border: 6px solid var(--primary); }
+.ss-engine:has(input:focus-visible) { outline: 2px solid var(--primary); outline-offset: 2px; }
+.ss-engine b { font-size: 16px; }
+.ss-engine-line { font-size: 13px; color: var(--on-surface-variant); }
+.ss-engine ul { margin: 8px 0 0; padding-left: 18px; font-size: 12.5px; color: var(--on-surface-variant); line-height: 1.6; }
+.ss-tags { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+.ss-tag { display: inline-flex; align-items: center; cursor: pointer; }
+.ss-tag input { position: absolute; opacity: 0; pointer-events: none; }
+.ss-tag span { height: 30px; padding: 0 12px; border-radius: 8px; display: inline-flex; align-items: center; gap: 6px;
+  font-size: 13px; border: 1px solid var(--outline-variant); transition: background-color .12s; }
+.ss-tag span:hover { background: var(--glass-hover); }
+.ss-tag input:checked + span { background: var(--red-bg); color: var(--red-fg); border-color: transparent; font-weight: 600;
+  text-decoration: line-through; }
+.ss-tag input:focus-visible + span { outline: 2px solid var(--primary); }
+.ss-weights { display: grid; gap: 18px; }
+.ss-weight { display: grid; grid-template-columns: minmax(0, 1fr) minmax(140px, 260px) 28px; gap: 16px; align-items: center; }
+.ss-weight .title { display: block; font-weight: 600; font-size: 14.5px; }
+.ss-weight .detail { display: block; font-size: 12.5px; color: var(--on-surface-variant); }
+.ss-weight input[type=range] { width: 100%; accent-color: var(--primary); }
+.ss-weight output { font-weight: 700; font-variant-numeric: tabular-nums; text-align: right; }
+.ss-control { min-width: 232px; display: flex; justify-content: flex-end; align-items: center; }
+.ss-control .field { width: 100%; }
+@media (max-width: 639px) {
+  .ss-control { min-width: 0; width: 100%; }
+  .ss-weight { grid-template-columns: 1fr 28px; }
+  .ss-weight > div { grid-column: 1 / -1; }
+}
+.ss-try { display: flex; gap: 10px; align-items: center; margin: 16px 0 14px; }
+.ss-note { margin-top: 16px; font-size: 13.5px; }
+.ss-hit .ss-rank { width: 28px; height: 28px; flex: none; border-radius: 50%; display: grid; place-items: center;
+  background: var(--secondary-container); color: var(--on-secondary-container); font-weight: 700; font-size: 13px; }
+.ss-hit .detail { white-space: normal; }
+.ss-score { font: 700 15px/1 ui-monospace, SFMono-Regular, Menlo, monospace; color: var(--primary); }
+.ss-tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px; margin-top: 16px; }
+.ss-tile { display: flex; flex-direction: column; gap: 2px; }
+.ss-tile .ic { margin-bottom: 8px; }
+.ss-tile-value { font-size: 26px; font-weight: 700; line-height: 1.1; font-variant-numeric: tabular-nums; }
+.ss-tile-label { font-size: 13.5px; font-weight: 600; }
+.ss-tile-detail { font-size: 12.5px; color: var(--on-surface-variant); }
+.ss-split { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 0 16px; }
+.ss-query { text-decoration: none; color: inherit; }
+.ss-bar { display: block; height: 6px; border-radius: 999px; margin-top: 6px;
+  background: color-mix(in srgb, var(--on-surface) 7%, transparent); overflow: hidden; }
+.ss-bar span { display: block; height: 100%; border-radius: inherit; background: var(--primary); opacity: .7; }
+.ss-count { font-weight: 700; font-variant-numeric: tabular-nums; margin-right: 8px; }
+
+/* ---- tools: the hub's search box ----
+   A pill-shaped glass field above the grid, the same 56px height and
+   radius language as the rail's search. What matched inside a card shows
+   on the card itself, between its description and its state line. */
+.tool-finder { position: relative; display: flex; align-items: center; gap: 12px; height: 56px; margin-top: 18px;
+  padding: 0 18px 0 20px; border-radius: 999px; background: var(--glass-strong);
+  border: 1px solid var(--glass-stroke); box-shadow: var(--glass-shadow), inset 0 1px 0 var(--glass-edge);
+  -webkit-backdrop-filter: var(--glass-blur); backdrop-filter: var(--glass-blur);
+  transition: border-color .15s, box-shadow .15s; }
+.tool-finder:focus-within { border-color: var(--primary);
+  box-shadow: 0 0 0 1px var(--primary), var(--glass-shadow-lift), inset 0 1px 0 var(--glass-edge); }
+.tool-finder-ic { display: grid; place-items: center; color: var(--on-surface-variant); }
+.tool-finder-ic svg { width: 22px; height: 22px; }
+.tool-finder input { all: unset; flex: 1; min-width: 0; font: inherit; font-size: 16px; color: var(--on-surface); }
+.tool-finder input::placeholder { color: var(--on-surface-variant); opacity: .85; }
+.tool-finder input::-webkit-search-cancel-button { cursor: pointer; }
+.tool-finder-count { font-size: 12.5px; font-weight: 600; color: var(--on-surface-variant); white-space: nowrap;
+  font-variant-numeric: tabular-nums; }
+.tool-card[hidden] { display: none; }
+.tool-found { font-size: 11.5px; line-height: 1.45; color: var(--on-secondary-container);
+  background: var(--secondary-container); border-radius: 8px; padding: 5px 8px;
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.tool-found[hidden] { display: none; }
+.tool-found b { font-weight: 700; }
+.tool-none { margin-top: 20px; text-align: center; }
+.tool-none p { margin: 0 0 6px; }
+.tool-none .btn { margin-top: 10px; }
+.tool-none[hidden] { display: none; }
+
+/* ---- ads (Tools → Advertising & Ad Management) ----
+   Tiles, rows, fields, chips are the shared primitives. What is here: the
+   30-day chart, the editor's two columns, the kind picker, and the rule that
+   shows only the fields the chosen kind and placement use — done with
+   `:has()`, so the editor needs no script and every field still posts. The
+   preview draws the site's own ad markup (`.vad`) with a few admin-scoped
+   rules, because the admin does not load the site's stylesheet. */
+.ad-tiles { display: grid; gap: 12px; margin-top: 16px; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); }
+.ad-tile { display: flex; flex-direction: column; gap: 2px; }
+.ad-tile .ic { margin-bottom: 8px; }
+.ad-tile-value { font-size: 26px; font-weight: 700; line-height: 1.1; font-variant-numeric: tabular-nums; }
+.ad-tile-label { font-size: 13.5px; font-weight: 600; }
+.ad-tile-detail { font-size: 12.5px; color: var(--on-surface-variant); }
+.ad-off { display: flex; gap: 14px; align-items: center; margin-top: 16px; }
+.ad-off > div { flex: 1; }
+.ad-off p { margin: 2px 0 0; font-size: 13px; }
+.ad-off form { margin: 0; }
+
+.ad-chart svg { display: block; width: 100%; height: 180px; overflow: visible; }
+.ad-bar { fill: color-mix(in srgb, var(--blue-fg) 55%, transparent); }
+.ad-bar:hover { fill: var(--blue-fg); }
+.ad-line { fill: none; stroke: var(--primary); stroke-width: 2.5; stroke-linejoin: round; stroke-linecap: round;
+  vector-effect: non-scaling-stroke; }
+.ad-chart-key { display: flex; gap: 16px; font-size: 12.5px; color: var(--on-surface-variant); margin-bottom: 10px; }
+.ad-chart-key i { display: inline-block; width: 10px; height: 10px; border-radius: 3px; margin-right: 6px; vertical-align: -1px; }
+.ad-chart-key .k-imp { background: color-mix(in srgb, var(--blue-fg) 55%, transparent); }
+.ad-chart-key .k-clk { background: var(--primary); border-radius: 50%; }
+.ad-chart-axis { display: flex; justify-content: space-between; font-size: 11.5px; color: var(--on-surface-variant); margin-top: 6px; }
+
+.ad-nums { display: flex; gap: 18px; align-items: center; font-size: 12.5px; color: var(--on-surface-variant); white-space: nowrap; }
+.ad-nums b { color: var(--on-surface); font-variant-numeric: tabular-nums; }
+@media (max-width: 760px) { .ad-nums span:nth-child(n+2) { display: none; } }
+
+.ad-split { display: grid; grid-template-columns: minmax(0, 1fr) minmax(280px, 380px); gap: 0 20px; align-items: start; }
+.ad-split-even { grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); }
+.ad-side { position: sticky; top: 96px; }
+@media (max-width: 980px) { .ad-split { grid-template-columns: 1fr; } .ad-side { position: static; } }
+.ad-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 12px; }
+@media (max-width: 640px) { .ad-grid { grid-template-columns: 1fr; } }
+.ad-hint { margin: -6px 2px 12px; font-size: 12.5px; }
+.ad-hint:last-child { margin-bottom: 0; }
+.ad-form textarea.mono, .ad-code, textarea.mono { font: 12.5px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; }
+.ad-code { margin: 0; padding: 12px 14px; border-radius: 12px; background: color-mix(in srgb, var(--on-surface) 6%, transparent); overflow-x: auto; }
+.ad-warn { margin-top: 12px; padding: 12px 14px; border-radius: 12px; background: var(--amber-bg); color: var(--amber-fg); font-size: 13px; }
+.ad-warn ul { margin: 6px 0 0; padding-left: 18px; }
+.ad-control { min-width: 200px; display: flex; justify-content: flex-end; }
+@media (max-width: 639px) { .ad-control { min-width: 0; width: 100%; } }
+
+/* The kind picker: three cards that are radio labels. */
+.ad-kinds { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; margin: 4px 0 16px; }
+.ad-kind { position: relative; display: flex; flex-direction: column; align-items: flex-start; gap: 8px; padding: 12px;
+  border-radius: 16px; border: 1px solid var(--outline-variant); cursor: pointer; transition: border-color .15s, background-color .15s; }
+.ad-kind:hover { background: var(--glass-hover); }
+.ad-kind input { position: absolute; opacity: 0; pointer-events: none; }
+.ad-kind b { font-size: 13.5px; }
+.ad-kind:has(input:checked) { border-color: var(--primary); box-shadow: 0 0 0 1px var(--primary); background: var(--glass-hover); }
+.ad-kind:has(input:focus-visible) { outline: 2px solid var(--primary); outline-offset: 2px; }
+@media (max-width: 520px) { .ad-kinds { grid-template-columns: 1fr; } }
+
+/* Only the fields the chosen kind and placement use. */
+.ad-form .ad-only, .ad-form .ad-only-p { display: none; }
+.ad-form:has(input[name=kind][value=image]:checked) .ad-only.ad-image,
+.ad-form:has(input[name=kind][value=text]:checked) .ad-only.ad-text,
+.ad-form:has(input[name=kind][value=code]:checked) .ad-only.ad-code,
+.ad-form:has(select[name=placement] option[value=post_paragraph]:checked) .ad-p-post_paragraph,
+.ad-form:has(select[name=placement] option[value=slot]:checked) .ad-p-slot { display: block; }
+/* A browser without :has() shows everything rather than hiding a field
+   somebody needs. */
+@supports not selector(:has(*)) { .ad-form .ad-only, .ad-form .ad-only-p { display: block; } }
+
+.ad-preview { overflow: hidden; }
+.ad-preview .vad { margin: 0; text-align: center; }
+.ad-preview .vad-label { display: block; margin-bottom: 6px; font-size: 10.5px; font-weight: 600; letter-spacing: .08em;
+  text-transform: uppercase; color: var(--on-surface-variant); }
+.ad-preview .vad-img { display: block; max-width: 100%; height: auto; margin: 0 auto; border-radius: 10px; }
+.ad-preview .vad-link { text-decoration: none; color: inherit; }
+.ad-preview .vad-text { display: flex; align-items: center; gap: 12px; padding: 12px 14px; text-align: left;
+  border: 1px solid var(--outline-variant); border-radius: 14px; }
+.ad-preview .vad-thumb { width: 48px; height: 48px; border-radius: 10px; object-fit: cover; }
+.ad-preview .vad-words { flex: 1; display: grid; gap: 2px; }
+.ad-preview .vad-headline { font-size: 15px; }
+.ad-preview .vad-body { font-size: 13px; color: var(--on-surface-variant); }
+.ad-preview .vad-cta { padding: 6px 12px; border-radius: 999px; background: var(--primary); color: var(--on-primary); font-size: 12.5px; font-weight: 600; }
+.ad-preview .vad-code { font-size: 12px; color: var(--on-surface-variant); }
+
+/* ---- workflows (Tools → Workflow & Editorial Management) ----
+   The board is a row of columns that scrolls sideways; each column is a
+   glass panel (one per stage — a handful, so the blur is allowed), each
+   card a tinted tile with no backdrop filter. The stepper, calendar and
+   entry page reuse cards, rows and fields. */
+.wf-bar { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; justify-content: space-between; margin-top: 16px; }
+.wf-chips { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.wf-chip { display: inline-flex; align-items: center; gap: 6px; height: 32px; padding: 0 12px; border-radius: 8px;
+  border: 1px solid var(--outline-variant); color: var(--on-surface-variant); text-decoration: none; font-size: 13.5px; font-weight: 500; }
+.wf-chip:hover { background: var(--glass-hover); }
+.wf-chip.on { background: var(--secondary-container); color: var(--on-secondary-container); border-color: transparent; font-weight: 600; }
+.wf-chip b { font-size: 11.5px; padding: 1px 7px; border-radius: 999px; background: color-mix(in srgb, var(--on-surface) 10%, transparent); }
+.wf-sep { width: 1px; height: 20px; background: var(--outline-variant); margin: 0 4px; }
+.wf-person { min-width: 220px; margin: 0; }
+.wf-idea { display: flex; gap: 8px; margin: 14px 0 0; }
+.wf-idea input { flex: 1; min-width: 0; height: 44px; padding: 0 16px; border-radius: 999px; border: 1px solid var(--glass-stroke);
+  background: var(--glass-strong); color: var(--on-surface); font: inherit; font-size: 15px; }
+.wf-idea input:focus { outline: 2px solid var(--primary); outline-offset: 1px; }
+
+.wf-board { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(260px, 1fr); gap: 12px; margin-top: 16px;
+  overflow-x: auto; padding-bottom: 8px; align-items: start; scroll-snap-type: x proximity; }
+.wf-col { display: flex; flex-direction: column; min-height: 240px; max-height: calc(100vh - 260px); border-radius: 20px;
+  background: var(--glass); border: 1px solid var(--glass-stroke); box-shadow: var(--glass-shadow), inset 0 1px 0 var(--glass-edge);
+  scroll-snap-align: start; transition: box-shadow .15s, border-color .15s; }
+.wf-col.wf-drop-on { border-color: var(--primary); box-shadow: 0 0 0 2px var(--primary), var(--glass-shadow-lift); }
+.wf-col.wf-over .wf-count { background: var(--red-bg); color: var(--red-fg); }
+.wf-col-head { display: flex; align-items: center; gap: 8px; padding: 14px 14px 10px; }
+.wf-col-head h2 { margin: 0; font-size: 14px; font-weight: 650; flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.wf-dot { width: 10px; height: 10px; border-radius: 50%; flex: none; }
+.wf-dot.tint-slate, .wf-dot[class*="tint-"] { background: currentColor; }
+.wf-count { font-size: 12px; font-weight: 600; padding: 2px 8px; border-radius: 999px; background: color-mix(in srgb, var(--on-surface) 8%, transparent);
+  font-variant-numeric: tabular-nums; }
+.wf-cards { display: flex; flex-direction: column; gap: 8px; padding: 0 10px 12px; overflow-y: auto; min-height: 60px; }
+.wf-empty { margin: 8px 4px; font-size: 12.5px; color: var(--on-surface-variant); text-align: center; }
+
+.wf-card { position: relative; display: flex; flex-direction: column; gap: 8px; padding: 12px 12px 10px; border-radius: 14px;
+  background: var(--glass-strong); border: 1px solid var(--glass-stroke); box-shadow: 0 1px 2px rgba(0, 0, 0, .04);
+  transition: transform .12s, box-shadow .12s; }
+.wf-card[draggable="true"] { cursor: grab; }
+.wf-card:hover { box-shadow: var(--glass-shadow-lift); }
+.wf-card.wf-dragging { opacity: .5; transform: rotate(1.5deg); }
+.wf-card.wf-p-urgent { border-left: 3px solid var(--red-fg); }
+.wf-card.wf-p-high { border-left: 3px solid var(--amber-fg); }
+.wf-title { color: var(--on-surface); text-decoration: none; font-weight: 600; font-size: 14px; line-height: 1.35; }
+.wf-title:hover { color: var(--primary); }
+.wf-meta { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.wf-meta:empty { display: none; }
+.wf-meta .chip { height: 20px; font-size: 11px; padding: 0 8px; }
+.wf-prio { font-size: 11px; font-weight: 700; padding: 2px 8px; border-radius: 999px; }
+.wf-due, .wf-when { display: inline-flex; align-items: center; gap: 4px; font-size: 11.5px; font-weight: 600; padding: 2px 8px; border-radius: 999px;
+  background: color-mix(in srgb, var(--on-surface) 7%, transparent); color: var(--on-surface-variant); }
+.wf-due svg { width: 12px; height: 12px; }
+.wf-due-over { background: var(--red-bg); color: var(--red-fg); }
+.wf-due-today { background: var(--amber-bg); color: var(--amber-fg); }
+.wf-due-soon { background: var(--blue-bg); color: var(--blue-fg); }
+.wf-foot { display: flex; align-items: center; gap: 8px; }
+.wf-stats { display: flex; gap: 8px; flex: 1; font-size: 11.5px; color: var(--on-surface-variant); }
+.wf-stats span { display: inline-flex; align-items: center; gap: 3px; }
+.wf-stats svg { width: 13px; height: 13px; }
+.wf-avatar { width: 26px; height: 26px; flex: none; border-radius: 50%; display: grid; place-items: center; font-size: 10.5px; font-weight: 700;
+  background: var(--secondary-container); color: var(--on-secondary-container); }
+.wf-avatar-none { background: color-mix(in srgb, var(--on-surface) 7%, transparent); color: var(--on-surface-variant); }
+.wf-move { display: flex; gap: 2px; }
+.wf-move form { margin: 0; }
+.wf-arrow { all: unset; width: 26px; height: 26px; border-radius: 50%; display: grid; place-items: center; cursor: pointer; color: var(--on-surface-variant); }
+.wf-arrow:hover { background: var(--glass-hover); color: var(--primary); }
+.wf-arrow:focus-visible { outline: 2px solid var(--primary); }
+.wf-arrow svg { width: 16px; height: 16px; }
+.wf-arrow-gap { width: 26px; }
+.wf-toast { position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%); z-index: 1000; padding: 12px 20px; border-radius: 14px;
+  background: var(--inverse-surface, #322F30); color: var(--inverse-on-surface, #F5EFF0); font-size: 14px; box-shadow: var(--glass-shadow-lift); }
+
+/* The entry page. */
+.wf-stepper { display: flex; gap: 4px; margin-top: 16px; overflow-x: auto; padding-bottom: 4px; }
+.wf-step { flex: 1; min-width: 110px; margin: 0; }
+.wf-step > button, .wf-step:not(form) { all: unset; box-sizing: border-box; display: flex; align-items: center; gap: 8px; width: 100%;
+  padding: 10px 12px; border-radius: 12px; font-size: 13px; }
+.wf-step > button { cursor: pointer; }
+.wf-step > button:hover { background: var(--glass-hover); }
+.wf-step-dot { width: 24px; height: 24px; flex: none; border-radius: 50%; display: grid; place-items: center; font-size: 11.5px; font-weight: 700;
+  border: 2px solid var(--outline-variant); color: var(--on-surface-variant); }
+.wf-step-done .wf-step-dot { background: var(--green-bg); border-color: var(--green-fg); color: var(--green-fg); }
+.wf-step-now .wf-step-dot { background: var(--primary); border-color: var(--primary); color: var(--on-primary); }
+.wf-step-now .wf-step-label { font-weight: 700; }
+.wf-step-todo .wf-step-label { color: var(--on-surface-variant); }
+.wf-gate { display: flex; gap: 12px; align-items: center; margin-top: 12px; background: var(--amber-bg); color: var(--amber-fg); }
+.wf-gate p { margin: 0; }
+.wf-item { display: grid; grid-template-columns: minmax(0, 1fr) minmax(280px, 360px); gap: 0 20px; align-items: start; }
+@media (max-width: 960px) { .wf-item { grid-template-columns: 1fr; } }
+.wf-two { display: grid; grid-template-columns: 1fr 1fr; gap: 0 10px; }
+.wf-due-note { margin: -4px 2px 10px; font-size: 12.5px; font-weight: 600; }
+.wf-due-note.wf-due-over { color: var(--red-fg); background: none; }
+.wf-checks { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; }
+.wf-check { display: flex; align-items: center; gap: 10px; font-size: 13.5px; padding: 6px 4px; border-radius: 10px; }
+.wf-check form { margin: 0; flex: 1; }
+.wf-tick-btn { all: unset; display: flex; align-items: center; gap: 10px; width: 100%; cursor: pointer; }
+.wf-tick-btn:focus-visible { outline: 2px solid var(--primary); border-radius: 8px; }
+.wf-check:hover { background: var(--glass-hover); }
+.wf-tick { width: 20px; height: 20px; flex: none; border-radius: 6px; border: 2px solid var(--outline); display: grid; place-items: center; }
+.wf-tick svg { width: 14px; height: 14px; }
+.wf-check.on .wf-tick { background: var(--primary); border-color: var(--primary); color: var(--on-primary); }
+.wf-check.wf-auto.on .wf-tick { background: var(--green-fg); border-color: var(--green-fg); color: #fff; }
+.wf-check.wf-auto:hover { background: none; }
+.wf-auto-tag { margin-left: auto; font-size: 10.5px; text-transform: uppercase; letter-spacing: .06em; color: var(--on-surface-variant); }
+.wf-notes { display: grid; gap: 14px; margin-bottom: 14px; }
+.wf-note { display: flex; gap: 10px; }
+.wf-note-body { flex: 1; min-width: 0; }
+.wf-note-head { display: flex; align-items: center; gap: 8px; font-size: 13px; }
+.wf-note-head span { color: var(--on-surface-variant); font-size: 12px; }
+.wf-note-head form { margin: 0 0 0 auto; }
+.wf-note-body p { margin: 4px 0 0; font-size: 14px; line-height: 1.5; white-space: normal; overflow-wrap: anywhere; }
+.wf-note-del { all: unset; cursor: pointer; width: 24px; height: 24px; border-radius: 50%; display: grid; place-items: center; color: var(--on-surface-variant); }
+.wf-note-del:hover { background: var(--glass-hover); }
+.wf-note-del svg { width: 14px; height: 14px; }
+.wf-history { list-style: none; margin: 0; padding: 0; display: grid; gap: 12px; }
+.wf-history li { display: flex; gap: 10px; align-items: flex-start; font-size: 13.5px; }
+.wf-ev-ic { width: 26px; height: 26px; flex: none; border-radius: 50%; display: grid; place-items: center; }
+.wf-ev-ic svg { width: 14px; height: 14px; }
+.wf-ev-when { display: block; font-size: 12px; color: var(--on-surface-variant); margin-top: 1px; }
+
+/* The calendar. */
+.wf-cal-bar { display: flex; align-items: center; gap: 8px; margin-top: 16px; flex-wrap: wrap; }
+.wf-cal-bar h2 { margin: 0 8px; font-size: 20px; font-weight: 650; min-width: 170px; text-align: center; }
+.wf-legend { margin-left: auto; display: flex; gap: 6px; align-items: center; font-size: 12.5px; color: var(--on-surface-variant); }
+.wf-legend i { display: inline-block; width: 18px; height: 10px; border-radius: 4px; margin-left: 10px; }
+.wf-legend i.wf-pill-due { border: 1.5px dashed var(--outline); }
+.wf-legend i.tint-purple, .wf-legend i.tint-green { background: currentColor; }
+.wf-cal { margin-top: 12px; padding: 8px; overflow-x: auto; }
+.wf-week { display: grid; grid-template-columns: repeat(7, minmax(110px, 1fr)); }
+.wf-weekdays span { padding: 6px 8px; font-size: 11.5px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--on-surface-variant); }
+.wf-day { min-height: 104px; padding: 6px; border-top: 1px solid var(--outline-variant); display: flex; flex-direction: column; gap: 4px; }
+.wf-day + .wf-day { border-left: 1px solid color-mix(in srgb, var(--outline-variant) 60%, transparent); }
+.wf-out { background: color-mix(in srgb, var(--on-surface) 3%, transparent); }
+.wf-out .wf-daynum { opacity: .45; }
+.wf-daynum { font-size: 12.5px; font-weight: 600; width: 24px; height: 24px; display: grid; place-items: center; border-radius: 50%; }
+.wf-today .wf-daynum { background: var(--primary); color: var(--on-primary); }
+.wf-pill { display: block; padding: 3px 7px; border-radius: 7px; font-size: 11.5px; font-weight: 600; text-decoration: none;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.wf-pill-due { background: transparent; border: 1.5px dashed currentColor; }
+.wf-pill:hover { filter: brightness(.96); }
+
+/* Settings. */
+.wf-lead { margin: -2px 4px 10px; font-size: 13px; max-width: 80ch; }
+.wf-stage-row { display: grid; grid-template-columns: 12px minmax(160px, 1fr) 150px 90px 90px auto; gap: 10px; align-items: center; padding: 6px 0; }
+.wf-stage-row + .wf-stage-row { border-top: 1px solid color-mix(in srgb, var(--outline-variant) 60%, transparent); }
+.wf-stage-new { padding-top: 12px; }
+.wf-remove { display: flex; align-items: center; gap: 6px; font-size: 13px; color: var(--on-surface-variant); cursor: pointer; white-space: nowrap; }
+.wf-control { min-width: 220px; display: flex; justify-content: flex-end; }
+@media (max-width: 760px) {
+  .wf-stage-row { grid-template-columns: 12px 1fr 1fr; }
+  .wf-control { min-width: 0; width: 100%; }
+}
+/* `all: unset` on a step that is not a form also unset its flex share, so
+   the clickable and current steps sat at different widths. Re-applied. */
+.wf-step, .wf-step:not(form) { flex: 1 1 0; min-width: 110px; }
+
+/* ---- social media (Tools → Social → Social media), and the switch both
+   halves of Social share ----
+   The switch is two large cards, so that "Social web" and "Social media"
+   read as two different things at a glance; the current one is lifted and
+   outlined. Accounts are rows; the connect grid is <details> tiles that open
+   in place. Network badges are letters on a tint — no third-party logos. */
+.sm-sections { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; margin-top: 16px; }
+@media (max-width: 760px) { .sm-sections { grid-template-columns: 1fr; } }
+.sm-section { position: relative; display: flex; gap: 14px; align-items: flex-start; padding: 18px 20px; border-radius: 22px;
+  text-decoration: none; color: var(--on-surface); background: var(--glass); border: 1px solid var(--glass-stroke);
+  box-shadow: var(--glass-shadow), inset 0 1px 0 var(--glass-edge); transition: transform .15s, border-color .15s, box-shadow .15s; }
+.sm-section:hover { transform: translateY(-1px); border-color: var(--outline); }
+.sm-section.on { background: var(--glass-strong); border-color: var(--primary); box-shadow: 0 0 0 1px var(--primary), var(--glass-shadow-lift), inset 0 1px 0 var(--glass-edge); }
+.sm-section .ic { flex: none; width: 44px; height: 44px; border-radius: 14px; }
+.sm-section .ic svg { width: 22px; height: 22px; }
+.sm-section-text { display: grid; gap: 3px; min-width: 0; }
+.sm-section-text b { font-size: 17px; font-weight: 650; }
+.sm-section-text span { font-size: 14px; }
+.sm-section-text small { font-size: 12.5px; color: var(--on-surface-variant); line-height: 1.45; }
+.sm-section-mark { position: absolute; top: 14px; right: 16px; font-size: 11px; font-weight: 700; letter-spacing: .04em;
+  text-transform: uppercase; color: var(--primary); }
+.sm-subhead { margin: 22px 4px 4px; font-size: 18px; font-weight: 650; }
+.sm-subhead span { font-weight: 400; font-size: 14px; color: var(--on-surface-variant); }
+
+.sm-tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; margin-top: 16px; }
+.sm-tile { display: flex; flex-direction: column; gap: 2px; text-decoration: none; color: inherit; }
+a.sm-tile:hover { border-color: var(--outline); }
+.sm-tile-value { font-size: 24px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.sm-tile-value.sm-bad { color: var(--red-fg); }
+.sm-tile-label { font-size: 12.5px; color: var(--on-surface-variant); font-weight: 600; }
+.sm-empty b { display: block; margin-bottom: 4px; }
+.sm-empty p { margin: 0; }
+.sm-lead { margin: -2px 4px 10px; font-size: 13px; max-width: 80ch; }
+.sm-hint { margin: -6px 2px 12px; font-size: 12.5px; color: var(--on-surface-variant); }
+
+.sm-badge { width: 36px; height: 36px; flex: none; border-radius: 11px; display: grid; place-items: center;
+  font: 800 13px/1 system-ui, -apple-system, sans-serif; letter-spacing: -.02em; }
+.sm-account .body .detail { white-space: normal; }
+.sm-controls { display: flex; align-items: center; gap: 4px; flex-wrap: wrap; justify-content: flex-end; }
+.sm-controls form { margin: 0; }
+.sm-toggle { all: unset; display: inline-flex; align-items: center; gap: 8px; height: 32px; padding: 0 12px; border-radius: 999px; cursor: pointer;
+  font-size: 13px; font-weight: 600; border: 1px solid var(--outline-variant); color: var(--on-surface-variant); }
+.sm-toggle i { width: 8px; height: 8px; border-radius: 50%; background: var(--outline); }
+.sm-toggle.on { background: var(--green-bg); color: var(--green-fg); border-color: transparent; }
+.sm-toggle.on i { background: #2E9D5B; box-shadow: 0 0 0 3px color-mix(in srgb, #2E9D5B 22%, transparent); }
+.sm-toggle:focus-visible { outline: 2px solid var(--primary); }
+
+.sm-connects { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 10px; align-items: start; }
+.sm-connect { border-radius: 18px; background: var(--glass); border: 1px solid var(--glass-stroke); box-shadow: inset 0 1px 0 var(--glass-edge); }
+.sm-connect[open] { background: var(--glass-strong); border-color: var(--outline); }
+.sm-connect summary { display: flex; align-items: center; gap: 12px; padding: 12px 14px; cursor: pointer; list-style: none; }
+.sm-connect summary::-webkit-details-marker { display: none; }
+.sm-connect summary b { flex: 1; font-size: 14.5px; }
+.sm-connect summary svg { width: 18px; height: 18px; color: var(--on-surface-variant); transform: rotate(90deg); transition: transform .15s; }
+.sm-connect[open] summary svg { transform: rotate(-90deg); }
+.sm-limit { font-size: 11.5px; color: var(--on-surface-variant); }
+.sm-connect-form { padding: 4px 14px 14px; }
+.sm-check { display: flex; align-items: center; gap: 8px; font-size: 13.5px; margin: 4px 2px 12px; cursor: pointer; }
+.sm-connect-actions, .sm-edit-actions, .sm-save { display: flex; justify-content: flex-end; gap: 8px; }
+.sm-edit-actions { justify-content: space-between; }
+.sm-save { margin-top: 14px; }
+.sm-account-head { display: flex; align-items: center; gap: 12px; margin: 18px 0 4px; }
+.sm-account-head h2 { margin: 0; font-size: 20px; }
+.sm-account-head p { margin: 2px 0 0; font-size: 13px; }
+.sm-edit { max-width: 760px; }
+
+.sm-pick { display: flex; gap: 8px; align-items: center; margin: 16px 0 12px; }
+.sm-drafts { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 10px; }
+.sm-draft { padding: 14px; border-radius: 18px; background: var(--glass); border: 1px solid var(--glass-stroke); display: grid; gap: 10px; }
+.sm-draft-head { display: flex; align-items: center; gap: 10px; cursor: pointer; }
+.sm-draft-head .sm-badge { width: 30px; height: 30px; border-radius: 9px; font-size: 11.5px; }
+.sm-draft-head b { font-size: 14px; }
+.sm-draft-head .muted { font-size: 12px; flex: 1; }
+.sm-draft:has(input[type=checkbox]:not(:checked)) { opacity: .55; }
+.sm-count { text-align: right; font-size: 12px; font-weight: 600; color: var(--on-surface-variant); font-variant-numeric: tabular-nums; }
+.sm-over .sm-count { color: var(--red-fg); }
+.sm-over textarea { border-color: var(--red-fg) !important; }
+.sm-send { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 12px; flex-wrap: wrap; }
+
+.sm-filters { margin: 16px 0 12px; }
+.sm-share .body { min-width: 0; }
+.sm-share-text { display: block; margin-top: 6px; font-size: 13px; color: var(--on-surface-variant); white-space: pre-wrap; overflow-wrap: anywhere;
+  max-height: 4.5em; overflow: hidden; }
+.sm-err { display: block; margin-top: 6px; font-size: 12.5px; color: var(--red-fg); }
+.sm-control { min-width: 240px; display: flex; justify-content: flex-end; }
+@media (max-width: 639px) { .sm-control { min-width: 0; width: 100%; } }
+/* The share bar's own look, for the preview — the site stylesheet is not
+   loaded in the admin. */
+.sm-preview .vsb-label { display: block; margin-bottom: 10px; font-size: 12px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: var(--on-surface-variant); }
+.sm-preview .vsb-row { display: flex; flex-wrap: wrap; gap: 8px; }
+.sm-preview .vsb-btn { display: inline-flex; align-items: center; height: 34px; padding: 0 14px; border-radius: 999px; border: 1px solid var(--outline-variant);
+  font-size: 13.5px; font-weight: 600; color: var(--on-surface); text-decoration: none; background: none; cursor: pointer; font-family: inherit; }
+.sm-sections + .seg-bar { margin-top: 18px; }
+
+/* ---- caching (Tools → Caching & Performance) ----
+   Tiles, rows and fields are the shared primitives. What is here: the
+   slowest-pages bars, the fact lists, and the settings' controls. */
+.cp-tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; margin-top: 16px; }
+.cp-tile { display: flex; flex-direction: column; gap: 2px; }
+.cp-tile .ic { margin-bottom: 8px; }
+.cp-tile-value { font-size: 24px; font-weight: 700; line-height: 1.15; font-variant-numeric: tabular-nums; }
+.cp-tile-label { font-size: 13.5px; font-weight: 600; }
+.cp-tile-detail { font-size: 12.5px; color: var(--on-surface-variant); line-height: 1.4; }
+.cp-split { display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr); gap: 0 16px; }
+@media (max-width: 960px) { .cp-split { grid-template-columns: 1fr; } }
+.cp-slow { display: grid; grid-template-columns: minmax(0, 1fr) 140px; gap: 4px 12px; align-items: center; padding: 8px 0; }
+.cp-slow + .cp-slow { border-top: 1px solid color-mix(in srgb, var(--outline-variant) 55%, transparent); }
+.cp-slow a { color: var(--on-surface); text-decoration: none; font-weight: 600; font-size: 13.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cp-slow a:hover { color: var(--primary); }
+.cp-bar { grid-row: 2; height: 6px; border-radius: 999px; background: color-mix(in srgb, var(--on-surface) 7%, transparent); overflow: hidden; }
+.cp-bar span { display: block; height: 100%; border-radius: inherit; background: var(--amber-fg); opacity: .65; }
+.cp-ms { grid-column: 2; grid-row: 1 / span 2; text-align: right; font-size: 12px; color: var(--on-surface-variant); font-variant-numeric: tabular-nums; }
+.cp-facts { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+.cp-facts li { display: flex; justify-content: space-between; gap: 12px; font-size: 13.5px; }
+.cp-facts li span { color: var(--on-surface-variant); }
+.cp-facts li b { font-variant-numeric: tabular-nums; }
+.cp-lead { margin: -2px 4px 10px; font-size: 13px; max-width: 82ch; }
+.cp-hint { margin: -4px 2px 12px; font-size: 12.5px; color: var(--on-surface-variant); }
+.cp-two { display: grid; grid-template-columns: 1fr 1fr; gap: 0 12px; }
+@media (max-width: 640px) { .cp-two { grid-template-columns: 1fr; } }
+.cp-check { display: flex; align-items: center; gap: 8px; font-size: 13.5px; cursor: pointer; }
+.cp-save { display: flex; justify-content: space-between; gap: 8px; margin-top: 16px; }
+.cp-save > :only-child { margin-left: auto; }
+.cp-control { min-width: 230px; display: flex; justify-content: flex-end; }
+.cp-control .field { width: 100%; }
+@media (max-width: 639px) { .cp-control { min-width: 0; width: 100%; } }
+
+/* ---- directories (Tools → Directory & Classified Listings) ----
+   Tiles, rows, fields and chips are the shared primitives. What is here:
+   the live/off banner, listing rows with thumbnails and inline review,
+   the kind picker, and the price section that only a classified shows
+   (`:has()`, so the editor needs no script and still posts every field). */
+.dr-tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 12px; margin-top: 16px; }
+.dr-tile { display: flex; flex-direction: column; gap: 2px; text-decoration: none; color: inherit; }
+a.dr-tile:hover { border-color: var(--outline); }
+.dr-tile .ic { margin-bottom: 8px; }
+.dr-tile-value { font-size: 26px; font-weight: 700; line-height: 1.1; font-variant-numeric: tabular-nums; }
+.dr-tile-label { font-size: 13.5px; font-weight: 600; }
+.dr-tile-detail { font-size: 12.5px; color: var(--on-surface-variant); }
+.dr-live { display: flex; align-items: center; gap: 14px; margin-top: 16px; }
+.dr-live > div { flex: 1; }
+.dr-live p { margin: 2px 0 0; font-size: 13px; }
+.dr-off { background: color-mix(in srgb, var(--amber-bg) 45%, var(--glass)); }
+.dr-thumb { width: 44px; height: 44px; border-radius: 12px; object-fit: cover; flex: none; }
+.dr-listing .title a { color: inherit; text-decoration: none; }
+.dr-listing .title a:hover { color: var(--primary); }
+.dr-listing .detail { white-space: normal; }
+.dr-actions { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
+.dr-actions form { margin: 0; }
+.dr-reject { display: flex; gap: 4px; align-items: center; }
+.dr-reject input { height: 32px; width: 160px; padding: 0 10px; border-radius: 8px; border: 1px solid var(--outline-variant);
+  background: transparent; color: var(--on-surface); font: inherit; font-size: 13px; }
+.dr-filter { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin: 16px 0 8px; }
+.dr-filter .field.fixed { min-width: 170px; }
+.dr-lead { margin: 0 4px 10px; font-size: 13px; }
+.dr-split { display: grid; grid-template-columns: minmax(0, 1fr) minmax(260px, 340px); gap: 0 20px; align-items: start; }
+.dr-split-even { grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); }
+@media (max-width: 980px) { .dr-split { grid-template-columns: 1fr; } }
+.dr-kinds { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 14px; }
+@media (max-width: 560px) { .dr-kinds { grid-template-columns: 1fr; } }
+.dr-kind { position: relative; display: grid; gap: 2px; padding: 12px 14px; border-radius: 16px; border: 1px solid var(--outline-variant); cursor: pointer; }
+.dr-kind input { position: absolute; opacity: 0; pointer-events: none; }
+.dr-kind span { font-size: 12.5px; color: var(--on-surface-variant); }
+.dr-kind:has(input:checked) { border-color: var(--primary); box-shadow: 0 0 0 1px var(--primary); background: var(--glass-hover); }
+.dr-kind:has(input:focus-visible) { outline: 2px solid var(--primary); outline-offset: 2px; }
+.dr-form .dr-only-classified { display: none; }
+.dr-form:has(input[name=kind][value=classified]:checked) .dr-only-classified { display: block; }
+@supports not selector(:has(*)) { .dr-form .dr-only-classified { display: block; } }
+.dr-check { display: flex; align-items: center; gap: 8px; font-size: 13.5px; cursor: pointer; }
+.dr-hint { margin: -4px 2px 0; font-size: 12.5px; }
+.dr-save { display: flex; justify-content: flex-end; margin-top: 14px; }
+.dr-status p { margin: 0 0 8px; }
+.dr-status-actions { display: flex; flex-wrap: wrap; gap: 6px; }
+.dr-status-actions form { margin: 0; }
+.dr-cat { border-radius: 14px; }
+.dr-cat + .dr-cat { border-top: 1px solid color-mix(in srgb, var(--outline-variant) 60%, transparent); }
+.dr-cat summary { display: flex; align-items: center; gap: 10px; padding: 10px 4px; cursor: pointer; list-style: none; }
+.dr-cat summary::-webkit-details-marker { display: none; }
+.dr-cat summary b { font-size: 14.5px; }
+.dr-cat summary .muted { flex: 1; font-size: 12.5px; }
+.dr-cat summary svg:last-child { width: 18px; height: 18px; transform: rotate(90deg); transition: transform .15s; }
+.dr-cat[open] summary svg:last-child { transform: rotate(-90deg); }
+.dr-cat-form { padding: 6px 4px 14px; }
+.dr-cat-actions { display: flex; justify-content: space-between; }
+.dr-control { min-width: 220px; display: flex; justify-content: flex-end; }
+@media (max-width: 639px) { .dr-control { min-width: 0; width: 100%; } }
+
+/* ==== Tools → Page Builder & Visual Editor (builder.rs) — `vb-` ==========
+   The tool's own screens. The visual editor itself is a separate,
+   full-screen stylesheet: assets/builder-editor.css. */
+.vb-tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 12px; margin-top: 16px; }
+.vb-tile { display: flex; flex-direction: column; gap: 2px; }
+.vb-tile .ic { margin-bottom: 8px; }
+.vb-tile-value { font-size: 26px; font-weight: 700; line-height: 1.1; font-variant-numeric: tabular-nums; }
+.vb-tile-label { font-weight: 600; }
+.vb-tile-detail { color: var(--on-surface-variant); font-size: 13px; }
+.vb-start { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 12px; margin-top: 12px; }
+.vb-start-card { display: flex; gap: 14px; align-items: flex-start; }
+.vb-start-body { flex: 1; min-width: 0; }
+.vb-start-body p { margin: 2px 0 12px; }
+.vb-inline { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+.vb-actions { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; justify-content: flex-end; }
+.vb-actions form { margin: 0; }
+.vb-live { display: flex; gap: 14px; align-items: center; margin-top: 14px; }
+.vb-live > div { flex: 1; }
+.vb-live p { margin: 2px 0 0; }
+.vb-control { min-width: 220px; }
+.vb-swatches { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 12px; }
+.vb-swatch { display: flex; flex-direction: column; gap: 4px; padding: 10px; border-radius: 16px; border: 1px solid var(--outline); cursor: pointer; }
+.vb-swatch input[type=color] { width: 100%; height: 56px; border: 0; border-radius: 10px; padding: 0; background: none; cursor: pointer; }
+.vb-swatch input[type=color]::-webkit-color-swatch-wrapper { padding: 0; }
+.vb-swatch input[type=color]::-webkit-color-swatch { border: 0; border-radius: 10px; }
+.vb-swatch-name { font-weight: 600; font-size: 14px; }
+.vb-swatch-hex { font-family: var(--mono); font-size: 12px; color: var(--on-surface-variant); }
+.vb-swatch-follow { display: flex; gap: 6px; align-items: center; font-size: 12px; color: var(--on-surface-variant); }
+.vb-editor-note { display: flex; gap: 14px; align-items: center; margin: 0 0 16px; }
+.vb-editor-note > div { flex: 1; }
+.vb-editor-note p { margin: 2px 0 0; }
+.vb-off { background: color-mix(in srgb, var(--amber-bg) 45%, var(--glass)); }
+.vb-row-item .title a { color: inherit; text-decoration: none; }
+.vb-row-item .title a:hover { color: var(--primary); }
+.vb-row-item .detail { white-space: normal; }
+
+/* ==== the post/page editor as a workspace (2026-11-22) ====================
+   Wide screens: the window is the frame. The head is a plain row (not the
+   sticky glass scrim other pages use — nothing scrolls under it), and the
+   writing sheet and the settings column each scroll on their own, so neither
+   slides beneath the other or beneath the head. The sheet is paper: opaque,
+   still, one hairline edge — not a translucent pane over a moving backdrop.
+   Below 1200px the old single-column flow returns unchanged. */
+@media (min-width: 1200px) {
+  .content:has(.editor-shell) { height: 100vh; display: flex; flex-direction: column; padding-bottom: 0; overflow: hidden; }
+  .content:has(.editor-shell) > .ed-head { flex: none; }
+  .content:has(.editor-shell) > .editor-shell { flex: 1 1 auto; min-height: 0; align-items: stretch; padding-bottom: 20px; }
+  .editor-shell > .editor-main { overflow-y: auto; overscroll-behavior: contain; scrollbar-gutter: stable;
+    scrollbar-width: thin; scrollbar-color: var(--outline-variant) transparent; }
+  .editor-shell > .editor-side { position: static; height: 100%; max-height: none; overscroll-behavior: contain; scrollbar-gutter: stable; }
+  .editor-main .wc-pill { position: sticky; display: block; width: max-content; margin: 18px 0 0 auto; bottom: 0; right: auto; }
+  .editor-main .wc-pill:empty { display: none; }
+}
+.page-head.ed-head { position: relative; top: auto; z-index: 5; background: none; -webkit-backdrop-filter: none; backdrop-filter: none;
+  -webkit-mask-image: none; mask-image: none; box-shadow: none; border: 0; margin-bottom: 4px; }
+.page-head.ed-head::before, .page-head.ed-head::after { display: none; }
+.ed-head-title { display: flex; align-items: center; gap: 12px; min-width: 0; }
+.ed-head-title h1 { white-space: nowrap; }
+.editor-main { background: var(--sc-lowest); -webkit-backdrop-filter: none; backdrop-filter: none;
+  border: 1px solid var(--outline); box-shadow: 0 1px 2px rgba(0,0,0,.04); border-radius: 20px; padding: 40px 48px 32px; }
+html.dark .editor-main { background: var(--sc-low); }
+/* the actions card: one row per thing you can do with the entry */
+.ed-actions-card { padding: 8px; }
+.ed-actions { display: flex; flex-direction: column; gap: 2px; }
+.ed-action { display: flex; align-items: center; gap: 12px; width: 100%; min-height: 40px; padding: 8px 12px; border: 0; border-radius: 12px;
+  background: none; color: var(--on-surface); font: inherit; font-size: 14px; font-weight: 500; text-align: left; text-decoration: none; cursor: pointer;
+  transition: background var(--dur) var(--ease); }
+.ed-action:hover { background: var(--glass-hover); }
+.ed-action:focus-visible { outline: 2px solid var(--primary); outline-offset: -2px; }
+.ed-action:disabled { opacity: .55; cursor: progress; }
+.ed-action svg.i { width: 18px; height: 18px; flex: none; color: var(--primary); }
+.ed-action span { display: flex; flex-direction: column; min-width: 0; }
+.ed-action small { font-size: 12px; font-weight: 400; color: var(--green-fg); }
+/* the Save button follows the save state (koenig-bridge.js paintSaveButton) */
+#editor-save { min-width: 132px; transition: background var(--dur) var(--ease), color var(--dur) var(--ease), box-shadow var(--dur) var(--ease); }
+#editor-save.is-clean, #editor-save.is-saving { background: var(--secondary-container); color: var(--on-secondary-container); box-shadow: none; cursor: default; opacity: 1; }
+#editor-save.is-saving { cursor: progress; }
+#editor-save.is-dirty { position: relative; }
+#editor-save.is-dirty::after { content: ""; position: absolute; top: 6px; right: 8px; width: 7px; height: 7px; border-radius: 50%;
+  background: #ffb4c8; box-shadow: 0 0 0 2px var(--primary); }
+#editor-save.is-error { background: var(--error); color: #fff; }
+#editor-save:disabled:hover { box-shadow: none; }
+#editor-save:disabled:active { transform: none; }
+/* back, not forward: the chevron glyph points right */
+.ed-head > .icon-btn:first-child svg { transform: rotate(180deg); }
+/* the top bar's Preview button is placed by script into this slot */
+.ed-head-slot { display: contents; }
+/* "More actions": rows inside a settings panel */
+.editor-side .ed-actions { margin: -4px -8px 0; }
+
+/* ---- the editor's top bar, as the window narrows ----
+   Title and status chip on the left may shrink (the title ellipsises); the
+   actions never overlap them. Step 1: the text buttons go icon-only, with
+   their names as tooltips. Step 2: the save status text goes — the Save
+   button says the same. Step 3: the actions take a row of their own. */
+.ed-head { flex-wrap: wrap; row-gap: 10px; }
+.ed-head-title { flex: 1 1 auto; min-width: 0; }
+.ed-head-title h1 { overflow: hidden; text-overflow: ellipsis; }
+.ed-head .actions { flex-wrap: nowrap; min-width: 0; }
+.ed-head .actions .btn.text, .ed-head .actions #editor-builder { white-space: nowrap; }
+@media (max-width: 1399px) {
+  .ed-head .actions .btn.text, .ed-head .actions #editor-builder { width: 42px; padding: 0; justify-content: center; }
+  .ed-head .actions .lbl { display: none; }
+}
+@media (max-width: 899px) {
+  .ed-head .save-state { display: none; }
+}
+@media (max-width: 640px) {
+  .ed-head .actions { flex: 1 0 100%; justify-content: flex-end; margin-left: 0; }
+  .ed-head #editor-save { min-width: 0; }
+}
+/* Koenig's card-type marker (the `<>` beside an HTML card, and its kin) is
+   placed 6rem left of the column — past this sheet's 48px margin, where it
+   was clipped or hung outside the sheet. It sits in the margin instead,
+   just before the card, like the ＋. */
+#koenig-mount svg[aria-label$="indicator"] { left: -32px !important; }
+
+/* ---- editor polish (2026-11-22) ---- */
+/* The page title is a label, not the content: a lighter weight and tone, so
+   the post's own title (the display serif in the sheet) is what reads first. */
+.ed-head-title h1 { font-size: 20px; font-weight: 500; color: var(--on-surface-variant); letter-spacing: 0; }
+
+/* Settings cards: a header row, a hairline when open, then the content with
+   real room above it — floating field labels used to touch the header. */
+.editor-side .panel > summary { min-height: 54px; padding: 12px 16px; font-weight: 600; font-size: 14px; border-radius: inherit; }
+.editor-side .panel[open] > summary { border-bottom: 1px solid var(--outline); border-bottom-left-radius: 0; border-bottom-right-radius: 0; }
+.editor-side .panel .panel-body { padding: 18px 16px 16px; display: flex; flex-direction: column; gap: 12px; }
+.editor-side .panel .panel-body > * { margin-top: 0; margin-bottom: 0; }
+.editor-side .panel .panel-body > .field { margin-bottom: 0; }
+.editor-side .panel .panel-body .hint { margin: -4px 2px 0; font-size: 12.5px; line-height: 1.45; color: var(--on-surface-variant); }
+.editor-side .panel .panel-body > .hint:first-child { margin-top: 0; }
+.editor-side .panel .chips { gap: 6px; }
+.editor-side .panel .fchip { height: 30px; font-size: 13px; }
+.editor-side { gap: 10px; }
+/* the delete card is one centred action, not a panel */
+.editor-side > .card.panel:last-child .panel-body { padding: 10px; }
+
+/* Tags: find or add */
+.tag-add { display: flex; gap: 8px; align-items: center; }
+.tag-add .field { flex: 1; min-width: 0; }
+.tag-add .btn { height: 40px; flex: none; }
+.tag-msg { margin: -2px 2px 0 !important; }
+.tag-msg.bad { color: var(--error) !important; }
+#tag-chips:empty { display: none; }

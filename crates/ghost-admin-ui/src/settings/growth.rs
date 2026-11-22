@@ -137,17 +137,17 @@ pub(crate) async fn growth_page(State(state): State<AppState>, headers: HeaderMa
             rec_rows.push_str(&format!(
                 r#"<div class="row" style="align-items:flex-start">{mark}
 <div class="body" style="width:100%">
-<form method="post" action="/ghost/settings/growth/recommendations/{id}/" class="inline-form" style="align-items:flex-end">
+<form method="post" action="/ghost/growth/recommendations/{id}/" class="inline-form" style="align-items:flex-end">
 <label class="field" style="flex:1;min-width:160px;margin:0"><input name="title" value="{title}" placeholder=" " maxlength="191" required><span>Title</span></label>
 <label class="field" style="flex:1.4;min-width:200px;margin:0"><input name="url" value="{url}" placeholder=" " maxlength="2000" required><span>URL</span></label>
 <button class="btn tonal small" type="submit">Save</button>
 </form>
 <label class="field" style="margin:10px 0 0"><input name="description" value="{desc}" placeholder=" " maxlength="2000" form="rec-{id}"><span>Short description</span></label>
 <label class="fchip" style="margin-top:10px"><input type="checkbox" name="one_click_subscribe" value="1"{oc} form="rec-{id}"><span class="ck">{check}</span>One-click subscribe</label>
-<form method="post" action="/ghost/settings/growth/recommendations/{id}/" id="rec-{id}"></form>
+<form method="post" action="/ghost/growth/recommendations/{id}/" id="rec-{id}"></form>
 </div>
 <div class="trailing" style="align-items:flex-start">
-<form method="post" action="/ghost/settings/growth/recommendations/{id}/delete/" data-confirm="Remove recommendation|&#8220;{title}&#8221; will no longer be recommended to your members.">
+<form method="post" action="/ghost/growth/recommendations/{id}/delete/" data-confirm="Remove recommendation|&#8220;{title}&#8221; will no longer be recommended to your members.">
 <button class="icon-btn danger" title="Remove" aria-label="Remove">{del}</button></form></div></div>"#,
                 mark = mark,
                 id = esc(&id),
@@ -162,7 +162,7 @@ pub(crate) async fn growth_page(State(state): State<AppState>, headers: HeaderMa
     }
     let rec_add = format!(
         r#"<div class="card padded rise" style="--i:2">
-<form method="post" action="/ghost/settings/growth/recommendations/new/" class="inline-form">
+<form method="post" action="/ghost/growth/recommendations/new/" class="inline-form">
 <label class="field" style="flex:1;min-width:200px;margin:0"><input name="url" placeholder="https://example.com" maxlength="2000" required><span>URL</span></label>
 <label class="field" style="flex:1;min-width:160px;margin:0"><input name="title" placeholder=" " maxlength="191"><span>Title · optional</span></label>
 <button class="btn tonal" type="submit">{add} Add recommendation</button>
@@ -225,7 +225,7 @@ pub(crate) async fn growth_page(State(state): State<AppState>, headers: HeaderMa
 
         format!(
             r#"<div class="card padded rise" style="--i:3">
-<form method="get" action="/ghost/settings/growth/" class="inline-form" style="align-items:flex-end">
+<form method="get" action="/ghost/growth/" class="inline-form" style="align-items:flex-end">
 <label class="field fixed" style="min-width:180px;margin:0"><select name="sf_layout" onchange="this.form.submit()">{layout_opts}</select><span>Layout</span>{car}</label>
 {bg_field}
 <label class="field" style="min-width:140px;margin:0"><input name="sf_btn" type="text" value="{btn}" placeholder=" "><span>Button color</span></label>
@@ -285,7 +285,7 @@ pub(crate) async fn growth_page(State(state): State<AppState>, headers: HeaderMa
         for o in &offers {
             let redemptions = repos::offers::redemption_count(&state.db, &o.id).await;
             rows.push_str(&format!(
-                r#"<a class="row" href="/ghost/settings/growth/offers/{id}/"><span class="ic tint-green">{tag}</span>
+                r#"<a class="row" href="/ghost/growth/offers/{id}/"><span class="ic tint-green">{tag}</span>
 <div class="body"><span class="title">{name}</span><span class="detail">{summary} · code <code>{code}</code> · {redemptions} redemption{plural}</span></div>
 <div class="trailing">{archived}{chev}</div></a>"#,
                 id = esc(&o.id),
@@ -309,7 +309,7 @@ pub(crate) async fn growth_page(State(state): State<AppState>, headers: HeaderMa
         format!(
             r#"<div class="section">Offers</div>
 <div class="card rows rise" style="--i:3">{rows}</div>
-<div style="padding:2px 4px 8px"><form method="post" action="/ghost/settings/growth/offers/new/">
+<div style="padding:2px 4px 8px"><form method="post" action="/ghost/growth/offers/new/">
 <button class="btn tonal small" type="submit">{add} Add offer</button></form></div>
 <p class="muted" style="margin:4px 0 0 16px">An offer is a discount on one paid tier, redeemed through a link you share. Archiving one stops new redemptions; members already on it keep their price.</p>"#,
             rows = rows,
@@ -319,14 +319,13 @@ pub(crate) async fn growth_page(State(state): State<AppState>, headers: HeaderMa
         String::new()
     };
 
-    let group = SETTINGS_GROUPS.iter().find(|g| g.slug == "growth").unwrap();
-    page_for_role(actor_role, 
+    page_for_role(actor_role,
         "Growth",
-        "settings",
+        "tools",
         Some(&user),
         &format!(
             r#"{head}{banner}
-<form method="post" action="/ghost/settings/growth/" id="growth-form">
+<form method="post" action="/ghost/growth/" id="growth-form">
 <div class="section">Recommendations</div>
 <div class="card rows rise" style="--i:1">
 <div class="row"><span class="ic tint-slate">{heart}</span>
@@ -340,7 +339,7 @@ pub(crate) async fn growth_page(State(state): State<AppState>, headers: HeaderMa
 {signup_builder}
 {offers_card}
 <div class="section">Ghost Explore</div>
-<form method="post" action="/ghost/settings/growth/explore/" id="explore-form">
+<form method="post" action="/ghost/growth/explore/" id="explore-form">
 <div class="card rows rise" style="--i:5">{explore_rows}</div>
 <div style="padding:10px 4px 0"><button class="btn tonal small" type="submit">Save</button></div>
 </form>
@@ -350,7 +349,7 @@ When enabled, the publication synchronizes public publication details with Explo
 <div class="card rows rise" style="--i:6">
 {network}
 </div>"#,
-            head = group_head(group, Some("growth-form")),
+            head = crate::tools::tool_head("growth", Some("growth-form"), ""),
             banner = flash_banner(&q),
             offers_card = offers_card,
             heart = svg("star"),
@@ -386,8 +385,8 @@ pub(crate) async fn growth_save(State(state): State<AppState>, headers: HeaderMa
     }
     let on = form.get("recommendations_enabled").map(|v| v == "1").unwrap_or(false);
     match state.settings.set(&state.db, "recommendations_enabled", &serde_json::Value::Bool(on)).await {
-        Ok(()) => settings_flash("growth", "ok", "Growth settings saved."),
-        Err(e) => settings_flash("growth", "error", &e.message()),
+        Ok(()) => crate::tools::tool_flash("/ghost/growth/", "ok", "Growth settings saved."),
+        Err(e) => crate::tools::tool_flash("/ghost/growth/", "error", &e.message()),
     }
 }
 
@@ -407,9 +406,9 @@ pub(crate) async fn growth_explore_save(
         ok &= state.settings.set(&state.db, key, &serde_json::Value::Bool(on)).await.is_ok();
     }
     if ok {
-        settings_flash("growth", "ok", "Ghost Explore settings saved.")
+        crate::tools::tool_flash("/ghost/growth/", "ok", "Ghost Explore settings saved.")
     } else {
-        settings_flash("growth", "error", "Saving failed — check the logs.")
+        crate::tools::tool_flash("/ghost/growth/", "error", "Saving failed — check the logs.")
     }
 }
 
@@ -516,7 +515,7 @@ pub(crate) async fn recommendation_new(
         return r;
     }
     let Some(url) = recommendation_url(&form.url) else {
-        return settings_flash("growth", "error", "Enter the full address of the site to recommend.");
+        return crate::tools::tool_flash("/ghost/growth/", "error", "Enter the full address of the site to recommend.");
     };
     // `url` is unique in Ghost — recommending the same site twice says nothing
     // the first one did not.
@@ -526,7 +525,7 @@ pub(crate) async fn recommendation_new(
         .await
         .unwrap_or(0);
     if taken > 0 {
-        return settings_flash("growth", "error", "That site is already recommended.");
+        return crate::tools::tool_flash("/ghost/growth/", "error", "That site is already recommended.");
     }
     // Read the site's own name, description, social image and favicon before
     // saving, the way Ghost's add dialog does. Without these the member-facing
@@ -560,9 +559,9 @@ pub(crate) async fn recommendation_new(
             // between the two sites' recommendation files. That is how the
             // other end's "who recommends me" screen learns about it.
             ghost_api::mentions::announce_recommendation(&state, url.clone());
-            settings_flash("growth", "ok", "Recommendation added.")
+            crate::tools::tool_flash("/ghost/growth/", "ok", "Recommendation added.")
         }
-        Err(e) => settings_flash("growth", "error", &format!("Could not add it: {e}")),
+        Err(e) => crate::tools::tool_flash("/ghost/growth/", "error", &format!("Could not add it: {e}")),
     }
 }
 
@@ -588,7 +587,7 @@ pub(crate) async fn recommendation_save(
     .ok()
     .flatten();
     let Some((old_url, old_title, old_desc, old_oc)) = existing else {
-        return settings_flash("growth", "error", "That recommendation no longer exists.");
+        return crate::tools::tool_flash("/ghost/growth/", "error", "That recommendation no longer exists.");
     };
 
     let url = if form.url.trim().is_empty() {
@@ -596,7 +595,7 @@ pub(crate) async fn recommendation_save(
     } else {
         match recommendation_url(&form.url) {
             Some(u) => u,
-            None => return settings_flash("growth", "error", "That does not look like a site address."),
+            None => return crate::tools::tool_flash("/ghost/growth/", "error", "That does not look like a site address."),
         }
     };
     let title = if form.title.trim().is_empty() {
@@ -628,8 +627,8 @@ pub(crate) async fn recommendation_save(
     .execute(&state.db)
     .await;
     match res {
-        Ok(_) => settings_flash("growth", "ok", "Recommendation saved."),
-        Err(e) => settings_flash("growth", "error", &format!("Could not save it: {e}")),
+        Ok(_) => crate::tools::tool_flash("/ghost/growth/", "ok", "Recommendation saved."),
+        Err(e) => crate::tools::tool_flash("/ghost/growth/", "error", &format!("Could not save it: {e}")),
     }
 }
 
@@ -645,7 +644,7 @@ pub(crate) async fn recommendation_delete(
         .bind(&id)
         .execute(&state.db)
         .await;
-    settings_flash("growth", "ok", "Recommendation removed.")
+    crate::tools::tool_flash("/ghost/growth/", "ok", "Recommendation removed.")
 }
 
 // --- offers -----------------------------------------------------------------
@@ -653,7 +652,7 @@ pub(crate) async fn recommendation_delete(
 pub(crate) fn offer_flash(id: &str, kind: &str, message: &str) -> Response {
     let encoded: String =
         form_urlencoded::Serializer::new(String::new()).append_pair(kind, message).finish();
-    Redirect::to(&format!("/ghost/settings/growth/offers/{id}/?{encoded}")).into_response()
+    Redirect::to(&format!("/ghost/growth/offers/{id}/?{encoded}")).into_response()
 }
 
 /// Ghost's own slugification of an offer code: lower case, spaces to dashes,
@@ -679,8 +678,8 @@ pub(crate) async fn offer_new(State(state): State<AppState>, headers: HeaderMap)
     .ok()
     .flatten();
     let Some(tier) = tier else {
-        return settings_flash(
-            "growth",
+        return crate::tools::tool_flash(
+            "/ghost/growth/",
             "error",
             "Add a paid tier first — an offer is a discount on one.",
         );
@@ -705,8 +704,8 @@ pub(crate) async fn offer_new(State(state): State<AppState>, headers: HeaderMap)
         active: false,
     };
     match repos::offers::create(&state.db, &input).await {
-        Ok(o) => Redirect::to(&format!("/ghost/settings/growth/offers/{}/", o.id)).into_response(),
-        Err(e) => settings_flash("growth", "error", &e.message()),
+        Ok(o) => Redirect::to(&format!("/ghost/growth/offers/{}/", o.id)).into_response(),
+        Err(e) => crate::tools::tool_flash("/ghost/growth/", "error", &e.message()),
     }
 }
 
@@ -759,11 +758,11 @@ pub(crate) async fn offer_edit_page(
         "settings",
         Some(&user),
         &format!(
-            r#"<header class="page-head rise"><a class="icon-btn" style="transform:rotate(180deg)" href="/ghost/settings/growth/" title="Back to growth">{back}</a>
+            r#"<header class="page-head rise"><a class="icon-btn" style="transform:rotate(180deg)" href="/ghost/growth/" title="Back to growth">{back}</a>
 <div><h1>{name}</h1><p class="sub">{summary} · {status}</p></div>
 <div class="actions"><button class="btn" type="submit" form="offer-form">{check} Save</button></div></header>
 {banner}
-<form method="post" action="/ghost/settings/growth/offers/{id}/" id="offer-form">
+<form method="post" action="/ghost/growth/offers/{id}/" id="offer-form">
 <div class="section">Details</div>
 <div class="card rows rise" style="--i:1">
 <div class="row" style="align-items:flex-start"><span class="ic tint-green">{tag}</span>
@@ -798,7 +797,7 @@ pub(crate) async fn offer_edit_page(
 <div class="card rows rise" style="--i:3">
 <div class="row"><span class="ic tint-amber">{flag}</span>
 <div class="body"><span class="title">{status_title}</span><span class="detail">{status_detail}</span></div>
-<div class="trailing"><form method="post" action="/ghost/settings/growth/offers/{id}/status/">
+<div class="trailing"><form method="post" action="/ghost/growth/offers/{id}/status/">
 <input type="hidden" name="active" value="{next}">
 <button class="btn tonal small" type="submit">{status_btn}</button></form></div></div>
 <div class="row"><span class="ic tint-slate">{people}</span>

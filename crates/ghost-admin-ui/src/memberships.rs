@@ -113,8 +113,8 @@ fn server_error(e: &ghost_core::GhostError) -> Response {
 /// module.
 fn head(active: &str) -> String {
     let action = match active {
-        "tiers" => create_button("/ghost/settings/membership/tiers/new/", "New tier"),
-        "offers" => create_button("/ghost/settings/growth/offers/new/", "New offer"),
+        "tiers" => create_button("/ghost/settings/memberships/tiers/new/", "New tier"),
+        "offers" => create_button("/ghost/growth/offers/new/", "New offer"),
         _ => format!(
             r#"<a class="btn" href="/ghost/members/new/">{add} New member</a>"#,
             add = svg("add"),
@@ -123,7 +123,7 @@ fn head(active: &str) -> String {
     format!(
         r#"<header class="page-head rise"><div><h1>Memberships</h1>
 <p class="sub">Who reads this site, who pays for it, and what is stopping the next person doing either.</p></div>
-<div class="actions"><a class="btn tonal" href="/ghost/settings/membership/">{gear} Membership settings</a>
+<div class="actions"><a class="btn tonal" href="/ghost/settings/memberships/">{gear} Membership settings</a>
 {action}</div></header>
 {tabs}"#,
         gear = svg("settings"),
@@ -599,7 +599,7 @@ pub async fn memberships_page(
                 Some(each) => format!("{} per paying member", money(each, currency)),
                 None => "No paid subscriptions yet".to_string(),
             },
-            Some("/ghost/settings/membership/"),
+            Some("/ghost/settings/memberships/"),
             "chart",
             "purple",
         ),
@@ -970,11 +970,11 @@ mod tests {
             severity: Severity::Blocking,
             title: "Paid tiers exist but Stripe is not connected",
             detail: "2 paid tiers on offer.".into(),
-            fix: Some(("Connect Stripe", "/ghost/settings/membership/#stripe")),
+            fix: Some(("Connect Stripe", "/ghost/settings/memberships/#stripe")),
         };
         let row = gap_row(&gap);
         assert!(row.contains(r#"id="gap-stripe-missing""#));
-        assert!(row.contains(r#"href="/ghost/settings/membership/#stripe""#));
+        assert!(row.contains(r#"href="/ghost/settings/memberships/#stripe""#));
         assert!(row.contains("chip error"));
         assert!(row.contains("Blocking"));
     }

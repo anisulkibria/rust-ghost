@@ -19,6 +19,9 @@ pub mod identity;
 pub mod click;
 pub mod integration_permissions;
 pub mod images;
+/// Upload-time image optimisation for Settings → Images. Blocking; see the
+/// module docs.
+pub mod image_optimize;
 pub mod jwt;
 pub mod locales;
 pub mod explore;
@@ -35,6 +38,21 @@ pub mod newsletter_audience;
 pub mod notifications;
 pub mod oembed;
 pub mod permissions;
+pub mod popups;
+// Search and Filtering: the built-in search engine and what both engines may
+// index. Rules in `ghost_core::site_search`.
+pub mod site_search;
+// Advertising & Ad Management: choosing, placing and counting ads, and
+// ads.txt. Rules in `ghost_core::ads`.
+pub mod ads;
+// Social media: posting to the accounts the site holds on other platforms.
+// Not the social web (`federation`), which makes the site itself an account.
+pub mod social_media;
+// Caching & Performance: the page cache, response headers, timing, CDN purge.
+pub mod caching;
+// Cookie consent & privacy compliance: the banner, tracker blocking and the
+// consent log. Rules in `ghost_core::cookies`.
+pub mod cookies;
 pub mod publishing;
 pub mod reset_auth;
 pub mod password_reset;

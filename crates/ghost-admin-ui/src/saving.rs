@@ -404,8 +404,20 @@ pub(crate) async fn editor_create_impl(state: &AppState, headers: &HeaderMap, mu
         Ok(a) => a,
         Err(r) => return r,
     };
-    if !actor.role.can_publish() {
+    // Publishing follows the Permissions matrix: "draft their own" is the
+    // Contributor line wherever the Owner has drawn it.
+    if !crate::permissions::content_for(state, actor.role, post_type).may_publish() {
         form.status = "draft".into();
+    }
+    // A post created and published in one step has never been approved, so
+    // the editorial gate, when it is on, refuses it the same way it refuses
+    // an unapproved draft.
+    if matches!(form.status.as_str(), "published" | "scheduled")
+        || PublishAction::parse(&form.publish_action) == PublishAction::EmailOnly
+    {
+        if let Some(message) = crate::workflows::publish_blocked(state, actor.role, None).await {
+            return editor_error_json(&message, StatusCode::UNPROCESSABLE_ENTITY);
+        }
     }
     let user = actor.user;
     if form.audience_present {if let Err(e)=ghost_api::newsletter_audience::validate(state,&form.audience).await{return editor_error_json(&e.message(),StatusCode::UNPROCESSABLE_ENTITY)}}
@@ -434,6 +446,7 @@ pub(crate) async fn editor_create_impl(state: &AppState, headers: &HeaderMap, mu
             fire_post_webhooks(state, post_type, &post, "added", false);
             if post.status == "published" {
                 notify_slack_published(state, &post).await;
+                crate::social_media::auto_share(state, &post).await;
                 announce_published(state, &post).await;
             }
             if let Scheduling::At(delivery) = schedule {
@@ -662,7 +675,7 @@ pub(crate) async fn notify_slack_published(state: &AppState, post: &ghost_core::
     let Some(cfg) = ghost_api::slack::SlackConfig::from_settings(&state.settings) else {
         return;
     };
-    let site_title = state.settings.get_str("title").unwrap_or_else(|| "Ghost".into());
+    let site_title = state.settings.get_str("title").unwrap_or_else(|| ghost_core::DEFAULT_SITE_TITLE.into());
     let post_url = crate::languages::public_url(state, post).await;
     let excerpt = post
         .custom_excerpt
@@ -701,7 +714,7 @@ pub(crate) async fn notify_slack_published(state: &AppState, post: &ghost_core::
 pub(crate) enum BulkTransport {
     Mailgun(ghost_mail::MailgunConfig),
     Ses(ghost_mail::RelaySender),
-    /// The relay from Settings → Email, one message per recipient.
+    /// The relay from Settings → Emails, one message per recipient.
     Smtp,
 }
 
@@ -735,7 +748,7 @@ pub(crate) fn resolve_bulk_transport(state: &AppState, mail: &ghost_mail::MailCo
     let mg = ghost_mail::MailgunConfig::from_settings(&state.settings, mail);
     match provider.as_str() {
         "ses" => resolve_bulk_transport_for_ses(state, mail),
-        "mailgun" => mg.map(BulkTransport::Mailgun).ok_or_else(|| "Configure Mailgun in Settings → Newsletters.".into()),
+        "mailgun" => mg.map(BulkTransport::Mailgun).ok_or_else(|| "Configure Mailgun in Settings → Emails.".into()),
         "smtp" if mail.uses_relay() => Ok(BulkTransport::Smtp),
         "auto" | "" => match mg {
             Some(mg) => Ok(BulkTransport::Mailgun(mg)),
@@ -807,7 +820,7 @@ pub(crate) async fn newsletter_preflight(state: &AppState, post_id: &str) -> Res
     let Some(newsletter) = newsletter else {
         return Err("No active newsletter to send on. Create one in Settings → Newsletters.".into());
     };
-    let title = state.settings.get_str("title").unwrap_or_else(|| "Ghost".into());
+    let title = state.settings.get_str("title").unwrap_or_else(|| ghost_core::DEFAULT_SITE_TITLE.into());
     let mail_cfg = ghost_mail::MailConfig::from_settings(&state.settings, &title, &state.site_url());
     resolve_bulk_transport(state, &mail_cfg)?;
     let recipients = newsletter_audience(state, &post, &newsletter).await?;
@@ -882,7 +895,7 @@ pub(crate) async fn deliver_newsletter(state: &AppState, post_id: &str, retry: O
     };
 
     let site_url = state.site_url();
-    let title = state.settings.get_str("title").unwrap_or_else(|| "Ghost".into());
+    let title = state.settings.get_str("title").unwrap_or_else(|| ghost_core::DEFAULT_SITE_TITLE.into());
     let accent = state.settings.get_str("accent_color").unwrap_or_default();
     let mail_cfg = ghost_mail::MailConfig::from_settings(&state.settings, &title, &site_url);
     let bulk = resolve_bulk_transport(state, &mail_cfg)?;
@@ -1506,12 +1519,7 @@ pub(crate) async fn editor_save(State(state): State<AppState>, Path(id): Path<St
     if !may_edit_post(&state, &actor, &id).await {
         return forbidden_page(&actor, Role::Editor);
     }
-    // Contributors may write but not publish, so any status they ask for
-    // collapses back to draft. Enforced here rather than only in the form:
-    // the status field is a plain select anyone can retype.
-    if !actor.role.can_publish() {
-        form.status = "draft".into();
-    }
+    let actor_role = actor.role;
     let user = actor.user;
     if form.audience_present {if let Err(e)=ghost_api::newsletter_audience::validate(&state,&form.audience).await{return editor_error_json(&e.message(),StatusCode::UNPROCESSABLE_ENTITY)}}
     let existing = repos::posts::find_by_id(&state.db, &id).await.ok().flatten();
@@ -1527,6 +1535,27 @@ pub(crate) async fn editor_save(State(state): State<AppState>, Path(id): Path<St
         .as_ref()
         .map(|p| p.post_type.clone())
         .unwrap_or_else(|| "post".into());
+    // Contributors may write but not publish, so any status they ask for
+    // collapses back to draft. Enforced here rather than only in the form:
+    // the status field is a plain select anyone can retype. Which roles may
+    // publish is the Permissions matrix's answer now, per kind of entry —
+    // which is why this sits below `post_type` rather than at the top.
+    if !crate::permissions::content_for(&state, actor_role, &post_type).may_publish() {
+        form.status = "draft".into();
+    }
+    // The editorial approval gate (Tools → Workflow & Editorial Management).
+    // Only a draft going live or onto the schedule is asked — an edit to
+    // something already out is not a new publication. Refused with the
+    // reason rather than quietly saved as a draft, so the publisher knows
+    // why nothing went out.
+    let going_live = matches!(form.status.as_str(), "published" | "scheduled")
+        || PublishAction::parse(&form.publish_action) == PublishAction::EmailOnly;
+    let already_out = existing.as_ref().is_some_and(|p| matches!(p.status.as_str(), "published" | "scheduled" | "sent"));
+    if going_live && !already_out {
+        if let Some(message) = crate::workflows::publish_blocked(&state, actor_role, Some(&id)).await {
+            return editor_error_json(&message, StatusCode::UNPROCESSABLE_ENTITY);
+        }
+    }
     // Slack hears about a post the moment it goes live, and only then — an
     // edit to something already published is not news.
     let was_published = existing.as_ref().is_some_and(|p| p.status == "published");
@@ -1633,6 +1662,7 @@ pub(crate) async fn editor_save(State(state): State<AppState>, Path(id): Path<St
             fire_tag_link_webhooks(&state, &post_type, &post, &tags_before, &form.tags).await;
             if !was_published && post.status == "published" {
                 notify_slack_published(&state, &post).await;
+                crate::social_media::auto_share(&state, &post).await;
                 announce_published(&state, &post).await;
             }
             let list = if post_type == "page" { "/ghost/pages/" } else { "/ghost/posts/" };
@@ -1801,6 +1831,12 @@ pub(crate) async fn bulk_impl(state: &AppState, headers: &HeaderMap, form: &Bulk
     let mut skipped = 0usize;
     for id in &form.ids {
         if !may_edit_post(state, &actor, id).await {
+            skipped += 1;
+            continue;
+        }
+        // Bulk publishing honours the editorial approval gate entry by
+        // entry: approved ones go out, the rest are counted as skipped.
+        if form.action == "publish" && crate::workflows::publish_blocked(state, actor.role, Some(id)).await.is_some() {
             skipped += 1;
             continue;
         }

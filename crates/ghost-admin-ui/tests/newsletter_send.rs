@@ -597,7 +597,7 @@ async fn managed_mail_forms_are_locked_and_keep_platform_secrets_hidden() {
     state.settings = Arc::new(state.settings.with_overrides(Vec::new()).with_managed_mail(&policy));
     let session = ghost_db::repos::sessions::create(&state.db, &owner).await.unwrap();
     let app = ghost_admin_ui::admin_ui_router(state.clone()).with_state(state.clone());
-    for uri in ["/settings/email/", "/settings/newsletters/"] {
+    for uri in ["/settings/emails/", "/settings/newsletters/"] {
         let response = app.clone().oneshot(Request::builder().uri(uri).header("cookie", format!("vuuut-admin-session={session}")).body(Body::empty()).unwrap()).await.unwrap();
         assert_eq!(response.status(), 200);
         let html = String::from_utf8(to_bytes(response.into_body(), 2_000_000).await.unwrap().to_vec()).unwrap();

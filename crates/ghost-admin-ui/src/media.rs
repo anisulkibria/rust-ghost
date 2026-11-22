@@ -51,6 +51,8 @@ use super::*;
 
 mod inliner;
 pub(crate) use inliner::*;
+// Settings → Images, and optimising what is already in the library.
+pub(crate) mod images;
 
 use ghost_core::media::{self as rules, Kind, Location};
 use ghost_db::repos::media as repo;
@@ -461,10 +463,11 @@ pub(crate) async fn library_page(
         "media",
         Some(&actor.user),
         &format!(
-            r#"<header class="page-head rise"><a class="icon-btn" style="transform:rotate(180deg)" href="/ghost/modules/" title="Back to modules">{back}</a>
+            r#"<header class="page-head rise"><a class="icon-btn" style="transform:rotate(180deg)" href="/ghost/tools/" title="Back to tools">{back}</a>
 <div><h1>Media</h1><p class="sub">{summary}</p></div>
 <div class="actions">{upload_form}</div></header>
 {banner}{note}
+{optimise}
 <div class="seg-bar rise" style="--i:1">{tabs}</div>
 <form class="card padded ml-bar rise" style="--i:2" method="get" action="/ghost/media/">
 {kept}
@@ -486,6 +489,9 @@ pub(crate) async fn library_page(
             back = svg("chevron"),
             summary = esc(&summary(&library, total_bytes)),
             upload_form = upload_form(),
+            // Settings → Images lives with this module; the card says what
+            // optimisation is doing and offers to run it over the library.
+            optimise = images::library_card(&state),
             banner = flash_banner(&q),
             note = note,
             tabs = tabs,
@@ -896,6 +902,7 @@ pub(crate) async fn item_page(
 {link_row}{path_row}{kind_row}{size_row}{modified_row}{described_row}
 </div>
 
+{versions}
 <div class="section">Used by</div>
 {usage_card}
 
@@ -907,6 +914,7 @@ pub(crate) async fn item_page(
 <button class="btn tonal small danger" type="submit">{del} Delete this file</button></form>
 </div>"#,
             chev = svg("chevron"),
+            versions = images::versions_section(&state, &at, &disk_path(&state, &at), asset.bytes).await,
             heading = esc(if meta.title.is_empty() { at.name() } else { &meta.title }),
             family = esc(at.kind.label()),
             size = esc(&rules::format_bytes(asset.bytes)),
@@ -1074,6 +1082,9 @@ pub(crate) async fn item_rename(
     if let Err(e) = tokio::fs::rename(disk_path(&state, &at), disk_path(&state, &to)).await {
         return server_error(&format!("rename {} → {}: {e}", at.path(), to.path()));
     }
+    if at.kind == Kind::Image {
+        ghost_api::image_optimize::move_versions(&state, &at.rest, &to.rest).await;
+    }
     if let Err(e) = repo::rename(&state.db, &at, &to).await {
         // The file has moved; losing its description is worth a log, not a
         // failed request that would leave the page claiming the old name.
@@ -1153,6 +1164,13 @@ pub(crate) async fn item_replace(
     }
     if let Err(e) = tokio::fs::write(disk_path(&state, &at), &data).await {
         return server_error(&format!("replace {}: {e}", at.path()));
+    }
+    // A different picture under the same name: every old version is now a
+    // version of something else. The private original in particular would
+    // mark this file "already optimised" and stop the library run from ever
+    // touching the new one.
+    if at.kind == Kind::Image {
+        ghost_api::image_optimize::purge_versions(&state, &at.rest).await;
     }
     // Through the storage adapter too, so an S3-backed install replaces the
     // object a visitor actually loads and not only the local original.
@@ -1240,6 +1258,17 @@ async fn remove(state: &AppState, at: &Location) -> Result<bool, String> {
     let existed = tokio::fs::metadata(&path).await.is_ok_and(|m| m.is_file());
     if existed {
         tokio::fs::remove_file(&path).await.map_err(|e| format!("delete {}: {e}", at.path()))?;
+    }
+    // And every other version of it: the private original optimisation kept
+    // (which may still hold the GPS position the published copy had stripped),
+    // Ghost's `_o` and `size/` copies on an imported site, and the resizer's
+    // cache. Swept even when the image itself was already gone, so a second
+    // delete cleans up after a first one that failed half-way.
+    if at.kind == Kind::Image {
+        let purged = ghost_api::image_optimize::purge_versions(state, &at.rest).await;
+        if purged.failed > 0 {
+            tracing::error!("media admin: {} of the versions of {} could not be removed", purged.failed, at.path());
+        }
     }
     if let Err(e) = repo::delete(&state.db, at).await {
         tracing::error!("media admin: {} was deleted but its details were not: {}", at.path(), e.message());

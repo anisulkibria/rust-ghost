@@ -337,7 +337,7 @@ pub fn gift_subscription(
     (subject, text, html)
 }
 
-/// The "does my configuration work?" message sent from Settings → Email.
+/// The "does my configuration work?" message sent from Settings → Emails.
 pub fn test_email(site_title: &str, site_url: &str) -> (String, String, String) {
     let subject = format!("Test email from {site_title}");
     let text = format!(

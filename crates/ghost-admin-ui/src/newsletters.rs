@@ -21,7 +21,7 @@
 //!
 //! A sending programme is broken in ways no single existing screen can see,
 //! and all of them are one click apart. Settings → Newsletters knows whether
-//! sending is on; Settings → Email knows whether a relay is configured;
+//! sending is on; Settings → Emails knows whether a relay is configured;
 //! Settings → Analytics knows whether opens are tracked; the `emails` table
 //! knows the last three sends failed. Each of those screens can be perfectly
 //! correct while a post published today goes nowhere, and nothing said so.
@@ -116,7 +116,7 @@ fn head(active: &str) -> String {
     format!(
         r#"<header class="page-head rise"><div><h1>Newsletters</h1>
 <p class="sub">What goes out, who gets it, and what stopped it.</p></div>
-<div class="actions"><a class="btn tonal" href="/ghost/settings/email/">{mail} Email settings</a>
+<div class="actions"><a class="btn tonal" href="/ghost/settings/emails/">{mail} Email settings</a>
 <a class="btn" href="/ghost/settings/newsletters/">{gear} Newsletter settings</a></div></header>
 {tabs}"#,
         mail = svg("mail"),
@@ -243,7 +243,7 @@ fn window_bar(base: &str, days: i64) -> String {
 /// `newsletter_transport` would say "Mailgun" for a site whose Mailgun key is
 /// missing, which is the exact failure it exists to catch.
 fn transport_of(state: &AppState) -> (Option<String>, Option<String>) {
-    let title = state.settings.get_str("title").unwrap_or_else(|| "Ghost".into());
+    let title = state.settings.get_str("title").unwrap_or_else(|| ghost_core::DEFAULT_SITE_TITLE.into());
     let mail = ghost_mail::MailConfig::from_settings(&state.settings, &title, &state.site_url());
     match crate::resolve_bulk_transport(state, &mail) {
         Ok(crate::BulkTransport::Mailgun(_)) => (Some("Mailgun".into()), None),

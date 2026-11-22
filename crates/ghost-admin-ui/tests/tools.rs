@@ -174,7 +174,8 @@ async fn the_hub_lists_every_tool_with_its_state() {
     let page = get(&f.state, "/tools/", &cookie).await;
     assert_eq!(page.status, StatusCode::OK);
     for href in ["/ghost/customizations/", "/ghost/navigations/", "/ghost/code-injection/", "/ghost/announcement/",
-                 "/ghost/redirects/", "/ghost/routes/", "/ghost/integrations/", "/ghost/machine-payments/", "/ghost/migrations/", "/ghost/settings/backups/", "/ghost/staffs/", "/ghost/history/"] {
+                 "/ghost/redirects/", "/ghost/routes/", "/ghost/integrations/", "/ghost/machine-payments/", "/ghost/growth/",
+                 "/ghost/migrations/", "/ghost/backups/", "/ghost/staffs/", "/ghost/history/"] {
         assert!(page.body.contains(&format!(r#"class="tool-card" href="{href}""#)), "{href} missing");
     }
     assert!(page.body.contains("No rules yet"));
@@ -287,9 +288,9 @@ async fn migrations_is_import_only_and_backups_holds_the_exports() {
     assert_eq!(m.status, StatusCode::OK);
     assert!(m.body.contains(r#"action="/ghost/migrations/import/""#));
     assert!(!m.body.contains("Download archive"), "no export on Migrations");
-    let b = get(&f.state, "/settings/backups/", &cookie).await;
+    let b = get(&f.state, "/backups/", &cookie).await;
     assert_eq!(b.status, StatusCode::OK);
-    assert!(b.body.contains(r#"action="/ghost/settings/backups/export/""#) && b.body.contains("Download archive"));
+    assert!(b.body.contains(r#"action="/ghost/backups/export/""#) && b.body.contains("Download archive"));
     assert!(!b.body.contains("Universal import"), "no import on Backups");
     assert!(b.body.contains("No backups yet"));
 }
@@ -304,7 +305,7 @@ async fn a_backup_is_taken_restored_and_capped_at_ten() {
     let cookie = f.session().await;
 
     // schedule
-    let s = post(&f.state, "/settings/backups/schedule/", &cookie, &[("schedule", "weekly")]).await;
+    let s = post(&f.state, "/backups/schedule/", &cookie, &[("schedule", "weekly")]).await;
     assert!(s.flash().contains("every week"), "{}", s.flash());
     assert_eq!(f.state.settings.get_str("backup_schedule").as_deref(), Some("weekly"));
 
@@ -314,7 +315,7 @@ async fn a_backup_is_taken_restored_and_capped_at_ten() {
     std::fs::write(images.join("a.png"), b"one").unwrap();
 
     let before = tag_names(&f).await;
-    let taken = post(&f.state, "/settings/backups/create/", &cookie, &[]).await;
+    let taken = post(&f.state, "/backups/create/", &cookie, &[]).await;
     assert!(taken.flash().starts_with("Backup taken"), "{}", taken.flash());
     let list = ghost_api::backups::list(&f.state).await;
     assert_eq!(list.len(), 1);
@@ -326,25 +327,25 @@ async fn a_backup_is_taken_restored_and_capped_at_ten() {
         .execute(&f.state.db).await.unwrap();
     std::fs::write(images.join("a.png"), b"two").unwrap();
     std::fs::write(images.join("b.png"), b"new").unwrap();
-    post(&f.state, "/settings/backups/schedule/", &cookie, &[("schedule", "daily")]).await;
+    post(&f.state, "/backups/schedule/", &cookie, &[("schedule", "daily")]).await;
 
-    let page = get(&f.state, "/settings/backups/", &cookie).await;
+    let page = get(&f.state, "/backups/", &cookie).await;
     assert!(page.body.contains(&name) && page.body.contains("Manual"));
 
-    let restored = post(&f.state, "/settings/backups/restore/", &cookie, &[("name", &name)]).await;
+    let restored = post(&f.state, "/backups/restore/", &cookie, &[("name", &name)]).await;
     assert!(restored.flash().starts_with("Restored"), "{}", restored.flash());
     assert_eq!(tag_names(&f).await, before, "the database is back");
     assert_eq!(std::fs::read(images.join("a.png")).unwrap(), b"one", "files are back");
     assert!(!images.join("b.png").exists(), "files added since are gone");
     assert_eq!(f.state.settings.get_str("backup_schedule").as_deref(), Some("daily"), "the schedule survives a restore");
     // still signed in, and the site before the restore was kept
-    assert_eq!(get(&f.state, "/settings/backups/", &cookie).await.status, StatusCode::OK);
+    assert_eq!(get(&f.state, "/backups/", &cookie).await.status, StatusCode::OK);
     let list = ghost_api::backups::list(&f.state).await;
     assert_eq!(list.len(), 2);
     assert_eq!(list[0].kind, ghost_api::backups::Kind::PreRestore);
 
     // undo the restore from that safety copy
-    let undo = post(&f.state, "/settings/backups/restore/", &cookie, &[("name", &list[0].name)]).await;
+    let undo = post(&f.state, "/backups/restore/", &cookie, &[("name", &list[0].name)]).await;
     assert!(undo.flash().starts_with("Restored"), "{}", undo.flash());
     assert!(tag_names(&f).await.contains(&"Added later".to_string()));
 
@@ -357,8 +358,8 @@ async fn a_backup_is_taken_restored_and_capped_at_ten() {
     assert!(!list.iter().any(|b| b.name == name), "the oldest went first: {name} still in {:?}", list.iter().map(|b| &b.name).collect::<Vec<_>>());
 
     // delete, and a name that is not a backup is refused
-    let del = post(&f.state, "/settings/backups/delete/", &cookie, &[("name", &list[0].name)]).await;
+    let del = post(&f.state, "/backups/delete/", &cookie, &[("name", &list[0].name)]).await;
     assert_eq!(del.flash(), "Backup deleted.");
-    let bad = post(&f.state, "/settings/backups/restore/", &cookie, &[("name", "../../data/ghost.db")]).await;
+    let bad = post(&f.state, "/backups/restore/", &cookie, &[("name", "../../data/ghost.db")]).await;
     assert!(bad.flash().starts_with("Nothing was restored"));
 }

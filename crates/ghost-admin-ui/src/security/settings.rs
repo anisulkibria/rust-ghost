@@ -135,7 +135,7 @@ pub async fn settings_page(
 <p class="muted" style="margin:0 0 6px">One fragment per line, matched anywhere in the header and ignoring case — <code>SemrushBot</code> catches <code>Mozilla/5.0 (compatible; SemrushBot/7~bl)</code>. Lines starting <code>#</code> are comments. Fragments, not patterns: a regular expression run against a header on every request is a denial of service you can write into your own settings by accident.</p>
 <p class="muted" style="margin:0">A request with <b>no</b> User-Agent is never blocked — feed readers, monitoring and plenty of ordinary clients send none, and a rule that refuses them refuses the wrong people silently.</p>
 </div>
-<p class="muted" style="margin:8px 0 0">Member signups are also checked against <a href="/ghost/settings/membership/">Settings → Membership → Spam filters</a>, which is the site&rsquo;s own list of blocked domains and applies whether or not the switch above is on.</p>
+<p class="muted" style="margin:8px 0 0">Member signups are also checked against <a href="/ghost/settings/memberships/">Settings → Membership → Spam filters</a>, which is the site&rsquo;s own list of blocked domains and applies whether or not the switch above is on.</p>
 
 <div class="section">Firewall</div>
 <div class="card padded rise" style="--i:8">

@@ -44,7 +44,7 @@ pub(crate) async fn email_page(State(state): State<AppState>, headers: HeaderMap
         Err(r) => return r,
     };
     let s = |k: &str| esc(&state.settings.get_str(k).unwrap_or_default());
-    let group = SETTINGS_GROUPS.iter().find(|g| g.slug == "email").unwrap();
+    let group = SETTINGS_GROUPS.iter().find(|g| g.slug == "emails").unwrap();
     // Blank means Direct, the same fallback the mailer itself applies.
     let transport = state
         .settings
@@ -62,7 +62,7 @@ pub(crate) async fn email_page(State(state): State<AppState>, headers: HeaderMap
     let site_url = state.site_url();
     let cfg = ghost_mail::MailConfig::from_settings(
         &state.settings,
-        &state.settings.get_str("title").unwrap_or_else(|| "Ghost".into()),
+        &state.settings.get_str("title").unwrap_or_else(|| ghost_core::DEFAULT_SITE_TITLE.into()),
         &site_url,
     );
     let status = if let Some(error) = cfg.configuration_error() {
@@ -83,12 +83,12 @@ pub(crate) async fn email_page(State(state): State<AppState>, headers: HeaderMap
     };
 
     page_for_role(actor_role, 
-        "Email",
+        "Emails",
         "settings",
         Some(&user),
         &format!(
             r#"{head}{banner}{status}{managed_notice}
-<form method="post" action="/ghost/settings/email/" id="email-form">
+<form method="post" action="/ghost/settings/emails/" id="email-form">
 <fieldset {managed_disabled} style="border:0;padding:0;margin:0;min-width:0">
 <div class="section">Transactional email</div>
 <div class="card rows rise" style="--i:2">
@@ -121,6 +121,19 @@ pub(crate) async fn email_page(State(state): State<AppState>, headers: HeaderMap
 </div>
 <p class="muted">Use the SMTP endpoint and credentials from your AWS CSV, or leave the endpoint blank for regional SES. Configure a verified sender. AWS API secret keys cannot be used as SMTP passwords. SES uses STARTTLS on port 587. Leave credentials blank to keep them; enter “-” to clear.</p>
 </div>
+<div class="section">Mailgun</div>
+<div class="card rows rise" style="--i:4">
+<div class="row" style="align-items:flex-start"><span class="ic tint-purple">{send}</span>
+<div class="body" style="width:100%"><div class="grid2" style="gap:12px">
+<label class="field" style="margin:0"><input name="mailgun_api_key" type="password" value="" placeholder=" " autocomplete="off"><span>API key</span></label>
+<label class="field" style="margin:0"><input name="mailgun_webhook_signing_key" type="password" value="" placeholder=" " autocomplete="off"><span>Webhook signing key</span></label>
+<label class="field" style="margin:0"><input name="mailgun_domain" value="{mailgun_domain}" placeholder=" " autocomplete="off"><span>Sending domain · e.g. mg.example.com</span></label>
+<label class="field fixed" style="margin:0"><select name="mailgun_base_url">{mailgun_region_opts}</select><span>Region</span>{car}</label>
+</div>
+<p class="muted" style="margin:10px 0 0">{mailgun_key_hint} Use the <strong>Sending</strong> API key, not the private account key. The region must match where the domain was created — an EU domain on the US endpoint fails with a 401 that looks like a bad key.</p>
+<p class="muted" style="margin:6px 0 0">Mailgun carries newsletters, not magic links. Which provider newsletters actually go out through is chosen in <a href="/ghost/settings/newsletters/">Settings → Newsletters</a>.</p>
+</div></div>
+</div>
 <div class="section">Sender identity</div>
 <div class="card rows rise" style="--i:4">
 <div class="row" style="align-items:flex-start"><span class="ic tint-blue">{person}</span>
@@ -137,7 +150,7 @@ pub(crate) async fn email_page(State(state): State<AppState>, headers: HeaderMap
 <div class="card rows rise" style="--i:5">
 <div class="row" style="align-items:flex-start"><span class="ic tint-green">{send}</span>
 <div class="body" style="width:100%"><span class="title" style="display:block;margin-bottom:8px">Check the settings work</span>
-<form method="post" action="/ghost/settings/email/test/" style="display:flex;gap:12px;align-items:center;flex-wrap:wrap">
+<form method="post" action="/ghost/settings/emails/test/" style="display:flex;gap:12px;align-items:center;flex-wrap:wrap">
 <label class="field" style="margin:0;flex:1;min-width:220px"><input name="to" type="email" value="{owner_email}" placeholder=" " required><span>Send to</span></label>
 <button class="btn tonal small" type="submit">Send test email</button>
 </form>
@@ -162,6 +175,19 @@ pub(crate) async fn email_page(State(state): State<AppState>, headers: HeaderMap
             ses_region = s("ses_region"),
             ses_endpoint = s("ses_smtp_endpoint"),
             ses_rate = state.settings.get_str("ses_max_send_rate").and_then(|s| s.parse::<u32>().ok()).unwrap_or(1).clamp(1, 10_000),
+            mailgun_domain = s("mailgun_domain"),
+            mailgun_key_hint = secret_state(&state, "mailgun_api_key"),
+            mailgun_region_opts = select_options(
+                &[
+                    ("https://api.mailgun.net/v3", "US · api.mailgun.net"),
+                    ("https://api.eu.mailgun.net/v3", "EU · api.eu.mailgun.net"),
+                ],
+                &state
+                    .settings
+                    .get_str("mailgun_base_url")
+                    .filter(|v| !v.is_empty())
+                    .unwrap_or_else(|| "https://api.mailgun.net/v3".into()),
+            ),
             host = s("mail_smtp_host"),
             port = s("mail_smtp_port"),
             user = s("mail_smtp_user"),
@@ -182,11 +208,11 @@ pub(crate) async fn email_save(State(state): State<AppState>, headers: HeaderMap
         return r;
     }
     if state.settings.mail_is_managed() {
-        return settings_flash("email", "error", "Email delivery is managed by your hosting provider.");
+        return settings_flash("emails", "error", "Email delivery is managed by your hosting provider.");
     }
     let rate = form.get("ses_max_send_rate").map(|value| value.parse::<u32>());
     if rate.as_ref().is_some_and(|value| !matches!(value, Ok(1..=10_000))) {
-        return settings_flash("email", "error", "SES send rate must be between 1 and 10000 messages per second.");
+        return settings_flash("emails", "error", "SES send rate must be between 1 and 10000 messages per second.");
     }
     let mut ok = true;
     if let Some(Ok(rate)) = rate {
@@ -195,6 +221,9 @@ pub(crate) async fn email_save(State(state): State<AppState>, headers: HeaderMap
     for key in [
         "ses_region", "ses_smtp_endpoint", "mail_transport", "mail_smtp_host", "mail_smtp_port", "mail_smtp_security",
         "mail_smtp_user", "mail_from_address", "mail_from_name", "mail_reply_to",
+        // Mailgun moved here from Newsletters: every transport's credentials
+        // in one place, with Newsletters left to pick between them.
+        "mailgun_domain", "mailgun_base_url",
     ] {
         let value = form.get(key).cloned().unwrap_or_default().trim().to_string();
         ok &= state.settings.set(&state.db, key, &serde_json::json!(value)).await.is_ok();
@@ -202,10 +231,12 @@ pub(crate) async fn email_save(State(state): State<AppState>, headers: HeaderMap
     ok &= save_secret(&state, "mail_smtp_pass", form.get("mail_smtp_pass")).await;
     ok &= save_secret(&state, "ses_smtp_user", form.get("ses_smtp_user")).await;
     ok &= save_secret(&state, "ses_smtp_pass", form.get("ses_smtp_pass")).await;
+    ok &= save_secret(&state, "mailgun_api_key", form.get("mailgun_api_key")).await;
+    ok &= save_secret(&state, "mailgun_webhook_signing_key", form.get("mailgun_webhook_signing_key")).await;
     if ok {
-        settings_flash("email", "ok", "Email settings saved.")
+        settings_flash("emails", "ok", "Email settings saved.")
     } else {
-        settings_flash("email", "error", "Saving failed — check the logs.")
+        settings_flash("emails", "error", "Saving failed — check the logs.")
     }
 }
 
@@ -218,15 +249,15 @@ pub(crate) async fn email_test(State(state): State<AppState>, headers: HeaderMap
     }
     let to = form.get("to").cloned().unwrap_or_default().trim().to_string();
     if !to.contains('@') {
-        return settings_flash("email", "error", "Enter a valid address to send the test to.");
+        return settings_flash("emails", "error", "Enter a valid address to send the test to.");
     }
     let site_url = state.site_url();
-    let title = state.settings.get_str("title").unwrap_or_else(|| "Ghost".into());
+    let title = state.settings.get_str("title").unwrap_or_else(|| ghost_core::DEFAULT_SITE_TITLE.into());
     let cfg = ghost_mail::MailConfig::from_settings(&state.settings, &title, &site_url);
     let (subject, html, text) = ghost_mail::templates::test_email(&title, &site_url);
     let msg = ghost_mail::Message { to: to.clone(), subject, html, text };
     match ghost_mail::send(&cfg, &msg).await {
-        Ok(()) => settings_flash("email", "ok", &format!("Test email sent to {to}.")),
-        Err(e) => settings_flash("email", "error", &format!("Send failed: {}", e.message())),
+        Ok(()) => settings_flash("emails", "ok", &format!("Test email sent to {to}.")),
+        Err(e) => settings_flash("emails", "error", &format!("Send failed: {}", e.message())),
     }
 }

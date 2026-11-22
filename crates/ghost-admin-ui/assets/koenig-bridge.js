@@ -40,6 +40,16 @@
   var htmlInput = document.getElementById('field-html');
   var config = JSON.parse(mount.dataset.config || '{}');
   var api = null;
+  // What is stored for this entry, normalised, and the document as last seen.
+  // "Unsaved changes" means exactly: the editor's document differs from what
+  // is stored (or the title or a setting changed). A Lexical update that
+  // changes nothing — the first render, a selection, a card's hover — is
+  // not a change, and undoing back to the stored text is not one either.
+  function normalised(text) { try { return JSON.stringify(JSON.parse(text)); } catch (e) { return text; } }
+  var savedContent = config.lexical ? normalised(config.lexical) : null;
+  var lastContent = null;
+  // Set by the title or a setting; cleared by a successful save.
+  var otherEdits = false;
 
   // The install's base path ('' at a domain root, '/blog' under a
   // subdirectory). Every endpoint below is written in site terms and prefixed
@@ -331,9 +341,26 @@
             api = editorApi;
             if (formCard && editorApi) { formCard.register(editorApi.editorInstance); }
           },
-          // Every keystroke in the body. This is what starts the autosave
-          // clock — the serialize() calls only happen when a save does.
-          onChange: function () { contentEdited(); },
+          // Lexical calls this for every editor update, not only edits: the
+          // first render normalising the stored document, a selection move,
+          // a card's hover state. Treating those as edits marked a post
+          // "Unsaved changes" the moment it opened, and on a draft started
+          // the autosave cycle, whose status text kept resizing the header
+          // under the pointer. Only a real change to the document counts.
+          onChange: function () {
+            if (!api) { return; }
+            var now = normalised(api.serialize());
+            // a new post has nothing stored: its first state is the baseline
+            if (savedContent === null) { savedContent = now; }
+            if (now === lastContent) { return; }
+            var first = lastContent === null;
+            lastContent = now;
+            if (now === savedContent) {
+              if (!first && !otherEdits && !saving) { markClean(); }
+              return;
+            }
+            contentEdited();
+          },
           cursorDidExitAtTop: function () {
             var title = document.getElementById('field-title');
             if (title) { title.focus(); }
@@ -393,12 +420,24 @@
   // with nothing in it from one whose title alone is worth keeping.
   var wordCount = 0;
 
+  // The last state shown, so the Save button can be painted to match it.
+  var shownState = '';
   function setState(text, kind) {
     var el = document.getElementById('save-state');
     if (el) {
       el.textContent = text;
       el.className = 'save-state' + (kind ? ' ' + kind : '');
     }
+    shownState = kind || '';
+    paintSaveButton();
+  }
+
+  // Back to exactly what is stored: nothing to save, and no autosave due.
+  function markClean() {
+    dirty = false;
+    clearTimeout(timer);
+    timer = null;
+    setState('All changes saved', 'saved');
   }
 
   function statusValue() {
@@ -410,12 +449,24 @@
   // draft's does not.
   function isDraft() { return savedStatus === 'draft'; }
 
+  // The Save button says the same thing as the status beside it: inactive
+  // and quiet when the editor matches what is stored, prominent when there is
+  // something to save, busy while saving. Publishing a draft is always an
+  // action, so "Publish" is never greyed out.
   function paintSaveButton() {
+    var btn = document.getElementById('editor-save');
     var label = document.querySelector('[data-save-label]');
-    if (label) {
-      label.textContent = isDraft() && statusValue() === 'published' ? 'Publish' :
-        'Save ' + (config.postType === 'page' ? 'page' : 'post');
-    }
+    if (!btn || !label) { return; }
+    var publish = isDraft() && statusValue() === 'published';
+    var noun = config.postType === 'page' ? 'page' : 'post';
+    var state = publish ? 'publish' : shownState === 'saving' ? 'saving' : shownState === 'error' ? 'error' :
+      (shownState === 'saved' && !dirty && !timer) ? 'clean' : (dirty || timer || shownState === 'unsaved') ? 'dirty' : isNew ? 'dirty' : 'clean';
+    label.textContent = state === 'publish' ? 'Publish' : state === 'saving' ? 'Saving…' : state === 'error' ? 'Retry save' :
+      state === 'clean' ? 'Saved' : 'Save ' + noun;
+    btn.classList.remove('is-clean', 'is-dirty', 'is-saving', 'is-error');
+    btn.classList.add('is-' + (state === 'publish' ? 'dirty' : state));
+    btn.disabled = state === 'clean' || state === 'saving';
+    btn.title = state === 'clean' ? 'Everything is saved' : state === 'dirty' ? 'Save your changes (⌘S)' : '';
   }
 
   function iconSvg(path) {
@@ -567,6 +618,7 @@
 
     var publishing = kind === 'explicit' && savedStatus !== 'published';
     var savingRevision = revision;
+    var savingContent = api && withContent ? normalised(lexicalInput.value) : null;
     saving = true;
     setState('Saving…', 'saving');
     // The form's own posts are urlencoded — a native submit sends nothing
@@ -611,8 +663,14 @@
     }).then(function (json) {
       saving = false;
       dirty = revision !== savingRevision;
+      if (savingContent !== null) { savedContent = savingContent; }
+      if (!dirty) { otherEdits = false; }
+      // A settings-only save of a published post leaves its body as it was
+      // on the server on purpose; if the body was edited, that is still
+      // unsaved, and the status has to say so.
+      if (lastContent !== null && savedContent !== null && lastContent !== savedContent) { dirty = true; }
       adopt(json, kind);
-      setState(dirty ? '* Unsaved changes' : 'Saved', dirty ? 'unsaved' : 'saved');
+      setState(dirty ? '* Unsaved changes' : 'All changes saved', dirty ? 'unsaved' : 'saved');
       if (publishing && json.status === 'published' && json.level !== 'error') {
         publishedToast();
       } else if (json.message) {
@@ -648,7 +706,7 @@
       return;
     }
     if (isDraft()) {
-      setState('', '');
+      setState('* Unsaved changes', 'unsaved');
       timer = setTimeout(function () { timer = null; saveNow('auto'); }, DEBOUNCE_MS);
     } else {
       setState('* Unsaved changes', 'unsaved');
@@ -685,6 +743,8 @@
   });
 
   paintSaveButton();
+  // An entry that exists opens matching what is stored.
+  if (!isNew) { setState('All changes saved', 'saved'); }
   var markdownField = form.querySelector('textarea[name="markdown"]');
   if (markdownField) { markdownField.addEventListener('input', contentEdited); }
 
@@ -693,7 +753,7 @@
     // The title is content like the body: drafts autosave it, and its blur —
     // the moment the writer considers it done — commits at once, as Ghost's
     // field commits do.
-    title.addEventListener('input', contentEdited);
+    title.addEventListener('input', function () { otherEdits = true; contentEdited(); });
     title.addEventListener('blur', function () {
       if (dirty && isDraft()) {
         clearTimeout(timer);
@@ -710,6 +770,7 @@
     side.addEventListener('change', function (event) {
       var field = event.target;
       if (!field.name || field.type === 'file') { return; }
+      otherEdits = true;
       revision++;
       dirty = true;
       if (field.name === 'status') {

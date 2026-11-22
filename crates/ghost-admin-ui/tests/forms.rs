@@ -168,8 +168,8 @@ async fn a_form_is_built_sent_read_exported_and_deleted() {
     let cookie = Some(cookie.as_str());
 
     // The module is on the Modules page and in Settings.
-    let modules = admin(&state, "GET", "/modules/", cookie, None, None).await;
-    assert!(modules.body.contains(r#"href="/ghost/forms/""#), "Forms is not on the Modules page");
+    let modules = admin(&state, "GET", "/tools/", cookie, None, None).await;
+    assert!(modules.body.contains(r#"href="/ghost/forms/""#), "Forms is not on the Tools page");
     let settings = admin(&state, "GET", "/settings/", cookie, None, None).await;
     assert!(settings.body.contains(r#"href="/ghost/settings/forms/""#), "Forms is not on the Settings page");
 
@@ -554,7 +554,7 @@ async fn respond_and_collect(
 #[tokio::test]
 async fn a_response_is_emailed_to_the_owner_by_default_through_the_sites_mail_settings() {
     let (port, received) = smtp_sink().await;
-    // Settings → Email: the transactional transport every other system
+    // Settings → Emails: the transactional transport every other system
     // message uses. Nothing about forms is configured.
     let (_db, state, owner) = fixture_with(vec![
         ("mail_transport".into(), serde_json::json!("smtp")),
@@ -574,7 +574,7 @@ async fn a_response_is_emailed_to_the_owner_by_default_through_the_sites_mail_se
     assert_eq!(mail.len(), 1, "expected exactly one notification");
     let (to, message) = &mail[0];
     assert_eq!(to, "owner@example.test");
-    // sent as the address set in Settings → Email
+    // sent as the address set in Settings → Emails
     assert!(message.contains("site@example.test"), "the message did not come from the configured sender:\n{message}");
     assert!(message.contains("Subject: New response: Contact form"), "{message}");
     // an answer cannot add a header, and its markup is not markup in the mail

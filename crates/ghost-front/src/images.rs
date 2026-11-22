@@ -206,7 +206,14 @@ pub async fn serve(State(state): State<AppState>, Path(path): Path<String>) -> R
         .config
         .content_path()
         .join("cache/resized-images")
-        .join(format!("{key}.{output_extension}"));
+        // Prefixed with a hash of the path alone, so deleting the image can
+        // find every cached size of it — see
+        // `ghost_api::image_optimize::purge_versions`. Older unprefixed cache
+        // files are simply never read again and regenerate on demand.
+        .join(format!(
+            "{}{key}.{output_extension}",
+            ghost_api::image_optimize::resized_cache_prefix(relative)
+        ));
     let bytes = if let Ok(bytes) = tokio::fs::read(&cache).await {
         bytes
     } else {

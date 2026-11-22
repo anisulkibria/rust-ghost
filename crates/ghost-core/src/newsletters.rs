@@ -10,7 +10,7 @@
 //! That judgement lives here for the usual two reasons: it can be wrong, and
 //! it has to be testable without a database, a browser or an SMTP server. And
 //! a sending programme is broken in ways no single screen can see. Settings →
-//! Newsletters knows whether sending is switched on; Settings → Email knows
+//! Newsletters knows whether sending is switched on; Settings → Emails knows
 //! whether a relay is configured; Settings → Analytics knows whether opens are
 //! tracked; the `emails` table knows that the last three sends failed. Each of
 //! those screens can be individually correct while a post goes nowhere.
@@ -241,10 +241,10 @@ pub fn audit(p: &Programme) -> Vec<Gap> {
     };
 
     const SENDING: (&str, &str) = ("Newsletter settings", "/ghost/settings/newsletters/");
-    const EMAIL: (&str, &str) = ("Email settings", "/ghost/settings/email/");
+    const EMAIL: (&str, &str) = ("Email settings", "/ghost/settings/emails/");
     const TRACKING: (&str, &str) = ("Analytics settings", "/ghost/settings/analytics/");
     const EDITIONS: (&str, &str) = ("Editions", "/ghost/newsletters/editions/");
-    const AUDIENCE: (&str, &str) = ("Membership settings", "/ghost/settings/membership/#access");
+    const AUDIENCE: (&str, &str) = ("Membership settings", "/ghost/settings/memberships/#access");
 
     // 1. Is sending even on, and is there anything to send with?
     if !p.sending_on {
@@ -273,7 +273,10 @@ pub fn audit(p: &Programme) -> Vec<Gap> {
                       newsletter."
                     .into(),
             },
-            Some(SENDING),
+            // Every transport's credentials live on Emails now; Newsletters
+            // only picks between them, so that is the wrong screen to send
+            // somebody who has configured none of them.
+            Some(EMAIL),
         );
     }
 

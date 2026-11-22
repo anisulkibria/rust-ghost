@@ -52,10 +52,10 @@ fn backup_row(state: &AppState, b: &Backup, newest: bool) -> String {
 <div class="body"><span class="title">{when} {chip}{latest}</span>
 <span class="detail">{size} · {rows} rows in {tables} tables · {files} files · Vuuut {version}{from}{uploaded}</span></div>
 <div class="trailing">
-<a class="icon-btn" href="/ghost/settings/backups/download/{name}" title="Download" aria-label="Download this backup">{download}</a>
-<form method="post" action="/ghost/settings/backups/restore/" data-confirm="Restore this backup?|Posts, pages, members, settings, staff, themes and uploaded files all go back to how they were at {when_attr}. A backup of the site as it is right now is taken first, so you can undo this.">
+<a class="icon-btn" href="/ghost/backups/download/{name}" title="Download" aria-label="Download this backup">{download}</a>
+<form method="post" action="/ghost/backups/restore/" data-confirm="Restore this backup?|Posts, pages, members, settings, staff, themes and uploaded files all go back to how they were at {when_attr}. A backup of the site as it is right now is taken first, so you can undo this.">
 <input type="hidden" name="name" value="{name}"><button class="btn tonal small" type="submit">{restore} Restore</button></form>
-<form method="post" action="/ghost/settings/backups/delete/" data-confirm="Delete this backup?|The backup from {when_attr} is deleted for good.">
+<form method="post" action="/ghost/backups/delete/" data-confirm="Delete this backup?|The backup from {when_attr} is deleted for good.">
 <input type="hidden" name="name" value="{name}"><button class="icon-btn danger" type="submit" title="Delete" aria-label="Delete this backup">{del}</button></form>
 </div></div>"#,
         tint = if b.kind.is_automatic() { "green" } else if b.kind == Kind::PreRestore { "blue" } else { "slate" },
@@ -138,7 +138,7 @@ pub(crate) async fn backups_page(State(state): State<AppState>, headers: HeaderM
         &format!(
             r#"{head}{banner}
 <div class="section">Automatic backups</div>
-<form method="post" action="/ghost/settings/backups/schedule/" class="card padded rise bk-schedule" style="--i:1">
+<form method="post" action="/ghost/backups/schedule/" class="card padded rise bk-schedule" style="--i:1">
 <div class="bk-sched-row">{seg}<button class="btn tonal small" type="submit">{check} Save schedule</button></div>
 <p class="muted" style="margin:12px 0 0">{next} The {max} most recent backups are kept — automatic, manual and uploaded alike — and older ones are deleted as new ones are made.</p>
 </form>
@@ -146,8 +146,8 @@ pub(crate) async fn backups_page(State(state): State<AppState>, headers: HeaderM
 <div class="section bk-head"><span>Backups</span>{meter}<span class="bk-count">{used} of {max}</span></div>
 <div class="card rows rise" style="--i:2">
 <div class="row bk-actions">
-<form method="post" action="/ghost/settings/backups/create/"><button class="btn" type="submit">{history} Back up now</button></form>
-<form method="post" action="/ghost/settings/backups/upload/" enctype="multipart/form-data" class="bk-upload" data-confirm="Add this backup?|It joins the list below, where you can restore it. If {max} backups are already kept, the oldest is deleted.">
+<form method="post" action="/ghost/backups/create/"><button class="btn" type="submit">{history} Back up now</button></form>
+<form method="post" action="/ghost/backups/upload/" enctype="multipart/form-data" class="bk-upload" data-confirm="Add this backup?|It joins the list below, where you can restore it. If {max} backups are already kept, the oldest is deleted.">
 <input type="file" name="file" accept=".zip,application/zip" required class="filefield">
 <button class="btn tonal small" type="submit">{upload} Upload a backup</button></form>
 </div>
@@ -157,7 +157,7 @@ pub(crate) async fn backups_page(State(state): State<AppState>, headers: HeaderM
 images, media, files and themes it uses. Restoring puts all of it back and keeps you signed in. Backups hold passwords and keys, so keep downloaded copies somewhere safe.</p>
 
 <div class="section">Export</div>
-<form class="card padded rise" style="--i:3" method="get" action="/ghost/settings/backups/export/">
+<form class="card padded rise" style="--i:3" method="get" action="/ghost/backups/export/">
 <p class="muted" style="margin:0 0 14px">A portable archive for moving to another Ghost-compatible site. Unlike a backup it carries no
 credentials, and importing it adds content rather than replacing the site.</p>
 <div class="expgrid">{components}</div>
@@ -167,16 +167,16 @@ credentials, and importing it adds content rather than replacing the site.</p>
 <div class="card rows rise" style="--i:4">
 <div class="row"><span class="ic tint-blue">{notes}</span>
 <div class="body"><span class="title">Content &amp; settings</span><span class="detail">{posts} posts and {pages} pages, with their tags · JSON</span></div>
-<div class="trailing"><a class="btn tonal small" href="/ghost/settings/backups/export/content/">Download</a></div></div>
+<div class="trailing"><a class="btn tonal small" href="/ghost/backups/export/content/">Download</a></div></div>
 <div class="row"><span class="ic tint-blue">{people}</span>
 <div class="body"><span class="title">Members</span><span class="detail">{members} members with labels, tiers and Stripe ids · CSV</span></div>
 <div class="trailing"><a class="btn tonal small" href="/ghost/members/export/">Download</a></div></div>
 <div class="row"><span class="ic tint-blue">{chart}</span>
 <div class="body"><span class="title">Post analytics</span><span class="detail">Sends, opens, views and feedback, one row per post · CSV</span></div>
-<div class="trailing"><a class="btn tonal small" href="/ghost/settings/backups/export/analytics/">Download</a></div></div>
+<div class="trailing"><a class="btn tonal small" href="/ghost/backups/export/analytics/">Download</a></div></div>
 <div class="row"><span class="ic tint-blue">{themes_ic}</span>
 <div class="body"><span class="title">Themes</span><span class="detail">{themes} installed, including anything edited in the browser · ZIP</span></div>
-<div class="trailing"><a class="btn tonal small" href="/ghost/settings/backups/export/themes/">Download</a></div></div>
+<div class="trailing"><a class="btn tonal small" href="/ghost/backups/export/themes/">Download</a></div></div>
 <div class="row"><span class="ic tint-blue">{link}</span>
 <div class="body"><span class="title">Redirects &amp; routes</span><span class="detail">The two YAML files, each downloadable from its tool</span></div>
 <div class="trailing"><a class="btn tonal small" href="/ghost/redirects/">Redirects</a><a class="btn tonal small" href="/ghost/routes/">Routes</a></div></div>
@@ -222,8 +222,8 @@ pub(crate) async fn backups_schedule_save(State(state): State<AppState>, headers
     }
     let schedule = Schedule::parse(&form.schedule);
     match state.settings.set(&state.db, "backup_schedule", &serde_json::json!(schedule.as_str())).await {
-        Ok(()) => settings_flash(
-            "backups",
+        Ok(()) => crate::tools::tool_flash(
+            "/ghost/backups/",
             "ok",
             match schedule {
                 Schedule::Off => "Automatic backups switched off.",
@@ -232,7 +232,7 @@ pub(crate) async fn backups_schedule_save(State(state): State<AppState>, headers
                 Schedule::Monthly => "The site will back itself up every month.",
             },
         ),
-        Err(e) => settings_flash("backups", "error", &e.message()),
+        Err(e) => crate::tools::tool_flash("/ghost/backups/", "error", &e.message()),
     }
 }
 
@@ -241,8 +241,8 @@ pub(crate) async fn backups_create(State(state): State<AppState>, headers: Heade
         return r;
     }
     match backups::create(&state, Kind::Manual).await {
-        Ok(b) => settings_flash("backups", "ok", &format!("Backup taken — {}.", human_size(b.size))),
-        Err(e) => settings_flash("backups", "error", &format!("The backup failed: {}", e.message())),
+        Ok(b) => crate::tools::tool_flash("/ghost/backups/", "ok", &format!("Backup taken — {}.", human_size(b.size))),
+        Err(e) => crate::tools::tool_flash("/ghost/backups/", "error", &format!("The backup failed: {}", e.message())),
     }
 }
 
@@ -268,9 +268,9 @@ pub(crate) async fn backups_restore(State(state): State<AppState>, headers: Head
                 msg.push_str(w);
             }
             fire_site_changed(&state);
-            settings_flash("backups", if r.warnings.is_empty() { "ok" } else { "error" }, &msg)
+            crate::tools::tool_flash("/ghost/backups/", if r.warnings.is_empty() { "ok" } else { "error" }, &msg)
         }
-        Err(e) => settings_flash("backups", "error", &format!("Nothing was restored: {}", e.message())),
+        Err(e) => crate::tools::tool_flash("/ghost/backups/", "error", &format!("Nothing was restored: {}", e.message())),
     }
 }
 
@@ -279,8 +279,8 @@ pub(crate) async fn backups_delete(State(state): State<AppState>, headers: Heade
         return r;
     }
     match backups::delete(&state, &form.name).await {
-        Ok(()) => settings_flash("backups", "ok", "Backup deleted."),
-        Err(e) => settings_flash("backups", "error", &e.message()),
+        Ok(()) => crate::tools::tool_flash("/ghost/backups/", "ok", "Backup deleted."),
+        Err(e) => crate::tools::tool_flash("/ghost/backups/", "error", &e.message()),
     }
 }
 
@@ -315,12 +315,12 @@ pub(crate) async fn backups_upload(State(state): State<AppState>, headers: Heade
         }
         let bytes = match field.bytes().await {
             Ok(b) => b.to_vec(),
-            Err(e) => return settings_flash("backups", "error", &format!("Upload failed: {e}")),
+            Err(e) => return crate::tools::tool_flash("/ghost/backups/", "error", &format!("Upload failed: {e}")),
         };
         return match backups::store_upload(&state, bytes).await {
-            Ok(b) => settings_flash("backups", "ok", &format!("Backup added — {}. Restore it from the list when you are ready.", human_size(b.size))),
-            Err(e) => settings_flash("backups", "error", &e.message()),
+            Ok(b) => crate::tools::tool_flash("/ghost/backups/", "ok", &format!("Backup added — {}. Restore it from the list when you are ready.", human_size(b.size))),
+            Err(e) => crate::tools::tool_flash("/ghost/backups/", "error", &e.message()),
         };
     }
-    settings_flash("backups", "error", "No file was uploaded.")
+    crate::tools::tool_flash("/ghost/backups/", "error", "No file was uploaded.")
 }

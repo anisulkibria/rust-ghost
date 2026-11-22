@@ -132,7 +132,7 @@ fn offer_row(o: &repo::OfferStat) -> String {
     );
     if ghost_core::ids::is_objectid(&o.id) {
         format!(
-            r#"<a class="row" href="/ghost/settings/growth/offers/{id}/">{inner}</a>"#,
+            r#"<a class="row" href="/ghost/growth/offers/{id}/">{inner}</a>"#,
             id = esc(&o.id),
         )
     } else {

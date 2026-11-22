@@ -247,7 +247,7 @@ async fn the_module_is_closed_to_every_staff_role_below_administrator() {
         }
         // And the module is not advertised to them either — rule 8's intent
         // is that no link leads to a refusal.
-        let modules = admin(&state, "GET", "/modules/", Some(&cookie), None, None).await;
+        let modules = admin(&state, "GET", "/tools/", Some(&cookie), None, None).await;
         assert!(
             !modules.body.contains(r#"href="/ghost/security/""#),
             "{role} was offered a link to a page they cannot open"
@@ -291,10 +291,10 @@ async fn the_module_is_on_the_modules_page_and_in_settings() {
     let (_db, state, owner) = fixture().await;
     let cookie = cookie_for(&session_for(&state, &owner).await);
 
-    let modules = admin(&state, "GET", "/modules/", Some(&cookie), None, None).await;
+    let modules = admin(&state, "GET", "/tools/", Some(&cookie), None, None).await;
     assert!(
         modules.body.contains(r#"href="/ghost/security/""#),
-        "Security is not on the Modules page"
+        "Security is not on the Tools page"
     );
     let settings = admin(&state, "GET", "/settings/", Some(&cookie), None, None).await;
     assert!(

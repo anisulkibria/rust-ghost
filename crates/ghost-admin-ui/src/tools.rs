@@ -26,31 +26,82 @@ pub(crate) struct Tool {
     pub(crate) description: &'static str,
 }
 
+/// A–Z by title, like `SETTINGS_GROUPS`, so a name is looked up rather than
+/// hunted for. Keep it sorted when adding a tool.
+///
+/// Since 2026-11-21 this is the only hub: the ten cards that were Modules
+/// (Analytics, Cookie Consent, Forms, Languages, Media, Memberships,
+/// Newsletters, Popups, Security, SEO) moved here and `/ghost/modules/`
+/// redirects. Their permission grants were carried across by
+/// `ghost_core::permissions::FORMER_MODULES`.
 pub(crate) const TOOLS: &[Tool] = &[
-    Tool { key: "customizations", title: "Customizations", href: "/ghost/customizations/", icon: "tune", tint: "purple",
-        description: "Brand colour, logo, fonts and the active theme's own settings." },
-    Tool { key: "navigations", title: "Navigations", href: "/ghost/navigations/", icon: "menu", tint: "red",
-        description: "The primary and secondary menus your theme shows." },
-    Tool { key: "code-injection", title: "Code injection", href: "/ghost/code-injection/", icon: "code", tint: "slate",
-        description: "Scripts and styles added to the head and foot of every page." },
+    Tool { key: "ads", title: "Advertising & Ad Management", href: "/ghost/ads/", icon: "campaign", tint: "amber",
+        description: "Sell and run ads: banners, sponsors and network code, with reports for each advertiser." },
+    Tool { key: "analytics", title: "Analytics", href: "/ghost/analytics/", icon: "chart", tint: "green",
+        description: "Track visitors, content performance, and member growth." },
     Tool { key: "announcement", title: "Announcement", href: "/ghost/announcement/", icon: "flag", tint: "amber",
         description: "A bar across the top of the site, for the audiences you pick." },
+    Tool { key: "automations", title: "Automations", href: "/ghost/automations/", icon: "flow", tint: "blue",
+        description: "Manage automated workflows and their activity." },
+    Tool { key: "backups", title: "Backups", href: "/ghost/backups/", icon: "history", tint: "green",
+        description: "Automatic and manual backups of the whole site, ready to restore — plus exports." },
+    Tool { key: "caching", title: "Caching & Performance", href: "/ghost/caching/", icon: "trending", tint: "green",
+        description: "A page cache, browser and CDN headers, compression and faster pages — measured on this server." },
+    Tool { key: "code-injection", title: "Code injection", href: "/ghost/code-injection/", icon: "code", tint: "slate",
+        description: "Scripts and styles added to the head and foot of every page." },
+    Tool { key: "comments", title: "Comments", href: "/ghost/comments/", icon: "comment", tint: "purple",
+        description: "Review discussions and manage comments across your posts." },
+    Tool { key: "cookies", title: "Cookie Consent & Privacy", href: "/ghost/cookies/", icon: "cookie", tint: "amber",
+        description: "Ask before tracking, hold back what nobody agreed to, and keep the proof." },
+    Tool { key: "directories", title: "Directory & Classified Listings", href: "/ghost/directories/", icon: "library", tint: "teal",
+        description: "A public directory and classifieds in your theme: categories, visitor submissions, review and expiry." },
+    Tool { key: "forms", title: "Forms", href: "/ghost/forms/", icon: "form", tint: "amber",
+        description: "Build contact forms and read the responses visitors send." },
+    Tool { key: "growth", title: "Growth", href: "/ghost/growth/", icon: "globe", tint: "slate",
+        description: "Recommendations, signup forms, offers, Ghost Explore and the social web." },
+    Tool { key: "history", title: "History", href: "/ghost/history/", icon: "history", tint: "slate",
+        description: "Everything that changed on the site, who changed it and when." },
+    Tool { key: "integrations", title: "Integrations", href: "/ghost/integrations/", icon: "integrations", tint: "pink",
+        description: "Built-in apps, API keys for your own scripts, and webhooks." },
+    Tool { key: "languages", title: "Languages", href: "/ghost/languages/", icon: "globe", tint: "teal",
+        description: "Publish this site in more than one language, and keep the translations in step." },
+    Tool { key: "machine-payments", title: "Machine payments", href: "/ghost/machine-payments/", icon: "integrations", tint: "amber",
+        description: "Let readers and AI agents pay per article, by card or stablecoin." },
+    Tool { key: "media", title: "Media", href: "/ghost/media/", icon: "library", tint: "pink",
+        description: "Upload and manage every image, video and file on your site." },
+    Tool { key: "memberships", title: "Memberships", href: "/ghost/memberships/", icon: "group", tint: "purple",
+        description: "Members, tiers, offers and what is stopping the next person joining or paying." },
+    Tool { key: "migrations", title: "Migrations", href: "/ghost/migrations/", icon: "import", tint: "blue",
+        description: "Bring posts, pages, tags and members in from Ghost, WordPress, Substack and more." },
+    Tool { key: "navigations", title: "Navigations", href: "/ghost/navigations/", icon: "menu", tint: "red",
+        description: "The primary and secondary menus your theme shows." },
+    Tool { key: "newsletters", title: "Newsletters", href: "/ghost/newsletters/", icon: "send", tint: "amber",
+        description: "What goes out, who gets it, how it was opened, and what stopped it." },
+    Tool { key: "builder", title: "Page Builder & Visual Editor", href: "/ghost/builder/", icon: "layout", tint: "pink",
+        description: "Design any page visually: drag-and-drop sections, columns and widgets, inside your theme." },
+    // Owner only, and never grantable — see `crate::permissions::UNGRANTABLE`.
+    Tool { key: "permissions", title: "Permissions", href: "/ghost/permissions/", icon: "person", tint: "slate",
+        description: "What each staff role may reach: tools, settings and content." },
+    Tool { key: "popups", title: "Popups & Lead Generation", href: "/ghost/popups/", icon: "panel-show", tint: "pink",
+        description: "Modals, slide-ins and bars that ask readers for an address." },
     Tool { key: "redirects", title: "Redirects", href: "/ghost/redirects/", icon: "link", tint: "blue",
         description: "Send old addresses to new ones, rule by rule, and test any URL." },
     Tool { key: "routes", title: "Routes", href: "/ghost/routes/", icon: "layout", tint: "green",
         description: "How post, tag and author URLs are built, and what each address renders." },
-    Tool { key: "integrations", title: "Integrations", href: "/ghost/integrations/", icon: "integrations", tint: "pink",
-        description: "Built-in apps, API keys for your own scripts, and webhooks." },
-    Tool { key: "machine-payments", title: "Machine payments", href: "/ghost/machine-payments/", icon: "integrations", tint: "amber",
-        description: "Let readers and AI agents pay per article, by card or stablecoin." },
-    Tool { key: "migrations", title: "Migrations", href: "/ghost/migrations/", icon: "import", tint: "blue",
-        description: "Bring posts, pages, tags and members in from Ghost, WordPress, Substack and more." },
-    Tool { key: "backups", title: "Backups", href: "/ghost/settings/backups/", icon: "history", tint: "green",
-        description: "Automatic and manual backups of the whole site, ready to restore — plus exports." },
-    Tool { key: "staff", title: "Staff", href: "/ghost/staffs/", icon: "person", tint: "teal",
+    Tool { key: "search", title: "Search and Filtering", href: "/ghost/search/", icon: "search", tint: "pink",
+        description: "Choose the site's search engine, what it can find, and how results are ranked." },
+    Tool { key: "security", title: "Security", href: "/ghost/security/", icon: "lock", tint: "red",
+        description: "See what is holding this site shut, who is signed in, and what is not protected." },
+    Tool { key: "seo", title: "SEO", href: "/ghost/seo/", icon: "trending", tint: "blue",
+        description: "See what search engines read on this site, and what is stopping them." },
+    // Two halves under one card since 2026-11-21: the social web (the site as
+    // its own fediverse account) and social media (accounts it posts to).
+    Tool { key: "social", title: "Social", href: "/ghost/social/", icon: "share", tint: "teal",
+        description: "The fediverse, and your accounts on X, Bluesky, LinkedIn and more: sharing and share buttons." },
+    Tool { key: "staff", title: "Staffs", href: "/ghost/staffs/", icon: "person", tint: "teal",
         description: "The people who can sign in, their roles and invitations." },
-    Tool { key: "history", title: "History", href: "/ghost/history/", icon: "history", tint: "slate",
-        description: "Everything that changed on the site, who changed it and when." },
+    Tool { key: "workflows", title: "Workflow & Editorial Management", href: "/ghost/workflows/", icon: "flow", tint: "teal",
+        description: "An editorial board for drafts: stages, assignments, due dates, notes and approval before publishing." },
 ];
 
 fn tool(key: &str) -> &'static Tool {
@@ -60,14 +111,24 @@ fn tool(key: &str) -> &'static Tool {
 /// A tool page's header: back to Tools, the title with its one-line purpose,
 /// any extra actions, and Save when the page has a form.
 pub(crate) fn tool_head(key: &str, form_id: Option<&str>, extra: &str) -> String {
+    tool_head_back(key, "/ghost/tools/", form_id, extra)
+}
+
+/// `tool_head` for a screen one level inside a tool — a popup's editor, say —
+/// whose back arrow belongs to the tool's own list rather than to the Tools
+/// hub. Jumping two levels up from an editor loses the list the person came
+/// from, which is the one place they almost certainly want to go back to.
+pub(crate) fn tool_head_back(key: &str, back_href: &str, form_id: Option<&str>, extra: &str) -> String {
     let t = tool(key);
     let save = form_id
         .map(|id| format!(r#"<button class="btn" type="submit" form="{id}">{check} Save</button>"#, id = esc(id), check = svg("check")))
         .unwrap_or_default();
     format!(
-        r#"<header class="page-head rise"><a class="icon-btn" style="transform:rotate(180deg)" href="/ghost/tools/" title="Back to tools">{back}</a>
+        r#"<header class="page-head rise"><a class="icon-btn" style="transform:rotate(180deg)" href="{back_href}" title="{back_title}">{back}</a>
 <div><h1>{title}</h1><p class="sub">{sub}</p></div>
 <div class="actions">{extra}{save}</div></header>"#,
+        back_href = esc(back_href),
+        back_title = if back_href == "/ghost/tools/" { "Back to tools".to_string() } else { format!("Back to {}", t.title) },
         back = svg("chevron"),
         title = esc(t.title),
         sub = esc(t.description),
@@ -113,10 +174,6 @@ fn plural(n: usize, one: &str, many: &str) -> String {
 /// anything is opened.
 async fn tool_states(state: &AppState) -> HashMap<&'static str, (bool, String)> {
     let mut out = HashMap::new();
-
-    let theme = state.theme.read().await.clone();
-    let custom = theme.pkg.config.custom.len();
-    out.insert("customizations", (true, format!("{} theme · {}", theme.name, plural(custom, "theme setting", "theme settings"))));
 
     let primary = nav_items_from_setting(state.settings.get("navigation")).len();
     let secondary = nav_items_from_setting(state.settings.get("secondary_navigation")).len();
@@ -178,12 +235,57 @@ async fn tool_states(state: &AppState) -> HashMap<&'static str, (bool, String)> 
     ));
     out.insert("migrations", (false, "Imports add content; nothing is replaced".into()));
 
+    // The tool's own two countable things. Recommendations is the switch the
+    // page leads with, so it decides the dot; offers are counted beside it
+    // because an offer is the other thing this screen creates.
+    let recommendations: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM recommendations")
+        .fetch_one(&state.db)
+        .await
+        .unwrap_or(0);
+    let offers = repos::offers::list(&state.db).await.unwrap_or_default().len();
+    let rec_on = state.settings.get_bool("recommendations_enabled");
+    out.insert("growth", (
+        rec_on,
+        format!(
+            "{} · {}",
+            if rec_on { plural(recommendations as usize, "recommendation", "recommendations") } else { "Recommendations off".into() },
+            plural(offers, "offer", "offers"),
+        ),
+    ));
+
     let staff = repos::staff::list_staff(&state.db).await.unwrap_or_default();
     let active = staff.iter().filter(|s| s.status.as_deref() != Some("inactive")).count();
     out.insert("staff", (true, plural(active, "person", "people")));
 
     let mp_on = state.settings.get_bool("machine_payments_enabled");
     out.insert("machine-payments", (mp_on, if mp_on { "Taking payments".into() } else { "Off".into() }));
+
+    let comments = state.settings.get_str("comments_enabled").unwrap_or_else(|| "off".into());
+    out.insert("comments", match comments.as_str() {
+        "all" => (true, "Open to everyone".to_string()),
+        "paid" => (true, "Paid members only".to_string()),
+        _ => (false, "Off".to_string()),
+    });
+
+    // The system switch, not a count: an automation that exists while the
+    // system is off is not running, and the card should say the thing that
+    // decides whether anything happens.
+    let automations_on = state.settings.get_str("automations_enabled").as_deref() != Some("false");
+    out.insert("automations", (automations_on, if automations_on { "Running".into() } else { "Paused".into() }));
+
+    // How many roles the Owner has moved off the defaults. "Default access"
+    // is the honest reading of an untouched matrix.
+    let changed = ghost_core::permissions::read(state.settings.get(ghost_core::permissions::SETTING_KEY).as_ref())
+        .iter()
+        .filter(|(role, grants)| **grants != ghost_core::permissions::defaults(role))
+        .count();
+    out.insert("permissions", match changed {
+        0 => (false, "Default access".to_string()),
+        n => (true, format!("{} changed", plural(n, "role", "roles"))),
+    });
+
+    let social_on = state.settings.get_bool("social_web_enabled");
+    out.insert("social", (social_on, if social_on { "Connected".into() } else { "Off".into() }));
 
     let week_ago = ghost_core::dates::to_db_string(&(chrono::Utc::now() - chrono::Duration::days(7)));
     let events: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM actions WHERE created_at >= ?")
@@ -200,18 +302,46 @@ pub(crate) async fn tools_page(State(state): State<AppState>, headers: HeaderMap
         Ok(actor) => actor,
         Err(response) => return response,
     };
-    let states = tool_states(&state).await;
-    let cards: String = TOOLS
+    let mut states = tool_states(&state).await;
+    states.extend(crate::tool_finder::former_module_states(&state).await);
+    let inside = crate::tool_finder::things_inside(&state).await;
+    // Only the tools this viewer may open — the middleware refuses the rest,
+    // and a card that answers "Not allowed" is worse than no card.
+    let grants = crate::permissions::grants_for(&state, actor.role);
+    let visible: Vec<&Tool> = TOOLS
+        .iter()
+        .filter(|t| {
+            // Permissions is Owner-only and deliberately outside the matrix,
+            // so it is not offered to anybody else — see
+            // `crate::permissions::UNGRANTABLE`.
+            if crate::permissions::UNGRANTABLE.contains(&t.key) {
+                return actor.role == Role::Owner;
+            }
+            grants.tools.access(t.key).may_read()
+        })
+        .collect();
+    let cards: String = visible
         .iter()
         .map(|t| {
             let (on, line) = states.get(t.key).cloned().unwrap_or((false, String::new()));
+            // What the search box matches inside this tool: its own headings
+            // and fields, then what staff made in it. Escaped JSON in an
+            // attribute, read by `tools-finder.js` and placed with
+            // textContent.
+            let mut phrases: Vec<String> = crate::tool_finder::content_of(t.key).iter().map(|p| p.to_string()).collect();
+            if let Some(made) = inside.get(t.key) {
+                phrases.extend(made.iter().cloned());
+            }
             format!(
-                r#"<a class="tool-card" href="{href}">
+                r#"<a class="tool-card" href="{href}" data-tool="{key}" data-find="{find}">
 <div class="tool-top"><span class="ic tint-{tint}">{icon}</span><span class="tool-go" aria-hidden="true">{arrow}</span></div>
 <div class="tool-text"><h2>{title}</h2><p>{description}</p></div>
+<span class="tool-found" hidden></span>
 <span class="tool-state{cls}"><i></i>{line}</span>
 </a>"#,
                 href = t.href,
+                key = esc(t.key),
+                find = esc(&serde_json::Value::from(phrases).to_string()),
                 tint = t.tint,
                 icon = svg(t.icon),
                 arrow = svg("chevron"),
@@ -224,9 +354,31 @@ pub(crate) async fn tools_page(State(state): State<AppState>, headers: HeaderMap
         .collect();
     page_for_role(actor.role, "Tools", "tools", Some(&actor.user), &format!(
         r#"<header class="page-head rise"><div><h1>Tools</h1>
-<p class="sub">Shape the public site — its look, menus, URLs — and the people who run it.</p></div></header>
-<div class="tool-grid rise" style="--i:1">{cards}</div>"#,
+<p class="sub">Everything that runs this publication — its audience, its pages, its reports and the people behind it.</p></div></header>
+<div class="tool-finder rise" style="--i:1" role="search">
+<span class="tool-finder-ic" aria-hidden="true">{search}</span>
+<input type="search" id="tool-find" placeholder="Search {n} tools and everything in them" aria-label="Search tools" autocomplete="off" spellcheck="false" aria-controls="tool-grid">
+<span class="tool-finder-count" id="tool-find-count" role="status" aria-live="polite"></span>
+</div>
+<div class="tool-grid rise" style="--i:2" id="tool-grid">{cards}</div>
+<div class="card padded tool-none rise" id="tool-none" hidden>
+<p><b>No tool matches “<span id="tool-none-q"></span>”.</b></p>
+<p class="muted">The search box in the sidebar also looks through posts, pages, members and every setting.</p>
+<button class="btn tonal" type="button" data-omni-open>{search} Search everything</button>
+</div>
+<noscript><style>.tool-finder{{display:none}}</style></noscript>
+<script src="{assets}/tools-finder.js?v={hash}" defer></script>"#,
+        search = svg("search"),
+        n = visible.len(),
+        assets = ASSETS,
+        hash = finder_script_hash(),
     ), true).into_response()
+}
+
+fn finder_script_hash() -> &'static str {
+    static HASH: std::sync::LazyLock<String> =
+        std::sync::LazyLock::new(|| crate::asset_hash(include_str!("../assets/tools-finder.js")));
+    &HASH
 }
 
 // ---------------------------------------------------------------------------

@@ -484,8 +484,8 @@ async fn a_file_is_uploaded_described_renamed_replaced_and_deleted() {
     let cookie = f.session().await;
 
     // The module is reachable from the Modules hub.
-    let modules = get(&f.state, "/modules/", &cookie).await;
-    assert!(modules.body.contains(r#"href="/ghost/media/""#), "Media is not on the Modules page");
+    let modules = get(&f.state, "/tools/", &cookie).await;
+    assert!(modules.body.contains(r#"href="/ghost/media/""#), "Media is not on the Tools page");
 
     // --- upload
     let r = upload(&f.state, &cookie, "Autumn Harbour.PNG", "image/png", b"the first version").await;
@@ -797,22 +797,21 @@ async fn what_someone_typed_about_a_file_is_escaped_everywhere_it_is_shown() {
 }
 
 #[tokio::test]
-async fn the_modules_hub_lays_its_cards_out_four_across() {
+async fn the_tools_hub_finds_a_tool_by_what_is_inside_it() {
+    // The Modules hub was folded into Tools on 2026-11-21; its old address
+    // redirects, and the hub carries the search box and, on each card, the
+    // phrases from that tool's screens for the box to match.
     let f = fixture().await;
     let cookie = f.session().await;
-    let page = get(&f.state, "/modules/", &cookie).await;
-    // The stylesheet is linked, not inlined, so the rule is checked where it
-    // lives and the page is checked for carrying the grid it applies to.
-    assert!(page.body.contains(r#"class="module-grid"#), "the hub is not a module grid");
-    // Read from the file the crate serves rather than through a widened public
-    // API — the stylesheet is `pub(crate)` and should stay that way.
-    let css = include_str!("../assets/admin.css");
-    assert!(
-        css.contains(".module-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr))"),
-        "the module grid is not four across"
-    );
-    // …and steps down rather than keeping four columns on a narrow window
-    for narrower in ["repeat(3, minmax(0, 1fr))", "repeat(2, minmax(0, 1fr))"] {
-        assert!(css.contains(narrower), "the grid never narrows to {narrower}");
-    }
+    let old = get(&f.state, "/modules/", &cookie).await;
+    assert!(old.status.is_redirection());
+    assert_eq!(old.location, "/ghost/tools/");
+    let page = get(&f.state, "/tools/", &cookie).await;
+    assert!(page.body.contains(r#"id="tool-find""#), "no search box");
+    assert!(page.body.contains("tools-finder.js?v="), "the finder script is not linked by hash");
+    assert!(page.body.contains(r#"class="tool-card" href="/ghost/media/" data-tool="media""#), "{}", page.body);
+    // Security's card can be found by "Firewall", which is only on its screens.
+    let security = page.body.split(r#"data-tool="security""#).nth(1).unwrap().split("</a>").next().unwrap();
+    assert!(security.contains("Firewall"), "{security}");
+    assert!(!page.body.contains("module-grid"));
 }

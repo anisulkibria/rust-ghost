@@ -1,0 +1,60 @@
+/*
+ * Vuuut ads. Sits inside any theme's content column, so every rule is
+ * under `vad-`, sizes are relative to the column, and the only colour taken
+ * is the site's own accent for a text ad's call to action. The label is
+ * always visible: an ad has to be recognisable as one.
+ */
+.vad {
+  --vad-accent: var(--ghost-accent-color, #FF1A75);
+  --vad-line: rgba(0, 0, 0, .1);
+  --vad-muted: rgba(0, 0, 0, .55);
+  --vad-surface: rgba(0, 0, 0, .025);
+  display: block; clear: both; margin: 2em auto; max-width: 100%; text-align: center;
+  font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; line-height: 1.4;
+}
+@media (prefers-color-scheme: dark) {
+  .vad { --vad-line: rgba(255, 255, 255, .14); --vad-muted: rgba(255, 255, 255, .6); --vad-surface: rgba(255, 255, 255, .04); }
+}
+html.dark-mode .vad, body.dark-mode .vad { --vad-line: rgba(255, 255, 255, .14); --vad-muted: rgba(255, 255, 255, .6); --vad-surface: rgba(255, 255, 255, .04); }
+.vad-label { display: block; margin: 0 0 6px; font-size: 10.5px; font-weight: 600; letter-spacing: .08em;
+  text-transform: uppercase; color: var(--vad-muted); }
+.vad-link { display: inline-block; max-width: 100%; text-decoration: none !important; color: inherit; border: 0; box-shadow: none; }
+.vad-img { display: block; max-width: 100%; height: auto; margin: 0 auto; border-radius: 12px; }
+.vad-code { display: flex; justify-content: center; max-width: 100%; overflow: hidden; }
+
+/* Text ads: a card with an optional thumbnail and a pill call to action. */
+.vad-text { display: flex; align-items: center; gap: 14px; width: 100%; padding: 14px 16px; text-align: left;
+  border: 1px solid var(--vad-line); border-radius: 16px; background: var(--vad-surface);
+  transition: border-color .15s, transform .15s; }
+.vad-text:hover { border-color: var(--vad-accent); transform: translateY(-1px); }
+.vad-thumb { width: 56px; height: 56px; border-radius: 12px; object-fit: cover; flex-shrink: 0; margin: 0; }
+.vad-words { flex: 1; min-width: 0; display: grid; gap: 2px; }
+.vad-headline { font-size: 16px; font-weight: 650; }
+.vad-body { font-size: 14px; color: var(--vad-muted); }
+.vad-cta { flex-shrink: 0; padding: 8px 16px; border-radius: 999px; background: var(--vad-accent); color: #fff;
+  font-size: 13.5px; font-weight: 600; white-space: nowrap; }
+@media (max-width: 520px) {
+  .vad-text { flex-wrap: wrap; }
+  .vad-cta { width: 100%; text-align: center; }
+}
+
+/* Devices — decided by the reader's screen, not by guessing from a header. */
+@media (max-width: 719px) { .vad-desktop { display: none !important; } }
+@media (min-width: 720px) { .vad-mobile { display: none !important; } }
+
+/* The sticky bar: one ad pinned to the bottom of the screen, closable. */
+.vad-sticky { position: fixed; left: 50%; bottom: 0; transform: translateX(-50%); z-index: 2147482000;
+  width: min(100%, 760px); padding: 8px 40px 8px 12px; border-radius: 16px 16px 0 0;
+  background: rgba(255, 255, 255, .985); box-shadow: 0 -6px 28px rgba(0, 0, 0, .16);
+  -webkit-backdrop-filter: blur(16px) saturate(160%); backdrop-filter: blur(16px) saturate(160%); }
+@media (prefers-color-scheme: dark) { .vad-sticky { background: rgba(28, 24, 26, .98); } }
+/* Article text must not show through the bar's own card. */
+.vad-sticky .vad-text { background: transparent; border-color: transparent; padding: 6px 4px; }
+.vad-sticky .vad { margin: 0; }
+.vad-sticky .vad-label { margin-bottom: 4px; }
+.vad-sticky .vad-img { max-height: 90px; width: auto; border-radius: 8px; }
+.vad-close { all: unset; position: absolute; top: 6px; right: 8px; width: 28px; height: 28px; border-radius: 50%;
+  display: grid; place-items: center; cursor: pointer; font: 400 20px/1 system-ui, sans-serif; color: var(--vad-muted, #666); }
+.vad-close:hover { background: rgba(0, 0, 0, .06); }
+.vad-close:focus-visible { outline: 2px solid var(--ghost-accent-color, #FF1A75); }
+@media print { .vad, .vad-sticky { display: none !important; } }

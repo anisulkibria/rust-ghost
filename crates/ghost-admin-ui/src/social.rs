@@ -828,11 +828,13 @@ pub(crate) async fn social_shell(state: &AppState, tab: &str, body: &str, flash:
     };
 
     format!(
-        r#"<header class="page-head rise"><div><h1>Social web</h1><p class="sub">Your publication on the fediverse</p></div></header>
+        r#"{switch}
+<h2 class="sm-subhead">Social web <span>— your publication's own account on the fediverse</span></h2>
 {flash}{notice}
 {profile}
 <div class="seg-bar">{tabs}</div>
 {body}"#,
+        switch = crate::social_media::section_switch("web"),
         flash = flash,
         notice = notice,
         profile = social::publication_header(&handle, &actor, followers, following, posts, enabled),
@@ -1024,7 +1026,9 @@ pub(crate) async fn social_page(
     page_for_role(
         actor.role,
         "Social web",
-        "modules",
+        // Social web is a Tool since 2026-11-20; this lights the Tools rail
+        // item rather than Modules.
+        "tools",
         Some(&actor.user),
         &social_shell(&state, tab, &body, &flash_banner(&q)).await,
         true,
@@ -1131,7 +1135,9 @@ pub(crate) async fn social_thread_page(
     page_for_role(
         actor.role,
         "Social web",
-        "modules",
+        // Social web is a Tool since 2026-11-20; this lights the Tools rail
+        // item rather than Modules.
+        "tools",
         Some(&actor.user),
         &format!("{}{}", flash_banner(&q), body),
         true,
@@ -1192,7 +1198,9 @@ pub(crate) async fn social_account_page(
     page_for_role(
         user.role,
         "Social web",
-        "modules",
+        // Social web is a Tool since 2026-11-20; this lights the Tools rail
+        // item rather than Modules.
+        "tools",
         Some(&user.user),
         &format!(
             r#"{flash}<p class="sw-back"><a href="/ghost/social/">{icon} Back to the feed</a></p>

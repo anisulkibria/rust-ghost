@@ -30,6 +30,8 @@ pub fn spawn(state: AppState) {
     tokio::spawn(async move {
         loop {
             publish_due(&state).await;
+            // Shares scheduled from Social → Social media → Share a post.
+            ghost_api::social_media::send_due(&state).await;
             tokio::time::sleep(TICK).await;
         }
     });
@@ -86,6 +88,7 @@ async fn publish_one(state: &AppState, due: &repos::posts::DuePost) {
 
     if status == "published" {
         crate::notify_slack_published(state, &post).await;
+        crate::social_media::auto_share(state, &post).await;
         crate::announce_published(state, &post).await;
     }
 

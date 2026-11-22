@@ -213,6 +213,40 @@ pub async fn render_template(
         Value::Array(items)
     } else { Value::Array(vec![]) };
 
+    // Ads: chosen once for this reader on this page, then placed in two
+    // halves — into the post body here, before the theme renders it, and
+    // onto the finished page below. `None` (ads off, nothing eligible) is
+    // the common case and touches nothing.
+    let ad_plan = {
+        let kind = if rctx.context.iter().any(|c| c == "post") {
+            "post"
+        } else if rctx.context.iter().any(|c| c == "page") {
+            "page"
+        } else {
+            ""
+        };
+        let tags: Vec<String> = data
+            .pointer("/post/tags")
+            .and_then(Value::as_array)
+            .map(|ts| ts.iter().filter_map(|t| t.get("slug").and_then(Value::as_str).map(str::to_string)).collect())
+            .unwrap_or_default();
+        ghost_api::ads::plan(state, &rctx.relative_url, &rctx.member, kind, &tags).await
+    };
+    if let Some(plan) = &ad_plan {
+        plan.apply_to_post(&mut data);
+    }
+    // Share buttons under posts (Tools → Social → Social media), when on.
+    // Into the body before rendering, like the ads, so any theme gets them.
+    // Lazy-loading for images in a post body (Caching & Performance).
+    if rctx.context.iter().any(|c| c == "post" || c == "page") {
+        ghost_api::caching::apply_to_post(state, &mut data);
+    }
+    let share_bar = ghost_api::social_media::apply_share_buttons(
+        state,
+        &mut data,
+        rctx.context.iter().any(|c| c == "post"),
+    );
+
     let root = match &mut data {
         Value::Object(m) => {
             m.entry("recommendations").or_insert(recommendations);
@@ -255,7 +289,29 @@ pub async fn render_template(
         .map_err(|e| ghost_core::GhostError::Internal(e.to_string()))??;
     // Form cards are stored as a placeholder and filled in here, per
     // request: the form is always the current one, and its token is fresh.
-    Ok(ghost_api::forms::expand_html(state, html).await)
+    let html = ghost_api::forms::expand_html(state, html).await;
+    // And the popup script, when anything is live. It goes last so it sits
+    // after the theme's own scripts, and it decides nothing itself: which
+    // popups this reader may see on this path is answered by
+    // `/popups/api/active`, from the member cookie and the schedule.
+    let html = ghost_api::popups::inject(state, html).await;
+    // The page-wide half of the ads: sticky bar, slots, script.
+    let html = match &ad_plan {
+        Some(plan) => plan.finish(html),
+        None => html,
+    };
+    let html = if share_bar { ghost_api::social_media::share_assets(html) } else { html };
+    // Preconnect hints and speculation rules, when switched on.
+    let html = ghost_api::caching::head_tags(state, html);
+    // The built-in search, when it is the site's engine (Sodo is added by
+    // `ghost_head` otherwise). Before consent, which leaves it alone.
+    let html = ghost_api::site_search::inject(state, html);
+    // Consent goes after everything else has added its markup, because it
+    // reads the whole page: every recognised tracker is held back here, on
+    // the server, before a byte reaches the browser — the only point early
+    // enough to stop a tracker setting its cookie. A no-op while the banner
+    // is off.
+    Ok(ghost_api::cookies::inject(state, html).await)
 }
 
 /// Render the theme's error page (error-<code> → error-<N>xx → error → builtin).

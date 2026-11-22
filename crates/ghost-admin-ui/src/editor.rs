@@ -71,6 +71,13 @@ pub(crate) struct Editor<'a> {
     /// Where the entry is on the public site, language prefix included, or
     /// empty for one that does not exist yet.
     view_url: String,
+    /// Tools → Page Builder: the visual editor's address for this entry, and
+    /// whether a layout is live on it. `None` hides the button (new entry,
+    /// builder off, or this person may not use it).
+    builder: Option<(String, bool)>,
+    /// Whether this person may create tags (Editor and above), which puts a
+    /// "Find or add a tag" field in the Tags panel.
+    can_add_tags: bool,
 }
 
 /// Ghost's registered Unsplash application — a public Client-ID, the one
@@ -680,7 +687,23 @@ pub(crate) fn editor_html(ed: &Editor<'_>) -> String {
         "tags",
         "amber",
         "Tags",
-        &chip_set("tags", &tag_options, &tag_selected, "No tags yet — create one under Tags."),
+        &if ed.can_add_tags {
+            // Find or add: typing filters the tags below; Enter (or Add)
+            // ticks an exact match or creates the tag. Wired by
+            // `publishing-workflows.js`; the chips stay plain checkboxes, so
+            // the form posts them with or without the script.
+            let chips = if tag_options.is_empty() {
+                r#"<div class="chips" id="tag-chips"></div><p class="hint" id="tag-empty">No tags yet — type one above to create it.</p>"#.to_string()
+            } else {
+                chip_set("tags", &tag_options, &tag_selected, "").replacen(r#"<div class="chips">"#, r#"<div class="chips" id="tag-chips">"#, 1)
+            };
+            format!(
+                r#"<div class="tag-add"><label class="field" style="margin:0"><input id="tag-new" placeholder=" " maxlength="191" autocomplete="off" enterkeyhint="done"><span>Find or add a tag</span></label><button type="button" class="btn tonal small" id="tag-new-btn" disabled>{add} Add</button></div><p class="hint tag-msg" id="tag-new-msg" role="status" hidden></p>{chips}"#,
+                add = svg("add"),
+            )
+        } else {
+            chip_set("tags", &tag_options, &tag_selected, "No tags yet. An editor can create them.")
+        },
         false,
     ));
 
@@ -843,12 +866,33 @@ pub(crate) fn editor_html(ed: &Editor<'_>) -> String {
     } else {
         format!("New {singular}")
     };
-    let preview = format!(
-        r#"<a class="btn text" id="editor-view" href="{href}" target="_blank" rel="noopener"{hidden}>{open} View {singular}</a>"#,
+    // The everyday actions sit in the top bar: Preview (added there by
+    // `publishing-workflows.js`, which owns its dialog), View and the page
+    // builder. The occasional ones — duplicate, history, gift link,
+    // newsletter links, also added by that script — go in a closed "More
+    // actions" panel at the bottom of the settings column.
+    let head_actions = format!(
+        r#"<span class="ed-head-slot" id="editor-head-actions"></span><a class="btn text" id="editor-view" href="{href}" target="_blank" rel="noopener" title="View {singular}"{hidden}>{open}<span class="lbl"> View {singular}</span></a>{builder}"#,
         href = esc(&ed.view_url),
         hidden = if status == "published" && ed.id().is_some() { "" } else { " hidden" },
         open = svg("open"),
+        builder = match &ed.builder {
+            Some((href, active)) => format!(
+                r#"<a class="btn {kind}" id="editor-builder" href="{href}" title="Page builder — design this {singular} visually">{icon}<span class="lbl"> Page builder</span></a>"#,
+                kind = if *active { "tonal" } else { "text" },
+                icon = svg("layout"),
+            ),
+            None => String::new(),
+        },
     );
+    // A post that has never been saved has no status yet, whatever the
+    // status field's default says.
+    let status_chip = if ed.id().is_none() { r#"<span class="chip tonal">New</span>"# } else { match status {
+        "published" => r#"<span class="chip published">Published</span>"#,
+        "scheduled" => r#"<span class="chip scheduled">Scheduled</span>"#,
+        "sent" => r#"<span class="chip sent">Sent</span>"#,
+        _ => r#"<span class="chip draft">Draft</span>"#,
+    } };
     // The delete form cannot be nested inside the editor form, so it sits in
     // the head and the settings column links to it by id.
     let delete = match ed.id() {
@@ -861,6 +905,10 @@ pub(crate) fn editor_html(ed: &Editor<'_>) -> String {
         ),
         None => String::new(),
     };
+    // "More actions" just above Delete, which is always the last thing.
+    if ed.id().is_some() {
+        side.push_str(&panel("tune", "slate", "More actions", r#"<div class="ed-actions" id="editor-actions"></div>"#, false));
+    }
     if ed.id().is_some() {
         side.push_str(&format!(
             r#"<div class="card panel"><div class="panel-body" style="padding-top:14px">
@@ -889,9 +937,9 @@ pub(crate) fn editor_html(ed: &Editor<'_>) -> String {
    future rem elsewhere cannot be caught out by it. */
 html {{ font-size: 62.5%; }}
 </style>
-<header class="page-head rise"><a class="icon-btn" href="{base}" title="Back to {plural}">{back}</a>
-<div><h1>{heading}</h1></div>
-<div class="actions"><a class="btn text" href="{base}">Cancel</a>{preview}
+<header class="page-head ed-head"><a class="icon-btn" href="{base}" title="Back to {plural}">{back}</a>
+<div class="ed-head-title"><h1>{heading}</h1>{status_chip}</div>
+<div class="actions">{head_actions}
 <span class="save-state" id="save-state" aria-live="polite"></span>
 <input type="checkbox" id="side-toggle">
 <label class="icon-btn side-btn" for="side-toggle" title="Show or hide settings">
@@ -945,7 +993,8 @@ html {{ font-size: 62.5%; }}
         heading = esc(&heading),
         hide = svg("panel-hide"),
         show = svg("panel-show"),
-        preview = preview,
+        status_chip = status_chip,
+        head_actions = head_actions,
         save = svg("check"),
         save_label = if ed.id().is_none() && ed.can_publish { "Publish".to_string() } else { format!("Save {singular}") },
         delete = delete,
@@ -1063,6 +1112,8 @@ pub(crate) async fn editor_context<'a>(
             Some(p) => crate::languages::public_url(state, p).await,
             None => String::new(),
         },
+        builder: None,
+        can_add_tags: false,
     }
 }
 
@@ -1073,6 +1124,7 @@ pub(crate) async fn editor_new_impl(state: &AppState, headers: &HeaderMap, post_
     };
     let mut ed = editor_context(state, post_type, None, vec![], vec![], actor.role.can_publish()).await;
     ed.can_manage_forms = actor.role.is_admin();
+    ed.can_add_tags = actor.role >= Role::Editor;
     page_for(
         "New",
         if post_type == "page" { "pages" } else { "posts" },
@@ -1118,6 +1170,8 @@ pub(crate) async fn editor_page(
     let authors = rel.authors_for(&post.id);
     let mut ed = editor_context(&state, &post.post_type, Some(&post), tags, authors, actor.role.can_publish()).await;
     ed.can_manage_forms = actor.role.is_admin();
+    ed.builder = crate::builder::editor_link(&state, actor.role, &post).await;
+    ed.can_add_tags = actor.role >= Role::Editor;
     page_for(
         "Edit",
         if post.post_type == "page" { "pages" } else { "posts" },

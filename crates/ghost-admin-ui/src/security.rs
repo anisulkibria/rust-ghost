@@ -437,7 +437,7 @@ pub async fn security_page(
                 } else {
                     "Anyone can read the published site"
                 },
-                "/ghost/settings/membership/",
+                "/ghost/settings/memberships/",
                 "globe",
                 if posture.is_private { "amber" } else { "green" },
             ),

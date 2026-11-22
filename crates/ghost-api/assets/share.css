@@ -1,0 +1,17 @@
+/*
+ * Share buttons under a post. Under `vsb-` so any theme's own rules stay
+ * out; the site's accent colour for hover; pills that wrap on a phone.
+ */
+.vsb { --vsb-accent: var(--ghost-accent-color, #FF1A75); --vsb-line: rgba(0, 0, 0, .12); --vsb-muted: rgba(0, 0, 0, .6);
+  display: block; clear: both; margin: 2.4em 0; font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+@media (prefers-color-scheme: dark) { .vsb { --vsb-line: rgba(255, 255, 255, .16); --vsb-muted: rgba(255, 255, 255, .65); } }
+html.dark-mode .vsb, body.dark-mode .vsb { --vsb-line: rgba(255, 255, 255, .16); --vsb-muted: rgba(255, 255, 255, .65); }
+.vsb-label { display: block; margin: 0 0 10px; font-size: 12px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: var(--vsb-muted); }
+.vsb-row { display: flex; flex-wrap: wrap; gap: 8px; }
+.vsb-btn { all: unset; box-sizing: border-box; display: inline-flex; align-items: center; height: 36px; padding: 0 16px; border-radius: 999px;
+  border: 1px solid var(--vsb-line); font: 600 14px/1 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; color: inherit;
+  cursor: pointer; text-decoration: none !important; transition: border-color .15s, color .15s, background-color .15s; }
+.vsb-btn:hover { border-color: var(--vsb-accent); color: var(--vsb-accent); }
+.vsb-btn:focus-visible { outline: 2px solid var(--vsb-accent); outline-offset: 2px; }
+.vsb-done { background: var(--vsb-accent); border-color: var(--vsb-accent); color: #fff; }
+@media print { .vsb { display: none !important; } }

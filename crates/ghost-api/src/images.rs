@@ -136,9 +136,53 @@ pub async fn store(
     // the media manager's metadata key allows.
     let stem: String = stem.chars().take(60).collect();
     let name = format!("{stem}-{}.{ext}", ghost_core::ids::random_hex(4));
+
+    // Settings → Images. Off by default, so an upload is stored exactly as it
+    // arrived until somebody switches this on. On, an image is scaled to the
+    // limit, recompressed and stripped of camera metadata — on a blocking
+    // thread, because decoding a 40-megapixel photo on the request's task
+    // would stall every other request sharing it. Anything that goes wrong
+    // stores the original: an upload must never fail because it could not be
+    // made smaller.
+    let optimized = if kind == Kind::Image {
+        let settings = ghost_core::images::ImageSettings::read(|key| state.settings.get_str(key));
+        if settings.optimize {
+            let bytes = data.to_vec();
+            let ext = ext.to_string();
+            tokio::task::spawn_blocking(move || {
+                crate::image_optimize::optimize(&bytes, &ext, &settings).map(|o| o.bytes)
+            })
+            .await
+            .ok()
+            .flatten()
+        } else {
+            None
+        }
+    } else {
+        None
+    };
+    let original = data;
+    let data: &[u8] = optimized.as_deref().unwrap_or(data);
+
     if let Err(e) = tokio::fs::write(dir.join(&name), data).await {
         tracing::error!("upload: could not write {}: {e}", dir.join(&name).display());
         return Err(Refused::new(StatusCode::INTERNAL_SERVER_ERROR, "The file could not be written."));
+    }
+    // An image optimised here keeps its untouched original privately, in
+    // `content/data/image-originals/` — the same place, and the same layout,
+    // as the Media module's library run. That copy is also the run's "already
+    // done" marker: without it, the library run would decode this file again
+    // and put a JPEG through a second lossy pass for nothing. `content/data`
+    // is never served, so a photo's stripped GPS position is not published
+    // through its backup. Best-effort: the upload has already succeeded.
+    if optimized.is_some() {
+        let backup = state.config.data_dir().join("image-originals").join(&month).join(&name);
+        if let Some(parent) = backup.parent() {
+            let _ = tokio::fs::create_dir_all(parent).await;
+        }
+        if let Err(e) = tokio::fs::write(&backup, original).await {
+            tracing::warn!("upload: could not keep the original of {name}: {e}");
+        }
     }
 
     let rest = format!("{month}/{name}");

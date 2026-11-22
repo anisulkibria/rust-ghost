@@ -10,7 +10,32 @@
     return data;
   }
   function el(tag, text, parent) { var node = document.createElement(tag); if (text) node.textContent = text; if (parent) parent.appendChild(node); return node; }
-  function button(text, parent, fn) {var node=el('button', text, parent);node.type='button';node.className='btn tonal small';node.addEventListener('click',async function(){node.disabled=true;try{await fn();}catch(error){notice(error.message);}finally{node.disabled=false;}});return node;}
+  // The editor's actions live in a card in the settings column
+  // (`#editor-actions`, drawn by the server); outside it this falls back to a
+  // row of chips under the form, as before.
+  var ACTION_ICONS={'Preview':'M12 4.5C7 4.5 2.73 7.61 1 12c1.73 4.39 6 7.5 11 7.5s9.27-3.11 11-7.5c-1.73-4.39-6-7.5-11-7.5zM12 17a5 5 0 1 1 0-10 5 5 0 0 1 0 10zm0-8a3 3 0 1 0 0 6 3 3 0 0 0 0-6z','Duplicate':'M16 1H4c-1.1 0-2 .9-2 2v14h2V3h12V1zm3 4H8c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h11c1.1 0 2-.9 2-2V7c0-1.1-.9-2-2-2zm0 16H8V7h11v14z','Revision history':'M13 3a9 9 0 0 0-9 9H1l3.89 3.89.07.14L9 12H6c0-3.87 3.13-7 7-7s7 3.13 7 7-3.13 7-7 7c-1.93 0-3.68-.79-4.94-2.06l-1.42 1.42A8.95 8.95 0 0 0 13 21a9 9 0 0 0 0-18zm-1 5v5l4.28 2.54.72-1.21-3.5-2.08V8H12z','Gift link':'M20 7h-2.2A3 3 0 0 0 12 4.4 3 3 0 0 0 6.2 7H4a1 1 0 0 0-1 1v3h18V8a1 1 0 0 0-1-1zM9 7a1 1 0 1 1 1-1v1H9zm6 0h-1V6a1 1 0 1 1 1 1zM4 13v7a1 1 0 0 0 1 1h6v-8H4zm9 8h6a1 1 0 0 0 1-1v-7h-7v8z','Newsletter links':'M3.9 12c0-1.71 1.39-3.1 3.1-3.1h4V7H7a5 5 0 0 0 0 10h4v-1.9H7c-1.71 0-3.1-1.39-3.1-3.1zM8 13h8v-2H8v2zm9-6h-4v1.9h4c1.71 0 3.1 1.39 3.1 3.1s-1.39 3.1-3.1 3.1h-4V17h4a5 5 0 0 0 0-10z'};
+  function actionsHost(){var host=document.getElementById('editor-actions');if(host)return host;if(document.getElementById('editor-head-actions'))return {id:'editor-actions',appendChild:function(){}};var row=el('div',null,document.getElementById('editor-form').parentNode);row.style.cssText='display:flex;gap:8px;flex-wrap:wrap;margin:16px 0';return row;}
+  function button(text, parent, fn) {
+    // Preview is an everyday action: it goes in the editor's top bar.
+    var head=document.getElementById('editor-head-actions');
+    if(head && text==='Preview' && parent && parent.id==='editor-actions'){
+      var top=document.createElement('button');top.type='button';top.className='btn text';
+      top.innerHTML='<svg class="i" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="'+ACTION_ICONS.Preview+'"/></svg>';
+      var lbl=document.createElement('span');lbl.className='lbl';lbl.textContent=' Preview';top.appendChild(lbl);top.title='Preview';
+      head.appendChild(top);
+      top.addEventListener('click',async function(){top.disabled=true;try{await fn();}catch(error){notice(error.message);}finally{top.disabled=false;}});
+      return top;
+    }
+    if(parent && parent.id==='editor-actions'){
+      var row=document.createElement('button');row.type='button';row.className='ed-action';
+      row.innerHTML='<svg class="i" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="'+(ACTION_ICONS[text]||ACTION_ICONS.Preview)+'"/></svg>';
+      el('span',text,row);
+      // Preview first, the rest after what the server drew
+      parent.appendChild(row);
+      row.addEventListener('click',async function(){row.disabled=true;try{await fn();}catch(error){notice(error.message);}finally{row.disabled=false;}});
+      return row;
+    }
+    var node=el('button', text, parent);node.type='button';node.className='btn tonal small';node.addEventListener('click',async function(){node.disabled=true;try{await fn();}catch(error){notice(error.message);}finally{node.disabled=false;}});return node;}
   function notice(text) { var node=el('div',text,document.body);node.setAttribute('role','status');node.style.cssText='position:fixed;bottom:24px;left:50%;transform:translateX(-50%);padding:14px 24px;border-radius:18px;background:var(--inverse-surface,#303034);color:var(--inverse-on-surface,#fff);z-index:100000;max-width:90vw;box-shadow:0 6px 24px #0003';setTimeout(function(){node.remove();},5000); }
   function dialog(title) {var modal=el('dialog',null,document.body);modal.style.cssText='width:min(860px,92vw);max-height:90vh;border:0;border-radius:28px;padding:28px;background:var(--surface,#fff);color:var(--on-surface,#222);box-shadow:0 12px 80px #0005';var head=el('div',null,modal);head.style.cssText='display:flex;justify-content:space-between;align-items:center;gap:24px;margin-bottom:20px';el('h2',title,head);button('Close',head,function(){modal.close();});modal.addEventListener('close',function(){modal.remove();});modal.showModal();return modal;}
   function input(label,parent,value,type) {var wrap=el('label',null,parent);wrap.className='field fixed';wrap.style.display='block';var node=el('input',null,wrap);node.type=type||'text';node.value=value||'';node.placeholder=' ';el('span',label,wrap);return node;}
@@ -19,6 +44,54 @@
 
   var recovery=document.getElementById('password-recovery');
   if(recovery){var token=new URLSearchParams(location.search).get('token');var field=input(token?'New password':'Staff email',document.getElementById('recovery-fields'),'',token?'password':'email');field.required=true;if(token)field.minLength=10;recovery.onsubmit=async function(event){event.preventDefault();var submit=recovery.querySelector('button[type="submit"]');submit.disabled=true;try{var data=await request('authentication/password_reset/',token?'PUT':'POST',{password_reset:[token?{token:token,newPassword:field.value}:{email:field.value}]});document.getElementById('recovery-message').textContent=token?'Your password was reset. You can now sign in.':data.password_reset[0].message;field.value='';}catch(error){document.getElementById('recovery-message').textContent=error.message;}finally{submit.disabled=false;}};}
+
+  // Tags panel: find or add. Typing filters the chips (ticked ones always
+  // stay visible); Enter or Add ticks an exact match, or creates the tag
+  // through the Admin API and adds it ticked. Ticking fires `change`, which
+  // the editor treats like any other setting.
+  (function(){
+    var input=document.getElementById('tag-new');
+    if(!input)return;
+    var add=document.getElementById('tag-new-btn'),msg=document.getElementById('tag-new-msg'),chips=document.getElementById('tag-chips'),empty=document.getElementById('tag-empty');
+    var CHECK='<svg class="i" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M9 16.17 4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/></svg>';
+    function all(){return Array.prototype.slice.call(chips.querySelectorAll('.fchip'));}
+    function name(chip){return chip.textContent.trim();}
+    function exact(q){q=q.trim().toLowerCase();return all().find(function(c){return name(c).toLowerCase()===q;});}
+    function say(text,bad){msg.hidden=!text;msg.textContent=text||'';msg.classList.toggle('bad',!!bad);}
+    function refresh(){
+      var q=input.value.trim().toLowerCase();
+      all().forEach(function(c){var box=c.querySelector('input');c.hidden=!!q&&!box.checked&&name(c).toLowerCase().indexOf(q)<0;});
+      var match=exact(input.value);
+      add.disabled=!q;
+      add.lastChild.textContent=match?(match.querySelector('input').checked?' Added':' Select'):' Add';
+      if(match&&match.querySelector('input').checked)add.disabled=true;
+    }
+    function tick(chip){var box=chip.querySelector('input');if(!box.checked){box.checked=true;box.dispatchEvent(new Event('change',{bubbles:true}));}}
+    async function commit(){
+      var value=input.value.trim();
+      if(!value)return;
+      var match=exact(value);
+      if(match){tick(match);input.value='';refresh();say('');return;}
+      add.disabled=true;say('Creating “'+value+'”…');
+      try{
+        var data=await request('tags/','POST',{tags:[{name:value}]});
+        var tag=data.tags[0];
+        var chip=document.createElement('label');chip.className='fchip';
+        var box=document.createElement('input');box.type='checkbox';box.name='tags';box.value=tag.id;
+        var ck=document.createElement('span');ck.className='ck';ck.innerHTML=CHECK;
+        chip.appendChild(box);chip.appendChild(ck);chip.appendChild(document.createTextNode(tag.name));
+        chips.insertBefore(chip,chips.firstChild);
+        if(empty)empty.remove();
+        tick(chip);
+        input.value='';refresh();say('Tag “'+tag.name+'” created and added.');
+        setTimeout(function(){say('');},3000);
+      }catch(error){say(error.message,true);refresh();}
+    }
+    input.addEventListener('input',function(){refresh();say('');});
+    input.addEventListener('keydown',function(e){if(e.key==='Enter'){e.preventDefault();commit();}if(e.key==='Escape'){input.value='';refresh();}});
+    add.addEventListener('click',commit);
+    refresh();
+  })();
 
   var editor=document.getElementById('editor-form');
   var match=location.pathname.match(/\/(posts|pages)\/([^/]+)\/$/);
@@ -31,7 +104,7 @@
 
   if(editor && match && match[2]!=='new') {
     var resource=match[1],id=match[2],path=resource+'/'+encodeURIComponent(id)+'/';
-    var tools=el('div',null,editor.parentNode);tools.style.cssText='display:flex;gap:8px;flex-wrap:wrap;margin:16px 0';
+    var tools=actionsHost();
     button('Duplicate',tools,async function(){var data=await request(path+'copy/','POST',{});location.href=base+resource+'/'+data[resource][0].id+'/';});
     button('Revision history',tools,async function(){var data=await request(path+'revisions/');var modal=dialog('Revision history');if(!data.revisions.length)el('p','Previous versions appear here after you save changes.',modal);data.revisions.forEach(function(revision){var row=el('div',null,modal);row.style.cssText='border-top:1px solid var(--outline-variant,#ddd);padding:16px 0';el('strong',revision.title||'Untitled',row);el('p',new Date(revision.created_at.replace(' ','T')+'Z').toLocaleString(),row);button('Preview version',row,function(){var preview=dialog(revision.title||'Previous version');var frame=el('iframe',null,preview);frame.setAttribute('sandbox','');frame.title='Saved post content';frame.style.cssText='width:100%;height:50vh;border:0';frame.srcdoc=revision.post.html||'<p>No body content</p>';});button('Restore this version',row,async function(){await request(path+'revisions/'+revision.id+'/','PUT',{});location.reload();});});});
     button('Gift link',tools,async function(){var modal=dialog('Share this article');el('p','Create a link that lets anyone with it read this article. Creating another link revokes the previous one.',modal);button('Create or reset link',modal,async function(){var data=await request(path+'gift/','POST',{});outputLink('Article gift link',data.gift_links[0].url);});button('Revoke link',modal,async function(){await request(path+'gift/','DELETE');notice('Gift link revoked');modal.close();});});
@@ -39,8 +112,7 @@
   }
 
   if(editor && match) {
-    var previewTools=el('div',null,editor.parentNode);
-    previewTools.style.cssText='display:flex;gap:8px;flex-wrap:wrap;margin:16px 0';
+    var previewTools=actionsHost();
     function snapshotFields() {
       if(editor.ghostPreviewData) return editor.ghostPreviewData();
       var fields=new URLSearchParams();

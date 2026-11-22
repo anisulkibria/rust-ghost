@@ -239,7 +239,7 @@ async fn a_contributor_an_author_and_an_editor_are_all_refused() {
 async fn the_modules_hub_carries_a_memberships_card() {
     let (_db, state, owner) = fixture().await;
     let cookie = owner_cookie(&state, &owner).await;
-    let r = admin(&state, "/modules/", Some(&cookie)).await;
+    let r = admin(&state, "/tools/", Some(&cookie)).await;
     assert_eq!(r.status, StatusCode::OK);
     assert!(r.body.contains(r#"href="/ghost/memberships/""#), "no Memberships card on the hub");
     assert!(r.body.contains("<h2>Memberships</h2>"));
@@ -254,8 +254,8 @@ async fn members_left_the_rail_and_every_screen_of_the_module_lights_modules() {
         let r = admin(&state, uri, Some(&cookie)).await;
         assert_eq!(r.status, StatusCode::OK, "{uri}");
         assert!(
-            r.body.contains(r#"class="nav-item active" href="/ghost/modules/""#),
-            "{uri} does not light Modules in the rail"
+            r.body.contains(r#"class="nav-item active" href="/ghost/tools/""#),
+            "{uri} does not light Tools in the rail"
         );
         assert!(
             !r.body.contains(r#"class="nav-item" href="/ghost/members/""#),
@@ -528,9 +528,9 @@ async fn a_tier_row_links_to_the_editor_that_already_owned_it() {
         .unwrap();
     let cookie = owner_cookie(&state, &owner).await;
     let r = admin(&state, "/memberships/tiers/", Some(&cookie)).await;
-    assert!(r.body.contains(&format!("/ghost/settings/membership/tiers/{tier}/")));
+    assert!(r.body.contains(&format!("/ghost/settings/memberships/tiers/{tier}/")));
     // And the create button posts to the handler that has always made tiers.
-    assert!(r.body.contains(r#"action="/ghost/settings/membership/tiers/new/""#));
+    assert!(r.body.contains(r#"action="/ghost/settings/memberships/tiers/new/""#));
 }
 
 // ---------------------------------------------------------------------------
@@ -545,7 +545,7 @@ async fn the_offers_screen_is_empty_before_there_is_an_offer_and_says_why() {
     assert_eq!(r.status, StatusCode::OK);
     assert!(r.body.contains("No offers yet"));
     assert!(r.body.contains("discounts a paid tier"));
-    assert!(r.body.contains(r#"action="/ghost/settings/growth/offers/new/""#));
+    assert!(r.body.contains(r#"action="/ghost/growth/offers/new/""#));
 }
 
 #[tokio::test]
@@ -583,7 +583,7 @@ async fn an_offer_reports_its_discount_its_tier_and_its_redemptions() {
     assert!(r.body.contains("Default Product"), "the offer does not name its tier");
     assert!(r.body.contains("1 redemption"));
     assert!(r.body.contains(">Running<"));
-    assert!(r.body.contains(&format!("/ghost/settings/growth/offers/{offer}/")));
+    assert!(r.body.contains(&format!("/ghost/growth/offers/{offer}/")));
 }
 
 #[tokio::test]

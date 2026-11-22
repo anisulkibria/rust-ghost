@@ -557,6 +557,11 @@ async fn browse_authors(State(state): State<AppState>, Query(params): Query<Hash
         Err(e) => return error_from(e),
     };
     let counts = match author_post_counts(&state).await { Ok(counts) => counts, Err(error) => return error_from(error) };
+    // Switched off in Search and Filtering: an empty list, which Sodo reads
+    // as "no authors section".
+    if !crate::site_search::settings(&state).show_authors {
+        return ok_json(json!({ "authors": [] }));
+    }
     match repos::users::list(&state.db, true).await {
         Ok(users) => {
             let resolver = resolve(&state).await;
@@ -660,6 +665,18 @@ async fn search_index_posts(State(state): State<AppState>, Query(params): Query<
     if let Err(resp) = authenticate(&state, &params).await {
         return resp;
     }
+    // Tools → Search and Filtering decides what Sodo may index: pages or not,
+    // members-only posts or not, excluded tags, and whether the start of a
+    // public body rides along in the excerpt (Sodo searches title and excerpt
+    // only). The rule is `Settings::admits`, the same one the built-in engine
+    // uses, so switching engines never changes what can be found.
+    let search = crate::site_search::settings(&state);
+    let mut tags_of: HashMap<String, Vec<String>> = HashMap::new();
+    if !search.exclude_tags.is_empty() {
+        for (post, _, slug) in repos::site_search::post_tags(&state.db).await.unwrap_or_default() {
+            tags_of.entry(post).or_default().push(slug);
+        }
+    }
     let result = repos::posts::browse(
         &state.db,
         &repos::posts::BrowsePosts {
@@ -667,7 +684,7 @@ async fn search_index_posts(State(state): State<AppState>, Query(params): Query<
             order: Some("updated_at DESC".into()),
             limit: SEARCH_INDEX_LIMIT,
             page: 1,
-            post_type: Some("post".into()),
+            post_type: if search.include_pages { None } else { Some("post".into()) },
             public: true,
             include_authors: false,
             include_tags: false,
@@ -682,9 +699,24 @@ async fn search_index_posts(State(state): State<AppState>, Query(params): Query<
             let items: Vec<Value> = page
                 .posts
                 .iter()
+                .filter(|p| {
+                    let kind = if p.post_type == "page" {
+                        ghost_core::site_search::Kind::Page
+                    } else {
+                        ghost_core::site_search::Kind::Post
+                    };
+                    search.admits(kind, &p.visibility, tags_of.get(&p.id).map(Vec::as_slice).unwrap_or(&[]))
+                })
                 .map(|p| {
                     let mut j = ghost_core::models::post_to_json(p, &[], &[], "");
                     j["url"] = json!(resolver(&j));
+                    let excerpt = j.get("excerpt").and_then(Value::as_str).unwrap_or("").to_string();
+                    j["excerpt"] = json!(ghost_core::site_search::sodo_excerpt(
+                        &excerpt,
+                        p.plaintext.as_deref().unwrap_or(""),
+                        &p.visibility,
+                        search.full_text,
+                    ));
                     pick(&j, &["id", "slug", "title", "excerpt", "url", "updated_at", "visibility"])
                 })
                 .collect();
@@ -727,11 +759,16 @@ async fn search_index_tags(State(state): State<AppState>, Query(params): Query<H
     // `public = true` is the repo's `visibility:public` filter, matching
     // Ghost's `filter: 'visibility:public'` here — internal (`#`) tags stay
     // out of the search index.
+    let search = crate::site_search::settings(&state);
+    if !search.show_tags {
+        return ok_json(json!({ "tags": [] }));
+    }
     match repos::tags::browse(&state.db, None, Some("updated_at DESC"), SEARCH_INDEX_LIMIT, 1, true, false).await {
         Ok((tags, _total)) => {
             let resolver = resolve(&state).await;
             let items: Vec<Value> = tags
                 .iter()
+                .filter(|t| !t.slug.as_ref().is_some_and(|s| search.exclude_tags.contains(s)))
                 .map(|t| {
                     let mut j = ghost_core::models::tag_to_json(t, None);
                     absolute_images(&mut j, &state.site_url());

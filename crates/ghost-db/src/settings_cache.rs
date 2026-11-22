@@ -165,7 +165,7 @@ impl SettingsCache {
         ["name", "title"].iter()
             .filter_map(|key| self.get(key).and_then(|value| value.as_str().map(|value| value.trim().to_string())))
             .find(|value| !value.is_empty())
-            .unwrap_or_else(|| "Ghost".into())
+            .unwrap_or_else(|| ghost_core::DEFAULT_SITE_TITLE.into())
     }
 
     pub fn get_bool(&self, key: &str) -> bool {
@@ -213,6 +213,7 @@ impl SettingsCache {
     /// URL. Covers every writer at once: the settings screens, the navigation
     /// editor and the Admin API. A no-op at a domain root.
     pub async fn set(&self, pool: &Db, key: &str, value: &Value) -> Result<()> {
+    crate::content::touch();
         if self.is_locked(key) {
             return Err(GhostError::NoPermissionError { message: "Email delivery is managed by your hosting provider".into(), context: None });
         }

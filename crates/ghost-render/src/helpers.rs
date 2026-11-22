@@ -2105,11 +2105,10 @@ impl HelperDef for GhostHead {
             tags.push(schema);
         }
 
-        // generator
-        tags.push(format!(
-            r#"<meta name="generator" content="Ghost {}" />"#,
-            ghost_core::GHOST_VERSION_SAFE
-        ));
+        // generator. "Vuuut", matching the RSS feed's <generator>. It said
+        // "Ghost x.y" — Ghost's version number, which describes the API this
+        // port is compatible with, not the software that rendered the page.
+        tags.push(r#"<meta name="generator" content="Vuuut" />"#.to_string());
 
         // RSS alternate (site feed) — the feed of this page's language:
         // `/bn/rss/` carries the Bengali posts, as `/bn/` lists them.
@@ -2186,7 +2185,13 @@ impl HelperDef for GhostHead {
             if !members.is_empty() {
                 tags.push(members);
             }
-            tags.push(search_helper(&site, origin, &frontend_key));
+            // Tools → Search and Filtering can swap Sodo for the built-in
+            // engine (added by the renderer) or turn search off.
+            if matches!(site.get("search_engine").and_then(|v| v.as_str()), None | Some("sodo") | Some("")) {
+                tags.push(search_helper(&site, origin, &frontend_key));
+            }
+            // And the skin both of them wear — see `crate::system_skin`.
+            tags.push(crate::system_skin::head_tag());
         }
 
         // Then the announcement bar and the webmention endpoint, in Ghost's

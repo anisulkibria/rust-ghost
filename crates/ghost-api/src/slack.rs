@@ -27,7 +27,7 @@ impl SlackConfig {
             .get_str("slack_username")
             .map(|u| u.trim().to_string())
             .filter(|u| !u.is_empty())
-            .unwrap_or_else(|| "Ghost".into());
+            .unwrap_or_else(|| ghost_core::DEFAULT_SITE_TITLE.into());
         Some(SlackConfig { url, username })
     }
 }

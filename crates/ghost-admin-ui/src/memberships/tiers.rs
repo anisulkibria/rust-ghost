@@ -148,7 +148,7 @@ fn tier_row(t: &repo::TierStat) -> String {
     // hiding it would make a broken row invisible instead of inert.
     if ghost_core::ids::is_objectid(&t.id) {
         format!(
-            r#"<a class="row" href="/ghost/settings/membership/tiers/{id}/">{inner}</a>"#,
+            r#"<a class="row" href="/ghost/settings/memberships/tiers/{id}/">{inner}</a>"#,
             id = esc(&t.id),
         )
     } else {

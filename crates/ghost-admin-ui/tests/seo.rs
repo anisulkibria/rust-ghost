@@ -395,8 +395,8 @@ async fn an_indexnow_key_that_could_not_work_is_refused_rather_than_stored() {
 async fn the_module_is_on_the_modules_hub_and_in_settings() {
     let f = fixture().await;
     let cookie = f.session().await;
-    let hub = get(&f.state, "/modules/", &cookie).await;
-    assert!(hub.body.contains(r#"href="/ghost/seo/""#), "the SEO card is missing from Modules");
+    let hub = get(&f.state, "/tools/", &cookie).await;
+    assert!(hub.body.contains(r#"href="/ghost/seo/""#), "the SEO card is missing from Tools");
     assert!(hub.body.contains("<h2>SEO</h2>"), "{}", hub.body);
 
     let settings = get(&f.state, "/settings/", &cookie).await;

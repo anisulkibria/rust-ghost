@@ -120,7 +120,7 @@ pub(crate) fn site_checks(s: &SiteSnapshot) -> Vec<SiteCheck> {
             false,
             "This site is private",
             "Every page answers `noindex` and robots.txt disallows everything, so nothing below will be indexed while that is on.".into(),
-            Some(("Membership settings", "/ghost/settings/membership/")),
+            Some(("Membership settings", "/ghost/settings/memberships/")),
         );
     }
     add(

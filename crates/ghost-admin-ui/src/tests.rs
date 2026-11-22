@@ -169,20 +169,22 @@ async fn the_newsletters_tab_counts_what_sending_recorded() {
 }
 
 #[test]
-fn module_pages_share_one_admin_only_sidebar_entry() {
-    for active in ["modules", "analytics", "comments", "automations", "forms", "media", "memberships"] {
+fn every_former_module_and_tool_lights_the_one_tools_entry() {
+    // Modules was folded into Tools on 2026-11-21. Every page that used to
+    // light Modules lights Tools, and there is no Modules rail item at all.
+    for active in ["tools", "modules", "analytics", "forms", "media", "memberships", "popups", "cookies",
+                   "comments", "automations", "permissions", "social"] {
         let nav = super::rail(active, None, super::Role::Administrator);
-        assert!(nav.contains(r#"class="nav-item active" href="/ghost/modules/""#), "{active} does not light Modules");
-        // Members is on this list because the Memberships module adopted it:
-        // it had a rail item of its own until 2026-11-16, and the list screen
-        // now lights Modules like every other page of a module.
-        for href in ["analytics", "comments", "automations", "forms", "media", "memberships", "members"] {
-            assert!(!nav.contains(&format!(r#"class="nav-item" href="/ghost/{href}/""#)));
-            assert!(!nav.contains(&format!(r#"class="nav-item active" href="/ghost/{href}/""#)));
+        assert!(nav.contains(r#"class="nav-item active" href="/ghost/tools/""#), "{active} does not light Tools");
+        assert!(!nav.contains("/ghost/modules/"), "the rail still links Modules");
+        // Members had a rail item until 2026-11-16; it is the Memberships
+        // tool's Members tab now.
+        for href in ["analytics", "forms", "media", "memberships", "members", "comments", "automations", "permissions", "social"] {
+            assert!(!nav.contains(&format!(r#"href="/ghost/{href}/""#)), "{href} has a rail item of its own");
         }
     }
     for role in [super::Role::Contributor, super::Role::Author, super::Role::Editor] {
-        assert!(!super::rail("posts", None, role).contains("/ghost/modules/"));
+        assert!(!super::rail("posts", None, role).contains("/ghost/tools/"));
     }
 }
 
@@ -605,10 +607,14 @@ fn roles_match_ghosts_permission_fixtures() {
         assert!(r.is_admin());
     }
 
-    // tag = all for Editor and above; Authors may only add while writing
-    assert!(!Contributor.can_manage_tags());
-    assert!(!Author.can_manage_tags());
-    assert!(Editor.can_manage_tags());
+    // tag = all for Editor and above; Authors may only add while writing.
+    // Tags moved to the Permissions matrix on 2026-11-20, so the role-level
+    // helper is gone and the same expectation is asserted against the
+    // defaults that replaced it — which is where the behaviour now lives.
+    use ghost_core::permissions::{defaults, Tags};
+    assert_eq!(defaults("Contributor").tags, Tags::None);
+    assert_eq!(defaults("Author").tags, Tags::None);
+    assert_eq!(defaults("Editor").tags, Tags::Manage);
 
     // post = all for Editor; Authors and Contributors are scoped to their own
     assert!(!Contributor.can_edit_any_post());
@@ -827,37 +833,42 @@ fn settings_groups_match_ghosts_navigation() {
     // in its place, holding the import and export that were under
     // Advanced — which is Ghost's own arrangement.
     //
-    // SEO is this port's own group, beside Forms for the same reason: the
+    // SEO, Forms, Languages, Security and Cookies are this port's own groups: each
     // module's report lives under Modules, and the switches that apply to
-    // every page at once live here. Languages sits before it: which
-    // languages a site publishes in decides what the SEO settings are
-    // describing.
+    // every page (every form, every sign-in) at once live here.
     //
-    // Security is also this port's own, and sits after SEO and before
-    // Integrations: an Admin API key is one of the things its report counts,
-    // so the group that lists the keys reads as the next question.
+    // ORDER IS ALPHABETICAL, and deliberately so: most of these groups share
+    // a name with a module card, so both hubs sort A–Z and a name sits in the
+    // same place on either page. Danger zone is the one exception, pinned
+    // last because it deletes content and the site.
     let titles: Vec<&str> = SETTINGS_GROUPS.iter().map(|g| g.title).collect();
     assert_eq!(
         titles,
-        ["General settings", "Analytics",
-         "Membership", "Email", "Newsletters", "Growth",
-         "Features", "Forms", "Languages", "SEO", "Security",
-         "Backups", "Danger zone"]
+        ["Analytics", "Cookies", "Emails", "Features", "Forms", "General settings", "Images",
+         "Languages", "Members", "Newsletters", "Popups", "Security", "SEO",
+         "Danger zone"]
     );
+    // and each hub is sorted A–Z in its own right
+    let tool_titles: Vec<String> = crate::tools::TOOLS.iter().map(|t| t.title.to_lowercase()).collect();
+    let mut sorted_tools = tool_titles.clone();
+    sorted_tools.sort();
+    assert_eq!(tool_titles, sorted_tools, "TOOLS is not A–Z");
     // every group has a working page at its slug
     assert!(SETTINGS_GROUPS.iter().all(|g| !g.slug.is_empty() && !g.items.is_empty()));
     // and an icon the set actually holds — an unknown name renders an
     // empty square where every other row has a glyph
     assert!(SETTINGS_GROUPS.iter().all(|g| !icon(g.icon).is_empty()), "missing icon");
-    assert!(MODULES.iter().all(|m| !icon(m.2).is_empty()), "missing icon");
     assert!(crate::tools::TOOLS.iter().all(|t| !icon(t.icon).is_empty()), "missing icon");
     // every group lives under /ghost/settings/; what moved out is a Tool
     assert!(SETTINGS_GROUPS.iter().all(|g| g.path().starts_with("/ghost/settings/")));
     assert_eq!(
         crate::tools::TOOLS.iter().map(|t| t.href).collect::<Vec<_>>(),
-        ["/ghost/customizations/", "/ghost/navigations/", "/ghost/code-injection/", "/ghost/announcement/",
-         "/ghost/redirects/", "/ghost/routes/", "/ghost/integrations/", "/ghost/machine-payments/",
-         "/ghost/migrations/", "/ghost/settings/backups/", "/ghost/staffs/", "/ghost/history/"]
+        ["/ghost/ads/", "/ghost/analytics/", "/ghost/announcement/", "/ghost/automations/", "/ghost/backups/",
+         "/ghost/caching/", "/ghost/code-injection/", "/ghost/comments/", "/ghost/cookies/", "/ghost/directories/", "/ghost/forms/", "/ghost/growth/",
+         "/ghost/history/", "/ghost/integrations/", "/ghost/languages/", "/ghost/machine-payments/",
+         "/ghost/media/", "/ghost/memberships/", "/ghost/migrations/", "/ghost/navigations/",
+         "/ghost/newsletters/", "/ghost/builder/", "/ghost/permissions/", "/ghost/popups/", "/ghost/redirects/", "/ghost/routes/",
+         "/ghost/search/", "/ghost/security/", "/ghost/seo/", "/ghost/social/", "/ghost/staffs/", "/ghost/workflows/"]
     );
 }
 
@@ -878,6 +889,49 @@ fn every_searchable_setting_lands_on_a_real_page() {
             "SETTINGS_PLACES points at unknown settings page: {parent} ({name})"
         );
     }
+}
+
+/// Every settings page has to be reachable by typing something that is
+/// actually on it. Forms and Danger zone had entries in neither the group
+/// items nor `SETTINGS_INDEX` until 2026-11-20: their pages existed, their
+/// rows existed, and "delete site" found nothing.
+#[test]
+fn every_settings_page_has_fields_in_the_search_index() {
+    for g in SETTINGS_GROUPS {
+        assert!(
+            SETTINGS_INDEX.iter().any(|(slug, _, _)| *slug == g.slug),
+            "settings page {} ({}) has no fields in SETTINGS_INDEX, so nothing on it is searchable",
+            g.title,
+            g.slug
+        );
+    }
+}
+
+/// The hub's box and the admin-wide search render from one list, and that
+/// list does not repeat itself: a name that is both a group's sub-page and a
+/// field used to come back as two identical rows.
+#[test]
+fn the_settings_index_is_shared_and_free_of_duplicates() {
+    let entries = crate::settings::settings_entries(true);
+    let mut seen = std::collections::HashSet::new();
+    for e in &entries {
+        assert!(
+            seen.insert((e.url.clone(), e.title.to_lowercase())),
+            "duplicate search row: {} → {}",
+            e.title,
+            e.url
+        );
+        assert!(!e.haystack.is_empty(), "{} has nothing to match on", e.title);
+        assert!(e.url.starts_with("/ghost/"), "{} points outside the admin", e.title);
+    }
+    // The flags are only rendered on a development site, so they are only
+    // indexed there.
+    let prod = crate::settings::settings_entries(false);
+    assert!(entries.len() > prod.len(), "private flags leaked into the production index");
+    assert!(
+        prod.iter().any(|e| e.title == "Delete site"),
+        "danger zone missing from the index"
+    );
 }
 
 #[test]

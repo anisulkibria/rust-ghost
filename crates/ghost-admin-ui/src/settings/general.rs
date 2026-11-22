@@ -21,7 +21,7 @@ pub(crate) async fn general_page(State(state): State<AppState>, headers: HeaderM
         Some(&user),
         &format!(
             r#"{head}{banner}
-<form method="post" action="/ghost/settings/general/" id="general-form" data-meta-previews data-site-title="{title}" data-site-description="{description}">
+<form method="post" action="/ghost/settings/general/" id="general-form" data-unsplash="{unsplash_headers}" data-meta-previews data-site-title="{title}" data-site-description="{description}">
 <div class="section">Name, title &amp; description</div>
 <div class="card rows rise" style="--i:1">
 <div class="row" style="align-items:center"><span class="ic tint-pink">{title_ic}</span>
@@ -32,15 +32,43 @@ pub(crate) async fn general_page(State(state): State<AppState>, headers: HeaderM
 <div class="row" style="align-items:center"><span class="ic tint-pink">{notes}</span>
 <div class="body"><label class="field" style="margin:0"><input name="description" value="{description}" placeholder=" "><span>Description</span></label></div></div>
 </div>
-<div class="section">Timezone</div>
+<div class="section">Brand</div>
 <div class="card rows rise" style="--i:2">
+<div class="row"><span class="ic tint-pink">{palette}</span>
+<div class="body"><div class="color-field">
+<input type="color" name="accent_color" value="{accent}" aria-label="Accent color">
+<div><span class="title" style="display:block">Accent color</span><span class="detail">{accent}</span></div>
+</div></div></div>
+{icon_field}
+{logo_field}
+{cover_field}
+<div class="row" style="align-items:center"><span class="ic tint-pink">{type_ic}</span>
+<div class="body"><span class="title">Typography</span><span class="detail">Fonts used across the site</span></div></div>
+<div class="row" style="align-items:center"><span class="ic tint-pink">{title_ic}</span>
+<div class="body"><label class="field fixed" style="margin:0;max-width:340px"><select name="heading_font">{heading_opts}</select><span>Heading font</span>{car}</label></div></div>
+<div class="row" style="align-items:center"><span class="ic tint-pink">{notes}</span>
+<div class="body"><label class="field fixed" style="margin:0;max-width:340px"><select name="body_font">{body_opts}</select><span>Body font</span>{car}</label></div></div>
+</div>
+<div class="section">Timezone</div>
+<div class="card rows rise" style="--i:3">
 <div class="row" style="align-items:center"><span class="ic tint-pink">{globe}</span>
 <div class="body"><label class="field fixed" style="margin:0"><select name="timezone">{tz_opts}</select><span>Site timezone</span>{car}</label></div></div>
 </div>
 {metadata}
 {social}
-</form>"#,
+</form>
+<script src="{assets}/unsplash-picker.js" defer></script>"#,
             head = group_head(group, Some("general-form")),
+            assets = ASSETS,
+            unsplash_headers = esc(&crate::editor::unsplash_headers(&state).to_string()),
+            palette = svg("themes"),
+            type_ic = svg("tune"),
+            accent = s("accent_color"),
+            icon_field = crate::design::brand_image_field("icon", "Publication icon", &state.settings.get_str("icon").unwrap_or_default()),
+            logo_field = crate::design::brand_image_field("logo", "Publication logo", &state.settings.get_str("logo").unwrap_or_default()),
+            cover_field = crate::design::brand_image_field("cover_image", "Publication cover", &state.settings.get_str("cover_image").unwrap_or_default()),
+            heading_opts = select_options(crate::design::FONT_STACKS, &state.settings.get_str("heading_font").unwrap_or_default()),
+            body_opts = select_options(crate::design::FONT_STACKS, &state.settings.get_str("body_font").unwrap_or_default()),
             banner = flash_banner(&q),
             title_ic = svg("title"),
             notes = svg("notes"),
@@ -86,6 +114,16 @@ pub(crate) async fn general_save(State(state): State<AppState>, headers: HeaderM
     for key in METADATA_KEYS.iter().chain(SOCIAL_ACCOUNTS.iter().map(|(k, _)| k)) {
         ok &= state.settings.set(&state.db, key, &serde_json::json!(get(key))).await.is_ok();
     }
+    // Brand moved here from Customizations on 2026-11-20: accent colour, the
+    // three images and the two font stacks are the site's own rather than the
+    // active theme's. Written only when the form carried them, so a future
+    // partial post cannot blank the logo.
+    for key in ["accent_color", "logo", "icon", "cover_image", "heading_font", "body_font"] {
+        if let Some(v) = form.get(key) {
+            ok &= state.settings.set(&state.db, key, &serde_json::json!(v)).await.is_ok();
+        }
+    }
+
     let llms = form.get("llms_enabled").map(|v| v == "1").unwrap_or(false);
     ok &= state.settings.set(&state.db, "llms_enabled", &serde_json::Value::Bool(llms)).await.is_ok();
 

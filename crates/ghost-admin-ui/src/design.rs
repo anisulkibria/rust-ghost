@@ -259,36 +259,23 @@ pub(crate) async fn design_page(State(state): State<AppState>, headers: HeaderMa
             .collect()
     };
 
-    let s = |k: &str| esc(&state.settings.get_str(k).unwrap_or_default());
     page_for_role(actor_role,
         "Customizations",
         "tools",
         Some(&user),
         &format!(
             r#"<header class="page-head rise"><a class="icon-btn" style="transform:rotate(180deg)" href="/ghost/tools/" title="Back to tools">{back}</a>
-<div><h1>Customizations</h1><p class="sub">Brand, typography and the {name} theme's own settings</p></div>
+<div><h1>Customizations</h1><p class="sub">The {name} theme's own settings</p></div>
 <div class="actions"><button class="btn text danger" type="submit" form="reset-form">Reset to defaults</button>
 <a class="btn tonal" href="/ghost/themes/{name_url}/edit/">{code_ic} Edit theme code</a>
 <button class="btn" type="submit" form="design-form">{check} Save</button></div></header>
 {banner}
 <form method="post" action="/ghost/customizations/" id="design-form" data-unsplash="{unsplash_headers}">
-<div class="section">Brand</div>
-<div class="card rows rise" style="--i:2">
-<div class="row"><span class="ic tint-pink">{palette}</span>
-<div class="body"><div class="color-field">
-<input type="color" name="accent_color" value="{accent}" aria-label="Accent color">
-<div><span class="title" style="display:block">Accent color</span><span class="detail">{accent}</span></div>
-</div></div></div>
-{icon_field}
-{logo_field}
-{cover_field}
-<div class="row" style="align-items:center"><span class="ic tint-pink">{type_ic}</span>
-<div class="body"><span class="title">Typography</span><span class="detail">Fonts used across the site</span></div></div>
-<div class="row" style="align-items:center"><span class="ic tint-pink">{title_ic}</span>
-<div class="body"><label class="field fixed" style="margin:0;max-width:340px"><select name="heading_font">{heading_opts}</select><span>Heading font</span>{car}</label></div></div>
-<div class="row" style="align-items:center"><span class="ic tint-pink">{notes}</span>
-<div class="body"><label class="field fixed" style="margin:0;max-width:340px"><select name="body_font">{body_opts}</select><span>Body font</span>{car}</label></div></div>
-</div>
+<div class="card padded rise" style="--i:2"><div style="display:flex;gap:14px;align-items:center">
+<span class="ic tint-pink">{palette}</span>
+<p class="muted" style="margin:0">Accent colour, logo, icon, cover and fonts are the site's own rather than this
+theme's, so they live in <a href="/ghost/settings/general/">Settings &rarr; General</a> beside its name and
+description. What is below belongs to <b>{name}</b> and changes when the theme does.</p></div></div>
 {custom_html}
 </form>
 <form method="post" action="/ghost/customizations/reset/" id="reset-form" data-confirm="Reset theme settings|Custom settings for {name} go back to the theme's defaults."></form>
@@ -300,17 +287,7 @@ pub(crate) async fn design_page(State(state): State<AppState>, headers: HeaderMa
             unsplash_headers = esc(&unsplash_headers(&state).to_string()),
             back = svg("chevron"),
             check = svg("check"),
-            title_ic = svg("title"),
             palette = svg("themes"),
-            type_ic = svg("tune"),
-            notes = svg("notes"),
-            car = SELECT_CARET,
-            logo_field = brand_image_field("logo", "Publication logo", &state.settings.get_str("logo").unwrap_or_default()),
-            icon_field = brand_image_field("icon", "Publication icon", &state.settings.get_str("icon").unwrap_or_default()),
-            cover_field = brand_image_field("cover_image", "Publication cover", &state.settings.get_str("cover_image").unwrap_or_default()),
-            accent = s("accent_color"),
-            heading_opts = select_options(FONT_STACKS, &state.settings.get_str("heading_font").unwrap_or_default()),
-            body_opts = select_options(FONT_STACKS, &state.settings.get_str("body_font").unwrap_or_default()),
             banner = banner,
             custom_html = custom_html,
         ),
@@ -358,9 +335,16 @@ pub(crate) async fn design_save(State(state): State<AppState>, headers: HeaderMa
     }
     let theme = state.theme.read().await.clone();
 
+    // Only what this form actually carried. These six moved to Settings →
+    // General on 2026-11-20, so they are normally absent here — and
+    // `unwrap_or_default()` on an absent key writes an empty string, which
+    // would silently clear the site's logo and accent colour every time
+    // somebody saved a theme setting. Kept rather than deleted because the
+    // preview endpoint still accepts them.
     for key in ["logo", "icon", "cover_image", "accent_color", "heading_font", "body_font"] {
-        let v = form.get(key).cloned().unwrap_or_default();
-        let _ = state.settings.set(&state.db, key, &serde_json::json!(v)).await;
+        if let Some(v) = form.get(key) {
+            let _ = state.settings.set(&state.db, key, &serde_json::json!(v)).await;
+        }
     }
 
     let values = coerce_custom_values(&theme.pkg.config.custom, &form);

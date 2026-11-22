@@ -189,9 +189,9 @@ pub fn audit(f: &Funnel) -> Vec<Gap> {
         gaps.push(Gap { code, severity, title, detail, fix });
     };
 
-    const ACCESS: (&str, &str) = ("Open signups", "/ghost/settings/membership/#access");
-    const PORTAL: (&str, &str) = ("Signup portal", "/ghost/settings/membership/#portal");
-    const STRIPE: (&str, &str) = ("Connect Stripe", "/ghost/settings/membership/#stripe");
+    const ACCESS: (&str, &str) = ("Open signups", "/ghost/settings/memberships/#access");
+    const PORTAL: (&str, &str) = ("Signup portal", "/ghost/settings/memberships/#portal");
+    const STRIPE: (&str, &str) = ("Connect Stripe", "/ghost/settings/memberships/#stripe");
     const TIERS: (&str, &str) = ("Tiers", "/ghost/memberships/tiers/");
     const OFFERS: (&str, &str) = ("Offers", "/ghost/memberships/offers/");
 
@@ -327,7 +327,7 @@ pub fn audit(f: &Funnel) -> Vec<Gap> {
             "Stripe is connected, so one-off support costs nothing to switch on and reaches \
              readers who will not take a subscription."
                 .into(),
-            Some(("Tips & donations", "/ghost/settings/membership/#tips")),
+            Some(("Tips & donations", "/ghost/settings/memberships/#tips")),
         );
     }
     if f.comments_enabled == "off" {
@@ -338,7 +338,7 @@ pub fn audit(f: &Funnel) -> Vec<Gap> {
             "Members cannot reply to anything they are sent, which is one of the few reasons \
              a free member comes back."
                 .into(),
-            Some(("Comments", "/ghost/settings/membership/#commenting")),
+            Some(("Comments", "/ghost/settings/memberships/#commenting")),
         );
     }
 

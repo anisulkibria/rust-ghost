@@ -783,7 +783,7 @@ async fn send_gift_email(
     link: &str,
 ) -> ghost_core::Result<()> {
     let site_url = state.site_url();
-    let site_title = state.settings.get_str("title").unwrap_or_else(|| "Ghost".into());
+    let site_title = state.settings.get_str("title").unwrap_or_else(|| ghost_core::DEFAULT_SITE_TITLE.into());
     let (to_recipient, to) = if gift.delivery == "email" {
         (true, gift.recipient_email.clone().unwrap_or_default())
     } else {
@@ -1019,7 +1019,7 @@ async fn donation_price(state: &AppState, cfg: &ghost_stripe::StripeConfig) -> R
         }
     }
 
-    let site_title = state.settings.get_str("title").unwrap_or_else(|| "Ghost".into());
+    let site_title = state.settings.get_str("title").unwrap_or_else(|| ghost_core::DEFAULT_SITE_TITLE.into());
     let nickname = format!("Support {site_title}");
     let product = cached
         .as_ref()
@@ -1651,6 +1651,37 @@ async fn member_by_transient_id(state: &AppState, transient_id: &str) -> Option<
     .ok()
     .flatten()
     .map(row_to_member)
+}
+
+/// Sign somebody up from a popup, and hand back the member id.
+///
+/// A thin wrapper over the same `create_member` the site's own signup uses,
+/// so a lead captured by a popup gets everything a signup gets — the signup
+/// event, the newsletters that subscribe on signup, and the automations that
+/// start when a membership does. Writing the row directly here instead would
+/// produce a member who is in the list and in nothing else.
+///
+/// Returns the id of the existing member when the address is already known,
+/// so a popup can be used to re-engage somebody without creating a duplicate
+/// or re-triggering their welcome.
+pub(crate) async fn create_member_from_popup(
+    state: &AppState,
+    email: &str,
+    name: Option<&str>,
+    source_url: &str,
+) -> Option<String> {
+    if let Some(existing) = member_by_email(state, email).await {
+        return Some(existing.id);
+    }
+    let attribution = crate::member_events::Attribution {
+        url: (!source_url.is_empty()).then(|| source_url.to_string()),
+        kind: Some("url".into()),
+        referrer_medium: Some("popup".into()),
+        ..Default::default()
+    };
+    create_member(state, email, name, &serde_json::Value::Null, &attribution)
+        .await
+        .map(|m| m.id)
 }
 
 async fn member_by_email(state: &AppState, email: &str) -> Option<Member> {
@@ -2398,7 +2429,7 @@ async fn send_magic_link(
     // Portal holds its spinner until this responds; worse, letting delivery
     // time leak into the response would undo the uniform answer above, since
     // a send to a real mailbox and a send that bounces take different times.
-    // Failures are logged — Settings → Email has a test button that reports
+    // Failures are logged — Settings → Emails has a test button that reports
     // transport errors synchronously, which is the right place to debug them.
     let bg = state.clone();
     let code_bg = code.clone();
@@ -2591,7 +2622,7 @@ async fn send_magic_link_email(
     code: Option<&str>,
 ) -> ghost_core::Result<()> {
     let site_url = state.site_url();
-    let site_title = state.settings.get_str("title").unwrap_or_else(|| "Ghost".into());
+    let site_title = state.settings.get_str("title").unwrap_or_else(|| ghost_core::DEFAULT_SITE_TITLE.into());
     let accent = state.settings.get_str("accent_color").unwrap_or_default();
     let domain = ghost_mail::site_domain(&site_url);
 

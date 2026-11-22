@@ -49,7 +49,7 @@ impl SmtpSecurity {
     }
 }
 
-/// The transactional transport, as configured in Settings → Email.
+/// The transactional transport, as configured in Settings → Emails.
 ///
 /// The names mirror Ghost's `mail.transport` values, so configuration
 /// knowledge carries across: `"Direct"` and `"SMTP"`.
@@ -149,10 +149,10 @@ impl MailConfig {
     pub fn configuration_error(&self) -> Option<String> {
         if let Transport::Ses { region, endpoint, user, pass } = &self.transport {
             if ghost_core::mail_settings::ses_smtp_endpoint(region, endpoint).is_none() {
-                return Some("Set a valid Amazon SES region or SMTP endpoint in Settings → Email".into());
+                return Some("Set a valid Amazon SES region or SMTP endpoint in Settings → Emails".into());
             }
             if user.is_empty() || pass.is_empty() {
-                return Some("Amazon SES requires SMTP credentials for the selected endpoint in Settings → Email".into());
+                return Some("Amazon SES requires SMTP credentials for the selected endpoint in Settings → Emails".into());
             }
         }
         None

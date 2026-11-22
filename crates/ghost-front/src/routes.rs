@@ -289,7 +289,7 @@ pub async fn entrypoint(State(state): State<AppState>, uri: Uri, headers: Header
     };
 
     match route {
-        RouteMatch::Preview { uuid, .. } => render_preview(state, uuid, &path, headers).await,
+        RouteMatch::Preview { uuid, .. } => render_preview(state, uuid, &path, query.as_deref(), headers).await,
         RouteMatch::Rss { kind, name, .. } => rss::render_rss(state, kind, name, &path, &locale, &headers).await,
         RouteMatch::CollectionIndex { name, filter, order, limit, templates, data, page, .. } => {
             render_collection(state, name, filter, order, limit, templates, data, page, &path, &locale, headers).await
@@ -313,7 +313,7 @@ pub async fn entrypoint(State(state): State<AppState>, uri: Uri, headers: Header
 /// `member` is the `@member` context, which decides each post's `access`
 /// flag — a listing shows a lock on a post the visitor cannot read, and the
 /// answer depends on who is asking.
-async fn posts_page_json(
+pub(crate) async fn posts_page_json(
     state: &AppState,
     posts: &[ghost_core::models::Post],
     member: &Value,
@@ -337,6 +337,18 @@ async fn posts_page_json(
 }
 
 /// Serialize a single post with relations.
+/// `@page`: the page itself plus the flag themes read as
+/// `@page.show_title_and_feature_image` to decide whether to draw the
+/// title and feature image. Ghost puts the flag only here and not in the
+/// Content API's page JSON, so it is added here and not in `post_to_json`.
+fn page_data(post_json: &Value, show_title_and_feature_image: bool) -> Value {
+    let mut page = post_json.clone();
+    if let Value::Object(m) = &mut page {
+        m.insert("show_title_and_feature_image".into(), Value::Bool(show_title_and_feature_image));
+    }
+    page
+}
+
 async fn post_json(
     state: &AppState,
     post: &ghost_core::models::Post,
@@ -347,12 +359,35 @@ async fn post_json(
         repos::posts::load_relations(&state.db, std::slice::from_ref(post)).await.unwrap_or_default();
     let authors = rel.authors_for(&post.id);
     let tags = rel.tags_for(&post.id);
+    // Tools → Page Builder: a post with a layout switched on — or one a
+    // single-post template applies to — is drawn from the builder. Swapped
+    // in before the access rules below, so a paywall still cuts a builder
+    // page exactly as it cuts its own content.
+    let built;
+    let entry = crate::builder_site::entry_html(state, post).await;
+    let original = post.html.clone();
+    let post = match &entry {
+        Some((html, _)) => {
+            let mut p = post.clone();
+            p.html = Some(format!("{}{html}", crate::builder_site::asset_tags()));
+            built = p;
+            &built
+        }
+        None => post,
+    };
     let mut j = models::post_to_json(post, &authors, &tags, url.unwrap_or(""));
     let resolver = resolver_now(state).await;
     if url.is_none() {
         j["url"] = json!(resolver(&j));
     }
     ghost_render::util::resolve_nested_urls(&mut j, &*resolver);
+    if let Some((_, from_template)) = &entry {
+        let path = j["url"].as_str().and_then(|u| u.split_once("://").map(|(_, r)| r)).and_then(|r| r.find('/').map(|i| r[i..].to_string())).unwrap_or_else(|| "/".into());
+        let html = j["html"].as_str().unwrap_or("").to_string();
+        let orig = if *from_template { original.as_deref() } else { None };
+        let expanded = crate::builder_site::expand(state, &html, Some(&j), orig, member, &path).await;
+        j["html"] = json!(expanded);
+    }
     crate::render::apply_member_tier_access(&mut j, crate::render::member_status(member), &crate::render::member_tiers(member));
     j
 }
@@ -607,7 +642,7 @@ async fn render_entry(state: AppState, slug: String, path: &str, locale: &str, q
 
     let mut root = serde_json::Map::new();
     if post_type == "page" {
-        root.insert("page".into(), post_json.clone());
+        root.insert("page".into(), page_data(&post_json, post.show_title_and_feature_image));
         root.insert("post".into(), post_json);
     } else {
         root.insert("post".into(), post_json);
@@ -820,7 +855,7 @@ fn html_response(mut html: String) -> Response {
         .into_response()
 }
 
-async fn render_preview(state: AppState, uuid: String, path: &str, headers: HeaderMap) -> Response {
+async fn render_preview(state: AppState, uuid: String, path: &str, query: Option<&str>, headers: HeaderMap) -> Response {
     // P1: previews are open (admin gating arrives with the admin API in P3)
     let Some(post) = repos::posts::find_by_uuid(&state.db, &uuid).await.unwrap_or(None) else {
         return crate::render::error_page(&state, StatusCode::NOT_FOUND, path, headers).await;
@@ -830,11 +865,44 @@ async fn render_preview(state: AppState, uuid: String, path: &str, headers: Head
     let preview_url = ghost_core::url::base(&format!("/p/{uuid}/"));
     let member = crate::render::member_context(&state, &headers).await;
     let preview_member=json!({"status":"paid","tiers":post.tier_ids});
-    let post_json = post_json(&state, &post, Some(&preview_url), &preview_member).await;
+    let mut post_json = post_json(&state, &post, Some(&preview_url), &preview_member).await;
+    // The page builder's canvas: the page as the theme draws it, with an
+    // empty layout root where the content goes. The editor (same origin)
+    // draws into it. Holds nothing the preview does not already show.
+    let canvas = form_urlencoded::parse(query.unwrap_or("").as_bytes()).any(|(k, v)| k == "vb" && v == "canvas");
+    if canvas {
+        let settings = ghost_core::builder::Settings::read(|k| state.settings.get_str(k));
+        post_json["html"] = json!(format!(
+            r#"{}<div class="vb-page vb-editing" data-vb-canvas style="{}"></div>"#,
+            crate::builder_site::asset_tags(),
+            ghost_core::builder::esc(&settings.css_vars()),
+        ));
+    }
 
     match render_preview_snapshot(&state, &post, post_json, member, path).await {
+        Ok(html) if canvas => html_response(strip_overlays(&html)),
         Ok(html) => html_response(html),
         Err(e) => error_response(e),
+    }
+}
+
+/// The page builder's canvas without what floats over a page: popups, the
+/// cookie banner, ads, Portal and the staff toolbar. They would cover the
+/// layout being edited; the published page keeps every one of them.
+fn strip_overlays(html: &str) -> String {
+    static RE: std::sync::LazyLock<regex::Regex> = std::sync::LazyLock::new(|| {
+        regex::Regex::new(r#"(?is)<script\b[^>]*\bsrc="[^"]*(?:/popups/api/|/cookies/api/|/ads/api/|staff-toolbar\.js|portal\.min\.js)[^"]*"[^>]*>\s*</script>"#).unwrap()
+    });
+    RE.replace_all(html, "").into_owned()
+}
+
+#[cfg(test)]
+mod canvas_tests {
+    #[test]
+    fn the_canvas_drops_overlay_scripts_only() {
+        let html = r#"<script src="/popups/api/assets/1/popups.js"></script><script src="/cookies/api/assets/2/cookies.js"></script><script defer src="https://cdn.jsdelivr.net/ghost/portal@~2.72/umd/portal.min.js" data-x="1"></script><script src="/assets/built/theme.js"></script>"#;
+        let out = super::strip_overlays(html);
+        assert_eq!(out, r#"<script src="/assets/built/theme.js"></script>"#);
     }
 }
 
@@ -854,7 +922,7 @@ pub(crate) async fn render_preview_snapshot(
 
     let mut root = serde_json::Map::new();
     if post.post_type == "page" {
-        root.insert("page".into(), post_json.clone());
+        root.insert("page".into(), page_data(&post_json, post.show_title_and_feature_image));
         root.insert("post".into(), post_json);
     } else {
         root.insert("post".into(), post_json);
@@ -876,6 +944,74 @@ pub(crate) async fn render_preview_snapshot(
         ..Default::default()
     };
     render_template(state, &theme, &candidates, Value::Object(root), &rctx).await
+}
+
+/// Render `html` as a page of the site, in the active theme — for screens
+/// that are not posts or pages in the database (the public directory). A
+/// transient page object goes through the theme's `page` template exactly as
+/// a preview does, so every theme draws it with its own header, footer and
+/// typography without knowing it exists.
+/// [`render_virtual_page`] without the theme's title and feature image —
+/// for a builder page standing in for the whole site (maintenance mode).
+pub(crate) async fn render_virtual_page_hidden(state: &AppState, headers: &HeaderMap, path: &str, title: &str, html: String) -> Response {
+    render_virtual_page_with(state, headers, path, title, "", html, None, false).await
+}
+
+pub(crate) async fn render_virtual_page(
+    state: &AppState,
+    headers: &HeaderMap,
+    path: &str,
+    title: &str,
+    excerpt: &str,
+    html: String,
+    image: Option<String>,
+) -> Response {
+    render_virtual_page_with(state, headers, path, title, excerpt, html, image, true).await
+}
+
+#[allow(clippy::too_many_arguments)]
+async fn render_virtual_page_with(
+    state: &AppState,
+    headers: &HeaderMap,
+    path: &str,
+    title: &str,
+    excerpt: &str,
+    html: String,
+    image: Option<String>,
+    show_title: bool,
+) -> Response {
+    let member = crate::render::member_context(state, headers).await;
+    let post = ghost_core::models::Post {
+        id: format!("virtual{}", ghost_core::ids::new_id()),
+        uuid: Some(ghost_core::ids::uuid_v4()),
+        title: Some(title.to_string()),
+        slug: Some(path.trim_matches('/').replace('/', "-")),
+        html: Some(html),
+        post_type: "page".into(),
+        status: "published".into(),
+        visibility: "public".into(),
+        custom_excerpt: (!excerpt.is_empty()).then(|| excerpt.to_string()),
+        feature_image: image,
+        // Themes draw a page's title and feature image only when this is
+        // on; a directory page wants both.
+        show_title_and_feature_image: show_title,
+        published_at: Some(ghost_core::dates::now_db()),
+        created_at: Some(ghost_core::dates::now_db()),
+        updated_at: Some(ghost_core::dates::now_db()),
+        ..Default::default()
+    };
+    let url = ghost_core::url::base(path);
+    let mut json = post_json(state, &post, Some(&url), &member).await;
+    json["access"] = json!(true);
+    let mut root = serde_json::Map::new();
+    root.insert("page".into(), page_data(&json, show_title));
+    root.insert("post".into(), json);
+    let theme = state.theme.read().await.clone();
+    let rctx = RenderCtx { context: vec!["page".into()], relative_url: path.to_string(), member, ..Default::default() };
+    match render_template(state, &theme, &["page".to_string(), "post".into()], Value::Object(root), &rctx).await {
+        Ok(html) => html_response(html),
+        Err(e) => error_response(e),
+    }
 }
 
 fn error_response(e: GhostError) -> Response {

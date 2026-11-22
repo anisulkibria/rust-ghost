@@ -146,7 +146,7 @@ pub async fn forms_page(State(state): State<AppState>, headers: HeaderMap, Query
         "forms",
         Some(&actor.user),
         &format!(
-            r#"<header class="page-head rise"><a class="icon-btn" style="transform:rotate(180deg)" href="/ghost/modules/" title="Back to modules">{back}</a>
+            r#"<header class="page-head rise"><a class="icon-btn" style="transform:rotate(180deg)" href="/ghost/tools/" title="Back to tools">{back}</a>
 <div><h1>Forms</h1><p class="sub">Build forms and read what visitors send you.</p></div>
 <div class="actions"><a class="btn text" href="/ghost/settings/forms/">{tune} Settings</a>
 <form method="post" action="/ghost/forms/new/"><button class="btn" type="submit">{add} New form</button></form></div></header>
@@ -280,7 +280,7 @@ pub async fn form_page(
 <div class="section">Notifications</div>
 <div class="card padded rise" style="--i:5">
 <label class="field" style="margin:0 0 8px"><input name="notify_emails" value="{notify_emails}" placeholder=" " maxlength="900" inputmode="email" autocomplete="off"><span>Email these addresses about each response</span></label>
-<p class="muted" style="margin:0">Separate addresses with commas. Leave empty to use the addresses in <a href="/ghost/settings/forms/">Settings → Forms</a> — by default, the site owner. Sent with the site’s <a href="/ghost/settings/email/">transactional email</a>.</p>
+<p class="muted" style="margin:0">Separate addresses with commas. Leave empty to use the addresses in <a href="/ghost/settings/forms/">Settings → Forms</a> — by default, the site owner. Sent with the site’s <a href="/ghost/settings/emails/">transactional email</a>.</p>
 </div>
 </form>
 
@@ -524,7 +524,7 @@ pub async fn responses_page(State(state): State<AppState>, headers: HeaderMap, Q
         "forms",
         Some(&actor.user),
         &format!(
-            r#"<header class="page-head rise"><a class="icon-btn" style="transform:rotate(180deg)" href="/ghost/modules/" title="Back to modules">{back}</a>
+            r#"<header class="page-head rise"><a class="icon-btn" style="transform:rotate(180deg)" href="/ghost/tools/" title="Back to tools">{back}</a>
 <div><h1>Forms</h1><p class="sub">{new} new · {read} read · {spam} spam</p></div>
 <div class="actions"><a class="btn tonal" href="/ghost/forms/responses/export/?{export_query}">{import} Export CSV</a></div></header>
 {banner}{tabs}
@@ -911,7 +911,7 @@ pub async fn settings_page(State(state): State<AppState>, headers: HeaderMap, Qu
 <div class="card padded rise" style="--i:3">
 <label class="field" style="margin:0 0 8px"><input name="notify_emails" value="{emails}" placeholder=" " maxlength="900" inputmode="email" autocomplete="off"><span>Default notification addresses</span></label>
 <p class="muted" style="margin:0 0 6px">Separate addresses with commas. Leave empty to notify the site owner{owner}. A form can name its own addresses in the builder.</p>
-<p class="muted" style="margin:0">Notifications are sent with the site’s transactional email, as set up in <a href="/ghost/settings/email/">Settings → Email</a>.</p>
+<p class="muted" style="margin:0">Notifications are sent with the site’s transactional email, as set up in <a href="/ghost/settings/emails/">Settings → Emails</a>.</p>
 </div>
 
 <div class="section">Spam protection</div>

@@ -38,6 +38,9 @@ const PUBLIC_KEYS: &[&str] = &[
     // *not* here — nothing in a template reads it, and it is the one SEO
     // setting large enough to be worth keeping off every page's context.
     "seo_structured_data", "seo_append_site_title", "seo_referrer_policy",
+    // Which search engine the site runs; `ghost_head` adds Sodo only for
+    // "sodo" (or a site that has never set it).
+    "search_engine",
     "seo_noindex_tag_pages", "seo_noindex_author_pages", "seo_noindex_paged_pages",
     // Settings → Languages. `locales_enabled` is what tells a theme whether
     // to draw a language switcher at all; the two navigation maps are read
@@ -105,7 +108,7 @@ pub fn build_site_for_page(
     }
     // ensure common defaults so templates never explode
     let mut d = |k: &str, default: Value| m.entry(k.to_string()).or_insert(default).clone();
-    d("title", json!("Ghost"));
+    d("title", json!(ghost_core::DEFAULT_SITE_TITLE));
     d("description", json!(""));
     d("locale", json!("en"));
     d("timezone", json!("Etc/UTC"));

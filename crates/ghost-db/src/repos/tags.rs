@@ -164,6 +164,7 @@ async fn unique_slug(pool: &Db, base: &str, self_id: Option<&str>) -> Result<Str
 }
 
 pub async fn insert(pool: &Db, new: &NewTag) -> Result<Tag> {
+    crate::content::touch();
     // Internal tag: name starting with '#'
     let (name, visibility, slug_base) = if let Some(rest) = new.name.strip_prefix('#') {
         (format!("#{rest}"), "internal".to_string(), format!("hash-{rest}"))
@@ -225,6 +226,7 @@ pub struct TagChanges {
 }
 
 pub async fn update(pool: &Db, id: &str, changes: &TagChanges) -> Result<Tag> {
+    crate::content::touch();
     let existing = find_by_id(pool, id).await?.ok_or(ghost_core::GhostError::NotFoundError { message: "not found".into(), context: None })?;
     let now = dates::now_db();
 
@@ -294,6 +296,7 @@ pub async fn update(pool: &Db, id: &str, changes: &TagChanges) -> Result<Tag> {
 }
 
 pub async fn destroy(pool: &Db, id: &str) -> Result<()> {
+    crate::content::touch();
     sqlx::query("DELETE FROM posts_tags WHERE tag_id = ?").bind(id).execute(pool).await.map_err(|e| ghost_core::GhostError::Db(e.to_string()))?;
     let res = sqlx::query("DELETE FROM tags WHERE id = ?").bind(id).execute(pool).await.map_err(|e| ghost_core::GhostError::Db(e.to_string()))?;
     if res.rows_affected() == 0 {

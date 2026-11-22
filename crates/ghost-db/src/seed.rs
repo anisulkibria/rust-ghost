@@ -258,10 +258,13 @@ async fn seed_owner(pool: &Db) -> Result<()> {
     let password = bcrypt::hash(&ids::random_hex(12), 10).map_err(|e| ghost_core::GhostError::Internal(e.to_string()))?;
     sqlx::query("INSERT INTO users (id, name, slug, password, email, status, visibility, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)")
         .bind(&owner_id)
-        .bind("Ghost")
-        .bind("ghost")
+        // A placeholder until setup names the real owner — and it is credited
+        // with the seeded posts, so it shows as their author on a fresh site.
+        // Neutral, not "Ghost".
+        .bind("Site Owner")
+        .bind("owner")
         .bind(&password)
-        .bind("ghost@example.com")
+        .bind("owner@example.invalid")
         .bind("inactive")
         .bind("public")
         .bind(&now)
@@ -346,7 +349,7 @@ async fn seed_content(pool: &Db) -> Result<()> {
         .map_err(|e| ghost_core::GhostError::Db(e.to_string()))?;
 
     // Fixture posts: "Coming soon" (post) + "About this site" (page)
-    let coming_soon_md = "### Welcome!\n\nThis is your brand new Ghost site. You can start editing it right now by heading to the admin area.\n\nHead to [the admin area](/ghost) to start publishing.";
+    let coming_soon_md = "### Welcome!\n\nThis is your brand new site. You can start editing it right now from the admin area.\n\nHead to [the admin area](/ghost) to start publishing.";
     let about_md = "This is an **about** page, great for telling readers a little more about who you are and what you publish.";
 
     for (slug, title, post_type, md) in [

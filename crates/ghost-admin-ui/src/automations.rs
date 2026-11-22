@@ -428,7 +428,7 @@ async fn tier_checkboxes(state: &AppState, automation: &repo::Automation) -> Str
     if tiers.is_empty() {
         return format!(
             r#"<div class="row"><span class="ic tint-slate">{coin}</span>
-<div class="body"><span class="detail">No paid tiers available. Create one in <a href="/ghost/settings/membership/">Settings → Membership</a> to scope an automation to a tier.</span></div></div>"#,
+<div class="body"><span class="detail">No paid tiers available. Create one in <a href="/ghost/settings/memberships/">Settings → Membership</a> to scope an automation to a tier.</span></div></div>"#,
             coin = svg("chart"),
         );
     }

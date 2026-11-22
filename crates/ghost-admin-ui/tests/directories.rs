@@ -1,0 +1,376 @@
+//! Tools → Directory & Classified Listings end to end: categories and
+//! listings built in the admin, the public directory switched on and read
+//! through the real public router, a visitor's submission moderated, a
+//! classified expiring — and the defences on the public form. Refusals
+//! first. One test owns the public sequence, because the page cache's
+//! content generation is process-wide.
+use axum::body::{to_bytes, Body};
+use axum::http::{Request, StatusCode};
+use std::collections::HashMap;
+use std::sync::Arc;
+use tower::ServiceExt;
+
+const HOST: &str = "example.test";
+const ORIGIN: &str = "https://example.test";
+
+struct Fixture {
+    _db: ghost_db::TestDb,
+    state: ghost_api::AppState,
+    owner: String,
+}
+
+impl Fixture {
+    async fn session(&self) -> String {
+        let id = ghost_db::repos::sessions::create(&self.state.db, &self.owner).await.unwrap();
+        format!("vuuut-admin-session={id}")
+    }
+
+    /// A session for somebody who is not an administrator.
+    async fn author_session(&self) -> String {
+        let id = ghost_core::ids::new_id();
+        sqlx::query(
+            "INSERT INTO users (id, name, slug, password, email, status, created_at) \
+             VALUES (?, 'An author', ?, 'unused', ?, 'active', '2026-11-01 00:00:00')",
+        )
+        .bind(&id)
+        .bind(format!("an-author-{id}"))
+        .bind(format!("author-{id}@example.test"))
+        .execute(&self.state.db)
+        .await
+        .unwrap();
+        let role: String = sqlx::query_scalar("SELECT id FROM roles WHERE name = 'Author' LIMIT 1")
+            .fetch_one(&self.state.db)
+            .await
+            .unwrap();
+        sqlx::query("INSERT INTO roles_users (id, role_id, user_id) VALUES (?, ?, ?)")
+            .bind(ghost_core::ids::new_id())
+            .bind(&role)
+            .bind(&id)
+            .execute(&self.state.db)
+            .await
+            .unwrap();
+        let session = ghost_db::repos::sessions::create(&self.state.db, &id).await.unwrap();
+        format!("vuuut-admin-session={session}")
+    }
+
+    /// A published post or page with a body, a visibility and tags.
+    async fn post(&self, slug: &str, title: &str, body: &str, kind: &str, visibility: &str, tags: &[&str]) {
+        let id = ghost_core::ids::new_id();
+        sqlx::query(
+            "INSERT INTO posts (id, uuid, title, slug, html, plaintext, type, status, visibility, created_at, updated_at, published_at) \
+             VALUES (?, ?, ?, ?, ?, ?, ?, 'published', ?, '2026-11-01 00:00:00', '2026-11-01 00:00:00', '2026-11-01 00:00:00')",
+        )
+        .bind(&id)
+        .bind(ghost_core::ids::uuid_v4())
+        .bind(title)
+        .bind(slug)
+        .bind(format!("<p>{body}</p>"))
+        .bind(body)
+        .bind(kind)
+        .bind(visibility)
+        .execute(&self.state.db)
+        .await
+        .unwrap();
+        for (i, tag) in tags.iter().enumerate() {
+            let tag_id: Option<String> = sqlx::query_scalar("SELECT id FROM tags WHERE slug = ?")
+                .bind(tag)
+                .fetch_optional(&self.state.db)
+                .await
+                .unwrap();
+            let tag_id = match tag_id {
+                Some(t) => t,
+                None => {
+                    let t = ghost_core::ids::new_id();
+                    sqlx::query("INSERT INTO tags (id, name, slug, visibility, created_at, updated_at) VALUES (?, ?, ?, 'public', '2026-11-01 00:00:00', '2026-11-01 00:00:00')")
+                        .bind(&t)
+                        .bind(tag)
+                        .bind(tag)
+                        .execute(&self.state.db)
+                        .await
+                        .unwrap();
+                    t
+                }
+            };
+            sqlx::query("INSERT INTO posts_tags (id, post_id, tag_id, sort_order) VALUES (?, ?, ?, ?)")
+                .bind(ghost_core::ids::new_id())
+                .bind(&id)
+                .bind(&tag_id)
+                .bind(i as i64)
+                .execute(&self.state.db)
+                .await
+                .unwrap();
+        }
+    }
+}
+
+async fn fixture() -> Fixture {
+    let test_db = ghost_db::pool::connect_test().await.unwrap();
+    let db = test_db.pool();
+    ghost_db::seed::seed_if_empty(&db).await.unwrap();
+    let owner =
+        ghost_db::repos::users::setup_owner(&db, "Owner", "owner@example.test", "unused").await.unwrap();
+    let settings = Arc::new(ghost_db::SettingsCache::from_values(vec![
+        ("site_url".into(), serde_json::json!(ORIGIN)),
+        ("title".into(), serde_json::json!("Directory test")),
+        ("timezone".into(), serde_json::json!("Etc/UTC")),
+    ]));
+    let config = serde_json::from_value(serde_json::json!({
+        "url": ORIGIN, "server": {},
+        "database": {"connection": {"filename": ":memory:"}}, "paths": {}
+    }))
+    .unwrap();
+    let routes =
+        ghost_routing::routes_yaml::parse_routes_yaml(ghost_routing::routes_yaml::DEFAULT_ROUTES_YAML)
+            .unwrap();
+    let router = Arc::new(ghost_routing::RouterTree::build(&routes).unwrap());
+    let theme_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../content/themes/source");
+    let deps = ghost_render::HelperDeps {
+        pool: Arc::new(db.clone()),
+        runtime: tokio::runtime::Handle::current(),
+        url_resolver: ghost_api::themes::url_resolver(router.clone()),
+        asset_hashes: Arc::new(HashMap::new()),
+        global_asset_hash: "test".into(),
+        theme_dir: theme_dir.clone(),
+        site_origin: ORIGIN.into(),
+        content_api_key: String::new(),
+    };
+    let theme = ghost_render::load_and_activate(&theme_dir, &deps, HashMap::new()).unwrap();
+    let state = ghost_api::AppState {
+        db,
+        config: Arc::new(config),
+        settings,
+        theme: Arc::new(tokio::sync::RwLock::new(Arc::new(theme))),
+        router: Arc::new(tokio::sync::RwLock::new(router)),
+        redirects: Arc::new(tokio::sync::RwLock::new(Arc::new(
+            ghost_routing::redirects::Redirects::default(),
+        ))),
+        setup_done: Arc::new(std::sync::atomic::AtomicBool::new(true)),
+        frontend_key: Arc::new(tokio::sync::RwLock::new(None)),
+        limits: Arc::new(ghost_db::limits::Limits::default()),
+        // Empty: a fixture firewall lets everybody through.
+        firewall: ghost_db::repos::firewall::RuleCache::empty(),
+    };
+    Fixture { _db: test_db, state, owner: owner.id }
+}
+
+struct Reply {
+    status: StatusCode,
+    location: String,
+    body: String,
+}
+
+impl Reply {
+    fn flash(&self) -> String {
+        let Some(query) = self.location.split_once('?').map(|(_, q)| q) else { return String::new() };
+        form_urlencoded::parse(query.as_bytes())
+            .filter(|(key, _)| key == "ok" || key == "error")
+            .map(|(_, value)| value.into_owned())
+            .collect::<Vec<_>>()
+            .join(" ")
+    }
+}
+
+async fn send(
+    state: &ghost_api::AppState,
+    method: &str,
+    uri: &str,
+    cookie: Option<&str>,
+    origin: Option<&str>,
+    form: Option<&[(&str, &str)]>,
+) -> Reply {
+    let mut request =
+        Request::builder().method(method).uri(uri).header("host", HOST).header("accept", "text/html");
+    if let Some(cookie) = cookie {
+        request = request.header("cookie", cookie);
+    }
+    if let Some(origin) = origin {
+        request = request.header("origin", origin);
+    }
+    let body = match form {
+        Some(pairs) => {
+            request = request.header("content-type", "application/x-www-form-urlencoded");
+            let mut s = form_urlencoded::Serializer::new(String::new());
+            for (k, v) in pairs {
+                s.append_pair(k, v);
+            }
+            Body::from(s.finish())
+        }
+        None => Body::empty(),
+    };
+    let app = ghost_admin_ui::admin_ui_router(state.clone()).with_state(state.clone());
+    let response = app.oneshot(request.body(body).unwrap()).await.unwrap();
+    let status = response.status();
+    let location =
+        response.headers().get("location").and_then(|v| v.to_str().ok()).unwrap_or("").to_string();
+    let bytes = to_bytes(response.into_body(), 20_000_000).await.unwrap();
+    Reply { status, location, body: String::from_utf8_lossy(&bytes).into_owned() }
+}
+
+async fn get(state: &ghost_api::AppState, uri: &str, cookie: &str) -> Reply {
+    send(state, "GET", uri, Some(cookie), None, None).await
+}
+
+async fn post(
+    state: &ghost_api::AppState,
+    uri: &str,
+    cookie: &str,
+    pairs: &[(&str, &str)],
+) -> Reply {
+    send(state, "POST", uri, Some(cookie), Some(ORIGIN), Some(pairs)).await
+}
+
+
+
+
+
+struct Site {
+    status: StatusCode,
+    headers: axum::http::HeaderMap,
+    body: String,
+}
+
+async fn site(state: &ghost_api::AppState, method: &str, uri: &str, form: Option<&[(&str, &str)]>) -> Site {
+    let mut req = Request::builder().method(method).uri(uri).header("host", HOST).header("accept", "text/html");
+    let body = match form {
+        Some(pairs) => {
+            req = req.header("content-type", "application/x-www-form-urlencoded").header("origin", ORIGIN);
+            let mut s = form_urlencoded::Serializer::new(String::new());
+            for (k, v) in pairs {
+                s.append_pair(k, v);
+            }
+            Body::from(s.finish())
+        }
+        None => Body::empty(),
+    };
+    let response = ghost_front::site_router(state.clone()).oneshot(req.body(body).unwrap()).await.unwrap();
+    let status = response.status();
+    let headers = response.headers().clone();
+    let bytes = to_bytes(response.into_body(), 20_000_000).await.unwrap();
+    Site { status, headers, body: String::from_utf8_lossy(&bytes).into_owned() }
+}
+
+fn old_t() -> String {
+    (std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis() as i64 - 10_000).to_string()
+}
+
+async fn listing_id(f: &Fixture, title: &str) -> String {
+    sqlx::query_scalar("SELECT id FROM directory_listings WHERE title = ?").bind(title).fetch_one(&f.state.db).await.unwrap()
+}
+
+#[tokio::test]
+async fn the_tool_is_closed_to_strangers_and_settings_to_editors() {
+    let f = fixture().await;
+    for uri in ["/directories/", "/directories/listings/", "/directories/categories/", "/directories/settings/", "/directories/export.csv"] {
+        let anon = send(&f.state, "GET", uri, None, None, None).await;
+        assert!(anon.status.is_redirection() || anon.status == StatusCode::FORBIDDEN, "{uri}: {}", anon.status);
+        assert_ne!(get(&f.state, uri, &f.author_session().await).await.status, StatusCode::OK, "{uri} opened for an Author");
+    }
+    let cookie = f.session().await;
+    let forged = send(&f.state, "POST", "/directories/listings/new/", Some(&cookie), Some("https://elsewhere.example"), Some(&[("title", "x")])).await;
+    assert_eq!(forged.status, StatusCode::FORBIDDEN);
+}
+
+#[tokio::test]
+async fn a_listing_goes_from_draft_to_the_public_directory_and_visitors_are_moderated() {
+    let f = fixture().await;
+    let cookie = f.session().await;
+
+    // Off: the public directory does not exist.
+    assert_eq!(site(&f.state, "GET", "/directory/", None).await.status, StatusCode::NOT_FOUND);
+
+    // A category, then a listing — a draft until published.
+    post(&f.state, "/directories/categories/", &cookie, &[("name", "Food & drink"), ("tint", "amber"), ("description", "Places to eat")]).await;
+    let cat: String = sqlx::query_scalar("SELECT id FROM directory_categories WHERE slug = 'food-drink'").fetch_one(&f.state.db).await.unwrap();
+    let r = post(&f.state, "/directories/listings/new/", &cookie, &[
+        ("kind", "directory"), ("title", "Corner <Café>"), ("category_id", &cat), ("summary", "Good coffee"),
+        ("description", "We roast our own beans.\n\nOpen every day."), ("website", "https://corner.example/"),
+        ("email", "hi@corner.example"), ("phone", "+1 555 010 2030"), ("location", "Springfield"), ("address", "1 Main St"),
+    ]).await;
+    assert!(!r.location.contains("error="), "{}", r.location);
+    let cafe = listing_id(&f, "Corner <Café>").await;
+    let bad = post(&f.state, "/directories/listings/new/", &cookie, &[("title", "Bad link"), ("website", "javascript:alert(1)")]).await;
+    assert!(bad.location.contains("error="), "{}", bad.location);
+
+    post(&f.state, "/directories/settings/", &cookie, &[
+        ("directory_enabled", "1"), ("directory_title", "Town guide"), ("directory_submissions", "1"),
+        ("directory_moderate", "1"), ("directory_show_contact", "1"), ("directory_classified_days", "30"),
+        ("directory_per_page", "24"), ("directory_currency", "USD"),
+    ]).await;
+    let index = site(&f.state, "GET", "/directory/", None).await;
+    assert_eq!(index.status, StatusCode::OK);
+    assert!(!index.body.contains("Corner &lt;Café&gt;"), "a draft is not public");
+
+    post(&f.state, &format!("/directories/listings/{cafe}/status/"), &cookie, &[("action", "publish")]).await;
+    let index = site(&f.state, "GET", "/directory/", None).await;
+    assert!(index.body.contains("Corner &lt;Café&gt;"), "{}", index.body);
+    assert!(!index.body.contains("<Café>"), "escaped");
+    assert!(index.body.contains("Town guide"));
+    // Rendered in the theme: the page carries the theme's own document.
+    assert!(index.body.contains("</html>") && index.body.contains("directory.css"));
+
+    let one = site(&f.state, "GET", "/directory/corner-cafe/", None).await;
+    assert_eq!(one.status, StatusCode::OK, "{}", one.body);
+    assert!(one.body.contains("<p>We roast our own beans.</p><p>Open every day.</p>"), "{}", one.body);
+    assert!(one.body.contains(r#""@type":"LocalBusiness""#));
+    let slug: String = sqlx::query_scalar("SELECT slug FROM directory_listings WHERE id = ?").bind(&cafe).fetch_one(&f.state.db).await.unwrap();
+    // The contact link goes to the stored website, and is counted.
+    let go = site(&f.state, "GET", &format!("/directory/{}/go/website/", urlencode(&slug)), None).await;
+    assert_eq!(go.status, StatusCode::FOUND);
+    assert_eq!(go.headers.get("location").unwrap(), "https://corner.example/");
+    let go = site(&f.state, "GET", &format!("/directory/{}/go/elsewhere/", urlencode(&slug)), None).await;
+    assert_eq!(go.status, StatusCode::NOT_FOUND);
+    let clicks: i64 = sqlx::query_scalar("SELECT contact_clicks FROM directory_listings WHERE id = ?").bind(&cafe).fetch_one(&f.state.db).await.unwrap();
+    assert_eq!(clicks, 1);
+
+    // Search and category pages.
+    assert!(site(&f.state, "GET", "/directory/?q=coffee", None).await.body.contains("Corner &lt;Café&gt;"));
+    assert!(!site(&f.state, "GET", "/directory/?q=bicycle", None).await.body.contains("Corner &lt;Café&gt;"));
+    assert!(site(&f.state, "GET", "/directory/category/food-drink/", None).await.body.contains("Places to eat"));
+
+    // A visitor's classified: the defences first.
+    let form = [
+        ("kind", "classified"), ("title", "Red bicycle"), ("category_id", cat.as_str()), ("price_type", "fixed"), ("price", "120"),
+        ("description", "A red bicycle, barely ridden, with a basket."), ("submitter_email", "rider@example.test"),
+    ];
+    let mut honeypot = form.to_vec();
+    honeypot.extend([("website_url", "http://spam"), ("t", "1")]);
+    site(&f.state, "POST", "/directory/submit/", Some(&honeypot)).await;
+    let t = old_t();
+    let mut fast = form.to_vec();
+    let now_t = (std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis() as i64).to_string();
+    fast.push(("t", &now_t));
+    site(&f.state, "POST", "/directory/submit/", Some(&fast)).await;
+    let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM directory_listings WHERE title = 'Red bicycle'").fetch_one(&f.state.db).await.unwrap();
+    assert_eq!(count, 0, "a bot and a too-fast form store nothing");
+
+    let mut real = form.to_vec();
+    real.push(("t", &t));
+    let sent = site(&f.state, "POST", "/directory/submit/", Some(&real)).await;
+    assert_eq!(sent.status, StatusCode::SEE_OTHER, "{}", sent.body);
+    assert!(sent.headers.get("location").unwrap().to_str().unwrap().contains("sent=1"));
+    let bike = listing_id(&f, "Red bicycle").await;
+    assert!(!site(&f.state, "GET", "/directory/", None).await.body.contains("Red bicycle"), "waits for review");
+    let overview = get(&f.state, "/directories/", &cookie).await;
+    assert!(overview.body.contains("Red bicycle") && overview.body.contains("Approve"), "{}", overview.body);
+
+    post(&f.state, &format!("/directories/listings/{bike}/status/"), &cookie, &[("action", "publish")]).await;
+    let index = site(&f.state, "GET", "/directory/", None).await;
+    assert!(index.body.contains("Red bicycle") && index.body.contains("$120"), "{}", index.body);
+    let expires: Option<String> = sqlx::query_scalar("SELECT expires_at FROM directory_listings WHERE id = ?").bind(&bike).fetch_one(&f.state.db).await.unwrap();
+    assert!(expires.is_some(), "a published classified has an end date");
+
+    // Expired, it leaves the site; renewed, it comes back.
+    sqlx::query("UPDATE directory_listings SET expires_at = '2000-01-01 00:00:00' WHERE id = ?").bind(&bike).execute(&f.state.db).await.unwrap();
+    ghost_db::content::touch();
+    assert!(!site(&f.state, "GET", "/directory/", None).await.body.contains("Red bicycle"));
+    post(&f.state, &format!("/directories/listings/{bike}/status/"), &cookie, &[("action", "renew")]).await;
+    assert!(site(&f.state, "GET", "/directory/", None).await.body.contains("Red bicycle"));
+
+    // The export defuses and quotes.
+    let csv = get(&f.state, "/directories/export.csv", &cookie).await;
+    assert!(csv.body.contains("\"Red bicycle\",\"classified\",\"published\""), "{}", csv.body);
+}
+
+fn urlencode(s: &str) -> String {
+    ghost_core::social_media::encode(s)
+}

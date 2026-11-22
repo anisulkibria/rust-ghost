@@ -337,7 +337,7 @@ async fn a_retry_from_another_origin_is_refused_and_sends_nothing() {
 async fn the_modules_hub_carries_a_newsletters_card() {
     let (_db, state, owner) = fixture().await;
     let cookie = owner_cookie(&state, &owner).await;
-    let r = get(&state, "/modules/", &cookie).await;
+    let r = get(&state, "/tools/", &cookie).await;
     assert_eq!(r.status, StatusCode::OK);
     assert!(r.body.contains(r#"href="/ghost/newsletters/""#), "no Newsletters card on the hub");
     assert!(r.body.contains("<h2>Newsletters</h2>"));
@@ -351,8 +351,8 @@ async fn every_screen_of_the_module_lights_modules_in_the_rail() {
         let r = get(&state, uri, &cookie).await;
         assert_eq!(r.status, StatusCode::OK, "{uri}");
         assert!(
-            r.body.contains(r#"class="nav-item active" href="/ghost/modules/""#),
-            "{uri} does not light Modules in the rail"
+            r.body.contains(r#"class="nav-item active" href="/ghost/tools/""#),
+            "{uri} does not light Tools in the rail"
         );
     }
 }

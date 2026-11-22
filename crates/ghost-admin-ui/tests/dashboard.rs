@@ -277,7 +277,7 @@ async fn a_contributor_gets_the_page_but_none_of_the_administrators_sections() {
         // The module reports are Administrator-only, like every screen they
         // link to — a writer has no business with the posture score or with
         // what is stopping a payment.
-        "Your modules report",
+        "Your tools report",
         "/ghost/security/",
         "/ghost/memberships/",
         "/ghost/newsletters/",
@@ -432,14 +432,14 @@ async fn the_home_screen_reports_what_the_modules_found() {
     let f = fixture().await;
     let reply = get(&f.state, "/dashboard/", &f.session().await).await;
     assert_eq!(reply.status, StatusCode::OK);
-    assert!(reply.body.contains("Your modules report"), "{}", reply.body);
+    assert!(reply.body.contains("Your tools report"), "{}", reply.body);
 
     // Newsletters: a seeded site has no working bulk transport, so a post
     // emailed today reaches nobody — and that outranks the shop below it.
     assert!(reply.body.contains("the newsletter from reaching anybody"), "{}", reply.body);
     assert!(reply.body.contains(r#"href="/ghost/newsletters/""#), "{}", reply.body);
     let sending_at = reply.body.find("the newsletter from reaching").unwrap();
-    let modules_at = reply.body.find("Your modules report").unwrap();
+    let modules_at = reply.body.find("Your tools report").unwrap();
     assert!(modules_at < sending_at, "{}", reply.body);
 
     // And the words belong to the modules: the home screen counts, it does not

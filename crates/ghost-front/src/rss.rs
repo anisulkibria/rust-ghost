@@ -21,7 +21,7 @@ use ghost_routing::tree::RssKind;
 pub async fn render_rss(state: AppState, kind: RssKind, name: String, path: &str, locale: &str, headers: &HeaderMap) -> Response {
     let site_url = state.site_url();
     let locales = crate::routes::site_locales(&state);
-    let site_title = state.settings.get_str("title").unwrap_or_else(|| "Ghost".into());
+    let site_title = state.settings.get_str("title").unwrap_or_else(|| ghost_core::DEFAULT_SITE_TITLE.into());
     let site_desc = state.settings.get_str("description").unwrap_or_default();
 
     // which posts?

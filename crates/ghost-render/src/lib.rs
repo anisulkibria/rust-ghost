@@ -7,6 +7,8 @@ pub mod gscan;
 pub mod gscan_rules;
 pub mod helpers;
 pub mod language_switcher;
+/// Portal and Search in the admin's design: liquid glass over Material 3.
+pub mod system_skin;
 pub mod lexical;
 pub mod markdown;
 pub mod mobiledoc;

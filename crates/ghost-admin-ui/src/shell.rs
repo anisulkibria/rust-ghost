@@ -97,6 +97,12 @@ pub(crate) fn icon(name: &str) -> &'static str {
         "import" => r#"<path d="M9 3L5 6.99h3V14h2V6.99h3L9 3zm7 14.01V10h-2v7.01h-3L15 21l4-3.99h-3z"/>"#,
         "calendar" => r#"<path d="M19 3h-1V1h-2v2H8V1H6v2H5c-1.11 0-1.99.9-1.99 2L3 19a2 2 0 0 0 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm0 16H5V9h14v10zm-9-6H7v-2h3v2zm4 0h-3v-2h3v2zm4 0h-3v-2h3v2z"/>"#,
         "person" => r#"<path d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z"/>"#,
+        // Material Icons "cookie": a round biscuit with a bite out of the
+        // top right and three chips — consent banners' common shorthand.
+        "cookie" => r#"<path d="M21.95 10.99c-1.79-.03-3.7-1.95-2.68-4.22-2.98 1-5.77-1.59-5.19-4.56C6.95.71 2 6.58 2 12c0 5.52 4.48 10 10 10 5.89 0 10.54-5.08 9.95-11.01zM8.5 15c-.83 0-1.5-.67-1.5-1.5S7.67 12 8.5 12s1.5.67 1.5 1.5S9.33 15 8.5 15zm2-5C9.67 10 9 9.33 9 8.5S9.67 7 10.5 7s1.5.67 1.5 1.5-.67 1.5-1.5 1.5zm4.5 6c-.55 0-1-.45-1-1s.45-1 1-1 1 .45 1 1-.45 1-1 1z"/>"#,
+        // Material Icons "campaign": a megaphone with sound lines — the
+        // advertising tool.
+        "campaign" => r#"<path d="M18 11v2h4v-2h-4zm-2 6.61c.96.71 2.21 1.65 3.2 2.39.4-.53.8-1.07 1.2-1.6-.99-.74-2.24-1.68-3.2-2.4-.4.54-.8 1.08-1.2 1.61zM20.4 5.6c-.4-.53-.8-1.07-1.2-1.6-.99.74-2.24 1.68-3.2 2.4.4.53.8 1.07 1.2 1.6.96-.72 2.21-1.65 3.2-2.4zM4 9c-1.1 0-2 .9-2 2v2c0 1.1.9 2 2 2h1v4h2v-4h1l5 3V6L8 9H4zm11.5 3c0-1.33-.58-2.53-1.5-3.35v6.69c.92-.81 1.5-2.01 1.5-3.34z"/>"#,
         "lock" => r#"<path d="M18 8h-1V6c0-2.76-2.24-5-5-5S7 3.24 7 6v2H6c-1.1 0-2 .9-2 2v10c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V10c0-1.1-.9-2-2-2zm-6 9c-1.1 0-2-.9-2-2s.9-2 2-2 2 .9 2 2-.9 2-2 2zm3.1-9H8.9V6c0-1.71 1.39-3.1 3.1-3.1s3.1 1.39 3.1 3.1v2z"/>"#,
         "share" => r#"<path d="M18 16.08c-.76 0-1.44.3-1.96.77L8.91 12.7c.05-.23.09-.46.09-.7s-.04-.47-.09-.7l7.05-4.11c.54.5 1.25.81 2.04.81 1.66 0 3-1.34 3-3s-1.34-3-3-3-3 1.34-3 3c0 .24.04.47.09.7L8.04 9.81C7.5 9.31 6.79 9 6 9c-1.66 0-3 1.34-3 3s1.34 3 3 3c.79 0 1.5-.31 2.04-.81l7.12 4.16c-.05.21-.08.43-.08.65 0 1.61 1.31 2.92 2.92 2.92s2.92-1.31 2.92-2.92-1.31-2.92-2.92-2.92z"/>"#,
         "layout" => r#"<path d="M3 5v14h18V5H3zm16 2v3H5V7h14zM5 12h5v5H5v-5zm7 5v-5h7v5h-7z"/>"#,
@@ -530,6 +536,97 @@ pub(crate) const JS: &str = r#"
     });
   }
 
+  // admin-wide search: the rail's box opens a dialog whose rows are rendered
+  // by /ghost/omnisearch/. The server owns the index and the escaping; this owns
+  // opening, debouncing, keyboard movement and nothing else.
+  var omni = document.getElementById('omni');
+  if (omni) {
+    var omniInput = document.getElementById('omni-input');
+    var omniResults = document.getElementById('omni-results');
+    var omniTimer = null, omniSeq = 0;
+    var omniIdle = omniResults.innerHTML;
+
+    function omniOpen() {
+      if (omni.open) return;
+      omni.showModal();
+      omniInput.focus();
+      omniInput.select();
+    }
+    function omniRows() {
+      return Array.prototype.slice.call(omniResults.querySelectorAll('.omni-hit, .omni-more'));
+    }
+    function omniPoint(row) {
+      omniRows().forEach(function (r) { r.classList.remove('on'); });
+      if (!row) return;
+      row.classList.add('on');
+      // `nearest` so moving down a long list scrolls by a row rather than
+      // snapping the chosen row to the middle of the box every time.
+      row.scrollIntoView({ block: 'nearest' });
+    }
+    function omniRun() {
+      var v = omniInput.value.trim();
+      if (v.length < 2) { omniResults.innerHTML = omniIdle; return; }
+      // Each request carries a sequence number and a slower answer to an
+      // older query is dropped: without it, typing "pos" then "post" can
+      // leave the results for "pos" on screen if the first reply lands last.
+      var seq = ++omniSeq;
+      fetch('/ghost/omnisearch/?q=' + encodeURIComponent(v), { credentials: 'same-origin' })
+        .then(function (r) { return r.ok ? r.text() : ''; })
+        .then(function (html) {
+          if (seq !== omniSeq) return;
+          omniResults.innerHTML = html || '<p class="omni-empty">Nothing matches.</p>';
+          omniPoint(omniRows()[0]);
+        })
+        .catch(function () {
+          if (seq !== omniSeq) return;
+          omniResults.innerHTML = '<p class="omni-empty">The search could not be reached.</p>';
+        });
+    }
+    document.addEventListener('click', function (e) {
+      if (e.target.closest('[data-omni-open]')) { e.preventDefault(); omniOpen(); }
+    });
+    document.addEventListener('keydown', function (e) {
+      // Open on ⌘K / Ctrl-K anywhere, and on "/" only when nothing else is
+      // taking the keystroke — otherwise a slash in a post title opens a
+      // dialog over the editor.
+      var typing = /^(input|textarea|select)$/i.test((e.target.tagName || '')) || e.target.isContentEditable;
+      if ((e.key === 'k' || e.key === 'K') && (e.metaKey || e.ctrlKey)) { e.preventDefault(); omniOpen(); return; }
+      if (e.key === '/' && !typing && !e.metaKey && !e.ctrlKey && !e.altKey) { e.preventDefault(); omniOpen(); }
+    });
+    omniInput.addEventListener('input', function () {
+      clearTimeout(omniTimer);
+      omniTimer = setTimeout(omniRun, 160);
+    });
+    omniInput.addEventListener('keydown', function (e) {
+      // Escape closes, always. On a type=search input the browser spends the
+      // first Escape clearing the field and swallows the event, so the
+      // dialog's own handling never runs and the first press appears to do
+      // nothing: the box stays open with the text gone.
+      if (e.key === 'Escape') { e.preventDefault(); omni.close(); return; }
+      var rows = omniRows();
+      if (!rows.length) return;
+      var at = rows.indexOf(omniResults.querySelector('.on'));
+      if (e.key === 'ArrowDown') { e.preventDefault(); omniPoint(rows[Math.min(at + 1, rows.length - 1)]); }
+      else if (e.key === 'ArrowUp') { e.preventDefault(); omniPoint(rows[Math.max(at - 1, 0)]); }
+      else if (e.key === 'Enter') {
+        var row = rows[at] || rows[0];
+        if (row) { e.preventDefault(); row.click(); }
+      }
+    });
+    omniResults.addEventListener('mousemove', function (e) {
+      var row = e.target.closest('.omni-hit, .omni-more');
+      if (row) omniPoint(row);
+    });
+    // Clicking the backdrop closes it: the dialog fills its own box, so any
+    // click landing on <dialog> itself landed outside that box.
+    omni.addEventListener('click', function (e) { if (e.target === omni) omni.close(); });
+    omni.addEventListener('close', function () {
+      omniInput.value = '';
+      omniResults.innerHTML = omniIdle;
+      omniSeq++;
+    });
+  }
+
   // colour settings: picking a custom colour selects the custom mode too, so
   // the swatch chip and the picker can never disagree about which is in force
   document.addEventListener('input', function (e) {
@@ -943,8 +1040,16 @@ pub(crate) fn merge_night_shift(existing: Option<&str>, theme: &str) -> String {
 /// `user` supplies the account block at the bottom of the rail.
 pub(crate) fn rail(active: &str, user: Option<&ghost_core::models::User>, role: Role) -> String {
     let active = match active {
-        "analytics" | "comments" | "automations" | "forms" | "media" | "seo" | "languages"
-        | "security" | "memberships" | "newsletters" => "modules",
+        // Everything that was a Module is a Tool since 2026-11-21, and the
+        // pages still pass their own keys, so all of them light Tools.
+        "modules" | "analytics" | "forms" | "media" | "seo" | "languages"
+        | "security" | "memberships" | "newsletters" | "popups" | "cookies" => "tools",
+        // Moved to Tools on 2026-11-20: none of the four owns a settings
+        // group, which is what separates a module from a tool here. The
+        // social screens pass `"tools"` themselves, but the key is mapped as
+        // well so a page that still says `"social"` lights the right item
+        // rather than nothing.
+        "comments" | "automations" | "permissions" | "social" => "tools",
         other => other,
     };
     // Showing a link that only leads to "Not allowed" is worse than not
@@ -962,9 +1067,8 @@ pub(crate) fn rail(active: &str, user: Option<&ghost_core::models::User>, role: 
         ("themes", "/ghost/themes/", "Themes", "themes", "slate"),
         // Members was a rail item of its own until the Memberships module
         // adopted it. It is now that module's Members tab, reached through
-        // Modules → Memberships, and its URL is unchanged — see
+        // Tools → Memberships, and its URL is unchanged — see
         // `crate::memberships` on why the URL stayed where it was.
-        ("modules", "/ghost/modules/", "Modules", "integrations", "purple"),
         // The site-building screens: customizations, menus, code injection,
         // announcement, redirects, routes and staff. See `crate::tools`.
         ("tools", "/ghost/tools/", "Tools", "tune", "teal"),
@@ -972,13 +1076,25 @@ pub(crate) fn rail(active: &str, user: Option<&ghost_core::models::User>, role: 
         // Settings → Integrations.
         ("settings", "/ghost/settings/", "Settings", "settings", "pink"),
     ];
+    // What this role may reach, as the Permissions module has it. The rail is
+    // the most visible place a forbidden link would appear, so it asks the
+    // same matrix the middleware enforces rather than the role alone.
+    //
+    // Themes is not in the matrix — it is not a module, a tool or a settings
+    // group — so it keeps the role check it had.
+    let grants = crate::permissions::current_grants(role);
     let mut links: String = items
         .iter()
         .filter(|(key, _, _, _, _)| match *key {
-            // Ghost grants the `comment` permission set to Administrator and
-            // above only, so moderation is not offered below that.
-            "modules" | "tools" | "themes" | "settings" => role.is_admin(),
-            "tags" => role.can_manage_tags(),
+            // The Owner always sees Tools: Permissions lives there and is
+            // outside the matrix.
+            "tools" => crate::permissions::any_readable(&grants, crate::permissions::Family::Tool)
+                || role == Role::Owner,
+            "settings" => crate::permissions::any_readable(&grants, crate::permissions::Family::Settings),
+            "themes" => role.is_admin(),
+            "tags" => grants.tags.may_read(),
+            "posts" => grants.posts.may_read(),
+            "pages" => grants.pages.may_read(),
             _ => true,
         })
         .map(|(key, href, label, ic, tint)| {
@@ -1059,6 +1175,7 @@ pub(crate) fn rail(active: &str, user: Option<&ghost_core::models::User>, role: 
     format!(
         r#"<aside class="rail">
 <a class="brand" href="{home}" title="{site_name}">{brand_mark}</a>
+{omni_trigger}
 <div class="nav-scroll">{links}</div>
 <div class="rail-foot">
 <div class="who">{who}
@@ -1069,6 +1186,9 @@ pub(crate) fn rail(active: &str, user: Option<&ghost_core::models::User>, role: 
         home = ADMIN_HOME,
         brand_mark = admin_brand_mark(),
         site_name = esc(&admin_site_name()),
+        // Between the brand and the first nav item, so the one control that
+        // reaches every screen sits above the list of screens.
+        omni_trigger = crate::search::rail_trigger(),
         links = links,
         who = who,
         appearance = appearance,
@@ -1093,7 +1213,15 @@ pub(crate) fn page_for_role(role: Role, title: &str, active: &str, user: Option<
 /// `page_u` with an explicit role, so the rail can be filtered.
 pub(crate) fn page_for(title: &str, active: &str, user: Option<&ghost_core::models::User>, role: Role, body: &str, nav: bool) -> Html<String> {
     let shell = if nav {
-        format!(r#"<div class="shell">{rail}<main class="main"><div class="content">{body}</div></main></div>"#, rail = rail(active, user, role))
+        // The modal goes outside `.shell`: a `<dialog>` renders in the top
+        // layer anyway, but `.shell` is a stacking context with the rail at
+        // z-index 30, and nesting the backdrop inside it is how a modal ends
+        // up dimming everything except the column next to it.
+        format!(
+            r#"<div class="shell">{rail}<main class="main"><div class="content">{body}</div></main></div>{omni}"#,
+            rail = rail(active, user, role),
+            omni = crate::search::modal(),
+        )
     } else {
         // A class, not an inline style. The inline `max-width:640px` this
         // replaces outranked every stylesheet rule, including the one that

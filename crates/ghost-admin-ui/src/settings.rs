@@ -41,37 +41,54 @@ impl SettingsGroup {
     /// Where this group's row points.
     ///
     /// Every group is a page under `/ghost/settings/`. Customizations,
-    /// Navigations, Code injection, Announcement, Redirects, Routes and Staff
-    /// used to be groups here; they are Tools now (see `crate::tools`).
+    /// Navigations, Code injection, Announcement, Redirects, Routes, Backups,
+    /// Growth and Staff used to be groups here; they are Tools now (see
+    /// `crate::tools`). Backups and Growth keep their code in
+    /// `settings/backups.rs` and `settings/growth.rs`, but their pages live
+    /// at `/ghost/backups/` and `/ghost/growth/`.
     pub(crate) fn path(&self) -> String {
         format!("/ghost/settings/{}/", self.slug)
     }
 }
 
+/// A–Z by title, matching `MODULES` — most of these groups share a name with
+/// a module card (Analytics, Forms, Languages, Members/Memberships,
+/// Newsletters, Security, SEO), and the two pages are easier to learn when
+/// the shared names fall in the same order on both. Keep both sorted when
+/// adding to either.
+///
+/// Danger zone is the one row that does not sort: it deletes content and the
+/// site, and a destructive row belongs at the end of a list rather than
+/// third, between Analytics and Emails, where the alphabet would put it.
 pub(crate) const SETTINGS_GROUPS: &[SettingsGroup] = &[
-    SettingsGroup { slug: "general", title: "General settings", icon: "settings", tint: "pink", items: &["Name, title & description", "Timezone", "Meta data", "Social accounts"] },
     SettingsGroup { slug: "analytics", title: "Analytics", icon: "chart", tint: "green", items: &["Web analytics", "Email opens", "Email clicks", "Member sources", "Outbound link tagging"] },
-    SettingsGroup { slug: "membership", title: "Membership", icon: "ghost", tint: "teal", items: &["Access", "Spam filters", "Tiers", "Signup portal", "Gift subscriptions", "Tips & donations", "Custom fields"] },
-    // This port's own feature, so it has no Ghost sidebar slot to mirror; it
-    // sits with Membership because it is the other thing readers (and agents)
-    // can be charged for.
-    SettingsGroup { slug: "email", title: "Email", icon: "mail", tint: "blue", items: &["Transactional email", "SMTP server", "Sender identity", "Send a test"] },
-    SettingsGroup { slug: "newsletters", title: "Newsletters", icon: "send", tint: "purple", items: &["Newsletter sending", "Default recipients", "Amazon SES", "Mailgun", "Region"] },
-    SettingsGroup { slug: "growth", title: "Growth", icon: "globe", tint: "slate", items: &["Network", "Ghost Explore", "Recommendations", "Signup forms", "Offers"] },
+    // This port's own feature, so it has no Ghost sidebar slot to mirror: it
+    // is the other thing readers (and agents) can be charged for.
+    // The Cookie consent module's banner. What the site loads, what visitors
+    // chose and the compliance check live under Modules.
+    SettingsGroup { slug: "cookies", title: "Cookies", icon: "cookie", tint: "amber", items: &["On or off", "Banner", "Choices", "Proof of consent"] },
+    SettingsGroup { slug: "emails", title: "Emails", icon: "mail", tint: "blue", items: &["Transactional email", "SMTP server", "Amazon SES", "Mailgun", "Sender identity", "Send a test"] },
     SettingsGroup { slug: "features", title: "Features", icon: "tune", tint: "teal", items: &["Comments", "Automations", "Beta features", "Private features"] },
     // This port's own module. Its builder and responses live under Modules;
     // what is here is what applies to every form at once.
     SettingsGroup { slug: "forms", title: "Forms", icon: "form", tint: "amber", items: &["Notifications", "Spam protection", "Privacy & retention"] },
+    SettingsGroup { slug: "general", title: "General settings", icon: "settings", tint: "pink", items: &["Name, title & description", "Brand", "Timezone", "Meta data", "Social accounts"] },
+    // The Media module's: what happens to an image between the upload and
+    // the page. The library itself is under Modules → Media.
+    SettingsGroup { slug: "images", title: "Images", icon: "image", tint: "green", items: &["Optimisation", "Size", "Quality", "Privacy"] },
     // This port's own module, like Forms: the report lives under Modules and
     // what is here is what applies to every page at once.
     SettingsGroup { slug: "languages", title: "Languages", icon: "globe", tint: "teal", items: &["Default publication language", "Languages", "Search engines", "Navigation per language"] },
-    SettingsGroup { slug: "seo", title: "SEO", icon: "trending", tint: "blue", items: &["Search appearance", "Crawling", "robots.txt", "IndexNow"] },
+    SettingsGroup { slug: "memberships", title: "Members", icon: "ghost", tint: "teal", items: &["Access", "Spam filters", "Tiers", "Signup portal", "Gift subscriptions", "Tips & donations", "Custom fields"] },
+    SettingsGroup { slug: "newsletters", title: "Newsletters", icon: "send", tint: "purple", items: &["Newsletter sending", "Default recipients", "Newsletter provider", "The newsletters themselves"] },
+    // The Popups module's site-wide switches. The popups themselves are
+    // under Modules; what is here applies to every one of them at once.
+    SettingsGroup { slug: "popups", title: "Popups", icon: "panel-show", tint: "pink", items: &["On or off", "On phones", "Space between popups", "Consent note"] },
     // This port's own module. The report — posture, live sessions, lockouts
     // — lives under Modules; what is here is what applies to every sign-in,
-    // every session and every response at once. It sits after Integrations
-    // because API keys are one of the things the report counts.
+    // every session and every response at once.
     SettingsGroup { slug: "security", title: "Security", icon: "lock", tint: "red", items: &["Sign-in", "Sessions", "Response headers", "Requests this server makes and trusts", "Spam", "Firewall"] },
-    SettingsGroup { slug: "backups", title: "Backups", icon: "history", tint: "blue", items: &["Automatic backups", "Back up now", "Restore", "Export all data", "Members", "Post analytics", "Themes"] },
+    SettingsGroup { slug: "seo", title: "SEO", icon: "trending", tint: "blue", items: &["Search appearance", "Crawling", "robots.txt", "IndexNow"] },
     SettingsGroup { slug: "danger", title: "Danger zone", icon: "delete", tint: "red", items: &["Delete all content", "Delete site"] },
 ];
 
@@ -87,6 +104,16 @@ pub(crate) const SETTINGS_INDEX: &[(&str, &str, &str)] = &[
     ("general", "Name, title & description", "Title"),
     ("general", "Name, title & description", "Description"),
     ("general", "Timezone", "Site timezone"),
+    // Brand moved here from Customizations on 2026-11-20.
+    ("general", "Brand", "Accent color"),
+    ("general", "Brand", "Accent colour"),
+    ("general", "Brand", "Publication logo"),
+    ("general", "Brand", "Publication icon"),
+    ("general", "Brand", "Favicon"),
+    ("general", "Brand", "Publication cover"),
+    ("general", "Brand", "Typography"),
+    ("general", "Brand", "Heading font"),
+    ("general", "Brand", "Body font"),
     // The section names stay in the haystack: "X card" and "Facebook card"
     // are what these are called, and they are the headings on the page.
     ("general", "Meta data · search", "Meta title"),
@@ -103,9 +130,24 @@ pub(crate) const SETTINGS_INDEX: &[(&str, &str, &str)] = &[
     ("languages", "Languages", "Multilingual"),
     ("languages", "Languages", "Translations"),
     ("languages", "Languages", "Language"),
+    ("languages", "Search engines", "Publish hreflang alternates"),
     ("languages", "Search engines", "hreflang"),
     ("languages", "Navigation per language", "Primary menu per language"),
     ("languages", "Navigation per language", "Secondary menu per language"),
+    // Forms. The module's builder and its responses live under Modules; these
+    // are the switches that apply to every form at once, and none of them was
+    // in this index until 2026-11-20 — the page was unsearchable.
+    ("forms", "Notifications", "Email me about new responses"),
+    ("forms", "Notifications", "Default notification addresses"),
+    ("forms", "Spam protection", "Single-use signed tokens"),
+    ("forms", "Spam protection", "Minimum fill time"),
+    ("forms", "Spam protection", "Hidden decoy field"),
+    ("forms", "Spam protection", "Honeypot"),
+    ("forms", "Spam protection", "Rate limits"),
+    ("forms", "Spam protection", "Same-site only"),
+    ("forms", "Privacy & retention", "Store the sender's IP address"),
+    ("forms", "Privacy & retention", "Keep responses for"),
+    ("forms", "Privacy & retention", "Retention"),
     // Security. The field names are what somebody types looking for them —
     // "2FA", "HSTS", "session timeout", "X-Forwarded-For" — not only the
     // labels on the page, because none of those labels contain any of it.
@@ -135,9 +177,60 @@ pub(crate) const SETTINGS_INDEX: &[(&str, &str, &str)] = &[
     ("security", "Spam", "Signups must come from this site"),
     ("security", "Spam", "Block these user agents"),
     ("security", "Spam", "Bot blocking"),
+    ("security", "Spam", "Blocked user agents"),
     ("security", "Firewall", "Firewall"),
+    ("security", "Firewall", "Open the firewall"),
     ("security", "Firewall", "Block an IP address"),
     ("security", "Firewall", "IP allowlist"),
+    // Danger zone. Like Forms, none of this was indexed until 2026-11-20, so
+    // "delete site" found nothing at all.
+    // Images. "Compress", "EXIF" and "GPS" are the words people search with;
+    // none of them is a label on the page.
+    ("images", "Optimisation", "Optimise images when they are uploaded"),
+    ("images", "Optimisation", "Compress images"),
+    ("images", "Optimisation", "Image optimization"),
+    ("images", "Size", "Largest side, in pixels"),
+    ("images", "Size", "Resize uploads"),
+    ("images", "Size", "Maximum image size"),
+    ("images", "Quality", "JPEG quality"),
+    ("images", "Privacy", "Remove camera metadata"),
+    ("images", "Privacy", "EXIF"),
+    ("images", "Privacy", "GPS location"),
+    // Cookies. People search for the law, not the feature: "GDPR", "CCPA",
+    // "consent banner", "do not sell" — none of which is a label on the page.
+    ("cookies", "On or off", "Show the consent banner"),
+    ("cookies", "On or off", "Cookie banner"),
+    ("cookies", "On or off", "GDPR consent banner"),
+    ("cookies", "On or off", "How to ask"),
+    ("cookies", "On or off", "Opt-in or opt-out (CCPA)"),
+    ("cookies", "Banner", "Where it appears"),
+    ("cookies", "Banner", "Heading"),
+    ("cookies", "Banner", "Message"),
+    ("cookies", "Banner", "Privacy policy link"),
+    ("cookies", "Choices", "Ask again after"),
+    ("cookies", "Choices", "Honour Global Privacy Control"),
+    ("cookies", "Choices", "Do not sell or share"),
+    ("cookies", "Choices", "Hold back embedded content"),
+    ("cookies", "Choices", "Show a button to change choices"),
+    ("cookies", "Proof of consent", "Keep a record of each decision"),
+    ("cookies", "Proof of consent", "Consent log"),
+    ("cookies", "Proof of consent", "Delete records after"),
+    // Popups. "Kill switch" and "GDPR" are what people type looking for the
+    // master switch and the consent note; neither phrase is on the page.
+    ("popups", "On or off", "Show popups on the site"),
+    ("popups", "On or off", "Turn off all popups"),
+    ("popups", "On or off", "Kill switch"),
+    ("popups", "On phones", "Hide popups on phones"),
+    ("popups", "On phones", "Mobile"),
+    ("popups", "Space between popups", "Hours between any two popups"),
+    ("popups", "Space between popups", "Popup frequency cap"),
+    ("popups", "Consent note", "Shown under every address field"),
+    ("popups", "Consent note", "GDPR consent"),
+    ("popups", "Consent note", "Privacy note"),
+    ("danger", "Danger zone", "Delete all content"),
+    ("danger", "Danger zone", "Delete site"),
+    ("danger", "Danger zone", "Reset all authentication"),
+    ("danger", "Danger zone", "Reset all gift links"),
     ("seo", "Search appearance", "Structured data"),
     ("seo", "Search appearance", "Open Graph"),
     ("seo", "Search appearance", "Twitter card"),
@@ -156,71 +249,185 @@ pub(crate) const SETTINGS_INDEX: &[(&str, &str, &str)] = &[
     ("analytics", "Analytics", "Email clicks"),
     ("analytics", "Analytics", "Member sources"),
     ("analytics", "Analytics", "Outbound link tagging"),
-    ("email", "Transactional email", "Transport"),
-    ("email", "SMTP server", "Host"),
-    ("email", "SMTP server", "Port"),
-    ("email", "SMTP server", "Encryption"),
-    ("email", "SMTP server", "Username"),
-    ("email", "SMTP server", "Password"),
-    ("email", "Sender identity", "From address"),
-    ("email", "Sender identity", "From name"),
-    ("email", "Sender identity", "Reply-to"),
-    ("email", "Send a test", "Send to"),
+    ("emails", "Transactional email", "Transport"),
+    ("emails", "SMTP server", "Host"),
+    ("emails", "SMTP server", "Port"),
+    ("emails", "SMTP server", "Encryption"),
+    ("emails", "SMTP server", "Username"),
+    ("emails", "SMTP server", "Password"),
+    ("emails", "Sender identity", "From address"),
+    ("emails", "Sender identity", "From name"),
+    ("emails", "Sender identity", "Reply-to"),
+    ("emails", "Send a test", "Check the settings work"),
+    ("emails", "Send a test", "Send to"),
+    ("emails", "Amazon SES", "Newsletter messages per second"),
+    ("emails", "Amazon SES", "Rate limit"),
     ("newsletters", "Newsletters", "Newsletter name"),
-    ("newsletters", "Mailgun", "API key"),
-    ("newsletters", "Mailgun", "Sending domain"),
-    ("newsletters", "Mailgun", "Region"),
+    // Mailgun is a transport, so its credentials sit with the other
+    // transports on Emails; Newsletters only picks which one to use.
+    ("emails", "Mailgun", "API key"),
+    ("emails", "Mailgun", "Webhook signing key"),
+    ("emails", "Mailgun", "Sending domain"),
+    ("emails", "Mailgun", "Region"),
+    ("emails", "Amazon SES", "AWS region"),
+    ("emails", "Amazon SES", "SMTP endpoint"),
+    ("emails", "Amazon SES", "SES SMTP username"),
+    ("emails", "Amazon SES", "SES SMTP password"),
     ("newsletters", "Sender", "Sender name"),
     ("newsletters", "Sender", "Sender email"),
     ("newsletters", "Header", "Header image URL"),
-    ("membership", "Stripe", "Publishable key"),
-    ("membership", "Stripe", "Secret key"),
-    ("membership", "Stripe", "Webhook signing secret"),
-    ("membership", "Access", "Signup access"),
-    ("membership", "Access", "Default post access"),
-    ("membership", "Access", "Commenting"),
-    ("membership", "Tiers", "Monthly price"),
-    ("membership", "Tiers", "Yearly price"),
-    ("membership", "Tiers", "Currency"),
-    ("membership", "Tiers", "Free trial"),
-    ("membership", "Tiers", "Benefits"),
-    ("membership", "Signup portal", "Portal button signup text"),
-    ("membership", "Signup portal", "Portal button icon"),
-    ("membership", "Signup portal", "Portal button style"),
-    ("membership", "Signup portal", "Signup terms"),
-    ("membership", "Welcome emails", "Welcome page URL"),
-    ("membership", "Access", "Site access"),
-    ("membership", "Access", "Access code"),
-    ("membership", "Spam filters", "Blocked email domains"),
-    ("membership", "Custom fields", "Field name"),
-    ("membership", "Custom fields", "Member access"),
-    ("growth", "Offers", "Discount code"),
-    ("growth", "Offers", "Free trial"),
-    ("membership", "Gift subscriptions", "Shareable link"),
-    ("membership", "Tips & donations", "Currency"),
-    ("membership", "Tips & donations", "Suggested amount"),
+    ("memberships", "Stripe", "Publishable key"),
+    ("memberships", "Stripe", "Secret key"),
+    ("memberships", "Stripe", "Webhook signing secret"),
+    ("memberships", "Access", "Signup access"),
+    ("memberships", "Access", "Default post access"),
+    ("memberships", "Access", "Commenting"),
+    ("memberships", "Tiers", "Monthly price"),
+    ("memberships", "Tiers", "Yearly price"),
+    ("memberships", "Tiers", "Currency"),
+    ("memberships", "Tiers", "Free trial"),
+    ("memberships", "Tiers", "Benefits"),
+    ("memberships", "Signup portal", "Show portal button"),
+    ("memberships", "Signup portal", "Portal button signup text"),
+    ("memberships", "Signup portal", "Portal button icon"),
+    ("memberships", "Signup portal", "Portal button style"),
+    ("memberships", "Signup portal", "Show portal name"),
+    ("memberships", "Signup portal", "Signup terms"),
+    ("memberships", "Signup portal", "Require signup terms"),
+    ("memberships", "Signup portal", "Plans shown at signup"),
+    ("memberships", "Signup portal", "Default price at signup"),
+    ("memberships", "Signup portal", "Support email address"),
+    ("memberships", "Signup portal", "Promote gifts at signup"),
+    ("memberships", "Signup portal", "Promote gifts on the account page"),
+    // The welcome settings are flows now, not a single page URL.
+    ("memberships", "Welcome emails", "Free member welcome flow"),
+    ("memberships", "Welcome emails", "Paid member welcome flow"),
+    ("memberships", "Checkout", "Checkout design"),
+    ("memberships", "Stripe", "Connect Stripe"),
+    ("memberships", "Tiers", "Default Product"),
+    ("memberships", "Custom fields", "Type"),
+    ("memberships", "Access", "Site access"),
+    ("memberships", "Access", "Access code"),
+    ("memberships", "Spam filters", "Blocked email domains"),
+    ("memberships", "Custom fields", "Field name"),
+    ("memberships", "Custom fields", "Member access"),
+    ("memberships", "Gift subscriptions", "Shareable link"),
+    ("memberships", "Tips & donations", "Currency"),
+    ("memberships", "Tips & donations", "Suggested amount"),
     ("newsletters", "Newsletter sending", "Newsletter sending"),
+    ("newsletters", "Newsletter sending", "Enabled"),
+    ("newsletters", "Newsletters", "Description"),
+    ("newsletters", "Newsletter provider", "Provider"),
+    ("newsletters", "Newsletter provider", "From address"),
     ("newsletters", "Default recipients", "Who gets a new post by default"),
     ("features", "Comments", "New comments"),
     ("features", "Comments", "Hold for review"),
     ("features", "Automations", "Automations"),
     ("features", "Beta features", "Feature flags"),
     ("features", "Private features", "Developer experiments"),
-    // What someone actually types when they are backing up or moving out.
-    ("backups", "Automatic backups", "Daily backups"),
-    ("backups", "Automatic backups", "Weekly backups"),
-    ("backups", "Automatic backups", "Monthly backups"),
-    ("backups", "Backups", "Back up now"),
-    ("backups", "Backups", "Restore a backup"),
-    ("backups", "Backups", "Upload a backup"),
-    ("backups", "Export", "Export all data"),
-    ("backups", "Export", "Content & settings"),
-    ("backups", "Export", "Members"),
-    ("backups", "Export", "Post analytics"),
-    ("backups", "Export", "Themes"),
-    ("backups", "Export", "Media files"),
-    ("backups", "Export", "Backup"),
 ];
+
+/// One searchable thing in settings: where it is, what to call it, and every
+/// word it should answer to.
+pub(crate) struct SearchEntry {
+    pub(crate) url: String,
+    pub(crate) title: String,
+    pub(crate) detail: String,
+    /// What a query is matched against — the visible text plus the synonyms
+    /// and keys that are not on screen.
+    pub(crate) haystack: String,
+    pub(crate) icon: &'static str,
+    pub(crate) tint: &'static str,
+}
+
+/// The whole settings index, flattened: the pages, the sub-pages each group
+/// lists, the nested places, every field in `SETTINGS_INDEX`, the social
+/// accounts and the feature flags.
+///
+/// The settings hub and the admin-wide search (`crate::search`) both render
+/// from this one function. They were two copies of the same walk until
+/// 2026-11-20, which is exactly the drift that lets a page be searchable from
+/// one box and invisible from the other.
+///
+/// `dev` gates the private feature flags: they are only *rendered* on a
+/// development site, so indexing them elsewhere leads to a row that is not
+/// there.
+pub(crate) fn settings_entries(dev: bool) -> Vec<SearchEntry> {
+    let mut out: Vec<SearchEntry> = Vec::new();
+    let mut push = |url: String, title: &str, detail: &str, haystack: &str, g: &SettingsGroup| {
+        out.push(SearchEntry {
+            url,
+            title: title.to_string(),
+            detail: detail.to_string(),
+            haystack: haystack.to_string(),
+            icon: g.icon,
+            tint: g.tint,
+        });
+    };
+    // A page's row answers to its own name and its sub-pages' names, but
+    // everything below it matches only its own text — so a broad query
+    // ("security") lands on the page, and a narrow one ("port", "2FA") lands
+    // on the thing itself without flooding the page in.
+    for g in SETTINGS_GROUPS {
+        push(
+            g.path(),
+            g.title,
+            &g.items.join(" · "),
+            &format!("{} {} {}", g.title, g.items.join(" "), g.slug),
+            g,
+        );
+        for item in g.items {
+            push(g.path(), item, g.title, item, g);
+        }
+    }
+    for (path, name, parent) in SETTINGS_PLACES {
+        if let Some(g) = SETTINGS_GROUPS.iter().find(|g| g.slug == *parent) {
+            push(format!("/ghost/settings/{path}"), name, g.title, name, g);
+        }
+    }
+    let mut fields: Vec<(&str, &str, &str)> = SETTINGS_INDEX.to_vec();
+    for (_, name) in SOCIAL_ACCOUNTS {
+        fields.push(("general", "Social accounts", name));
+    }
+    for (slug, section, field) in &fields {
+        if let Some(g) = SETTINGS_GROUPS.iter().find(|g| g.slug == *slug) {
+            push(
+                g.path(),
+                field,
+                &format!("{} · {}", g.title, section),
+                &format!("{section} {field}"),
+                g,
+            );
+        }
+    }
+    // Each feature flag answers to its own name, so "automatic tax" or
+    // "navigation icons" finds the switch rather than only the page it sits
+    // on. Folded in here rather than copied into `SETTINGS_INDEX` so the two
+    // lists cannot drift, and the flag key joins the haystack because that is
+    // what a developer reading a theme has in front of them.
+    if let Some(g) = SETTINGS_GROUPS.iter().find(|g| g.slug == "features") {
+        let private: &[(&str, &str, &str)] = if dev { PRIVATE_FLAGS } else { &[] };
+        for (section, set) in [("Beta features", BETA_FLAGS), ("Private features", private)] {
+            for (key, title, _) in set {
+                push(
+                    g.path(),
+                    title,
+                    &format!("{} · {}", g.title, section),
+                    &format!("{section} {title} {key}"),
+                    g,
+                );
+            }
+        }
+    }
+    // A thing named both as a group's sub-page and as a field in
+    // `SETTINGS_INDEX` was pushed twice — "Delete site" came back as two
+    // identical rows pointing at the same page. The first push wins, so a
+    // field keeps the richer `Page · Section` detail it was given there only
+    // when no sub-page already claimed the name.
+    let mut seen: std::collections::HashSet<(String, String)> = std::collections::HashSet::new();
+    out.retain(|e| seen.insert((e.url.clone(), e.title.to_lowercase())));
+    out
+}
 
 /// Sub-pages and on-page headings the group rows do not already carry:
 /// things with their own URL nested inside a group (the built-in apps
@@ -229,8 +436,7 @@ pub(crate) const SETTINGS_INDEX: &[(&str, &str, &str)] = &[
 /// the thing actually lives.
 pub(crate) const SETTINGS_PLACES: &[(&str, &str, &str)] = &[
     // (path under /ghost/settings/, what you are looking for, parent group slug)
-    ("membership/", "Stripe", "membership"),
-    ("growth/", "Coming later", "growth"),
+    ("memberships/", "Stripe", "memberships"),
 ];
 
 /// The editable social accounts, in Ghost's order. Keys are Ghost's settings
@@ -672,8 +878,13 @@ pub(crate) async fn settings_page(State(state): State<AppState>, headers: Header
         Ok(a) => (a.user, a.role),
         Err(r) => return r,
     };
+    // Only the groups this viewer may open. The hub itself is reachable when
+    // any one of them is; the rows it lists are each checked again when they
+    // are followed.
+    let grants = crate::permissions::grants_for(&state, actor_role);
     let rows: String = SETTINGS_GROUPS
         .iter()
+        .filter(|g| grants.settings.access(g.slug).may_read())
         .map(|g| {
             let head = format!(
                 r#"<span class="ic tint-{tint}">{ic}</span>
@@ -698,79 +909,25 @@ pub(crate) async fn settings_page(State(state): State<AppState>, headers: Header
     // but everything below it matches only its own text — so a broad query
     // ("advanced") lands on the page, and a narrow one ("port", "zapier",
     // "built-in") lands on the thing itself without flooding the page in.
-    let mut hit_rows: Vec<String> = Vec::new();
-    let mut push_hit = |url: String, title: &str, detail: &str, haystack: &str, group: &SettingsGroup| {
-        hit_rows.push(format!(
-            r#"<a class="row" href="{url}" data-search="{haystack}">
+    let hits = settings_entries(state.config.env == "development")
+        .iter()
+        .map(|e| {
+            format!(
+                r#"<a class="row" href="{url}" data-search="{haystack}">
 <span class="ic tint-{tint}">{ic}</span>
 <div class="body"><span class="title">{title}</span><span class="detail">{detail}</span></div>
 <div class="trailing">{chev}</div></a>"#,
-            url = esc(&url),
-            haystack = esc(haystack),
-            tint = group.tint,
-            ic = svg(group.icon),
-            title = esc(title),
-            detail = esc(detail),
-            chev = svg("chevron"),
-        ));
-    };
-    for g in SETTINGS_GROUPS {
-        push_hit(
-            g.path(),
-            g.title,
-            &g.items.join(" · "),
-            &format!("{} {} {}", g.title, g.items.join(" "), g.slug),
-            g,
-        );
-        for item in g.items {
-            push_hit(g.path(), item, g.title, item, g);
-        }
-    }
-    for (path, name, parent) in SETTINGS_PLACES {
-        if let Some(g) = SETTINGS_GROUPS.iter().find(|g| g.slug == *parent) {
-            push_hit(format!("/ghost/settings/{path}"), name, g.title, name, g);
-        }
-    }
-    let mut fields: Vec<(&str, &str, &str)> = SETTINGS_INDEX.to_vec();
-    for (_, name) in SOCIAL_ACCOUNTS {
-        fields.push(("general", "Social accounts", name));
-    }
-    for (slug, section, field) in &fields {
-        if let Some(g) = SETTINGS_GROUPS.iter().find(|g| g.slug == *slug) {
-            push_hit(
-                g.path(),
-                field,
-                &format!("{} · {}", g.title, section),
-                &format!("{section} {field}"),
-                g,
-            );
-        }
-    }
-    // Each feature flag answers to its own name, so "automatic tax" or
-    // "navigation icons" finds the switch rather than only the page it sits
-    // on. Folded in here rather than copied into `SETTINGS_INDEX` so the two
-    // lists cannot drift, and the flag key joins the haystack because that is
-    // what a developer reading a theme has in front of them.
-    //
-    // The private flags are indexed only where the Features page renders
-    // them: on a production site, a hit would lead to a row that is not
-    // there.
-    if let Some(g) = SETTINGS_GROUPS.iter().find(|g| g.slug == "features") {
-        let private: &[(&str, &str, &str)] =
-            if state.config.env == "development" { PRIVATE_FLAGS } else { &[] };
-        for (section, set) in [("Beta features", BETA_FLAGS), ("Private features", private)] {
-            for (key, title, _) in set {
-                push_hit(
-                    g.path(),
-                    title,
-                    &format!("{} · {}", g.title, section),
-                    &format!("{section} {title} {key}"),
-                    g,
-                );
-            }
-        }
-    }
-    let hits = hit_rows.join("\n");
+                url = esc(&e.url),
+                haystack = esc(&e.haystack),
+                tint = e.tint,
+                ic = svg(e.icon),
+                title = esc(&e.title),
+                detail = esc(&e.detail),
+                chev = svg("chevron"),
+            )
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
     page_for_role(actor_role,
         "Settings",
         "settings",

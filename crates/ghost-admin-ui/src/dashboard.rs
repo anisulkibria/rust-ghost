@@ -307,7 +307,7 @@ fn setup_row(step: Setup) -> String {
             "green",
             "Connect Stripe",
             "Paid tiers are on offer, but nobody can pay for one yet.",
-            "/ghost/settings/membership/",
+            "/ghost/settings/memberships/",
             "Connect",
         ),
         Setup::TurnOnAnalytics => (
@@ -504,7 +504,7 @@ fn health_card(audits: &Audits) -> String {
     }
     let rows: String = items.iter().map(|item| health_row(*item)).collect();
     format!(
-        r#"<div class="section dash-head">Your modules report<a class="dash-more" href="/ghost/modules/">All modules {chev}</a></div>
+        r#"<div class="section dash-head">Your tools report<a class="dash-more" href="/ghost/tools/">All tools {chev}</a></div>
 <div class="card rows dash-rows rise" style="--i:3">{rows}</div>"#,
         chev = svg("chevron"),
     )
@@ -1146,7 +1146,7 @@ mod tests {
         let security_at = html.find("critical security finding").unwrap();
         let members_at = html.find("joining or paying").unwrap();
         assert!(security_at < members_at, "{html}");
-        assert!(html.contains(r#"href="/ghost/modules/""#), "{html}");
+        assert!(html.contains(r#"href="/ghost/tools/""#), "{html}");
     }
 
     /// Counts agree with their nouns, which is the detail that makes a row

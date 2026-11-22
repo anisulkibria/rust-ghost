@@ -1084,6 +1084,13 @@ pub(crate) async fn posts_list_impl(state: &AppState, headers: &HeaderMap, post_
         Ok(a) => a,
         Err(r) => return r,
     };
+    // What this role may do with this kind of entry. A role the Owner has
+    // given no access to posts is refused the list outright rather than shown
+    // an empty one, which reads as "there are no posts".
+    let content = crate::permissions::content_for(state, actor.role, post_type);
+    if !content.may_read() {
+        return crate::permissions::content_refused(&actor, headers, label);
+    }
     let user = &actor.user;
     let filter = match flash.get("nql").filter(|s| !s.is_empty()).map(|s| ghost_nql::parse(s)).transpose() {
         Ok(filter) => filter,
@@ -1102,7 +1109,10 @@ pub(crate) async fn posts_list_impl(state: &AppState, headers: &HeaderMap, post_
     let query = repos::posts::AdminBrowsePosts {
         filter: posts::with_tag_filter(filter, selected_tag),
         post_type: post_type.into(),
-        author_id: (!actor.role.can_edit_any_post()).then(|| actor.user.id.clone()),
+        // Whose entries this viewer sees, as the Permissions module has it.
+        // `any_author` rather than the role, so an Owner who gave Authors
+        // "view everyone's" gets that and nothing more.
+        author_id: (!content.any_author()).then(|| actor.user.id.clone()),
         search: search.into(),
         status: selected.2.map(str::to_owned),
         sort: sort.into(),

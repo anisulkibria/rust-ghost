@@ -200,6 +200,12 @@ pub fn fire_member(
 /// Returns immediately: the deliveries run on their own task, so nothing on
 /// the request path waits for a third-party server.
 pub fn fire(state: &AppState, event: &'static str, payload: Value) {
+    // Every site event is also the page cache's cue: theme files, routes and
+    // redirects change pages without writing a post or a setting. Member
+    // events change no page, so they do not empty it.
+    if !event.starts_with("member.") {
+        crate::caching::content_changed(state);
+    }
     let state = state.clone();
     tokio::spawn(async move {
         let hooks = match repos::webhooks::list_for_event(&state.db, event).await {
@@ -421,7 +427,7 @@ pub fn fire_post_change(state: &AppState, current: &Value, before: Option<&Value
     }
     if change != "deleted" && status == "published" && old_status != "published" && !page {
         if let Some(config) = crate::slack::SlackConfig::from_settings(&state.settings) {
-            let title = state.settings.get_str("title").unwrap_or_else(|| "Ghost".into());
+            let title = state.settings.get_str("title").unwrap_or_else(|| ghost_core::DEFAULT_SITE_TITLE.into());
             let current = current.clone();
             tokio::spawn(async move {
                 if let Err(error) = crate::slack::notify_published(&config, &title,

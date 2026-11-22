@@ -576,10 +576,10 @@ async fn complete_setup(
     let Some(setup) = body.get("setup").and_then(|s| s.as_array()).and_then(|a| a.first()) else {
         return err(StatusCode::UNPROCESSABLE_ENTITY, "setup[0] payload required", "ValidationError");
     };
-    let name = setup.get("name").and_then(|v| v.as_str()).unwrap_or("Ghost");
+    let name = setup.get("name").and_then(|v| v.as_str()).unwrap_or(ghost_core::DEFAULT_SITE_TITLE);
     let email = setup.get("email").and_then(|v| v.as_str()).unwrap_or("ghost@example.com");
     let password = setup.get("password").and_then(|v| v.as_str()).unwrap_or("");
-    let blog_title = setup.get("blogTitle").and_then(|v| v.as_str()).unwrap_or("Ghost");
+    let blog_title = setup.get("blogTitle").and_then(|v| v.as_str()).unwrap_or(ghost_core::DEFAULT_SITE_TITLE);
     let description = setup.get("description").and_then(|v| v.as_str()).unwrap_or("");
 
     if password.len() < 10 {
@@ -1909,7 +1909,7 @@ async fn site_info(State(state): State<AppState>, Query(params): Query<HashMap<S
     let version = ghost_core::GHOST_VERSION_SAFE;
     ok_json(json!({
         "site": {
-            "title": state.settings.get_str("title").unwrap_or_else(|| "Ghost".into()),
+            "title": state.settings.get_str("title").unwrap_or_else(|| ghost_core::DEFAULT_SITE_TITLE.into()),
             "description": state.settings.get_str("description").unwrap_or_default(),
             "url": state.site_url(),
             "version": version,

@@ -14,7 +14,7 @@ use super::*;
 /// editor (and a word count that never counts) until its cache expired.
 macro_rules! koenig_version {
     () => {
-        "1.8.30"
+        "1.8.35"
     };
 }
 pub(crate) const KOENIG_VERSION: &str = koenig_version!();
@@ -68,6 +68,12 @@ pub(crate) async fn admin_asset(Path((version, file)): Path<(String, String)>) -
         "checkout-design.js" => include_str!("../assets/checkout-design.js"),
         "analytics-map.js" => include_str!("../assets/analytics-map.js"),
         "tools-editor.js" => include_str!("../assets/tools-editor.js"),
+        "tools-finder.js" => include_str!("../assets/tools-finder.js"),
+        "workflows-board.js" => include_str!("../assets/workflows-board.js"),
+        // Tools → Page Builder: the visual editor and its own stylesheet.
+        "builder-editor.js" => include_str!("../assets/builder-editor.js"),
+        "builder-editor.css" => include_str!("../assets/builder-editor.css"),
+        "social-compose.js" => include_str!("../assets/social-compose.js"),
         // Country outlines for the Locations choropleth: Natural Earth
         // v5.1.2 (public domain), projected and simplified to the size this
         // map is drawn at. Big enough to be worth fetching once — which the

@@ -61,6 +61,42 @@ mod navigation;
 use navigation::*;
 mod roles;
 use roles::*;
+// Tools → Search and Filtering: how the public site's search works. Not the
+// staff palette, which is `search` and answers at `/omnisearch/`.
+pub mod site_search;
+// Tools → Advertising & Ad Management. The public half is `ghost_api::ads`;
+// the rules are `ghost_core::ads`.
+pub mod ads;
+// Tools → Workflow & Editorial Management. Rules in `ghost_core::workflows`.
+pub mod workflows;
+// Tools → Social → Social media: accounts on other platforms, shares to them,
+// share buttons. The other half of Social is `social` (the fediverse).
+pub mod social_media;
+// Tools → Caching & Performance. Runtime half `ghost_api::caching`.
+pub mod caching;
+// Tools → Directory & Classified Listings. The public directory is
+// `ghost_front::directory`; the rules are `ghost_core::directory`.
+pub mod directories;
+// Tools → Page Builder & Visual Editor. Rules and renderer in
+// `ghost_core::builder`; the public swap in `ghost_front::routes`.
+pub mod builder;
+// What is inside each tool, for the Tools hub's search box and the palette.
+mod tool_finder;
+// Cookie consent & privacy compliance: the overview, the cookie declaration,
+// the consent log and Settings → Cookies. The visitor-facing half is
+// `ghost_api::cookies`; the rules are `ghost_core::cookies`.
+pub mod cookies;
+// Permissions: the Owner's role × resource matrix, the middleware that
+// enforces it, and the catalogue of what can be granted. See `permissions.rs`
+// for why enforcement is one layer rather than 147 edited handlers.
+pub mod permissions;
+// Popups & lead generation: the admin screens. The visitor-facing half is
+// `ghost_api::popups`; the rules are `ghost_core::popups`.
+pub mod popups;
+// The admin-wide search behind the rail's box. Its own module because it
+// reads from every other one — see `search.rs` for what it indexes and who
+// is allowed to see each part.
+mod search;
 mod saving;
 use saving::*;
 mod settings;
@@ -151,7 +187,7 @@ async fn with_security_headers(
 }
 
 fn admin_site_name() -> String {
-    ADMIN_SETTINGS.try_with(|settings| settings.site_name()).unwrap_or_else(|_| "Ghost".into())
+    ADMIN_SETTINGS.try_with(|settings| settings.site_name()).unwrap_or_else(|_| ghost_core::DEFAULT_SITE_TITLE.into())
 }
 
 /// The platform's own mark: the italic `v` on a tile with a north-east arrow,
@@ -208,9 +244,67 @@ pub fn admin_ui_router(state: AppState) -> Router<AppState> {
         // The admin home: where `/ghost/` and every sign-in land. Open to
         // every signed-in role, with its sections gated inside.
         .route("/dashboard/", get(dashboard::dashboard_page))
+        // The rail's search box. Returns an HTML fragment for the modal, open
+        // to every signed-in role with each source gated inside.
+        .route("/omnisearch/", get(search::search_results))
+        // Permissions: Owner only. Not catalogued as a grantable resource —
+        // the screen that decides access cannot be one of the things access
+        // is decided about.
+        .route(
+            "/permissions/",
+            get(permissions::permissions_page).post(permissions::permissions_save),
+        )
         .route("/analytics/", get(analytics_page))
         .route("/analytics/click/", get(click::page).post(click::action))
-        .route("/modules/", get(modules_page))
+        .route("/modules/", get(modules::modules_page))
+        // Tools → Directory & Classified Listings. Literals before `{id}`.
+        // Tools → Page Builder & Visual Editor. Literals before `{id}`.
+        .route("/builder/", get(builder::builder_page))
+        .route("/builder/new/", post(builder::builder_new))
+        .route("/builder/open/", get(builder::builder_open))
+        .route("/builder/theme/", get(builder::theme_page))
+        .route("/builder/templates/", get(builder::templates_page))
+        .route("/builder/templates/new/", post(builder::template_new))
+        .route("/builder/templates/{id}/edit/", get(builder::template_editor))
+        .route("/builder/templates/{id}/save/", post(builder::template_save))
+        .route("/builder/templates/{id}/render/", post(builder::template_render))
+        .route("/builder/templates/{id}/active/", post(builder::template_active))
+        .route("/builder/templates/{id}/rename/", post(builder::template_rename))
+        .route("/builder/templates/{id}/delete/", post(builder::template_delete))
+        .route("/builder/settings/", get(builder::settings_page).post(builder::settings_save))
+        .route("/builder/{id}/active/", post(builder::builder_active))
+        .route("/builder/{id}/delete/", post(builder::builder_delete))
+        .route("/directories/", get(directories::directories_page))
+        .route("/directories/export.csv", get(directories::export_csv))
+        .route("/directories/listings/", get(directories::listings_page))
+        .route("/directories/listings/new/", get(directories::listing_new).post(directories::listing_create))
+        .route("/directories/listings/{id}/", get(directories::listing_edit).post(directories::listing_save))
+        .route("/directories/listings/{id}/status/", post(directories::listing_status))
+        .route("/directories/listings/{id}/delete/", post(directories::listing_delete))
+        .route("/directories/categories/", get(directories::categories_page).post(directories::category_create))
+        .route("/directories/categories/{id}/", post(directories::category_save))
+        .route("/directories/categories/{id}/delete/", post(directories::category_delete))
+        .route("/directories/settings/", get(directories::dir_settings_page).post(directories::dir_settings_save))
+        // Tools → Caching & Performance.
+        .route("/caching/", get(caching::caching_page))
+        .route("/caching/purge/", post(caching::purge_all))
+        .route("/caching/stats/reset/", post(caching::reset_stats))
+        .route("/caching/pages/", get(caching::pages_page))
+        .route("/caching/pages/purge/", post(caching::purge_page))
+        .route("/caching/settings/", get(caching::cp_settings_page).post(caching::cp_settings_save))
+        .route("/caching/cdn/disconnect/", post(caching::cdn_disconnect))
+        // Social → Social media. Literals before `{id}`.
+        .route("/social/media/", get(social_media::accounts_page))
+        .route("/social/media/accounts/", post(social_media::account_create))
+        .route("/social/media/compose/", get(social_media::compose_page).post(social_media::compose_send))
+        .route("/social/media/history/", get(social_media::history_page))
+        .route("/social/media/settings/", get(social_media::sm_settings_page).post(social_media::sm_settings_save))
+        .route("/social/media/accounts/{id}/", get(social_media::account_page).post(social_media::account_save))
+        .route("/social/media/accounts/{id}/test/", post(social_media::account_test))
+        .route("/social/media/accounts/{id}/auto/", post(social_media::account_auto))
+        .route("/social/media/accounts/{id}/delete/", post(social_media::account_delete))
+        .route("/social/media/shares/{id}/retry/", post(social_media::share_retry))
+        .route("/social/media/shares/{id}/cancel/", post(social_media::share_cancel))
         .route("/social/", get(social_page))
         .route("/social/thread/", get(social_thread_page))
         .route("/social/account/", get(social_account_page))
@@ -307,6 +401,10 @@ pub fn admin_ui_router(state: AppState) -> Router<AppState> {
             post(media::upload).layer(axum::extract::DefaultBodyLimit::max(MAX_MEDIA_BYTES)),
         )
         .route("/media/delete/", post(media::bulk_delete))
+        // Image optimisation: the library run, and Settings → Images, which
+        // the Media module owns.
+        .route("/media/optimize/", post(media::images::optimize_library))
+        .route("/settings/images/", get(media::images::images_settings_page).post(media::images::images_settings_save))
         .route("/media/item/", get(media::item_page))
         .route("/media/item/save/", post(media::item_save))
         .route("/media/item/rename/", post(media::item_rename))
@@ -315,6 +413,8 @@ pub fn admin_ui_router(state: AppState) -> Router<AppState> {
             post(media::item_replace).layer(axum::extract::DefaultBodyLimit::max(MAX_MEDIA_BYTES)),
         )
         .route("/media/item/delete/", post(media::item_delete))
+        // An image's private original, which the public site never serves.
+        .route("/media/item/original/", get(media::images::original_page))
         // Automations. `new` is a static segment and must precede `{id}`.
         .route("/automations/", get(automations::automations_page))
         .route("/automations/new/", post(automations::automation_create))
@@ -332,6 +432,14 @@ pub fn admin_ui_router(state: AppState) -> Router<AppState> {
         .route("/posts/bulk/", post(posts_bulk))
         .route("/posts/{id}/", get(editor_page).post(editor_save))
         .route("/posts/{id}/preview/", post(preview::render))
+        // The visual editor: under /posts/ so the right to edit the post is
+        // what opens it, not a grant on the Page Builder tool.
+        .route("/posts/{id}/builder/", get(builder::editor_page))
+        .route("/posts/{id}/builder/save/", post(builder::editor_save))
+        .route("/posts/{id}/builder/render/", post(builder::editor_render))
+        .route("/posts/{id}/builder/revisions/", get(builder::editor_revisions))
+        .route("/posts/{id}/builder/revisions/{rid}/", get(builder::editor_revision))
+        .route("/posts/{id}/builder/templates/", post(builder::editor_template_save))
         .route("/posts/{id}/preview/test/", post(preview::send_test))
         .route("/posts/{id}/delete/", post(post_delete))
         .route("/posts/{id}/analytics/", get(post_analytics_page))
@@ -377,6 +485,59 @@ pub fn admin_ui_router(state: AppState) -> Router<AppState> {
         // Tools: the site-building screens, each at a top-level URL. Their
         // old homes (mostly under Settings) redirect, so bookmarks still land.
         .route("/tools/", get(tools_page))
+        // Popups & lead generation. Static segments before `{id}`, so
+        // `/popups/new/` and `/popups/leads/` are never read as an id.
+        .route("/settings/popups/", get(popups::popups_settings_page).post(popups::popups_settings_save))
+        .route("/popups/", get(popups::popups_page))
+        .route("/popups/new/", get(popups::popup_new_page).post(popups::popup_create))
+        .route("/popups/leads/", get(popups::leads_page))
+        .route("/popups/leads.csv", get(popups::leads_csv))
+        .route("/popups/{id}/", get(popups::popup_edit_page).post(popups::popup_save))
+        .route("/popups/{id}/delete/", post(popups::popup_delete))
+        .route("/popups/{id}/leads/", get(popups::popup_leads_page))
+        .route("/popups/{id}/leads.csv", get(popups::popup_leads_csv))
+        // Tools → Workflow & Editorial Management. Literals before `{id}`.
+        .route("/workflows/", get(workflows::board_page))
+        .route("/workflows/calendar/", get(workflows::calendar_page))
+        .route("/workflows/ideas/", post(workflows::create_idea))
+        .route("/workflows/settings/", get(workflows::wf_settings_page).post(workflows::wf_settings_save))
+        .route("/workflows/items/{id}/", get(workflows::wf_item_page).post(workflows::wf_item_save))
+        .route("/workflows/items/{id}/move/", post(workflows::move_item))
+        .route("/workflows/items/{id}/check/", post(workflows::wf_item_check))
+        .route("/workflows/items/{id}/notes/", post(workflows::wf_note_add))
+        .route("/workflows/items/{id}/notes/{note}/delete/", post(workflows::wf_note_delete))
+        // Tools → Advertising & Ad Management. Every literal segment is
+        // routed before `{id}`, so `/ads/new/` is never read as an ad id.
+        .route("/ads/", get(ads::ads_page))
+        .route("/ads/list/", get(ads::list_page))
+        .route("/ads/new/", get(ads::new_page).post(ads::create))
+        .route("/ads/report.csv", get(ads::report_csv))
+        .route("/ads/settings/", get(ads::ads_settings_page).post(ads::ads_settings_save))
+        .route("/ads/settings/switch/", post(ads::ads_settings_switch))
+        .route("/ads/advertisers/", get(ads::advertisers_page).post(ads::advertiser_create))
+        .route("/ads/advertisers/{id}/", get(ads::advertiser_page).post(ads::advertiser_save))
+        .route("/ads/advertisers/{id}/delete/", post(ads::advertiser_delete))
+        .route("/ads/advertisers/{id}/report.csv", get(ads::advertiser_csv))
+        .route("/ads/{id}/", get(ads::edit_page).post(ads::save))
+        .route("/ads/{id}/duplicate/", post(ads::duplicate))
+        .route("/ads/{id}/delete/", post(ads::delete))
+        // Tools → Search and Filtering (the public site's search).
+        .route("/search/", get(site_search::search_page).post(site_search::search_save))
+        .route("/search/try/", get(site_search::try_page))
+        .route("/search/insights/", get(site_search::insights_page))
+        .route("/search/insights/clear/", post(site_search::insights_clear))
+        // Cookie consent & privacy compliance. All static segments; the one
+        // `{id}` route is below the literals it could otherwise swallow.
+        .route("/settings/cookies/", get(cookies::cookies_settings_page).post(cookies::cookies_settings_save))
+        .route("/cookies/", get(cookies::cookies_page))
+        .route("/cookies/switch/", post(cookies::cookies_switch))
+        .route("/cookies/renew/", post(cookies::cookies_renew))
+        .route("/cookies/declarations/", get(cookies::declarations_page).post(cookies::declaration_create))
+        .route("/cookies/declarations/import/", post(cookies::declaration_import))
+        .route("/cookies/declarations/{id}/delete/", post(cookies::declaration_delete))
+        .route("/cookies/log/", get(cookies::log_page))
+        .route("/cookies/log.csv", get(cookies::log_csv))
+        .route("/cookies/log/purge/", post(cookies::log_purge))
         .route("/customizations/", get(design_page).post(design_save))
         .route("/customizations/preview/", post(design_preview))
         .route("/customizations/reset/", post(design_reset))
@@ -408,22 +569,24 @@ pub fn admin_ui_router(state: AppState) -> Router<AppState> {
         .route("/settings/social/", get(|| async { Redirect::to("/ghost/settings/general/") }))
         .route("/settings/analytics/", get(analytics_settings_page).post(analytics_settings_save))
         .route("/settings/features/", get(features_page).post(features_save))
-        .route("/settings/membership/", get(membership_page).post(membership_save))
+        .route("/settings/membership/", get(|| async { Redirect::permanent("/ghost/settings/memberships/") }))
+        .route("/settings/memberships/", get(membership_page).post(membership_save))
         .route("/settings/machine-payments/", get(|| async { Redirect::permanent("/ghost/machine-payments/") }))
-        .route("/settings/membership/stripe/connect/", post(stripe_connect))
-        .route("/settings/membership/stripe/oauth/start/", post(stripe_oauth_start))
-        .route("/settings/membership/stripe/oauth/finish/", post(stripe_oauth_finish))
-        .route("/settings/membership/stripe/disconnect/", post(stripe_disconnect))
-        .route("/settings/membership/stripe/webhook/", post(stripe_set_webhook_secret))
-        .route("/settings/membership/stripe/webhook/deactivate/", post(stripe_deactivate_webhook))
-        .route("/settings/membership/tiers/{id}/", get(tier_edit_page).post(tier_edit_save))
-        .route("/settings/membership/tiers/new/", post(tier_create))
-        .route("/settings/membership/fields/new/", post(metafield_new))
-        .route("/settings/membership/fields/{id}/", post(metafield_save))
-        .route("/settings/membership/fields/{id}/delete/", post(metafield_delete))
-        .route("/settings/membership/fields/{id}/move/", post(metafield_move))
-        .route("/settings/email/", get(email_page).post(email_save))
-        .route("/settings/email/test/", post(email_test))
+        .route("/settings/memberships/stripe/connect/", post(stripe_connect))
+        .route("/settings/memberships/stripe/oauth/start/", post(stripe_oauth_start))
+        .route("/settings/memberships/stripe/oauth/finish/", post(stripe_oauth_finish))
+        .route("/settings/memberships/stripe/disconnect/", post(stripe_disconnect))
+        .route("/settings/memberships/stripe/webhook/", post(stripe_set_webhook_secret))
+        .route("/settings/memberships/stripe/webhook/deactivate/", post(stripe_deactivate_webhook))
+        .route("/settings/memberships/tiers/{id}/", get(tier_edit_page).post(tier_edit_save))
+        .route("/settings/memberships/tiers/new/", post(tier_create))
+        .route("/settings/memberships/fields/new/", post(metafield_new))
+        .route("/settings/memberships/fields/{id}/", post(metafield_save))
+        .route("/settings/memberships/fields/{id}/delete/", post(metafield_delete))
+        .route("/settings/memberships/fields/{id}/move/", post(metafield_move))
+        .route("/settings/email/", get(|| async { Redirect::permanent("/ghost/settings/emails/") }))
+        .route("/settings/emails/", get(email_page).post(email_save))
+        .route("/settings/emails/test/", post(email_test))
         .route("/settings/newsletters/", get(newsletters_settings_page).post(newsletters_settings_save))
         // The static segment is matched ahead of `{id}`, the same way the
         // tier routes above rely on.
@@ -432,14 +595,16 @@ pub fn admin_ui_router(state: AppState) -> Router<AppState> {
         .route("/settings/newsletters/{id}/preview/", get(newsletter_preview))
         // the page was called "Bulk email" before it took Ghost's name
         .route("/settings/bulkemail/", get(|| async { Redirect::permanent("/ghost/settings/newsletters/") }))
-        .route("/settings/growth/", get(growth_page).post(growth_save))
-        .route("/settings/growth/explore/", post(growth_explore_save))
-        .route("/settings/growth/recommendations/new/", post(recommendation_new))
-        .route("/settings/growth/recommendations/{id}/", post(recommendation_save))
-        .route("/settings/growth/recommendations/{id}/delete/", post(recommendation_delete))
-        .route("/settings/growth/offers/new/", post(offer_new))
-        .route("/settings/growth/offers/{id}/", get(offer_edit_page).post(offer_save))
-        .route("/settings/growth/offers/{id}/status/", post(offer_set_status))
+        // Growth used to be a settings group; it is a Tool now.
+        .route("/settings/growth/", get(|| async { Redirect::permanent("/ghost/growth/") }))
+        .route("/growth/", get(growth_page).post(growth_save))
+        .route("/growth/explore/", post(growth_explore_save))
+        .route("/growth/recommendations/new/", post(recommendation_new))
+        .route("/growth/recommendations/{id}/", post(recommendation_save))
+        .route("/growth/recommendations/{id}/delete/", post(recommendation_delete))
+        .route("/growth/offers/new/", post(offer_new))
+        .route("/growth/offers/{id}/", get(offer_edit_page).post(offer_save))
+        .route("/growth/offers/{id}/status/", post(offer_set_status))
         .route("/history/", get(history_page))
         .route("/settings/history/", get(|| async { Redirect::permanent("/ghost/history/") }))
         .route("/settings/danger/", get(danger_page))
@@ -462,18 +627,20 @@ pub fn admin_ui_router(state: AppState) -> Router<AppState> {
             "/settings/migration/import/",
             post(migration_import).layer(axum::extract::DefaultBodyLimit::max(MAX_UPLOAD_BYTES)),
         )
-        .route("/settings/backups/", get(backups_page))
-        .route("/settings/backups/schedule/", post(backups_schedule_save))
-        .route("/settings/backups/create/", post(backups_create))
-        .route("/settings/backups/restore/", post(backups_restore))
-        .route("/settings/backups/delete/", post(backups_delete))
-        .route("/settings/backups/download/{name}", get(backups_download))
+        // Backups used to be a settings group; it is a Tool now.
+        .route("/settings/backups/", get(|| async { Redirect::permanent("/ghost/backups/") }))
+        .route("/backups/", get(backups_page))
+        .route("/backups/schedule/", post(backups_schedule_save))
+        .route("/backups/create/", post(backups_create))
+        .route("/backups/restore/", post(backups_restore))
+        .route("/backups/delete/", post(backups_delete))
+        .route("/backups/download/{name}", get(backups_download))
         // a backup carries every image and theme, so it is allowed to be big
-        .route("/settings/backups/upload/", post(backups_upload).layer(axum::extract::DefaultBodyLimit::max(MAX_BACKUP_BYTES)))
-        .route("/settings/backups/export/", get(migration_export_all))
-        .route("/settings/backups/export/content/", get(migration_export_content))
-        .route("/settings/backups/export/analytics/", get(migration_export_analytics))
-        .route("/settings/backups/export/themes/", get(migration_export_themes))
+        .route("/backups/upload/", post(backups_upload).layer(axum::extract::DefaultBodyLimit::max(MAX_BACKUP_BYTES)))
+        .route("/backups/export/", get(migration_export_all))
+        .route("/backups/export/content/", get(migration_export_content))
+        .route("/backups/export/analytics/", get(migration_export_analytics))
+        .route("/backups/export/themes/", get(migration_export_themes))
         .route("/settings/migration/export/", get(migration_export_all))
         .route("/settings/migration/export/content/", get(migration_export_content))
         .route("/settings/migration/export/analytics/", get(migration_export_analytics))
@@ -552,6 +719,11 @@ pub fn admin_ui_router(state: AppState) -> Router<AppState> {
         .layer(axum::middleware::from_fn(apply_base_path))
         .layer(axum::middleware::from_fn_with_state(state.clone(), with_security_headers))
         .layer(axum::middleware::from_fn_with_state(state.clone(), with_admin_settings))
+        // Permissions, inside the settings layer so the matrix is read from a
+        // warm `SettingsCache`, and outside every handler so a role that may
+        // not reach a screen is refused before the handler that would have
+        // trusted it runs.
+        .layer(axum::middleware::from_fn_with_state(state.clone(), permissions::enforce))
         // Outermost: an address the firewall refuses is refused before the
         // session cookie is read, so a barred address is barred whether or
         // not it holds a valid login.

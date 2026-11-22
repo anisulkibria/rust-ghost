@@ -1,5 +1,10 @@
 //! ghost-front: the public site — routing → fetch → render.
 mod analytics;
+// Tools → Page Builder: the request-time pass, Theme Builder parts and
+// maintenance mode. `pub` for the admin canvas, which expands the same way.
+pub mod builder_site;
+// The public directory (Tools → Directory & Classified Listings).
+mod directory;
 mod images;
 pub mod cards;
 pub mod comment_counts;
@@ -35,6 +40,13 @@ pub fn site_router(state: AppState) -> Router {
         // form responses; inside this router so a private site's gate covers
         // them like any page
         .merge(ghost_api::forms::public_router())
+        .merge(ghost_api::popups::public_router())
+        .merge(ghost_api::cookies::public_router())
+        .merge(ghost_api::site_search::public_router())
+        .merge(ghost_api::ads::public_router())
+        .merge(ghost_api::social_media::share_router())
+        // Tools → Directory & Classified Listings: the public directory.
+        .merge(directory::router())
         .route("/assets/{*path}", get(routes::theme_asset))
         .route("/content/images/{*path}", get(images::serve))
         .route("/content/media/{*path}", get(routes::content_media))
@@ -42,6 +54,22 @@ pub fn site_router(state: AppState) -> Router {
         // the Koenig card assets are served from the binary; everything else
         // under /public/ comes off disk
         .route("/public/cards.min.css", get(cards::cards_css))
+        // Tools → Page Builder: the layout stylesheet, linked with `?v=` a
+        // hash of its content, so it can be cached for good.
+        .route("/public/vuuut-builder.css", get(||async {(
+            [
+                (axum::http::header::CONTENT_TYPE,"text/css; charset=utf-8"),
+                (axum::http::header::CACHE_CONTROL,"public, max-age=31536000, immutable"),
+            ],
+            ghost_core::builder::CSS,
+        )}))
+        .route("/public/vuuut-builder.js", get(||async {(
+            [
+                (axum::http::header::CONTENT_TYPE,"text/javascript; charset=utf-8"),
+                (axum::http::header::CACHE_CONTROL,"public, max-age=31536000, immutable"),
+            ],
+            ghost_core::builder::RUNTIME,
+        )}))
         .route("/public/cards.min.js", get(cards::cards_js))
         .route("/public/staff-toolbar.js", get(||async {([(axum::http::header::CONTENT_TYPE,"text/javascript; charset=utf-8")],include_str!("staff_toolbar.js"))}))
         .route("/public/comment-counts.min.js", get(comment_counts::comment_counts_js))
@@ -53,6 +81,30 @@ pub fn site_router(state: AppState) -> Router {
                 (axum::http::header::CACHE_CONTROL,"public, max-age=31536000, immutable"),
             ],
             ghost_render::language_switcher::SCRIPT,
+        )}))
+        // Portal and Search in the admin's design, and the script that puts
+        // the stylesheets into their iframes. Versioned by content hash in
+        // their URLs, so they can be cached for good.
+        .route("/public/vuuut-system.js", get(||async {(
+            [
+                (axum::http::header::CONTENT_TYPE,"text/javascript; charset=utf-8"),
+                (axum::http::header::CACHE_CONTROL,"public, max-age=31536000, immutable"),
+            ],
+            ghost_render::system_skin::SCRIPT,
+        )}))
+        .route("/public/vuuut-portal.css", get(||async {(
+            [
+                (axum::http::header::CONTENT_TYPE,"text/css; charset=utf-8"),
+                (axum::http::header::CACHE_CONTROL,"public, max-age=31536000, immutable"),
+            ],
+            ghost_render::system_skin::PORTAL_CSS,
+        )}))
+        .route("/public/vuuut-search.css", get(||async {(
+            [
+                (axum::http::header::CONTENT_TYPE,"text/css; charset=utf-8"),
+                (axum::http::header::CACHE_CONTROL,"public, max-age=31536000, immutable"),
+            ],
+            ghost_render::system_skin::SEARCH_CSS,
         )}))
         .route("/public/{*path}", get(routes::public_file))
         .route("/favicon.ico", get(routes::favicon))
@@ -68,6 +120,26 @@ pub fn site_router(state: AppState) -> Router {
         .route("/private", get(private::private_page).post(private::private_login))
         .route("/", get(routes::entrypoint))
         .route("/{*path}", get(routes::entrypoint))
+        // Tools → Caching & Performance: answer anonymous page views from
+        // memory. Inside the analytics counter, so a cached view still
+        // counts, and inside the private gate, so a private site is never
+        // served from it.
+        // Tools → Page Builder: the Theme Builder's header, footer and
+        // popups. Inside the page cache, so a cached page carries them.
+        .layer(axum::middleware::from_fn_with_state(
+            state.clone(),
+            builder_site::site_parts,
+        ))
+        .layer(axum::middleware::from_fn_with_state(
+            state.clone(),
+            ghost_api::caching::page_cache,
+        ))
+        // Coming soon / maintenance: outside the cache, so a cached page is
+        // never served while the site is closed.
+        .layer(axum::middleware::from_fn_with_state(
+            state.clone(),
+            builder_site::maintenance,
+        ))
         .layer(axum::middleware::from_fn_with_state(
             state.clone(),
             analytics::track_views,
@@ -95,6 +167,19 @@ pub fn site_router(state: AppState) -> Router {
             state.clone(),
             ghost_api::firewall::public_guard,
         ))
+        // gzip, switched from Tools → Caching & Performance without a
+        // restart: the predicate reads the flag the page-cache middleware
+        // refreshes from settings on every request.
+        .layer(
+            tower_http::compression::CompressionLayer::new().gzip(true).compress_when(
+                tower_http::compression::Predicate::and(tower_http::compression::DefaultPredicate::new(),
+                    |_: axum::http::StatusCode,
+                     _: axum::http::Version,
+                     _: &axum::http::HeaderMap,
+                     _: &axum::http::Extensions| ghost_api::caching::gzip_enabled(),
+                ),
+            ),
+        )
         .with_state(state)
 }
 

@@ -90,7 +90,7 @@ pub(crate) async fn setup_page(State(state): State<AppState>) -> Response {
     if repos::users::is_setup(&state.db).await.unwrap_or(false) {
         return Redirect::to("/ghost/signin/").into_response();
     }
-    let title = state.settings.get_str("title").unwrap_or_else(|| "Ghost".into());
+    let title = state.settings.get_str("title").unwrap_or_else(|| ghost_core::DEFAULT_SITE_TITLE.into());
     // The site's own minimum, so a site that has raised it on the Security
     // screen does not have a setup form still promising ten.
     let min_len = ghost_api::security_settings::min_password_length(&state);
@@ -218,7 +218,7 @@ pub(crate) async fn login_page(State(state): State<AppState>, headers: HeaderMap
 </div></div>
 <script src="{assets}/auth.js?v={auth_hash}" defer></script>"#,
             logo = BRAND_GLYPH,
-            title = esc(&state.settings.get_str("title").unwrap_or_else(|| "Ghost".into())),
+            title = esc(&state.settings.get_str("title").unwrap_or_else(|| ghost_core::DEFAULT_SITE_TITLE.into())),
             err = err,
             password = password_field("Password", "current-password", None),
             assets = ASSETS,
@@ -320,7 +320,7 @@ pub(crate) async fn issue_signin_code(state: &AppState, sid: &str, user: &ghost_
         return false;
     }
 
-    let title = state.settings.get_str("title").unwrap_or_else(|| "Ghost".into());
+    let title = state.settings.get_str("title").unwrap_or_else(|| ghost_core::DEFAULT_SITE_TITLE.into());
     let site_url = state.site_url();
     let cfg = ghost_mail::MailConfig::from_settings(&state.settings, &title, &site_url);
     let msg = ghost_mail::Message {

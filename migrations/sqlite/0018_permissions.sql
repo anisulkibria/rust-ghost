@@ -1,0 +1,32 @@
+-- ============================================================================
+-- 0018_permissions.sql — what each staff role is allowed to reach
+-- ============================================================================
+--
+-- The Permissions module (Owner only, /ghost/permissions/) stores the whole
+-- role × resource matrix in this single `settings` row as a JSON object:
+--
+--   {"administrator": {"modules": {"*": "edit"}, …}, "editor": {…}, …}
+--
+-- One row rather than a table, for the same reason SEO has no table: there is
+-- nothing here to query, join or index. It is read whole on every request
+-- that needs it — out of the in-memory `SettingsCache`, not the database —
+-- and written whole by one screen. A `role_permissions` table would be three
+-- joins to answer "may this person open this page", recomputed per request.
+--
+-- The value ships EMPTY, and that is deliberate. An empty object means "no
+-- role has been given anything unusual", and every role falls back to
+-- ghost_core::permissions::defaults(), which reproduces exactly what the
+-- admin did before this module existed: Administrators reach everything,
+-- Editors manage all content and tags but no modules, tools or settings,
+-- Authors their own entries, Contributors their own drafts. Installing this
+-- module changes nothing until the Owner changes something.
+--
+-- The row has to exist before it can be written: `SettingsCache::set` only
+-- ever UPDATEs and answers "unknown setting" when no row is there, which
+-- presents as a Save button that always fails.
+--
+-- The Owner is deliberately absent from the stored object. Every check
+-- short-circuits to full access for them, so the one person who can repair a
+-- mistake on that screen cannot be locked out of it by one.
+INSERT OR IGNORE INTO settings (id,`group`,key,value,type,created_at,updated_at) VALUES
+(lower(hex(randomblob(12))),'permissions','permissions','{}','object',datetime('now'),datetime('now'));

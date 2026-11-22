@@ -42,20 +42,21 @@ impl Role {
         self >= Role::Administrator
     }
 
-    /// Tags are `tag = all` for Editor and above; Authors may only add tags
-    /// while writing, Contributors not at all.
-    pub(crate) fn can_manage_tags(self) -> bool {
-        self >= Role::Editor
-    }
-
     /// Editors may edit, publish and delete anyone's posts; Authors and
     /// Contributors only their own.
+    ///
+    /// This is the **default** now rather than the rule: the Permissions
+    /// module can move the line per role, and the screens that own content
+    /// ask `crate::permissions::content_for` instead. It survives because
+    /// `may_edit_post` is called from places that have no `&AppState` to read
+    /// the matrix with, and because it is what
+    /// `ghost_core::permissions::defaults` reproduces.
     pub(crate) fn can_edit_any_post(self) -> bool {
         self >= Role::Editor
     }
 
     /// Contributors write drafts and nothing else — publishing is the line
-    /// Ghost draws for them.
+    /// Ghost draws for them. Also a default now; see above.
     pub(crate) fn can_publish(self) -> bool {
         self >= Role::Author
     }
@@ -127,6 +128,18 @@ pub(crate) fn accepts_html(headers: &HeaderMap) -> bool {
 pub(crate) async fn require_role(state: &AppState, headers: &HeaderMap, needed: Role) -> Result<Actor, Response> {
     let actor = require_actor(state, headers).await?;
     if actor.role >= needed {
+        return Ok(actor);
+    }
+    // The Permissions module may have given this role this exact screen.
+    //
+    // This is only ever reached for a request the permissions middleware has
+    // already cleared against the matrix — it sets the flag for the life of
+    // the request, and only after checking that the viewer's grant covers
+    // both the resource and the method. A request it refused never reaches a
+    // handler at all, and a request whose path it does not catalogue leaves
+    // the flag false, so every uncatalogued screen keeps exactly the role
+    // check it had. See `crate::permissions`.
+    if crate::permissions::request_is_granted() {
         return Ok(actor);
     }
     if !accepts_html(headers) {

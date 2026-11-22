@@ -194,13 +194,13 @@ code by email and has five minutes to enter it. Sessions already signed in stay 
     };
 
     page_for(
-        "Staff",
+        "Staffs",
         "tools",
         Some(&user),
         actor_role,
         &format!(
             r#"<header class="page-head rise"><a class="icon-btn" style="transform:rotate(180deg)" href="/ghost/tools/" title="Back to tools">{back}</a>
-<div><h1>Staff</h1><p class="sub">{count} {word}</p></div></header>
+<div><h1>Staffs</h1><p class="sub">{count} {word}</p></div></header>
 {banner}
 <div class="section">Active people</div>
 <div class="card rows rise" style="--i:1">{rows}</div>
@@ -234,7 +234,7 @@ pub(crate) async fn send_invite_email(
     inviter: &ghost_core::models::User,
 ) -> (String, Option<String>) {
     let site_url = state.site_url();
-    let title = state.settings.get_str("title").unwrap_or_else(|| "Ghost".into());
+    let title = state.settings.get_str("title").unwrap_or_else(|| ghost_core::DEFAULT_SITE_TITLE.into());
     let link = format!("{site_url}/ghost/invite/{}/", invite.token);
     let cfg = ghost_mail::MailConfig::from_settings(&state.settings, &title, &site_url);
     let (subject, html, text) = ghost_mail::templates::staff_invite(
@@ -517,7 +517,7 @@ pub(crate) async fn staff_delete(State(state): State<AppState>, headers: HeaderM
 
 pub(crate) async fn invite_accept_page(State(state): State<AppState>, Path(token): Path<String>) -> Response {
     let invite = repos::staff::find_invite_by_token(&state.db, &token).await.ok().flatten();
-    let title = state.settings.get_str("title").unwrap_or_else(|| "Ghost".into());
+    let title = state.settings.get_str("title").unwrap_or_else(|| ghost_core::DEFAULT_SITE_TITLE.into());
     let min_len = ghost_api::security_settings::min_password_length(&state);
     let body = match &invite {
         Some(i) if !i.is_expired() => format!(

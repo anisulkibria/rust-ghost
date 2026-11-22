@@ -81,7 +81,7 @@ pub(crate) async fn slack_page(
         .settings
         .get_str("slack_username")
         .filter(|u| !u.is_empty())
-        .unwrap_or_else(|| "Ghost".into());
+        .unwrap_or_else(|| ghost_core::DEFAULT_SITE_TITLE.into());
     let configured = !url.trim().is_empty();
     let test = match configured {
         true => r#"<form method="post" action="/ghost/integrations/slack/test/" style="margin-top:14px"><button class="btn tonal" type="submit">Send test notification</button></form>"#,
@@ -145,7 +145,7 @@ pub(crate) async fn slack_test(State(state): State<AppState>, headers: HeaderMap
     let Some(cfg) = ghost_api::slack::SlackConfig::from_settings(&state.settings) else {
         return integrations_flash("slack/", "error", "Add a webhook URL first.");
     };
-    let title = state.settings.get_str("title").unwrap_or_else(|| "Ghost".into());
+    let title = state.settings.get_str("title").unwrap_or_else(|| ghost_core::DEFAULT_SITE_TITLE.into());
     match ghost_api::slack::send_test(&cfg, &title, &state.site_url()).await {
         Ok(()) => integrations_flash("slack/", "ok", "Test notification sent to Slack."),
         Err(e) => integrations_flash("slack/", "error", &e.message()),

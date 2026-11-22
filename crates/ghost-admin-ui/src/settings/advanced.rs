@@ -63,7 +63,7 @@ pub(crate) async fn migrations_page(
 A zip's <code>content/images</code> and <code>content/files</code> are restored alongside the content, so posts keep their pictures.</p>
 <p class="muted" style="margin:8px 0 0">Posts, pages and tags are added; Markdown is re-rendered on the way in. Nothing already on this
 site is replaced or removed, so importing the same file twice gives you two copies rather than one updated one.
-To put the whole site back as it was instead, restore a backup in <a href="/ghost/settings/backups/">Settings → Backups</a>.</p>
+To put the whole site back as it was instead, restore a backup in <a href="/ghost/backups/">Settings → Backups</a>.</p>
 </div>
 <div class="section">Members</div>
 <div class="card rows rise" style="--i:2">
@@ -1082,6 +1082,27 @@ pub(crate) const SITE_TABLES: &[&str] = &[
     // Responses are visitors' personal data, so deleting the site deletes
     // them; children first, so it holds whether or not the engine cascades.
     "form_submissions", "forms",
+    // Leads are the same kind of thing: addresses people handed over. The
+    // popups go with them, children first.
+    "popup_leads", "popups",
+    // The consent log is a record about visitors; the declaration goes with
+    // the site it describes.
+    "cookie_consents", "cookie_declarations",
+    // What visitors typed into the site's search box.
+    "search_queries",
+    // Ads: daily counts, then the ads, then who they were for.
+    "ad_daily", "ads", "ad_advertisers",
+    // The editorial board's records about posts, which go with the posts.
+    "workflow_events", "workflow_notes", "workflow_checks", "workflow_items",
+    // Shares, then the accounts (and their credentials) they went to.
+    "social_shares", "social_accounts",
+    // Listings (with what visitors sent), then their categories.
+    "directory_listings", "directory_categories",
+    // Page Builder: history and layouts (which go with their posts), then
+    // the saved templates.
+    "builder_revisions", "builder_layouts", "builder_templates",
+    // The CDN connection, credentials included.
+    "cdn_config",
 ];
 
 pub(crate) async fn wipe_tables(db: &ghost_db::Db, tables: &[&str]) -> usize {

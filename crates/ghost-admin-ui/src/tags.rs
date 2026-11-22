@@ -15,10 +15,17 @@ pub(crate) const TAG_FILTERS: &[(&str, &str, Option<&str>)] = &[
 ];
 
 pub(crate) async fn tags_list(State(state): State<AppState>, headers: HeaderMap, Query(q): Query<HashMap<String, String>>) -> Response {
-    let (user, actor_role) = match require_role(&state, &headers, Role::Editor).await {
-        Ok(a) => (a.user, a.role),
+    // Tags are the Permissions matrix's call now, not a fixed role: "view
+    // only" opens this screen read-only, and "no access" is refused.
+    let actor = match require_actor(&state, &headers).await {
+        Ok(a) => a,
         Err(r) => return r,
     };
+    let tag_access = crate::permissions::tags_for(&state, actor.role);
+    if !tag_access.may_read() {
+        return crate::permissions::content_refused(&actor, &headers, "Tags");
+    }
+    let (user, actor_role) = (actor.user, actor.role);
     let (mut tags, _) = repos::tags::browse(&state.db, None, None, 100, 1, false, true).await.unwrap_or_default();
     // The tabs count the whole list, then the selected one narrows it, so a
     // tab's number does not change when you click a different tab.
@@ -193,10 +200,17 @@ pub(crate) async fn tag_edit_page(
     Path(id): Path<String>,
     Query(q): Query<HashMap<String, String>>,
 ) -> Response {
-    let (user, actor_role) = match require_role(&state, &headers, Role::Editor).await {
-        Ok(a) => (a.user, a.role),
+    // Tags are the Permissions matrix's call now, not a fixed role: "view
+    // only" opens this screen read-only, and "no access" is refused.
+    let actor = match require_actor(&state, &headers).await {
+        Ok(a) => a,
         Err(r) => return r,
     };
+    let tag_access = crate::permissions::tags_for(&state, actor.role);
+    if !tag_access.may_read() {
+        return crate::permissions::content_refused(&actor, &headers, "Tags");
+    }
+    let (user, actor_role) = (actor.user, actor.role);
     let Ok(Some(tag)) = repos::tags::find_by_id(&state.db, &id).await else {
         return not_found_page(&user, "That tag could not be found.");
     };
@@ -350,8 +364,14 @@ pub(crate) async fn tag_edit_save(
     Path(id): Path<String>,
     Form(form): Form<TagEditForm>,
 ) -> Response {
-    if let Err(r) = require_role(&state, &headers, Role::Editor).await {
-        return r;
+    // Creating, editing and deleting a tag all need "create & edit"; a role
+    // the Owner left on "view only" reaches the list and none of these.
+    let actor = match require_actor(&state, &headers).await {
+        Ok(a) => a,
+        Err(r) => return r,
+    };
+    if !crate::permissions::tags_for(&state, actor.role).may_write() {
+        return crate::permissions::content_refused(&actor, &headers, "Tags");
     }
     let name = form.name.trim();
     if name.is_empty() {
@@ -409,8 +429,14 @@ pub(crate) struct TagForm {
 }
 
 pub(crate) async fn tag_create(State(state): State<AppState>, headers: HeaderMap, Form(form): Form<TagForm>) -> Response {
-    if let Err(r) = require_role(&state, &headers, Role::Editor).await {
-        return r;
+    // Creating, editing and deleting a tag all need "create & edit"; a role
+    // the Owner left on "view only" reaches the list and none of these.
+    let actor = match require_actor(&state, &headers).await {
+        Ok(a) => a,
+        Err(r) => return r,
+    };
+    if !crate::permissions::tags_for(&state, actor.role).may_write() {
+        return crate::permissions::content_refused(&actor, &headers, "Tags");
     }
     if let Ok(tag) = repos::tags::insert(
         &state.db,
@@ -427,8 +453,14 @@ pub(crate) async fn tag_create(State(state): State<AppState>, headers: HeaderMap
 }
 
 pub(crate) async fn tag_delete(State(state): State<AppState>, Path(id): Path<String>, headers: HeaderMap) -> Response {
-    if let Err(r) = require_role(&state, &headers, Role::Editor).await {
-        return r;
+    // Creating, editing and deleting a tag all need "create & edit"; a role
+    // the Owner left on "view only" reaches the list and none of these.
+    let actor = match require_actor(&state, &headers).await {
+        Ok(a) => a,
+        Err(r) => return r,
+    };
+    if !crate::permissions::tags_for(&state, actor.role).may_write() {
+        return crate::permissions::content_refused(&actor, &headers, "Tags");
     }
     // Read it first: once the row is gone there is nothing to describe, and
     // a delete webhook that carries only an id is close to useless.

@@ -314,7 +314,7 @@ pub async fn send_automation_email_with_design(
 }
 async fn send_automation_email_tracked(state:&AppState,member:&MemberSnapshotLike<'_>,subject:&str,lexical:&str,design_id:Option<&str>,revision:Option<(&str,&str)>)->Result<(),String>{
     let site_url = state.site_url();
-    let title = state.settings.get_str("title").unwrap_or_else(|| "Ghost".into());
+    let title = state.settings.get_str("title").unwrap_or_else(|| ghost_core::DEFAULT_SITE_TITLE.into());
     let timezone = state.settings.get_str("timezone").unwrap_or_else(|| "Etc/UTC".into());
 
     let newsletter = ghost_db::repos::newsletters::default_newsletter(&state.db)

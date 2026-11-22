@@ -118,7 +118,7 @@ pub async fn comments_page(
     let enabled = state.settings.get_str("comments_enabled").unwrap_or_else(|| "off".into());
     let off_notice = if enabled == "off" {
         format!(
-            r#"<div class="banner error rise" style="--i:1">{flag}Commenting is switched off, so no new comments can be posted. Existing ones are still shown here and on the site. <a href="/ghost/settings/membership/">Change this in Membership</a>.</div>"#,
+            r#"<div class="banner error rise" style="--i:1">{flag}Commenting is switched off, so no new comments can be posted. Existing ones are still shown here and on the site. <a href="/ghost/settings/memberships/">Change this in Membership</a>.</div>"#,
             flag = svg("flag"),
         )
     } else {

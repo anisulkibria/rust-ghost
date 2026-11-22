@@ -1,0 +1,173 @@
+/*
+ * Vuuut cookie consent — the banner, the choices dialog, embed placeholders
+ * and the declaration table.
+ *
+ * It has to sit on top of any theme, so every rule is under a `vc-` class,
+ * resets the few properties themes most often set on buttons and tables, and
+ * takes its one colour from the site's own accent (`--ghost-accent-color`,
+ * which `{{ghost_head}}` defines) with Vuuut pink as the fallback.
+ * Material 3 shapes and type scale; a liquid-glass surface where the browser
+ * can blur, and a solid one where it cannot.
+ */
+.vc-banner, .vc-scrim, .vc-reopen, .vc-embed, .vc-declaration {
+  --vc-accent: var(--ghost-accent-color, #FF1A75);
+  --vc-on-accent: #fff;
+  --vc-surface: rgba(255, 251, 252, .84);
+  --vc-surface-solid: #FFFBFC;
+  --vc-on-surface: #201A1C;
+  --vc-muted: #5B4F53;
+  --vc-outline: rgba(32, 26, 28, .14);
+  --vc-tonal: color-mix(in srgb, var(--vc-accent) 13%, #fff);
+  --vc-on-tonal: color-mix(in srgb, var(--vc-accent) 70%, #000);
+  --vc-edge: rgba(255, 255, 255, .7);
+  --vc-shadow: 0 1px 2px rgba(0, 0, 0, .06), 0 12px 40px -8px rgba(60, 20, 40, .28);
+  font-family: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  color: var(--vc-on-surface);
+  -webkit-font-smoothing: antialiased;
+  box-sizing: border-box;
+}
+@media (prefers-color-scheme: dark) {
+  .vc-banner, .vc-scrim, .vc-reopen, .vc-embed, .vc-declaration {
+    --vc-surface: rgba(34, 27, 30, .82);
+    --vc-surface-solid: #221B1E;
+    --vc-on-surface: #F1DEE3;
+    --vc-muted: #D5C2C7;
+    --vc-outline: rgba(255, 255, 255, .14);
+    --vc-tonal: color-mix(in srgb, var(--vc-accent) 26%, #221B1E);
+    --vc-on-tonal: color-mix(in srgb, var(--vc-accent) 35%, #fff);
+    --vc-edge: rgba(255, 255, 255, .12);
+    --vc-shadow: 0 1px 2px rgba(0, 0, 0, .3), 0 16px 48px -8px rgba(0, 0, 0, .6);
+  }
+}
+.vc-banner *, .vc-scrim *, .vc-embed *, .vc-declaration * { box-sizing: border-box; }
+
+/* ---- the banner ---- */
+.vc-banner { position: fixed; z-index: 2147483000; left: 16px; bottom: 16px;
+  max-width: 420px; opacity: 0; transform: translateY(16px);
+  transition: opacity .25s ease, transform .25s cubic-bezier(.2, 0, 0, 1); }
+.vc-banner.vc-in { opacity: 1; transform: none; }
+.vc-card { background: var(--vc-surface-solid); border-radius: 28px; padding: 22px 22px 18px;
+  box-shadow: var(--vc-shadow), inset 0 1px 0 var(--vc-edge); border: 1px solid var(--vc-outline); }
+@supports ((-webkit-backdrop-filter: blur(1px)) or (backdrop-filter: blur(1px))) {
+  .vc-card, .vc-dialog { background: var(--vc-surface);
+    -webkit-backdrop-filter: blur(24px) saturate(180%); backdrop-filter: blur(24px) saturate(180%); }
+}
+.vc-title { margin: 0 0 6px; font-size: 18px; line-height: 1.3; font-weight: 650; letter-spacing: 0;
+  color: var(--vc-on-surface); font-family: inherit; }
+.vc-message { margin: 0; font-size: 14px; line-height: 1.5; color: var(--vc-muted); }
+.vc-link { color: var(--vc-accent); text-decoration: underline; text-underline-offset: 2px; font-weight: 600; }
+.vc-actions { display: flex; flex-wrap: wrap; gap: 8px; justify-content: flex-end; margin-top: 16px; }
+
+.vc-bar { left: 12px; right: 12px; bottom: 12px; max-width: none; }
+.vc-bar .vc-card { display: flex; align-items: center; gap: 24px; padding: 16px 20px 16px 24px; }
+.vc-bar .vc-text { flex: 1; min-width: 0; }
+.vc-bar .vc-title { font-size: 16px; margin-bottom: 2px; }
+.vc-bar .vc-actions { margin-top: 0; flex-wrap: nowrap; flex-shrink: 0; }
+
+.vc-modal { inset: 0; max-width: none; display: grid; place-items: center; padding: 16px;
+  background: rgba(20, 10, 15, .38); transform: none; }
+.vc-modal .vc-card { max-width: 480px; width: 100%; padding: 28px; transform: translateY(12px) scale(.98);
+  transition: transform .25s cubic-bezier(.2, 0, 0, 1); }
+.vc-modal.vc-in .vc-card { transform: none; }
+.vc-modal .vc-title { font-size: 22px; }
+
+@media (max-width: 720px) {
+  .vc-bar .vc-card { display: block; }
+  .vc-bar .vc-actions { margin-top: 12px; flex-wrap: wrap; }
+}
+@media (max-width: 480px) {
+  .vc-banner { left: 8px; right: 8px; bottom: 8px; max-width: none; }
+  .vc-actions .vc-btn { flex: 1 1 auto; }
+}
+
+/* ---- buttons: M3 filled, tonal and text, 40px tall, full pill ---- */
+.vc-btn { all: unset; box-sizing: border-box; display: inline-flex; align-items: center; justify-content: center;
+  height: 40px; padding: 0 20px; border-radius: 999px; cursor: pointer; white-space: nowrap;
+  font: 600 14px/1 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; letter-spacing: .1px;
+  transition: background-color .15s, box-shadow .15s, transform .1s; }
+.vc-btn:focus-visible { outline: 2px solid var(--vc-accent); outline-offset: 2px; }
+.vc-btn:active { transform: scale(.98); }
+.vc-btn-filled { background: var(--vc-accent); color: var(--vc-on-accent); }
+.vc-btn-filled:hover { box-shadow: 0 1px 3px rgba(0, 0, 0, .25); filter: brightness(1.05); }
+.vc-btn-tonal { background: var(--vc-tonal); color: var(--vc-on-tonal); }
+.vc-btn-tonal:hover { background: color-mix(in srgb, var(--vc-tonal) 85%, var(--vc-accent)); }
+.vc-btn-text { color: var(--vc-accent); padding: 0 12px; }
+.vc-btn-text:hover { background: color-mix(in srgb, var(--vc-accent) 9%, transparent); }
+
+/* ---- the choices dialog ---- */
+.vc-scrim { position: fixed; inset: 0; z-index: 2147483001; display: grid; place-items: center; padding: 16px;
+  background: rgba(20, 10, 15, .42); opacity: 0; transition: opacity .2s ease; }
+.vc-scrim.vc-in { opacity: 1; }
+.vc-dialog { width: 100%; max-width: 560px; max-height: calc(100vh - 32px); overflow: auto;
+  background: var(--vc-surface-solid); border-radius: 28px; padding: 24px;
+  box-shadow: var(--vc-shadow), inset 0 1px 0 var(--vc-edge); border: 1px solid var(--vc-outline);
+  transform: translateY(12px) scale(.98); transition: transform .2s cubic-bezier(.2, 0, 0, 1); }
+.vc-scrim.vc-in .vc-dialog { transform: none; }
+.vc-dialog-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 4px; }
+.vc-dialog-head .vc-title { font-size: 22px; margin: 0; }
+.vc-close { all: unset; cursor: pointer; width: 40px; height: 40px; border-radius: 50%; display: grid;
+  place-items: center; font-size: 24px; line-height: 1; color: var(--vc-muted); }
+.vc-close:hover { background: var(--vc-outline); }
+.vc-close:focus-visible { outline: 2px solid var(--vc-accent); }
+.vc-cats { margin-top: 16px; display: grid; gap: 8px; }
+.vc-cat { border: 1px solid var(--vc-outline); border-radius: 16px; padding: 14px 16px;
+  background: color-mix(in srgb, var(--vc-surface-solid) 60%, transparent); }
+.vc-cat-top { display: flex; gap: 16px; align-items: center; cursor: pointer; }
+.vc-cat-words { flex: 1; display: grid; gap: 2px; }
+.vc-cat-label { font-weight: 650; font-size: 15px; }
+.vc-cat-desc { font-size: 13px; line-height: 1.45; color: var(--vc-muted); }
+
+/* M3 switch: 52×32 track, a thumb that grows when on. */
+.vc-switch { position: relative; flex-shrink: 0; width: 52px; height: 32px; }
+.vc-switch input { all: unset; position: absolute; inset: 0; z-index: 1; cursor: pointer; border-radius: 999px; }
+.vc-switch input:disabled { cursor: not-allowed; }
+.vc-track { position: absolute; inset: 0; border-radius: 999px; border: 2px solid var(--vc-muted);
+  background: transparent; transition: background-color .15s, border-color .15s; }
+.vc-track::after { content: ""; position: absolute; top: 50%; left: 6px; width: 16px; height: 16px;
+  border-radius: 50%; background: var(--vc-muted); transform: translateY(-50%);
+  transition: left .2s cubic-bezier(.2, 0, 0, 1), width .2s, height .2s, background-color .15s; }
+.vc-switch input:checked + .vc-track { background: var(--vc-accent); border-color: var(--vc-accent); }
+.vc-switch input:checked + .vc-track::after { left: 24px; width: 24px; height: 24px; background: var(--vc-on-accent); }
+.vc-switch input:disabled + .vc-track { opacity: .5; }
+.vc-switch input:focus-visible + .vc-track { outline: 2px solid var(--vc-accent); outline-offset: 2px; }
+
+.vc-cookies { margin-top: 10px; font-size: 13px; }
+.vc-cookies summary { cursor: pointer; color: var(--vc-accent); font-weight: 600; width: max-content; }
+.vc-id { margin: 14px 2px 0; font-size: 12px; color: var(--vc-muted); font-variant-numeric: tabular-nums;
+  word-break: break-all; }
+
+/* ---- tables: in the dialog and in a declaration placed in a post ---- */
+.vc-table { width: 100%; border-collapse: collapse; margin: 8px 0 0; font-size: 13px; line-height: 1.4; }
+.vc-table th, .vc-table td { text-align: left; vertical-align: top; padding: 8px 10px 8px 0;
+  border: 0; border-bottom: 1px solid var(--vc-outline); background: none; }
+.vc-table th { font-weight: 650; font-size: 12px; text-transform: none; color: var(--vc-muted); }
+.vc-table code { font: 12.5px/1.3 ui-monospace, SFMono-Regular, Menlo, monospace; background: none;
+  padding: 0; color: inherit; word-break: break-all; }
+.vc-declaration { color: inherit; }
+.vc-declaration h3 { margin: 1.6em 0 .3em; }
+.vc-declaration > p { margin: 0 0 .4em; color: var(--vc-muted); }
+.vc-declaration .vc-btn { margin-top: 20px; }
+
+/* ---- the reopen button ---- */
+.vc-reopen { all: unset; position: fixed; z-index: 2147482999; left: 16px; bottom: 16px; width: 44px; height: 44px;
+  border-radius: 14px 14px 14px 4px; display: grid; place-items: center; cursor: pointer;
+  background: var(--vc-surface-solid); color: var(--vc-accent);
+  box-shadow: var(--vc-shadow), inset 0 1px 0 var(--vc-edge); border: 1px solid var(--vc-outline);
+  transition: transform .15s; }
+.vc-reopen:hover { transform: translateY(-2px); }
+.vc-reopen:focus-visible { outline: 2px solid var(--vc-accent); outline-offset: 2px; }
+.vc-reopen svg { width: 22px; height: 22px; fill: currentColor; }
+@media print { .vc-banner, .vc-reopen, .vc-scrim { display: none !important; } }
+
+/* ---- an embed held back ---- */
+.vc-embed { display: grid; align-content: center; justify-items: center; gap: 6px; text-align: center;
+  width: 100%; min-height: 200px; aspect-ratio: 16 / 9; padding: 24px; border-radius: 16px; margin: 0 0 1em;
+  background: color-mix(in srgb, var(--vc-accent) 7%, var(--vc-surface-solid));
+  border: 1px solid var(--vc-outline); }
+.vc-embed-title { margin: 0; font-weight: 650; font-size: 16px; }
+.vc-embed-text { margin: 0; font-size: 14px; color: var(--vc-muted); max-width: 42ch; }
+.vc-embed-actions { display: flex; gap: 8px; margin-top: 10px; flex-wrap: wrap; justify-content: center; }
+
+@media (prefers-reduced-motion: reduce) {
+  .vc-banner, .vc-card, .vc-scrim, .vc-dialog, .vc-track::after { transition: none !important; }
+}

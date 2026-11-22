@@ -1,0 +1,80 @@
+/* Search, in the admin's design: liquid glass over Material 3.
+ *
+ * Put into Search's iframe by `vuuut-system.js`. Search styles itself with
+ * Tailwind utility classes, which are generated and not a contract, so this
+ * targets its *structure* instead: the backdrop is the body's first child,
+ * the panel is the first child of `.ghost-display`, and the search bar is
+ * the panel's first child. Class-attribute matches are used only for the two
+ * colours Search uses everywhere (`bg-white`, the gray hover).
+ *
+ * Light glass only, for the same reason as Portal: Search hard-codes dark
+ * text in places this does not reach.
+ */
+
+:root {
+  --vu-accent: #3a3a3a;
+  --vu-ink: #1f1a1d;
+  --vu-ink-2: #5f5559;
+  --vu-glass: rgba(255, 255, 255, .76);
+  --vu-stroke: rgba(255, 255, 255, .66);
+  --vu-hair: rgba(31, 26, 29, .1);
+  --vu-edge: rgba(255, 255, 255, .92);
+  --vu-blur: saturate(185%) blur(26px);
+  --vu-font: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+}
+
+body, body * { font-family: var(--vu-font) !important; }
+
+/* The page behind, blurred and tinted with the site's colour. */
+body > div:first-child {
+  background:
+    radial-gradient(1100px 720px at 12% -10%, color-mix(in srgb, var(--vu-accent) 28%, transparent), transparent 70%),
+    rgba(20, 12, 22, .28) !important;
+  backdrop-filter: blur(10px) saturate(130%) !important;
+  -webkit-backdrop-filter: blur(10px) saturate(130%) !important;
+}
+
+/* The panel. */
+.ghost-display > div {
+  background: var(--vu-glass) !important;
+  backdrop-filter: var(--vu-blur) !important;
+  -webkit-backdrop-filter: var(--vu-blur) !important;
+  border: 1px solid var(--vu-stroke) !important;
+  border-radius: 28px !important;
+  box-shadow: inset 0 1px 0 var(--vu-edge), 0 30px 70px -28px rgba(25, 10, 35, .5) !important;
+  overflow: hidden !important;
+}
+
+/* Every white surface INSIDE it becomes the glass it sits on. Descendants of
+   the panel only: the panel itself carries `bg-white` as well, and matching
+   it here made the glass fully transparent. */
+.ghost-display > div [class*="bg-white"] { background: transparent !important; }
+
+/* The search bar: one field, a hairline under it. */
+.ghost-display > div > div:first-child {
+  border-radius: 0 !important;
+  border-bottom: 1px solid var(--vu-hair) !important;
+}
+.ghost-display input {
+  background: transparent !important;
+  color: var(--vu-ink) !important;
+  caret-color: var(--vu-accent);
+}
+.ghost-display input::placeholder { color: color-mix(in srgb, var(--vu-ink-2) 70%, transparent) !important; }
+
+/* Results. */
+.ghost-display h1, .ghost-display h2, .ghost-display h3 { color: var(--vu-ink) !important; }
+.ghost-display p, .ghost-display span { color: var(--vu-ink-2); }
+.ghost-display [class*="border"] { border-color: var(--vu-hair) !important; }
+
+/* The highlighted result — keyboard or pointer — is a tint of the accent,
+   the way the admin's list rows light up. */
+.ghost-display [class*="bg-gray-100"],
+.ghost-display [class*="hover:bg-gray"]:hover,
+.ghost-display [class*="bg-neutral-100"] {
+  background: color-mix(in srgb, var(--vu-accent) 11%, transparent) !important;
+  border-radius: 14px;
+}
+.ghost-display mark,
+.ghost-display [class*="text-black"] { color: var(--vu-ink) !important; }
+.ghost-display button { color: var(--vu-accent) !important; }

@@ -535,6 +535,7 @@ fn stored_html(v: &Option<String>) -> Option<String> {
 }
 
 pub async fn insert(pool: &Db, new: &NewPost, author_id: &str) -> Result<Post> {
+    crate::content::touch();
     let id = ids::new_id();
     let now = dates::now_db();
     let now_dt = chrono::Utc::now();
@@ -764,6 +765,7 @@ async fn prune_revisions(
 }
 
 pub async fn update(pool: &Db, id: &str, changes: &PostChanges) -> Result<Post> {
+    crate::content::touch();
     let existing = find_by_id(pool, id).await?.ok_or(ghost_core::GhostError::NotFoundError { message: "not found".into(), context: None })?;
 
     let now = dates::now_db();
@@ -1010,6 +1012,7 @@ impl Delivery {
 
 /// Record what a scheduled post should do when its time comes.
 pub async fn set_delivery(pool: &Db, post_id: &str, delivery: Delivery) -> Result<()> {
+    crate::content::touch();
     sqlx::query("UPDATE posts SET email_recipient_filter = ? WHERE id = ?")
         .bind(delivery.filter())
         .bind(post_id)
@@ -1094,6 +1097,7 @@ pub async fn due_scheduled(pool: &Db, now: &str) -> Result<Vec<DuePost>> {
 }
 
 pub async fn destroy(pool: &Db, id: &str) -> Result<()> {
+    crate::content::touch();
     let res = sqlx::query("DELETE FROM posts WHERE id = ?").bind(id).execute(pool).await.map_err(dberr)?;
     if res.rows_affected() == 0 {
         return Err(ghost_core::GhostError::NotFoundError { message: "not found".into(), context: None });

@@ -1,0 +1,18 @@
+-- ============================================================================
+-- 0020_popup_surface.sql — which KIND of page a popup belongs on
+-- ============================================================================
+--
+-- 0019 could target paths and nothing else, which cannot express "every
+-- post": Ghost's default permalink puts a post at `/slug/`, at the root and
+-- beside the static pages, so there is no prefix that means "posts". This
+-- column is the other half of the question — `any`, `posts`, `pages`,
+-- `home` or `archives` — and it is ANDed with the path rules rather than
+-- replacing them.
+--
+-- A separate migration rather than an edit to 0019 because 0019 has been
+-- applied: sqlx checksums a migration, and changing one that has run makes
+-- every later startup fail.
+--
+-- The default is `any`, so every popup created before this column existed
+-- behaves exactly as it did.
+ALTER TABLE popups ADD COLUMN surface TEXT NOT NULL DEFAULT 'any';

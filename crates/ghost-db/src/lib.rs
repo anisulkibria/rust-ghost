@@ -4,6 +4,8 @@ pub mod pool;
 pub mod schema_kinds;
 pub mod seed;
 pub mod settings_cache;
+/// The content generation the page cache keys on — see `content`.
+pub mod content;
 pub mod repos;
 pub mod limits;
 pub mod mail_usage;

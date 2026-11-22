@@ -301,6 +301,24 @@ pub fn prepare_html(html: &str) -> Result<String> {
 
 /// Ghost's `sanitize-html` configuration for comments.
 pub fn sanitize_html(html: &str) -> String {
+    sanitize_with(html, ALLOWED_TAGS, false)
+}
+
+/// The tags the page builder's Text widget may keep: inline emphasis, links,
+/// lists and quotes. No attributes survive except a link's `href`.
+const RICH_TAGS: &[&str] = &[
+    "p", "br", "a", "blockquote", "b", "strong", "i", "em", "u", "s", "ul", "ol", "li", "h3", "h4", "code", "mark", "sub", "sup",
+];
+
+/// The same sanitizer with the page builder's wider tag list
+/// ([`RICH_TAGS`]). Links keep their `href` (allowed schemes only) and open in
+/// place unless they were written with `target="_blank"`; staff wrote them, so
+/// they are not marked `ugc`/`nofollow` the way a reader's comment is.
+pub fn sanitize_rich_html(html: &str) -> String {
+    sanitize_with(html, RICH_TAGS, true)
+}
+
+fn sanitize_with(html: &str, allowed: &[&str], rich: bool) -> String {
     let mut out = String::with_capacity(html.len());
     // tags whose contents are being discarded, innermost last
     let mut suppress: Vec<String> = Vec::new();
@@ -330,11 +348,11 @@ pub fn sanitize_html(html: &str) -> String {
                     }
                     continue;
                 }
-                if !ALLOWED_TAGS.contains(&name.as_str()) {
+                if !allowed.contains(&name.as_str()) {
                     // unwrapped: the tag goes, the contents stay
                     continue;
                 }
-                out.push_str(&open_tag(&name, attrs));
+                out.push_str(&if rich { rich_open_tag(&name, attrs) } else { open_tag(&name, attrs) });
                 if name != "br" && !self_closing {
                     open.push(name);
                 }
@@ -387,6 +405,23 @@ fn open_tag(name: &str, attrs: &str) -> String {
             escape_text(href.trim(), true)
         ),
         None => format!(r#"<a target="_blank" rel="{LINK_REL}">"#),
+    }
+}
+
+fn rich_open_tag(name: &str, attrs: &str) -> String {
+    if name == "br" {
+        return "<br>".into();
+    }
+    if name != "a" {
+        return format!("<{name}>");
+    }
+    let attrs = attributes(attrs);
+    let blank = attrs.iter().any(|(k, v)| k == "target" && v == "_blank");
+    let href = attrs.iter().find(|(k, _)| k == "href").map(|(_, v)| v.clone()).filter(|v| scheme_allowed(v));
+    let target = if blank { r#" target="_blank" rel="noopener""# } else { "" };
+    match href {
+        Some(href) => format!(r#"<a href="{}"{target}>"#, escape_text(href.trim(), true)),
+        None => "<a>".into(),
     }
 }
 

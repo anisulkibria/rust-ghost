@@ -102,6 +102,7 @@ pub async fn duplicate(pool:&Db,id:&str,author_id:&str)->Result<Post> {
     posts::insert(pool,&input,author_id).await
 }
 pub async fn restore(pool:&Db,post_id:&str,revision_id:&str)->Result<Post> {
+    crate::content::touch();
     let json:Option<crate::types::Text>=sqlx::query_scalar("SELECT snapshot FROM post_revisions WHERE id=? AND post_id=? AND snapshot IS NOT NULL")
         .bind(revision_id).bind(post_id).fetch_optional(pool).await.map_err(dberr)?;
     let Some(json)=json else{return Err(GhostError::NotFoundError{message:"Revision not found".into(),context:None})};

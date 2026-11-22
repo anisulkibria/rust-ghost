@@ -262,7 +262,7 @@ Where to look, and where a new screen goes. Everything under
 | `themes.rs` · `design.rs` · `navigation.rs` · `staff.rs` | the remaining settings groups with screens of their own |
 | `integrations.rs` · `apps.rs` | API keys, custom integrations, and the built-in apps |
 | `dashboard.rs` | the admin home at `/ghost/dashboard/`, where `/ghost/` and every sign-in land |
-| `analytics.rs` · `comments.rs` · `automations.rs` · `forms.rs` · `media.rs` + `media/` · `memberships.rs` + `memberships/` · `newsletters.rs` + `newsletters/` · `security.rs` + `security/` · `seo.rs` · `social.rs` · `click.rs` | the modules proper |
+| `analytics.rs` · `comments.rs` · `automations.rs` · `forms.rs` · `media.rs` + `media/` · `memberships.rs` + `memberships/` · `newsletters.rs` + `newsletters/` · `security.rs` + `security/` · `seo.rs` · `social.rs` · `click.rs` · `popups.rs` · `cookies.rs` | the modules proper |
 | `preview.rs` · `schedule.rs` · `rest.rs` | supporting machinery |
 | `tests.rs` | tests for the shared chrome and for screens whose handlers sit elsewhere |
 

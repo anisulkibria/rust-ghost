@@ -161,7 +161,7 @@ pub(crate) async fn newsletter_edit_page(
 <div class="card rows rise" style="--i:2">
 <div class="row" style="align-items:flex-start"><span class="ic tint-teal">{send_ic}</span>
 <div class="body" style="width:100%"><div class="grid2">{sender_name}{sender_email}</div>
-<p class="muted" style="margin:8px 0 0">Leave the name empty to send as the site title, and the address empty to use the one from <a href="/ghost/settings/email/">Settings → Email</a>.</p></div></div>
+<p class="muted" style="margin:8px 0 0">Leave the name empty to send as the site title, and the address empty to use the one from <a href="/ghost/settings/emails/">Settings → Emails</a>.</p></div></div>
 {reply_to}
 </div>
 
@@ -209,7 +209,6 @@ pub(crate) async fn newsletter_edit_page(
 <div class="card rows rise" style="--i:7">
 <div class="row" style="align-items:flex-start"><span class="ic tint-slate">{notes_ic}</span>
 <div class="body" style="width:100%"><label class="field" style="margin:0"><textarea name="footer_content" rows="3" placeholder=" ">{footer_content}</textarea><span>Footer · HTML, shown above the unsubscribe line</span></label></div></div>
-{show_badge}
 {show_latest_posts}
 {show_comment_cta}
 {show_share_button}
@@ -459,12 +458,6 @@ pub(crate) async fn newsletter_edit_page(
             ),
         ),
         footer_content = esc(n.footer_content.as_deref().unwrap_or("")),
-        show_badge = toggle_row(
-            "show_badge",
-            "Powered by Ghost badge",
-            "Show the badge at the very bottom of the email",
-            n.show_badge
-        ),
         show_latest_posts = toggle_row(
             "show_latest_posts",
             "Latest posts",
@@ -615,7 +608,7 @@ pub(crate) async fn newsletter_preview(
         return (StatusCode::NOT_FOUND, "No such newsletter").into_response();
     };
     let site_url = state.site_url();
-    let title = state.settings.get_str("title").unwrap_or_else(|| "Ghost".into());
+    let title = state.settings.get_str("title").unwrap_or_else(|| ghost_core::DEFAULT_SITE_TITLE.into());
     let timezone = state.settings.get_str("timezone").unwrap_or_else(|| "Etc/UTC".into());
 
     // The most recent published post, so the preview shows real content and
@@ -718,12 +711,7 @@ pub(crate) async fn newsletters_settings_page(State(state): State<AppState>, hea
     };
     let s = |k: &str| esc(&state.settings.get_str(k).unwrap_or_default());
     let group = SETTINGS_GROUPS.iter().find(|g| g.slug == "newsletters").unwrap();
-    let base = state
-        .settings
-        .get_str("mailgun_base_url")
-        .filter(|v| !v.is_empty())
-        .unwrap_or_else(|| "https://api.mailgun.net/v3".into());
-    let title = state.settings.get_str("title").unwrap_or_else(|| "Ghost".into());
+    let title = state.settings.get_str("title").unwrap_or_else(|| ghost_core::DEFAULT_SITE_TITLE.into());
     let site_url = state.site_url();
     let mail_cfg = ghost_mail::MailConfig::from_settings(&state.settings, &title, &site_url);
     let status = match resolve_bulk_transport(&state, &mail_cfg) {
@@ -809,7 +797,7 @@ pub(crate) async fn newsletters_settings_page(State(state): State<AppState>, hea
         ck = if sending_on && !signup_closed { " checked" } else { "" },
         dis = if signup_closed { " disabled" } else { "" },
         note = if signup_closed {
-            r#"<p class="muted" style="margin:10px 2px 0">Your <a href="/ghost/settings/membership/">subscription access</a> is set to
+            r#"<p class="muted" style="margin:10px 2px 0">Your <a href="/ghost/settings/memberships/">subscription access</a> is set to
 &ldquo;Nobody can sign up&rdquo;, so there is no audience to email. Allow signups to turn newsletter sending back on.</p>"#
         } else {
             ""
@@ -891,19 +879,7 @@ pub(crate) async fn newsletters_settings_page(State(state): State<AppState>, hea
 <div class="section">Newsletter provider</div>
 <div class="card padded"><label class="field fixed"><select name="newsletter_transport">{provider_opts}</select><span>Provider</span>{car}</label>
 <label class="field" style="margin:0"><input name="bulk_email_from_address" value="{bulk_from}" placeholder=" "><span>From address · defaults to the transactional one</span></label>
-<p class="muted">Configure Amazon SES credentials in <a href="/ghost/settings/email/">Email settings</a>. Automatic uses Mailgun when configured, then the transactional relay.</p></div>
-<div class="section">Mailgun</div>
-<div class="card rows rise" style="--i:4">
-<div class="row" style="align-items:flex-start"><span class="ic tint-purple">{send}</span>
-<div class="body" style="width:100%"><div class="grid2" style="gap:12px">
-<label class="field" style="margin:0"><input name="mailgun_api_key" type="password" value="" placeholder=" " autocomplete="off"><span>API key</span></label>
-<label class="field" style="margin:0"><input name="mailgun_webhook_signing_key" type="password" value="" placeholder=" " autocomplete="off"><span>Webhook signing key</span></label>
-<label class="field" style="margin:0"><input name="mailgun_domain" value="{domain}" placeholder=" " autocomplete="off"><span>Sending domain · e.g. mg.example.com</span></label>
-<label class="field fixed" style="margin:0"><select name="mailgun_base_url">{region_opts}</select><span>Region</span>{car}</label>
-</div>
-<p class="muted" style="margin:10px 0 0">{key_hint} Use the <strong>Sending</strong> API key, not the private account key. The region must match where the domain was created — an EU domain on the US endpoint fails with a 401 that looks like a bad key.</p>
-</div></div>
-</div>
+<p class="muted">Credentials for both Mailgun and Amazon SES live in <a href="/ghost/settings/emails/">Settings → Emails</a>; this only picks which one newsletters go out through. Automatic uses Mailgun when configured, then Amazon SES, then the transactional relay.</p></div>
 </fieldset></form>
 <div class="banner info rise" style="--i:4">{bulb}Newsletters are sent from the editor: choose <b>Publish and email</b> when publishing a post. Without Mailgun, a configured SMTP relay is used instead, one message per subscriber.</div>"#,
             head = group_head(group, Some("newsletters-form")),
@@ -911,7 +887,6 @@ pub(crate) async fn newsletters_settings_page(State(state): State<AppState>, hea
             status = status,
             sending_card = sending_card,
             recipients_card = recipients_card,
-            send = svg("send"),
             bulb = svg("mail"),
             car = SELECT_CARET,
             newsletter_rows = newsletter_rows,
@@ -920,15 +895,6 @@ pub(crate) async fn newsletters_settings_page(State(state): State<AppState>, hea
             managed_notice = mail_management_notice(&state),
             managed_disabled = if state.settings.mail_is_managed() { "disabled" } else { "" },
             provider_opts = select_options(&[("auto", "Automatic"), ("ses", "Amazon SES"), ("mailgun", "Mailgun"), ("smtp", "Transactional relay")], &state.settings.get_str("newsletter_transport").unwrap_or_else(|| "auto".into())),
-            key_hint = secret_state(&state, "mailgun_api_key"),
-            domain = s("mailgun_domain"),
-            region_opts = select_options(
-                &[
-                    ("https://api.mailgun.net/v3", "US · api.mailgun.net"),
-                    ("https://api.eu.mailgun.net/v3", "EU · api.eu.mailgun.net"),
-                ],
-                &base
-            ),
             bulk_from = s("bulk_email_from_address"),
         ),
         true,
@@ -951,12 +917,12 @@ pub(crate) async fn newsletters_settings_save(State(state): State<AppState>, hea
         }
         ok &= state.settings.set(&state.db, "newsletter_transport", &serde_json::json!(provider)).await.is_ok();
     }
-    for key in ["mailgun_domain", "mailgun_base_url", "bulk_email_from_address"] {
+    // The Mailgun credentials moved to Settings → Emails, with the other
+    // transports. This page keeps only the choice of which one to use.
+    for key in ["bulk_email_from_address"] {
         let value = form.get(key).cloned().unwrap_or_default().trim().to_string();
         ok &= state.settings.set(&state.db, key, &serde_json::json!(value)).await.is_ok();
     }
-    ok &= save_secret(&state, "mailgun_api_key", form.get("mailgun_api_key")).await;
-    ok &= save_secret(&state, "mailgun_webhook_signing_key", form.get("mailgun_webhook_signing_key")).await;
     }
 
     // Newsletter sending and the default audience share two settings, the way

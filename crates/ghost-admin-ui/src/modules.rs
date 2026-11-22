@@ -1,44 +1,13 @@
-//! The Modules hub: one entry point for the publication's administrative tools.
+//! What is left of the Modules hub (a redirect to Tools, since 2026-11-21),
+//! and the analytics helpers that grew up beside it.
 
 use super::*;
 
 // ---------------------------------------------------------------------------
-// Modules: a single entry point for the publication's administrative tools.
-pub(crate) const MODULES: &[(&str, &str, &str, &str, &str)] = &[
-    ("Analytics", "/ghost/analytics/", "chart", "green", "Track visitors, content performance, and member growth."),
-    ("Comments", "/ghost/comments/", "comment", "purple", "Review discussions and manage comments across your posts."),
-    ("Automations", "/ghost/automations/", "flow", "blue", "Manage automated workflows and their activity."),
-    ("Forms", "/ghost/forms/", "form", "amber", "Build contact forms and read the responses visitors send."),
-    ("Media", "/ghost/media/", "library", "pink", "Upload and manage every image, video and file on your site."),
-    ("Memberships", "/ghost/memberships/", "group", "purple", "Members, tiers, offers and what is stopping the next person joining or paying."),
-    ("Newsletters", "/ghost/newsletters/", "send", "amber", "What goes out, who gets it, how it was opened, and what stopped it."),
-    ("Languages", "/ghost/languages/", "globe", "teal", "Publish this site in more than one language, and keep the translations in step."),
-    ("Security", "/ghost/security/", "lock", "red", "See what is holding this site shut, who is signed in, and what is not protected."),
-    ("SEO", "/ghost/seo/", "trending", "blue", "See what search engines read on this site, and what is stopping them."),
-    ("Social web", "/ghost/social/", "share", "teal", "Read, publish notes and connect with the fediverse."),
-];
-
-pub(crate) async fn modules_page(State(state): State<AppState>, headers: HeaderMap) -> Response {
-    let actor = match require_role(&state, &headers, Role::Administrator).await {
-        Ok(actor) => actor,
-        Err(response) => return response,
-    };
-    let cards: String = MODULES.iter().map(|(name, href, icon, tint, description)| {
-        format!(
-            r#"<a class="module-card" href="{href}">
-<span class="ic tint-{tint}">{icon}</span>
-<div><h2>{name}</h2><p>{description}</p></div>
-<span class="module-open">Open {name} {arrow}</span>
-</a>"#,
-            href = href, tint = tint, icon = svg(icon), name = esc(name),
-            description = esc(description), arrow = svg("chevron"),
-        )
-    }).collect();
-    page_for_role(actor.role, "Modules", "modules", Some(&actor.user), &format!(
-        r#"<header class="page-head rise"><div><h1>Modules</h1>
-<p class="sub">Insights, conversations, and workflows for your publication.</p></div></header>
-<div class="module-grid rise" style="--i:1">{cards}</div>"#,
-    ), true).into_response()
+// The Modules hub was folded into Tools on 2026-11-21: its ten cards are in
+// `crate::tools::TOOLS`, and the old address redirects so bookmarks land.
+pub(crate) async fn modules_page() -> Response {
+    Redirect::permanent("/ghost/tools/").into_response()
 }
 
 // analytics (Ghost's Dashboard: page views recorded by ghost-front's

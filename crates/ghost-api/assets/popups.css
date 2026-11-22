@@ -1,0 +1,235 @@
+/* Popups & lead generation — what a visitor sees, in the admin's design:
+ * liquid glass over Material 3.
+ *
+ * This lands on somebody else's theme, so every rule is scoped under
+ * `.gh-popup` and nothing here styles a bare element. The typeface is the
+ * theme's (inherited), and the accent is the site's own
+ * (`--ghost-accent-color`, which every page carries) — a popup that arrives
+ * in a different colour and font reads as an advert somebody else bought.
+ *
+ * The glass is real: a translucent pane with a saturated blur of whatever is
+ * behind it, a hairline edge, a lit top edge and a soft lift — the same four
+ * parts as the admin's panels, the staff toolbar and the Portal skin.
+ */
+
+.gh-popup {
+  --pu-accent: var(--ghost-accent-color, #3a3a3a);
+  --pu-on-accent: #fff;
+  --pu-ink: #1f1a1d;
+  --pu-ink-2: #5f5559;
+  --pu-glass: rgba(255, 255, 255, .74);
+  --pu-field: rgba(255, 255, 255, .66);
+  --pu-stroke: rgba(255, 255, 255, .66);
+  --pu-hair: rgba(31, 26, 29, .12);
+  --pu-edge: rgba(255, 255, 255, .92);
+  --pu-blur: saturate(185%) blur(24px);
+  --pu-shadow: 0 1px 1px rgba(25, 10, 25, .05), 0 28px 64px -26px rgba(25, 10, 35, .5);
+
+  position: fixed;
+  z-index: 2147483000; /* above a theme's own sticky chrome, below nothing */
+  font-family: inherit;
+  opacity: 0;
+  transition: opacity .24s cubic-bezier(.2, 0, 0, 1), transform .24s cubic-bezier(.2, 0, 0, 1);
+}
+.gh-popup.gh-popup-in { opacity: 1; }
+
+/* `hidden` has to win. The script shows and hides the form, the success line
+   and the error with the `hidden` attribute, and any rule here that sets
+   `display` (the form is flex, the success line is flex) would otherwise
+   beat the browser's own `[hidden] { display: none }` — which is how a
+   success tick appeared above an untouched form. */
+.gh-popup [hidden] { display: none !important; }
+
+@media (prefers-color-scheme: dark) {
+  .gh-popup {
+    --pu-ink: #f3ecef;
+    --pu-ink-2: #c3b8bd;
+    --pu-glass: rgba(34, 28, 32, .72);
+    --pu-field: rgba(255, 255, 255, .07);
+    --pu-stroke: rgba(255, 255, 255, .13);
+    --pu-hair: rgba(255, 255, 255, .14);
+    --pu-edge: rgba(255, 255, 255, .16);
+    --pu-shadow: 0 1px 1px rgba(0, 0, 0, .4), 0 28px 64px -26px rgba(0, 0, 0, .8);
+  }
+}
+
+/* ---- the pane ---- */
+.gh-popup-box {
+  position: relative;
+  box-sizing: border-box;
+  padding: 30px 28px 26px;
+  border-radius: 28px;
+  background: var(--pu-glass);
+  -webkit-backdrop-filter: var(--pu-blur);
+  backdrop-filter: var(--pu-blur);
+  border: 1px solid var(--pu-stroke);
+  box-shadow: inset 0 1px 0 var(--pu-edge), var(--pu-shadow);
+  color: var(--pu-ink);
+}
+
+/* ---- modal: centred over a tinted, blurred page ---- */
+.gh-popup-modal {
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  /* The site's colour in the backdrop gives the glass something coloured to
+     refract, the way the admin's tonal fields do behind its panels. */
+  background:
+    radial-gradient(900px 640px at 15% 0%, color-mix(in srgb, var(--pu-accent) 26%, transparent), transparent 70%),
+    rgba(20, 12, 22, .34);
+  -webkit-backdrop-filter: blur(8px) saturate(130%);
+  backdrop-filter: blur(8px) saturate(130%);
+}
+.gh-popup-modal .gh-popup-box { width: 100%; max-width: 440px; transform: translateY(10px) scale(.98); transition: transform .24s cubic-bezier(.2, 0, 0, 1); }
+.gh-popup-modal.gh-popup-in .gh-popup-box { transform: none; }
+
+/* ---- slide-in: a corner card that does not block the page ---- */
+.gh-popup-slide-in {
+  right: 20px;
+  bottom: 20px;
+  width: min(380px, calc(100vw - 40px));
+  transform: translateY(14px);
+}
+.gh-popup-slide-in.gh-popup-in { transform: none; }
+
+/* ---- bar: a floating strip across the top ---- */
+.gh-popup-bar { top: 12px; left: 12px; right: 12px; transform: translateY(calc(-100% - 12px)); }
+.gh-popup-bar.gh-popup-in { transform: none; }
+.gh-popup-bar .gh-popup-box {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px 18px;
+  padding: 12px 58px 12px 22px;
+  border-radius: 22px;
+}
+.gh-popup-bar .gh-popup-heading { margin: 0; font-size: 16px; }
+.gh-popup-bar .gh-popup-body { margin: 0; }
+.gh-popup-bar .gh-popup-form { margin: 0 0 0 auto; }
+
+/* ---- type ---- */
+.gh-popup-heading {
+  margin: 0 0 8px;
+  font-size: 22px;
+  line-height: 1.25;
+  font-weight: 650;
+  letter-spacing: -.015em;
+  color: var(--pu-ink);
+}
+.gh-popup-body { margin: 0 0 18px; font-size: 14.5px; line-height: 1.55; color: var(--pu-ink-2); }
+
+/* ---- close: a round icon button ---- */
+.gh-popup-close {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  width: 36px;
+  height: 36px;
+  display: grid;
+  place-items: center;
+  border: 0;
+  border-radius: 999px;
+  background: none;
+  font-size: 20px;
+  line-height: 1;
+  color: var(--pu-ink-2);
+  cursor: pointer;
+  transition: background .15s, color .15s;
+}
+.gh-popup-close:hover { background: color-mix(in srgb, var(--pu-ink) 9%, transparent); color: var(--pu-ink); }
+.gh-popup-close:focus-visible { outline: 2px solid var(--pu-accent); outline-offset: 2px; }
+
+/* ---- the form: M3 outlined fields and a filled pill ---- */
+.gh-popup-form { display: flex; flex-wrap: wrap; gap: 8px; margin: 0; }
+.gh-popup-input {
+  flex: 1 1 190px;
+  min-width: 0;
+  height: 48px;
+  padding: 0 16px;
+  box-sizing: border-box;
+  font: inherit;
+  font-size: 15px;
+  color: var(--pu-ink);
+  background: var(--pu-field);
+  border: 1px solid var(--pu-hair);
+  border-radius: 14px;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .6);
+  transition: border-color .15s, box-shadow .15s;
+}
+.gh-popup-input::placeholder { color: color-mix(in srgb, var(--pu-ink-2) 72%, transparent); }
+.gh-popup-input:focus {
+  outline: none;
+  border-color: var(--pu-accent);
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--pu-accent) 18%, transparent);
+}
+
+.gh-popup-submit {
+  flex: 0 0 auto;
+  height: 48px;
+  padding: 0 22px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font: inherit;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--pu-on-accent);
+  background: var(--pu-accent);
+  border: 0;
+  border-radius: 999px;
+  cursor: pointer;
+  text-decoration: none;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, .34),
+    0 12px 26px -14px color-mix(in srgb, var(--pu-accent) 85%, #000);
+  transition: filter .15s, transform .15s;
+}
+.gh-popup-submit:hover { filter: brightness(1.07); transform: translateY(-1px); }
+.gh-popup-submit:active { transform: none; filter: brightness(.96); }
+.gh-popup-submit:focus-visible { outline: 2px solid var(--pu-accent); outline-offset: 3px; }
+.gh-popup-submit[disabled] { opacity: .55; cursor: default; transform: none; }
+
+.gh-popup-consent { flex: 1 0 100%; margin: 8px 0 0; font-size: 12px; line-height: 1.45; color: var(--pu-ink-2); }
+.gh-popup-error { flex: 1 0 100%; margin: 6px 0 0; font-size: 13px; color: #c2261a; }
+@media (prefers-color-scheme: dark) { .gh-popup-error { color: #ffb4ab; } }
+
+/* Success: the accent's own tick, then the message. */
+.gh-popup-done {
+  margin: 0;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--pu-ink);
+}
+.gh-popup-done::before {
+  content: "✓";
+  flex: none;
+  width: 30px;
+  height: 30px;
+  display: grid;
+  place-items: center;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--pu-accent) 16%, transparent);
+  color: var(--pu-accent);
+  font-size: 15px;
+}
+
+/* The honeypot: off-screen rather than display:none, because some bots skip
+   fields they can tell are hidden. */
+.gh-popup-trap {
+  position: absolute !important;
+  left: -9999px !important;
+  width: 1px !important;
+  height: 1px !important;
+  opacity: 0 !important;
+}
+
+/* Somebody who has asked for less motion gets the popup without the travel.
+   It still appears — it is the content, not the decoration. */
+@media (prefers-reduced-motion: reduce) {
+  .gh-popup, .gh-popup .gh-popup-box { transition: opacity .01ms linear; transform: none !important; }
+}

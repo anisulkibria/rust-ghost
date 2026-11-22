@@ -36,7 +36,7 @@ pub(crate) fn tier_flash(id: &str, kind: &str, message: &str) -> Response {
     let encoded: String = form_urlencoded::Serializer::new(String::new())
         .append_pair(kind, message)
         .finish();
-    Redirect::to(&format!("/ghost/settings/membership/tiers/{id}/?{encoded}")).into_response()
+    Redirect::to(&format!("/ghost/settings/memberships/tiers/{id}/?{encoded}")).into_response()
 }
 
 /// Parse a price typed as "5", "5.00" or "£5" into cents. Returns `None` for
@@ -121,7 +121,7 @@ pub(crate) async fn tier_create(State(state): State<AppState>, headers: HeaderMa
     .bind(&id).bind(&slug).bind(&now).bind(&now)
     .execute(&state.db).await;
     match res {
-        Ok(_) => Redirect::to(&format!("/ghost/settings/membership/tiers/{id}/")).into_response(),
+        Ok(_) => Redirect::to(&format!("/ghost/settings/memberships/tiers/{id}/")).into_response(),
         Err(e) => membership_flash("error", &format!("Could not create the tier: {e}")),
     }
 }
@@ -202,11 +202,11 @@ pub(crate) async fn tier_edit_page(
         "settings",
         Some(&user),
         &format!(
-            r#"<header class="page-head rise"><a class="icon-btn" style="transform:rotate(180deg)" href="/ghost/settings/membership/" title="Back to membership">{back}</a>
+            r#"<header class="page-head rise"><a class="icon-btn" style="transform:rotate(180deg)" href="/ghost/settings/memberships/" title="Back to membership">{back}</a>
 <div><h1>{name}</h1><p class="sub">{sub}</p></div>
 <div class="actions"><button class="btn" type="submit" form="tier-form">{check} Save</button></div></header>
 {banner}
-<form method="post" action="/ghost/settings/membership/tiers/{id}/" id="tier-form">
+<form method="post" action="/ghost/settings/memberships/tiers/{id}/" id="tier-form">
 <div class="section">Details</div>
 <div class="card rows rise" style="--i:1">
 <div class="row" style="align-items:flex-start"><span class="ic tint-teal">{ghost_ic}</span>
@@ -343,7 +343,7 @@ pub(crate) fn membership_flash(kind: &str, message: &str) -> Response {
     let encoded: String = form_urlencoded::Serializer::new(String::new())
         .append_pair(kind, message)
         .finish();
-    Redirect::to(&format!("/ghost/settings/membership/?{encoded}")).into_response()
+    Redirect::to(&format!("/ghost/settings/memberships/?{encoded}")).into_response()
 }
 
 #[derive(Debug, Deserialize, Default)]
@@ -429,7 +429,7 @@ pub(crate) async fn stripe_connect(
 /// rotating an existing secret.
 pub(crate) fn stripe_webhook_secret_form(site_url: &str) -> String {
     format!(
-        r#"<form method="post" action="/ghost/settings/membership/stripe/webhook/" class="inline-form">
+        r#"<form method="post" action="/ghost/settings/memberships/stripe/webhook/" class="inline-form">
 <label class="field" style="flex:1;min-width:240px;margin:0"><input name="webhook_secret" type="password" placeholder=" " autocomplete="off" required><span>Webhook signing secret · whsec_…</span></label>
 <button class="btn tonal small" type="submit">Save secret</button></form>
 <p class="muted" style="margin:10px 0 0">Testing locally? Run this and paste the <code>whsec_…</code> it prints:</p>
@@ -446,7 +446,7 @@ pub(crate) fn stripe_key_form(heading: &str, blurb: &str, button: &str) -> Strin
     format!(
         r#"<span class="title" style="display:block;margin-bottom:6px">{heading}</span>
 <p class="muted" style="margin:0 0 12px">{blurb}</p>
-<form method="post" action="/ghost/settings/membership/stripe/connect/">
+<form method="post" action="/ghost/settings/memberships/stripe/connect/">
 <div class="grid2" style="gap:12px">
 <label class="field" style="margin:0"><input name="secret_key" type="password" placeholder=" " autocomplete="off" required><span>Secret key · sk_live_… or sk_test_…</span></label>
 <label class="field" style="margin:0"><input name="publishable_key" placeholder=" " autocomplete="off"><span>Publishable key · pk_…</span></label>
@@ -662,7 +662,7 @@ pub(crate) fn portal_links_card(
 {tiers}
 <h3>Account</h3>
 {account}
-<p class="muted" style="margin:18px 0 0">An offer has a link of its own, <code>{base}/&lt;offer code&gt;</code>, which sends the visitor to <code>#/portal/offers/&lt;id&gt;</code> — find it on the offer in <a href="/ghost/settings/growth/">Settings → Growth</a>.{gift_note}</p>
+<p class="muted" style="margin:18px 0 0">An offer has a link of its own, <code>{base}/&lt;offer code&gt;</code>, which sends the visitor to <code>#/portal/offers/&lt;id&gt;</code> — find it on the offer in <a href="/ghost/growth/">Settings → Growth</a>.{gift_note}</p>
 </div>"#,
         seg = segmented(
             "portal_link_mode",
@@ -711,7 +711,7 @@ pub(crate) async fn membership_page(State(state): State<AppState>, headers: Head
                 format!("{} / month · {} / year", tier_price(monthly), tier_price(yearly))
             };
             tier_rows.push_str(&format!(
-                r#"<a class="row" href="/ghost/settings/membership/tiers/{id}/"><span class="ic tint-teal">{ghost}</span>
+                r#"<a class="row" href="/ghost/settings/memberships/tiers/{id}/"><span class="ic tint-teal">{ghost}</span>
 <div class="body"><span class="title">{name}</span><span class="detail">{price}</span></div>
 <div class="trailing">{inactive}<span class="chip tonal">{typ}</span>{chev}</div></a>"#,
                 id = esc(&id),
@@ -782,7 +782,7 @@ pub(crate) async fn membership_page(State(state): State<AppState>, headers: Head
 <div class="row"><span class="ic tint-green">{check_ic}</span>
 <div class="body"><span class="title">Connected{named}</span><span class="detail">{account} · {mode} mode</span></div>
 <div class="trailing"><span class="chip {chip}">{mode}</span>
-<form method="post" action="/ghost/settings/membership/stripe/disconnect/" data-confirm="Disconnect from Stripe|New paid signups will stop. Existing subscriptions stay active on Stripe and resume if you reconnect the same account.">
+<form method="post" action="/ghost/settings/memberships/stripe/disconnect/" data-confirm="Disconnect from Stripe|New paid signups will stop. Existing subscriptions stay active on Stripe and resume if you reconnect the same account.">
 <button class="btn tonal small danger" type="submit">Disconnect from Stripe</button></form></div></div>
 {checkout_notice}
 {hook_row}
@@ -806,7 +806,7 @@ pub(crate) async fn membership_page(State(state): State<AppState>, headers: Head
                         r#"<div class="row"><span class="ic tint-green">{link_ic}</span>
 <div class="body"><span class="title">Webhooks active</span><span class="detail">Subscription changes update members automatically.</span></div>
 <div class="trailing"><span class="chip published">verified</span>
-<form method="post" action="/ghost/settings/membership/stripe/webhook/deactivate/" data-confirm="Deactivate webhook|Subscription changes will stop being accepted until a new signing secret is set. Payments still go through at Stripe.">
+<form method="post" action="/ghost/settings/memberships/stripe/webhook/deactivate/" data-confirm="Deactivate webhook|Subscription changes will stop being accepted until a new signing secret is set. Payments still go through at Stripe.">
 <button class="btn tonal small danger" type="submit">Deactivate webhook</button></form></div></div>"#,
                         link_ic = svg("link"),
                     )
@@ -972,7 +972,7 @@ Changing it — including regenerating — signs out everyone who had the old on
         format!(
             r#"<div class="card rows rise" style="--i:4">{rows}</div>
 <p class="muted" style="margin:10px 0 0 16px">Open one to write it. Signup and signin magic links are separate — they always send, using the
-transport in <a href="/ghost/settings/email/">Settings → Email</a>.</p>"#
+transport in <a href="/ghost/settings/emails/">Settings → Emails</a>.</p>"#
         )
     };
 
@@ -995,7 +995,7 @@ transport in <a href="/ghost/settings/email/">Settings → Email</a>.</p>"#
         field_rows.push_str(&format!(
             r#"<div class="row" style="align-items:flex-start"><span class="ic tint-purple">{ic}</span>
 <div class="body" style="width:100%">
-<form method="post" action="/ghost/settings/membership/fields/{id}/" class="inline-form" style="align-items:flex-end">
+<form method="post" action="/ghost/settings/memberships/fields/{id}/" class="inline-form" style="align-items:flex-end">
 <label class="field" style="flex:1;min-width:180px;margin:0"><input name="name" value="{name}" placeholder=" " maxlength="191" required><span>Name</span></label>
 <label class="field fixed" style="min-width:190px;margin:0"><select name="member_access">{access_opts}</select><span>Member access</span>{car}</label>
 <label class="field fixed" style="min-width:150px;margin:0"><select name="status">{status_opts}</select><span>Status</span>{car}</label>
@@ -1004,11 +1004,11 @@ transport in <a href="/ghost/settings/email/">Settings → Email</a>.</p>"#
 <p class="muted" style="margin:8px 0 0"><code>{identity}</code> · {type_label} · {held} member{plural} with a value</p>
 </div>
 <div class="trailing" style="align-items:flex-start">
-<form method="post" action="/ghost/settings/membership/fields/{id}/move/"><input type="hidden" name="dir" value="up">
+<form method="post" action="/ghost/settings/memberships/fields/{id}/move/"><input type="hidden" name="dir" value="up">
 <button class="icon-btn" style="transform:rotate(-90deg)" title="Move up" aria-label="Move up"{up_dis}>{up}</button></form>
-<form method="post" action="/ghost/settings/membership/fields/{id}/move/"><input type="hidden" name="dir" value="down">
+<form method="post" action="/ghost/settings/memberships/fields/{id}/move/"><input type="hidden" name="dir" value="down">
 <button class="icon-btn" style="transform:rotate(90deg)" title="Move down" aria-label="Move down"{down_dis}>{down}</button></form>
-<form method="post" action="/ghost/settings/membership/fields/{id}/delete/" data-confirm="Delete custom field|&#8220;{name}&#8221; and the values {held} member{plural} hold for it will be deleted.">
+<form method="post" action="/ghost/settings/memberships/fields/{id}/delete/" data-confirm="Delete custom field|&#8220;{name}&#8221; and the values {held} member{plural} hold for it will be deleted.">
 <button class="icon-btn danger" title="Delete" aria-label="Delete">{del}</button></form>
 </div></div>"#,
             ic = svg("notes"),
@@ -1042,7 +1042,7 @@ transport in <a href="/ghost/settings/email/">Settings → Email</a>.</p>"#
         r#"<div class="section">Custom fields</div>
 <div class="card rows rise" style="--i:7">{field_rows}</div>
 <div class="card padded rise" style="--i:7">
-<form method="post" action="/ghost/settings/membership/fields/new/" class="inline-form">
+<form method="post" action="/ghost/settings/memberships/fields/new/" class="inline-form">
 <label class="field" style="flex:1;min-width:200px;margin:0"><input name="name" placeholder=" " maxlength="191" required><span>Field name</span></label>
 <label class="field fixed" style="min-width:170px;margin:0"><select name="type">{type_opts}</select><span>Type</span>{car}</label>
 <label class="field fixed" style="min-width:190px;margin:0"><select name="member_access">{new_access_opts}</select><span>Member access</span>{car}</label>
@@ -1138,14 +1138,14 @@ addresses like <code>hello@spam.xyz</code>. Members who already signed up are no
         String::new()
     };
 
-    let group = SETTINGS_GROUPS.iter().find(|g| g.slug == "membership").unwrap();
+    let group = SETTINGS_GROUPS.iter().find(|g| g.slug == "memberships").unwrap();
     page_for_role(actor_role, 
-        "Membership",
+        "Members",
         "settings",
         Some(&user),
         &format!(
             r#"{head}{banner}
-<form method="post" action="/ghost/settings/membership/" id="membership-form"></form>
+<form method="post" action="/ghost/settings/memberships/" id="membership-form"></form>
 <div class="section">Checkout</div>
 <div class="card rows rise" style="--i:0"><a class="row" href="/ghost/settings/checkout/"><span class="ic tint-pink">{palette}</span>
 <div class="body"><span class="title">Checkout design</span><span class="detail">Colours, typography and button corners for paid signups</span></div>
@@ -1171,7 +1171,7 @@ engines and asks every visitor for one shared access code.</p>
 {stripe_card}
 <div class="section">Tiers</div>
 <div class="card rows rise" style="--i:2">{tier_rows}</div>
-<div style="padding:2px 4px 8px"><form method="post" action="/ghost/settings/membership/tiers/new/">
+<div style="padding:2px 4px 8px"><form method="post" action="/ghost/settings/memberships/tiers/new/">
 <button class="btn tonal small" type="submit">{add} Add tier</button></form></div>
 <p class="muted" style="margin:4px 0 0 16px">Open a tier to change its name, price, benefits and visibility. Paid tiers need Stripe connected above.</p>
 <div class="section">Signup portal</div>
@@ -1195,7 +1195,7 @@ engines and asks every visitor for one shared access code.</p>
 </div></div>
 <div class="row" style="align-items:center"><span class="ic tint-teal">{mail_ic}</span>
 <div class="body"><label class="field" style="margin:0;max-width:360px"><input name="members_support_address" form="membership-form" type="email" value="{support_address}" placeholder=" "><span>Support email address</span></label>
-<p class="muted" style="margin:6px 0 0">Shown on the member's account page and used as the reply-to on member emails. Blank uses the sender address from <a href="/ghost/settings/email/">Settings → Email</a>.</p></div></div>
+<p class="muted" style="margin:6px 0 0">Shown on the member's account page and used as the reply-to on member emails. Blank uses the sender address from <a href="/ghost/settings/emails/">Settings → Emails</a>.</p></div></div>
 {gift_signup}
 {gift_account}
 </div>
@@ -1485,9 +1485,9 @@ pub(crate) async fn membership_save(State(state): State<AppState>, headers: Head
     }
 
     if ok {
-        settings_flash("membership", "ok", "Membership settings saved.")
+        settings_flash("memberships", "ok", "Membership settings saved.")
     } else {
-        settings_flash("membership", "error", "Saving failed — check the logs.")
+        settings_flash("memberships", "error", "Saving failed — check the logs.")
     }
 }
 
@@ -1512,20 +1512,20 @@ pub(crate) async fn metafield_new(
     }
     let name = form.name.trim().to_string();
     if name.is_empty() {
-        return settings_flash("membership", "error", "A custom field needs a name.");
+        return settings_flash("memberships", "error", "A custom field needs a name.");
     }
     // The key is minted from the name and then frozen: values are stored
     // against it, so it cannot follow a later rename.
     let key = ghost_core::metafields::key_from_name(&name);
     if !ghost_core::metafields::is_valid_key(&key) {
         return settings_flash(
-            "membership",
+            "memberships",
             "error",
             "That name has no letters or digits to build a key from.",
         );
     }
     if !ghost_core::metafields::is_known_type(&form.field_type) {
-        return settings_flash("membership", "error", "Choose a field type.");
+        return settings_flash("memberships", "error", "Choose a field type.");
     }
     let access = if ghost_core::metafields::is_member_access(&form.member_access) {
         form.member_access.as_str()
@@ -1535,22 +1535,22 @@ pub(crate) async fn metafield_new(
     match repos::metafields::definition_conflict(&state.db, &key, &name, None).await {
         Ok(Some("key")) => {
             return settings_flash(
-                "membership",
+                "memberships",
                 "error",
                 &format!("Another field already uses the key “{key}” — pick a different name."),
             )
         }
         Ok(Some(_)) => {
-            return settings_flash("membership", "error", "Another field already has that name.")
+            return settings_flash("memberships", "error", "Another field already has that name.")
         }
-        Err(e) => return settings_flash("membership", "error", &e.message()),
+        Err(e) => return settings_flash("memberships", "error", &e.message()),
         Ok(None) => {}
     }
     match repos::metafields::create_definition(&state.db, &key, &name, &form.field_type, access)
         .await
     {
-        Ok(f) => settings_flash("membership", "ok", &format!("Added “{}”.", f.name)),
-        Err(e) => settings_flash("membership", "error", &e.message()),
+        Ok(f) => settings_flash("memberships", "ok", &format!("Added “{}”.", f.name)),
+        Err(e) => settings_flash("memberships", "error", &e.message()),
     }
 }
 
@@ -1572,16 +1572,16 @@ pub(crate) async fn metafield_save(
         return r;
     }
     let Ok(Some(_)) = repos::metafields::find_definition(&state.db, &id).await else {
-        return settings_flash("membership", "error", "That custom field no longer exists.");
+        return settings_flash("memberships", "error", "That custom field no longer exists.");
     };
     let name = form.name.trim().to_string();
     if name.is_empty() {
-        return settings_flash("membership", "error", "A custom field needs a name.");
+        return settings_flash("memberships", "error", "A custom field needs a name.");
     }
     if let Ok(Some(_)) =
         repos::metafields::definition_conflict(&state.db, "", &name, Some(&id)).await
     {
-        return settings_flash("membership", "error", "Another field already has that name.");
+        return settings_flash("memberships", "error", "Another field already has that name.");
     }
     let access = if ghost_core::metafields::is_member_access(&form.member_access) {
         form.member_access.as_str()
@@ -1590,8 +1590,8 @@ pub(crate) async fn metafield_save(
     };
     let status = if form.status == "archived" { "archived" } else { "active" };
     match repos::metafields::update_definition(&state.db, &id, &name, access, status).await {
-        Ok(f) => settings_flash("membership", "ok", &format!("Saved “{}”.", f.name)),
-        Err(e) => settings_flash("membership", "error", &e.message()),
+        Ok(f) => settings_flash("memberships", "ok", &format!("Saved “{}”.", f.name)),
+        Err(e) => settings_flash("memberships", "error", &e.message()),
     }
 }
 
@@ -1605,8 +1605,8 @@ pub(crate) async fn metafield_delete(
     }
     match repos::metafields::delete_definition(&state.db, &id).await {
         // The values cascade with it, which the confirmation said.
-        Ok(()) => settings_flash("membership", "ok", "Custom field deleted."),
-        Err(e) => settings_flash("membership", "error", &e.message()),
+        Ok(()) => settings_flash("memberships", "ok", "Custom field deleted."),
+        Err(e) => settings_flash("memberships", "error", &e.message()),
     }
 }
 
@@ -1626,7 +1626,7 @@ pub(crate) async fn metafield_move(
         return r;
     }
     match repos::metafields::reorder_definition(&state.db, &id, form.dir == "up").await {
-        Ok(()) => settings_flash("membership", "ok", "Order saved."),
-        Err(e) => settings_flash("membership", "error", &e.message()),
+        Ok(()) => settings_flash("memberships", "ok", "Order saved."),
+        Err(e) => settings_flash("memberships", "error", &e.message()),
     }
 }

@@ -1,0 +1,229 @@
+/* Portal, in the admin's design: liquid glass over Material 3.
+ *
+ * Put into each of Portal's iframes by `vuuut-system.js`. Portal styles
+ * itself with plain class selectors, so most rules here need `!important` to
+ * win — that is deliberate, and it is confined to `gh-portal-*` classes inside
+ * Portal's own iframes, where nothing else lives.
+ *
+ * Light glass only. Portal hard-codes dark text in many places this does not
+ * reach, so a dark sheet would leave some of it unreadable; a pane of light
+ * glass reads on a dark site as well as on a light one.
+ *
+ * Tied to Portal's class names at the pinned version (portal@~2.72). A class
+ * Portal renames simply stops matching and that part falls back to Ghost's
+ * own look — it degrades, it does not break.
+ */
+
+:root {
+  --vu-accent: #3a3a3a;
+  --vu-on-accent: #fff;
+  --vu-ink: #1f1a1d;
+  --vu-ink-2: #5f5559;
+  --vu-glass: rgba(255, 255, 255, .74);
+  --vu-glass-strong: rgba(255, 255, 255, .9);
+  --vu-field: rgba(255, 255, 255, .64);
+  --vu-stroke: rgba(255, 255, 255, .66);
+  --vu-hair: rgba(31, 26, 29, .11);
+  --vu-edge: rgba(255, 255, 255, .92);
+  --vu-blur: saturate(185%) blur(26px);
+  --vu-shadow: 0 1px 1px rgba(25, 10, 25, .05), 0 30px 70px -28px rgba(25, 10, 35, .5);
+  --vu-tint: color-mix(in srgb, var(--vu-accent) 11%, transparent);
+  --vu-font: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+}
+
+.gh-portal-popup-container,
+.gh-portal-popup-container *,
+.gh-portal-triggerbtn-container,
+.gh-portal-notification {
+  font-family: var(--vu-font) !important;
+}
+
+/* No badge. */
+.gh-portal-powered { display: none !important; }
+
+/* ---- the page behind a modal ----
+   Portal already blurs it; this tints the blur with the site's own colour, so
+   the glass in front has something coloured to refract — the same trick the
+   admin's tonal fields play behind its panels. */
+.gh-portal-popup-background {
+  background:
+    radial-gradient(1100px 720px at 12% -10%, color-mix(in srgb, var(--vu-accent) 30%, transparent), transparent 70%),
+    radial-gradient(900px 640px at 105% 110%, color-mix(in srgb, var(--vu-accent) 20%, transparent), transparent 70%),
+    rgba(20, 12, 22, .30) !important;
+  backdrop-filter: blur(10px) saturate(130%) !important;
+  -webkit-backdrop-filter: blur(10px) saturate(130%) !important;
+}
+
+/* ---- the sheet ---- */
+.gh-portal-popup-container {
+  background: var(--vu-glass) !important;
+  backdrop-filter: var(--vu-blur) !important;
+  -webkit-backdrop-filter: var(--vu-blur) !important;
+  border: 1px solid var(--vu-stroke) !important;
+  border-radius: 28px !important;
+  box-shadow: inset 0 1px 0 var(--vu-edge), var(--vu-shadow) !important;
+  color: var(--vu-ink) !important;
+}
+
+.gh-portal-main-title {
+  color: var(--vu-ink) !important;
+  font-weight: 650 !important;
+  letter-spacing: -.02em !important;
+}
+.gh-portal-main-subtitle,
+.gh-portal-text-center,
+.gh-portal-signup-message,
+.gh-portal-signup-message div,
+.gh-portal-text-disabled,
+.gh-portal-section p {
+  color: var(--vu-ink-2) !important;
+}
+
+/* ---- fields: M3 outlined, on glass ---- */
+.gh-portal-input-label {
+  color: var(--vu-ink-2) !important;
+  font-size: 12.5px !important;
+  font-weight: 600 !important;
+  letter-spacing: .01em !important;
+}
+.gh-portal-input {
+  height: 50px !important;
+  padding: 0 16px !important;
+  border-radius: 14px !important;
+  border: 1px solid var(--vu-hair) !important;
+  background: var(--vu-field) !important;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .75) !important;
+  color: var(--vu-ink) !important;
+  font-size: 15px !important;
+  transition: border-color .15s, box-shadow .15s, background .15s !important;
+}
+.gh-portal-input::placeholder { color: color-mix(in srgb, var(--vu-ink-2) 70%, transparent) !important; }
+.gh-portal-input:focus {
+  outline: none !important;
+  border-color: var(--vu-accent) !important;
+  background: rgba(255, 255, 255, .86) !important;
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--vu-accent) 18%, transparent) !important;
+}
+
+/* ---- buttons: M3 pills ---- */
+.gh-portal-btn {
+  border-radius: 999px !important;
+  font-weight: 600 !important;
+  transition: background .15s, box-shadow .15s, filter .15s, transform .15s !important;
+}
+.gh-portal-btn-main,
+.gh-portal-btn-primary {
+  height: 50px !important;
+  border: 0 !important;
+  background: var(--vu-accent) !important;
+  color: var(--vu-on-accent) !important;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, .34),
+    0 12px 26px -14px color-mix(in srgb, var(--vu-accent) 85%, #000) !important;
+}
+.gh-portal-btn-main:hover,
+.gh-portal-btn-primary:hover { filter: brightness(1.07); transform: translateY(-1px); }
+.gh-portal-btn-main:active,
+.gh-portal-btn-primary:active { transform: none; filter: brightness(.96); }
+
+/* Text buttons: the accent, no box. */
+.gh-portal-btn-link,
+.gh-portal-btn-link span,
+.gh-portal-btn-site-title-back {
+  color: var(--vu-accent) !important;
+  background: none !important;
+  box-shadow: none !important;
+}
+
+/* Everything else — "Manage", "Change", the account screen's row buttons —
+   is a tonal pill: the accent at a tenth of its strength, on glass. */
+.gh-portal-btn:not(.gh-portal-btn-main):not(.gh-portal-btn-primary):not(.gh-portal-btn-link):not(.gh-portal-btn-site-title-back):not(.gh-portal-btn-logout) {
+  background: var(--vu-tint) !important;
+  border: 1px solid var(--vu-hair) !important;
+  color: var(--vu-ink) !important;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .7) !important;
+}
+.gh-portal-btn:not(.gh-portal-btn-main):not(.gh-portal-btn-primary):not(.gh-portal-btn-link):hover {
+  background: color-mix(in srgb, var(--vu-accent) 17%, transparent) !important;
+}
+
+/* ---- close: a round icon button ---- */
+.gh-portal-closeicon-container {
+  width: 40px !important;
+  height: 40px !important;
+  display: grid !important;
+  place-items: center !important;
+  border-radius: 999px !important;
+  top: 16px !important;
+  right: 16px !important;
+  transition: background .15s !important;
+}
+.gh-portal-closeicon-container:hover { background: color-mix(in srgb, var(--vu-ink) 8%, transparent) !important; }
+.gh-portal-closeicon { width: 15px !important; height: 15px !important; color: var(--vu-ink-2) !important; }
+
+/* ---- the account modal and plan cards ---- */
+.gh-portal-list,
+.gh-portal-product-card,
+.gh-portal-account-data,
+.gh-portal-freeplan-container {
+  background: rgba(255, 255, 255, .5) !important;
+  border: 1px solid var(--vu-hair) !important;
+  border-radius: 20px !important;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .8) !important;
+}
+.gh-portal-list { overflow: hidden !important; }
+.gh-portal-list section { border-color: var(--vu-hair) !important; }
+.gh-portal-list-detail h3,
+.gh-portal-account-data h2 { color: var(--vu-ink) !important; }
+.gh-portal-list-detail p { color: var(--vu-ink-2) !important; }
+.gh-portal-product-card.checked {
+  border-color: var(--vu-accent) !important;
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--vu-accent) 18%, transparent), inset 0 1px 0 rgba(255, 255, 255, .8) !important;
+}
+.gh-portal-avatar { box-shadow: 0 0 0 3px rgba(255, 255, 255, .7) !important; }
+
+/* ---- the sticky button ----
+   A pane of glass tinted with the accent rather than a flat swatch. Kept
+   inside the iframe's box: the iframe clips anything that spills past it,
+   which is why the shadow is short. */
+.gh-portal-triggerbtn-container {
+  background: color-mix(in srgb, var(--vu-accent) 84%, transparent) !important;
+  backdrop-filter: var(--vu-blur) !important;
+  -webkit-backdrop-filter: var(--vu-blur) !important;
+  border: 1px solid rgba(255, 255, 255, .34) !important;
+  border-radius: 999px !important;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, .4),
+    0 10px 22px -12px color-mix(in srgb, var(--vu-accent) 90%, #000) !important;
+  font-weight: 600 !important;
+  letter-spacing: .01em !important;
+  transition: transform .15s, filter .15s !important;
+}
+.gh-portal-triggerbtn-container:hover { filter: brightness(1.07); transform: translateY(-1px); }
+
+/* ---- the toast ----
+   Ghost draws it as a black bar. Here it is a pane of light glass with the
+   accent on its leading edge — the notification is about the reader's
+   account, and it should look like part of the same set as the sheet. */
+.gh-portal-notification {
+  background: var(--vu-glass-strong) !important;
+  backdrop-filter: var(--vu-blur) !important;
+  -webkit-backdrop-filter: var(--vu-blur) !important;
+  border: 1px solid var(--vu-stroke) !important;
+  border-radius: 18px !important;
+  /* The accent edge is an inset shadow rather than a border-left: a border
+     meets a rounded corner with a hard mitre, a shadow follows the curve. */
+  box-shadow:
+    inset 4px 0 0 var(--vu-accent),
+    inset 0 1px 0 var(--vu-edge),
+    0 16px 36px -18px rgba(25, 10, 35, .45) !important;
+}
+.gh-portal-notification,
+.gh-portal-notification p,
+.gh-portal-notification span { color: var(--vu-ink) !important; }
+.gh-portal-notification.error {
+  box-shadow: inset 4px 0 0 #c2261a, inset 0 1px 0 var(--vu-edge), 0 16px 36px -18px rgba(25, 10, 35, .45) !important;
+}
+.gh-portal-notification-icon { color: var(--vu-accent) !important; }
+.gh-portal-notification.error .gh-portal-notification-icon { color: #c2261a !important; }
+.gh-portal-notification-closeicon { color: var(--vu-ink-2) !important; }

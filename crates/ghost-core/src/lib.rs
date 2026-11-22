@@ -10,11 +10,22 @@ pub mod error;
 pub mod firewall;
 pub mod forms;
 pub mod ids;
+pub mod images;
 pub mod locales;
 pub mod media;
 pub mod memberships;
 pub mod metafields;
 pub mod newsletters;
+pub mod permissions;
+pub mod popups;
+pub mod cookies;
+pub mod site_search;
+pub mod ads;
+pub mod workflows;
+pub mod social_media;
+pub mod caching;
+pub mod directory;
+pub mod builder;
 pub mod mail_settings;
 pub mod models;
 pub mod revisions;
@@ -83,3 +94,12 @@ mod version_tests {
         assert!(GHOST_VERSION.starts_with(GHOST_VERSION_SAFE));
     }
 }
+
+/// What a site is called when it has not been given a name.
+///
+/// It was "Ghost" — Ghost's own default, which then appeared in every email
+/// subject, sender name and feed of a site whose owner had not set a title.
+/// The fallback is the reader's view of an unnamed site, not the software's
+/// name, so it names neither. One constant, so no `unwrap_or("Ghost")` can
+/// quietly bring the old one back.
+pub const DEFAULT_SITE_TITLE: &str = "My Publication";
