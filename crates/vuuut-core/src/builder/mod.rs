@@ -10,7 +10,7 @@
 //!   whether it varies per device, and when it is shown. The editor's panels
 //!   are generated from it ([`spec::spec_json`]) and [`spec::normalise`]
 //!   rebuilds the renderable layout before it is stored or drawn. Elementor
-//!   source data is retained separately for JSON export.
+//!   source data is retained separately for validated styling and JSON export.
 //! * [`render`] — layout → HTML plus one generated stylesheet of per-element
 //!   rules (responsive values, hover states, typography, borders, shadows,
 //!   motion). Every text is escaped; the Text widget keeps a small set of
@@ -109,6 +109,27 @@ pub const FONTS: &[(&str, &str, &str, &str)] = &[
     ("lora", "Lora", "'Lora', serif", "Lora:wght@400;500;600;700"),
     ("fraunces", "Fraunces", "'Fraunces', serif", "Fraunces:wght@400;600;700;800"),
     ("source-serif", "Source Serif 4", "'Source Serif 4', serif", "Source+Serif+4:wght@400;600;700"),
+    ("rubik", "Rubik", "'Rubik', sans-serif", "Rubik:wght@400;500;600;700;800"),
+    ("plus-jakarta-sans", "Plus Jakarta Sans", "'Plus Jakarta Sans', sans-serif", "Plus+Jakarta+Sans:wght@400;500;600;700;800"),
+    ("manrope", "Manrope", "'Manrope', sans-serif", "Manrope:wght@400;500;600;700;800"),
+    ("quicksand", "Quicksand", "'Quicksand', sans-serif", "Quicksand:wght@400;500;600;700"),
+    ("amiri", "Amiri", "'Amiri', serif", "Amiri:wght@400;700"),
+    ("sora", "Sora", "'Sora', sans-serif", "Sora:wght@400;500;600;700;800"),
+    ("source-sans-3", "Source Sans 3", "'Source Sans 3', sans-serif", "Source+Sans+3:wght@400;500;600;700;800"),
+    ("baloo-2", "Baloo 2", "'Baloo 2', sans-serif", "Baloo+2:wght@400;500;600;700;800"),
+    ("pt-serif", "PT Serif", "'PT Serif', serif", "PT+Serif:wght@400;700"),
+    ("salsa", "Salsa", "'Salsa', sans-serif", "Salsa"),
+    ("port-lligat-sans", "Port Lligat Sans", "'Port Lligat Sans', sans-serif", "Port+Lligat+Sans"),
+    ("sanchez", "Sanchez", "'Sanchez', serif", "Sanchez"),
+    ("akshar", "Akshar", "'Akshar', sans-serif", "Akshar:wght@400;500;600;700"),
+    ("preahvihear", "Preahvihear", "'Preahvihear', sans-serif", "Preahvihear"),
+    ("cinzel", "Cinzel", "'Cinzel', serif", "Cinzel:wght@400;500;600;700;800;900"),
+    ("cormorant-garamond", "Cormorant Garamond", "'Cormorant Garamond', serif", "Cormorant+Garamond:wght@400;500;600;700"),
+    ("josefin-sans", "Josefin Sans", "'Josefin Sans', sans-serif", "Josefin+Sans:wght@400;500;600;700"),
+    ("didact-gothic", "Didact Gothic", "'Didact Gothic', sans-serif", "Didact+Gothic"),
+    ("pinyon-script", "Pinyon Script", "'Pinyon Script', cursive", "Pinyon+Script"),
+    ("roboto-slab", "Roboto Slab", "'Roboto Slab', serif", "Roboto+Slab:wght@400;500;600;700;800"),
+    ("nunito-sans", "Nunito Sans", "'Nunito Sans', sans-serif", "Nunito+Sans:wght@400;500;600;700;800"),
     ("ibm-plex-mono", "IBM Plex Mono", "'IBM Plex Mono', monospace", "IBM+Plex+Mono:wght@400;600"),
 ];
 

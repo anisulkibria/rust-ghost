@@ -392,7 +392,9 @@ pub(super) fn html(r: &mut R, kind: &str, id: &str, m: &Value, sel: &str, w: &Va
         "inner" => {
             let row_sel = format!("{sel} > .vb-row");
             r.resp(m, "gap", &row_sel, |v| format!("--vb-gap:{};", px(v)));
-            super::render::row(r, &w["cols"], m, &row_sel).replacen("class=\"vb-row ", "class=\"vb-row vb-inner ", 1)
+            let row = super::render::row(r, w, &row_sel).replacen("class=\"vb-row ", "class=\"vb-row vb-inner ", 1);
+            let overlay = super::elementor::style::overlay(r, w, sel);
+            format!("{overlay}{row}")
         }
         "html" => s(m, "code").to_string(),
         "elementor-widget" => empty(&format!("Elementor: {}", s(m, "label"))),
@@ -1269,6 +1271,7 @@ pub(super) fn html(r: &mut R, kind: &str, id: &str, m: &Value, sel: &str, w: &Va
         }
         "form" => match m["form"].as_str() {
             Some(f) => format!(r#"<div class="kg-card kg-form-card" data-form-id="{}"></div>"#, esc(f)),
+            None if w["elementor"]["source"]["widgetType"] == "form" => super::elementor::style::form(r, w, sel),
             None => empty("Form"),
         },
         "signup" => {

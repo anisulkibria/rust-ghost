@@ -36,6 +36,8 @@ pub(super) struct R<'a> {
     base: String,
     tablet: String,
     mobile: String,
+    imported_css: String,
+    pub has_elementor: bool,
     pub fonts: Vec<String>,
     pub depth: u8,
     pub uses_runtime: bool,
@@ -72,6 +74,9 @@ impl<'a> R<'a> {
     pub fn raw(&mut self, css: &str) {
         self.base.push_str(css);
     }
+    pub fn imported(&mut self, css: &str) {
+        self.imported_css.push_str(css);
+    }
     pub fn font(&mut self, key: &str) -> &'static str {
         if google_family(key).is_some() && !self.fonts.iter().any(|f| f == key) {
             self.fonts.push(key.to_string());
@@ -86,6 +91,7 @@ impl<'a> R<'a> {
         if !self.mobile.is_empty() {
             out.push_str(&format!("{MOBILE}{{{}}}", self.mobile));
         }
+        out.push_str(&self.imported_css);
         out
     }
 }
@@ -411,7 +417,7 @@ pub fn render(layout: &Value, settings: &Settings) -> String {
 
 /// Draw a layout with everything the context says.
 pub fn render_with(layout: &Value, ctx: &Ctx) -> String {
-    let mut r = R { ctx, base: String::new(), tablet: String::new(), mobile: String::new(), fonts: Vec::new(), depth: 0, uses_runtime: false };
+    let mut r = R { ctx, base: String::new(), tablet: String::new(), mobile: String::new(), imported_css: String::new(), has_elementor: layout["elementor"].is_object(), fonts: Vec::new(), depth: 0, uses_runtime: false };
     let body = sections_html(&mut r, layout["sections"].as_array().map(Vec::as_slice).unwrap_or(&[]));
     let page = &layout["page"];
     let mut style = ctx.settings.css_vars();
@@ -435,7 +441,8 @@ pub fn render_with(layout: &Value, ctx: &Ctx) -> String {
     }
     let head = ctx.settings.font_head(&r.fonts);
     format!(
-        r#"{head}<div class="vb-page vb-L{scope}{rt}" style="{style}">{css}{body}</div>"#,
+        r#"{head}<div class="vb-page vb-L{scope}{rt}" style="{style}"{elementor}>{css}{body}</div>"#,
+        elementor = if r.has_elementor { format!(" {}", super::elementor::STYLE_MARKER) } else { String::new() },
         scope = esc(ctx.scope),
         rt = if r.uses_runtime { " vb-rt" } else { "" },
         style = esc(&style),
@@ -611,7 +618,9 @@ fn section(r: &mut R, sec: &Value) -> String {
     let top = shape(r, m, &sel, "top");
     let bottom = shape(r, m, &sel, "bottom");
     let common = advanced(r, m, &id, &sel);
-    let row = row(r, &sec["cols"], m, &row_sel);
+    super::elementor::style::node(r, sec, &sel, true, None);
+    let row = row(r, sec, &row_sel);
+    extra.push_str(super::elementor::style::overlay(r, sec, &sel));
     let tag = match s(m, "tag") {
         "" => "section",
         t => t,
@@ -627,8 +636,14 @@ fn section(r: &mut R, sec: &Value) -> String {
 }
 
 /// A row of columns: a section's, or an inner section's.
-pub(super) fn row(r: &mut R, cols: &Value, m: &Value, row_sel: &str) -> String {
+pub(super) fn row(r: &mut R, node: &Value, row_sel: &str) -> String {
+    let cols = &node["cols"];
+    let m = &node["s"];
     let mut cols: Vec<_> = cols.as_array().into_iter().flatten().collect();
+    if super::elementor::style::container_row(r, node, row_sel) {
+        let body: String = cols.iter().map(|c| column(r, c)).collect();
+        return format!(r#"<div class="vb-row vb-el-row ">{body}</div>"#);
+    }
     if b(m, "row_reverse") {
         cols.reverse();
     }
@@ -700,6 +715,7 @@ fn column(r: &mut R, col: &Value) -> String {
     r.resp(m, "order", &sel, |v| v.as_i64().map(|o| format!("order:{o};")).unwrap_or_default());
     box_style(r, m, &sel);
     let common = advanced(r, m, &id, &sel);
+    super::elementor::style::node(r, col, &sel, false, None);
     let mut body: String = col["items"].as_array().into_iter().flatten().map(|w| widget(r, w)).collect();
     if body.is_empty() && r.ctx.editing {
         body = format!(r#"<div class="vbx-ph" data-vbx-col="{}"><span>+ Drag a widget here</span></div>"#, esc(&id));
@@ -735,6 +751,7 @@ pub(super) fn widget(r: &mut R, w: &Value) -> String {
         typo(r, m, &target);
     }
     let common = advanced(r, m, &id, &sel);
+    super::elementor::style::node(r, w, &sel, false, super::widgets::typo_target(&kind));
     let html = format!(
         r#"<div class="vb-w vb-w-{kind}{cls}" data-vb-id="{id}"{drag}{attrs}>{inner}</div>"#,
         kind = esc(&kind),

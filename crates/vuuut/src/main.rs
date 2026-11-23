@@ -261,6 +261,7 @@ async fn main() {
 
     };
     state.refresh_setup_flag().await;
+    vuuut_admin_ui::builder::refresh_elementor_layouts(&state).await;
     // the configured theme may be gone — record whichever one we fell back to
     if theme_name != active_name {
         let _ = settings.set(&state.db, "active_theme", &serde_json::json!(theme_name)).await;

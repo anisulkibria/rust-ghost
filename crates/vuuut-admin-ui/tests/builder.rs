@@ -606,7 +606,7 @@ async fn elementor_upload_edit_and_download_use_the_builder_routes() {
             "settings": {"content_width": "full", "flex_direction": "column"},
             "elements": [
                 {"id": "123abce", "elType": "widget", "widgetType": "heading", "settings":
-                    {"title": "Original title", "header_size": "h1", "align_mobile": "center"}, "elements": []},
+                    {"title": "Original title", "header_size": "h1", "align_mobile": "center", "typography_font_size": {"unit":"rem","size":2.5}}, "elements": []},
                 {"id": "123abcf", "elType": "widget", "widgetType": "html", "settings":
                     {"html": "<script>opaqueElementorSource()</script>"}, "elements": []}
             ]
@@ -628,6 +628,12 @@ async fn elementor_upload_edit_and_download_use_the_builder_routes() {
     let saved = vuuut_db::repos::builder::get(&state.db, post_id).await.unwrap().unwrap();
     assert!(saved.html.contains("Original title"));
     assert!(!saved.html.contains("opaqueElementorSource"));
+    vuuut_db::repos::builder::set_html(&state.db, post_id, "<div>Old cached layout</div>").await.unwrap();
+    vuuut_admin_ui::builder::refresh_elementor_layouts(state).await;
+    let refreshed = vuuut_db::repos::builder::get(&state.db, post_id).await.unwrap().unwrap();
+    assert_eq!(refreshed.data, saved.data, "Refresh changes only the cached HTML");
+    assert!(refreshed.html.contains("font-size:40px"));
+    assert!(!refreshed.html.contains("Old cached layout"));
     let mut layout: Value = serde_json::from_str(&saved.data).unwrap();
     layout["sections"][0]["cols"][0]["items"][0]["s"]["text"] = json!("Edited in Vuuut");
 

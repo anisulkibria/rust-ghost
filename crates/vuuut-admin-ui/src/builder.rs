@@ -18,7 +18,7 @@
 //!
 //! Every handler guards first; every write is origin-checked. A layout is
 //! rebuilt by `normalise` before it is stored or rendered. Elementor source
-//! metadata is kept separately and only used for JSON export. Editor endpoints take the body as a
+//! metadata is kept separately for validated styling and JSON export. Editor endpoints take the body as a
 //! string and parse it after the guard, so a stranger gets the sign-in
 //! redirect rather than an extractor's 4xx.
 
@@ -816,6 +816,29 @@ pub(crate) async fn settings_save(State(state): State<AppState>, headers: Header
 fn draw(state: &AppState, layout: &serde_json::Value, scope: &str, templates: &HashMap<String, serde_json::Value>) -> String {
     let s = builder_settings(state);
     rules::render_with(layout, &rules::Ctx { settings: &s, scope, editing: false, templates })
+}
+
+/// Bring previously imported pages up to date before serving their stored HTML.
+pub async fn refresh_elementor_layouts(state: &AppState) {
+    let layouts = match repo::stale_elementor_layouts(&state.db, elementor::STYLE_MARKER).await {
+        Ok(layouts) if layouts.is_empty() => return,
+        Ok(layouts) => layouts,
+        Err(error) => {
+            tracing::warn!("builder: checking Elementor layouts failed: {}", error.message());
+            return;
+        }
+    };
+    let templates = repo::templates_map(&state.db).await;
+    for (id, data) in layouts {
+        let Ok(value) = serde_json::from_str(&data) else { continue };
+        let Ok(layout) = rules::normalise(&value) else { continue };
+        let updated = draw(state, &layout, &id, &templates);
+        if updated.contains(elementor::STYLE_MARKER) {
+            if let Err(error) = repo::refresh_html(&state.db, &id, &data, &updated).await {
+                tracing::warn!("builder: updating Elementor layout {id} failed: {}", error.message());
+            }
+        }
+    }
 }
 
 /// Colours, widths, fonts and global widgets are drawn into every stored

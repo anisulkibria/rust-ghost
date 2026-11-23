@@ -1,11 +1,13 @@
-//! Elementor template JSON interchange. Source metadata is used only for re-export.
-//! The canvas uses the same validated settings as a native Vuuut layout.
+//! Elementor template JSON interchange and scoped rendering of supported styles.
+
+pub(super) mod style;
 
 use super::{spec, Settings};
 use serde_json::{json, Map, Value};
 use std::collections::{BTreeSet, HashSet};
 
 const VERSION: &str = "0.4";
+pub const STYLE_MARKER: &str = r#"data-vb-elementor="2""#;
 pub(super) const MAX_CONTAINER_DEPTH: u8 = 10;
 
 type Object = Map<String, Value>;
@@ -235,6 +237,39 @@ fn widget(kind: &str) -> Option<(&'static str, &'static [Control])> {
             "image-gallery",
             &[("columns", "gallery_columns", Responsive)],
         ),
+        "icon" => (
+            "icon",
+            &[
+                ("size", "size", Slider("px")),
+                ("link", "link", Link),
+                ("align", "align", Responsive),
+            ],
+        ),
+        "list" => (
+            "icon-list",
+            &[
+                ("icon_colour", "icon_color", Plain),
+                ("gap", "space_between", Slider("px")),
+            ],
+        ),
+        "form" => ("form", &[]),
+        "accordion" => ("accordion", &[]),
+        "carousel" => (
+            "image-carousel",
+            &[
+                ("per_view", "slides_to_show", Responsive),
+                ("gap", "image_spacing_custom", Slider("px")),
+            ],
+        ),
+        "social" => (
+            "social-icons",
+            &[
+                ("size", "icon_size", Slider("px")),
+                ("gap", "icon_spacing", Slider("px")),
+                ("colour", "icon_secondary_color", Plain),
+                ("bg", "icon_primary_color", Plain),
+            ],
+        ),
         "html" => ("html", &[("code", "html", Plain)]),
         _ => return None,
     })
@@ -258,6 +293,12 @@ fn native_widget(kind: &str) -> Option<&'static str> {
         "testimonial" => "testimonial",
         "alert" => "alert",
         "image-gallery" => "gallery",
+        "icon" => "icon",
+        "icon-list" => "list",
+        "form" => "form",
+        "image-carousel" => "carousel",
+        "social-icons" => "social",
+        "accordion" | "toggle" => "accordion",
         // Imported HTML can contain executable code. It is retained as
         // source data and never inserted into the canvas or public page.
         _ => return None,
@@ -338,7 +379,10 @@ fn import_controls(source: &Value, target: &mut Object, controls: &[Control]) {
                     .iter()
                     .find(|f| {
                         v.as_str().is_some_and(|s| {
-                            s.eq_ignore_ascii_case(f.3) || s.eq_ignore_ascii_case(f.1)
+                            s.eq_ignore_ascii_case(f.3)
+                                || s.eq_ignore_ascii_case(f.1)
+                                || (s.eq_ignore_ascii_case("Source Sans Pro")
+                                    && f.0 == "source-sans-3")
                         })
                     })
                     .map(|f| json!(f.0)),
@@ -362,6 +406,35 @@ fn background(source: &Value, target: &mut Object, key: &str, prefix: &str) {
     target.insert(key.into(), json!(mode));
 }
 
+fn icon_name(value: &Value) -> &'static str {
+    match value
+        .as_str()
+        .and_then(|icon| icon.split_whitespace().last())
+        .unwrap_or("")
+    {
+        "fa-arrow-right" | "fa-chevron-right" => "arrow",
+        "fa-check" | "fa-check-circle" | "fa-circle-check" => "check",
+        "fa-users" | "fa-user-group" => "users",
+        "fa-graduation-cap" | "fa-book" => "book",
+        "fa-video" | "fa-play" | "fa-play-circle" => "play",
+        "fa-tasks" | "fa-list" | "fa-layer-group" => "menu",
+        "fa-infinity" | "fa-circle-notch" | "fa-circle" => "○",
+        "fa-heart" => "heart",
+        "fa-envelope" => "mail",
+        "fa-star" => "star",
+        _ => "star",
+    }
+}
+
+pub(super) fn upgrade_widget(metadata: Option<&Value>) -> Option<(&'static str, Object)> {
+    let source = &metadata?["source"];
+    if !children(source).is_empty() {
+        return None;
+    }
+    let kind = native_widget(str_at(source, "widgetType"))?;
+    Some((kind, widget_import(kind, &source["settings"])))
+}
+
 fn widget_import(kind: &str, source: &Value) -> Object {
     let mut settings = Object::new();
     let (_, controls) = widget(kind).expect("mapped widget");
@@ -370,6 +443,107 @@ fn widget_import(kind: &str, source: &Value) -> Object {
     import_controls(source, &mut settings, TYPOGRAPHY);
     import_controls(source, &mut settings, controls);
     match kind {
+        "icon" => {
+            settings.insert(
+                "icon".into(),
+                json!(icon_name(&source["selected_icon"]["value"])),
+            );
+            let stacked = source["view"] == "stacked";
+            if stacked {
+                settings.insert(
+                    "shape".into(),
+                    json!(if source["shape"] == "square" {
+                        "square"
+                    } else {
+                        "circle"
+                    }),
+                );
+                copy_value(&mut settings, "bg", &source["primary_color"]);
+            }
+            copy_value(
+                &mut settings,
+                "colour",
+                &source[if stacked {
+                    "secondary_color"
+                } else {
+                    "primary_color"
+                }],
+            );
+        }
+        "list" => {
+            let items: Vec<_> = source["icon_list"].as_array().into_iter().flatten().map(|item| {
+                json!({"text": item["text"], "link": item["link"]["url"], "icon": icon_name(&item["selected_icon"]["value"])})
+            }).collect();
+            settings.insert("items".into(), json!(items));
+            if source["view"] == "inline" {
+                settings.insert("layout".into(), json!("inline"));
+            }
+            let typ = |key: &str| source.get(format!("icon_{key}")).cloned();
+            let typography = Object::from_iter(
+                TYPOGRAPHY
+                    .iter()
+                    .filter_map(|(_, key, _)| typ(key).map(|v| (key.to_string(), v))),
+            );
+            import_controls(&Value::Object(typography), &mut settings, TYPOGRAPHY);
+        }
+        "carousel" => {
+            let images: Vec<_> = source["carousel"].as_array().into_iter().flatten()
+                .filter_map(|image| Some(json!({"src": image["url"].as_str()?, "alt": image["alt"], "caption": image["caption"]})))
+                .collect();
+            settings.insert("images".into(), json!(images));
+            let navigation = str_at(source, "navigation");
+            settings.insert(
+                "arrows".into(),
+                json!(!matches!(navigation, "dots" | "none")),
+            );
+            settings.insert(
+                "dots".into(),
+                json!(!matches!(navigation, "arrows" | "none")),
+            );
+            settings.insert("lightbox".into(), json!(source["open_lightbox"] == "yes"));
+            if source["autoplay"] == "yes" {
+                settings.insert("autoplay".into(), json!(true));
+                if let Some(speed) = number(&source["autoplay_speed"]) {
+                    settings.insert("speed".into(), json!(speed / 1000.0));
+                }
+            }
+        }
+        "social" => {
+            let items: Vec<_> = source["social_icon_list"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .filter_map(|item| {
+                    let network = item["social_icon"]["value"]
+                        .as_str()?
+                        .split_whitespace()
+                        .last()?
+                        .strip_prefix("fa-")?;
+                    let network = match network {
+                        "twitter" | "x-twitter" => "x",
+                        "envelope" => "email",
+                        "facebook-f" => "facebook",
+                        "linkedin-in" => "linkedin",
+                        _ => network,
+                    };
+                    Some(json!({"net": network, "href": item["link"]["url"]}))
+                })
+                .collect();
+            settings.insert("items".into(), json!(items));
+            copy_value(&mut settings, "shape", &source["shape"]);
+        }
+        "accordion" => {
+            let items: Vec<_> = source["tabs"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .map(|item| {
+                    let body = crate::comments::to_plaintext(str_at(item, "tab_content"));
+                    json!({"q": item["tab_title"], "a": body})
+                })
+                .collect();
+            settings.insert("items".into(), json!(items));
+        }
         "heading" => {
             if let Some(title) = source["title"].as_str() {
                 settings.insert("text".into(), json!(crate::comments::to_plaintext(title)));
@@ -404,7 +578,11 @@ fn widget_import(kind: &str, source: &Value) -> Object {
             }
         }
         "image" => {
-            copy_value(&mut settings, "alt", &source["image"]["alt"]);
+            copy_value(
+                &mut settings,
+                "alt",
+                source.get("image_alt").unwrap_or(&source["image"]["alt"]),
+            );
             if source["link_to"] == "file" {
                 settings.insert("lightbox".into(), json!(source["open_lightbox"] != "no"));
             }
@@ -468,7 +646,6 @@ pub struct Import {
 struct Importer {
     next_id: usize,
     unsupported: BTreeSet<String>,
-    approximated: bool,
 }
 
 impl Importer {
@@ -557,9 +734,6 @@ impl Importer {
         let direction = str_at(raw, "flex_direction");
         let row = matches!(direction, "row" | "row-reverse");
         let elements = children(element);
-        if raw["container_type"] == "grid" || (row && elements.len() > spec::MAX_COLUMNS) {
-            self.approximated = true;
-        }
         let cols = if row && elements.len() <= spec::MAX_COLUMNS {
             if direction == "row-reverse" {
                 settings.insert("row_reverse".into(), json!(true));
@@ -693,6 +867,10 @@ fn snapshot(node: &mut Value) {
     }
 }
 
+fn has_form(element: &Value) -> bool {
+    element["widgetType"] == "form" || children(element).iter().any(has_form)
+}
+
 pub fn import(input: &Value) -> Result<Import, String> {
     let content = input["content"]
         .as_array()
@@ -717,7 +895,6 @@ pub fn import(input: &Value) -> Result<Import, String> {
     let mut importer = Importer {
         next_id: 0,
         unsupported: BTreeSet::new(),
-        approximated: false,
     };
     let sections: Vec<_> = content.iter().map(|e| importer.section(e)).collect();
     let mut page = Object::new();
@@ -746,9 +923,9 @@ pub fn import(input: &Value) -> Result<Import, String> {
             .join(", ");
         warnings.push(format!("These elements are preserved for Elementor export and hidden on the Vuuut page ({names})."));
     }
-    if importer.approximated {
+    if content.iter().any(has_form) {
         warnings.push(
-            "Some Elementor grids or wide rows are displayed as stacked content in Vuuut.".into(),
+            "Imported forms show their design. Connect a Vuuut form to accept submissions.".into(),
         );
     }
     let title: String = str_at(input, "title").trim().chars().take(200).collect();
@@ -936,6 +1113,14 @@ impl Exporter<'_> {
                 .is_object()
                 .then(|| node["elementor"]["source"].clone());
         }
+        if !node["elementor"]["source"].is_object()
+            && matches!(
+                kind,
+                "icon" | "list" | "form" | "accordion" | "carousel" | "social"
+            )
+        {
+            return Some(self.fallback(node));
+        }
         let Some((external, controls)) = widget(kind) else {
             return Some(self.fallback(node));
         };
@@ -1072,6 +1257,9 @@ impl Exporter<'_> {
             }
             _ => {}
         }
+        let external = node["elementor"]["source"]["widgetType"]
+            .as_str()
+            .unwrap_or(external);
         Some(self.element(node, "widget", Some(external), settings, Vec::new(), false))
     }
 

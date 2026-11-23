@@ -1053,6 +1053,8 @@ fn clean_columns(cols: &[Value], n: &mut u32, depth: u8) -> Result<Vec<Value>, S
         for w in items {
             let Some(w) = w.as_object() else { continue };
             let Some(kind) = w.get("t").and_then(Value::as_str) else { continue };
+            let upgraded = if kind == "elementor-widget" { super::elementor::upgrade_widget(w.get("elementor")) } else { None };
+            let kind = upgraded.as_ref().map(|(kind, _)| *kind).unwrap_or(kind);
             let Some(spec) = widget(kind) else { continue };
             // Native inner sections are one level deep. Imported containers
             // can contain further containers up to the conversion limit.
@@ -1060,7 +1062,8 @@ fn clean_columns(cols: &[Value], n: &mut u32, depth: u8) -> Result<Vec<Value>, S
                 || (depth > 0 && w.get("elementor").and_then(|m| m["source"]["elType"].as_str()) != Some("container"))) {
                 continue;
             }
-            let raw = w.get("s").and_then(Value::as_object).unwrap_or(&empty);
+            let raw = upgraded.as_ref().map(|(_, settings)| settings)
+                .or_else(|| w.get("s").and_then(Value::as_object)).unwrap_or(&empty);
             let ws = clean_map(raw, widget_fields(spec));
             let mut obj = json!({"id": clean_id(w.get("id"), n), "t": kind, "s": ws});
             if kind == "inner" {
@@ -1072,6 +1075,9 @@ fn clean_columns(cols: &[Value], n: &mut u32, depth: u8) -> Result<Vec<Value>, S
                 obj["cols"] = Value::Array(cols);
             }
             preserve_elementor(w, &mut obj);
+            if upgraded.is_some() {
+                obj["elementor"]["snapshot"] = obj["s"].clone();
+            }
             out_items.push(obj);
         }
         let mut column = json!({"id": clean_id(c.get("id"), n), "s": cs, "items": out_items});
@@ -1081,8 +1087,7 @@ fn clean_columns(cols: &[Value], n: &mut u32, depth: u8) -> Result<Vec<Value>, S
     Ok(out)
 }
 
-/// Imported source is opaque metadata for re-export. Rendering uses only the
-/// separately validated builder settings.
+/// Keep source metadata for re-export and for the validated styling adapters.
 fn preserve_elementor(input: &Map<String, Value>, output: &mut Value) {
     if let Some(metadata) = input.get("elementor").filter(|v| v.is_object()) {
         output["elementor"] = metadata.clone();

@@ -186,6 +186,25 @@ pub async fn all_data(pool: &Db) -> Result<Vec<(String, String)>> {
         .collect())
 }
 
+/// Existing imports whose cached HTML predates the current Elementor styling.
+pub async fn stale_elementor_layouts(pool: &Db, marker: &str) -> Result<Vec<(String, String)>> {
+    let rows = sqlx::query("SELECT post_id, data FROM builder_layouts WHERE data LIKE ? AND html NOT LIKE ?")
+        .bind(r#"%"elementor":%"#).bind(format!("%{marker}%"))
+        .fetch_all(pool).await.map_err(dberr)?;
+    Ok(rows.iter().filter_map(|r| {
+        Some((r.try_get("post_id").ok()?, r.try_get::<Text, _>("data").ok()?.0))
+    }).collect())
+}
+
+pub async fn refresh_html(pool: &Db, post_id: &str, data: &str, html: &str) -> Result<()> {
+    let result = sqlx::query("UPDATE builder_layouts SET html = ? WHERE post_id = ? AND data = ?")
+        .bind(html).bind(post_id).bind(data).execute(pool).await.map_err(dberr)?;
+    if result.rows_affected() != 0 {
+        crate::content::touch();
+    }
+    Ok(())
+}
+
 pub async fn set_html(pool: &Db, post_id: &str, html: &str) -> Result<()> {
     sqlx::query("UPDATE builder_layouts SET html = ? WHERE post_id = ?").bind(html).bind(post_id).execute(pool).await.map_err(dberr)?;
     crate::content::touch();

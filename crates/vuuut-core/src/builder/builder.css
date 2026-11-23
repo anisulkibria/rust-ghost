@@ -681,3 +681,14 @@ body:has(.vb-page){overflow-x:clip}
 
 .vb-page .vb-catalogue{display:grid;grid-template-columns:repeat(var(--vb-catalogue-columns,3),minmax(0,1fr));gap:16px}
 .vb-page .vb-catalogue > a{min-width:0;margin:0}
+
+.vb-page .vb-el-form{display:grid;grid-template-columns:repeat(12,minmax(0,1fr));gap:12px}
+.vb-page .vb-el-form label{display:grid;gap:4px;grid-column:span var(--vb-field-span,12);min-width:0}
+.vb-page .vb-el-input,.vb-page .vb-el-submit{border:1px solid #aaa;border-radius:4px;padding:10px 12px;font:inherit;color:inherit;opacity:1}
+.vb-page .vb-el-input{width:100%;min-width:0;background:transparent}
+.vb-page textarea.vb-el-input{min-height:90px}
+.vb-page .vb-el-submit,.vb-page .vb-el-form-note{grid-column:1/-1}
+.vb-page .vb-el-form-note{font-size:13px;opacity:.75}
+@media(max-width:767px){.vb-page .vb-el-form label{grid-column:1/-1}}
+
+.vb-page .vb-el-overlay{position:absolute;inset:0;pointer-events:none;border-radius:inherit}
