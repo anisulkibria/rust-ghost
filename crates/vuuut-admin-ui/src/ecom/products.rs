@@ -326,6 +326,16 @@ async fn product_editor(state: &AppState, actor: &Actor, p: Option<repo::Product
         barcode = field("barcode", "Barcode (ISBN, UPC, GTIN…)", &base.barcode, "text", r#" maxlength="80""#),
         back = check("backorder", "Continue selling when out of stock", base.backorder(), ""),
     );
+    // Outside links: a demo to try, and a checkout elsewhere (Polar,
+    // Gumroad) that takes the place of the cart.
+    let links = format!(
+        r#"<div class="ec-grid2">
+<label class="field"><input name="demo_url" type="url" inputmode="url" maxlength="500" value="{demo}" placeholder=" " pattern="https?://.+"><span>Live demo link</span></label>
+<label class="field"><input name="purchase_url" type="url" inputmode="url" maxlength="500" value="{buy}" placeholder=" " pattern="https?://.+"><span>Direct purchase link</span></label></div>
+<p class="muted ec-hint">The demo link is where buyers try it first, like a theme's demo site: the store shows a Live demo button. A direct purchase link (a Polar or Gumroad checkout) replaces Add to cart with Buy now, which goes straight there. Leave it empty to sell through this store's cart. Themes read them as <code>demo_url</code> and <code>purchase_url</code>.</p>"#,
+        demo = esc(&get(|p| &p.demo_url)),
+        buy = esc(&get(|p| &p.purchase_url)),
+    );
     let shipping = format!(
         r#"{phys}<div class="ec-physical"><div class="ec-grid2">{w}</div></div><p class="muted ec-hint ec-nonphysical">Not shipped: checkout asks for no address. Use this for digital downloads and services.</p>"#,
         phys = check("requires_shipping", "This is a physical product", p.as_ref().map(|p| p.requires_shipping != 0).unwrap_or(true), ""),
@@ -448,13 +458,14 @@ async fn product_editor(state: &AppState, actor: &Actor, p: Option<repo::Product
 <input type="hidden" name="description_lexical" id="ec-lexical" value="">
 <div id="ec-desc-fallback"><label class="field"><textarea name="description_plain" rows="8" placeholder=" ">{plain}</textarea><span>Description (plain text)</span></label></div>
 {excerpt}</section>
-{media}{pricing}{inventory}{shipping}{variants}{digital}{seo}"#,
+{media}{pricing}{links}{inventory}{shipping}{variants}{digital}{seo}"#,
         title = field("title", "Title", &get(|p| &p.title), "text", r#" required maxlength="255" id="ec-title" placeholder="Short sleeve t-shirt""#).replace(r#"placeholder=" " required"#, r#"placeholder=" " required"#),
         config = esc(&config.to_string()),
         plain = esc(&vuuut_render::markdown::html_to_plaintext(&get(|p| &p.description_html))),
         excerpt = field("excerpt", "Short summary (shown in lists and shares)", &get(|p| &p.excerpt), "text", r#" maxlength="500""#),
         media = card("Media", "image", "pink", &media, "ec-media-card"),
         pricing = card("Pricing", "sell", "green", &pricing, "ec-pricing"),
+        links = card("Demo & purchase links", "link", "blue", &links, "ec-links"),
         inventory = card("Inventory", "box", "amber", &inventory, "ec-inventory"),
         shipping = card("Shipping", "truck", "blue", &shipping, "ec-shipping"),
         variants = card("Variants", "tune", "purple", &variants, "ec-variants-card"),
@@ -520,6 +531,12 @@ fn read_form(f: &[(String, String)], s: &Settings, existing: &[repo::Variant]) -
         let plain = rules::clean_multiline(&get("description_plain"), 20_000);
         (String::new(), rules::paragraphs(&plain))
     };
+    for (key, what) in [("demo_url", "live demo link"), ("purchase_url", "direct purchase link")] {
+        let raw = get(key);
+        if !raw.trim().is_empty() && rules::clean_web_url(&raw).is_empty() {
+            return Err(format!("The {what} must be a full web address starting with https:// or http://."));
+        }
+    }
     let options = rules::build_options(&(0..rules::MAX_OPTIONS).map(|i| (get(&format!("opt_name_{i}")), get(&format!("opt_values_{i}")))).collect::<Vec<_>>());
     let handle_raw = get("handle");
     let handle = rules::handleize(if handle_raw.trim().is_empty() { &title } else { &handle_raw });
@@ -550,6 +567,8 @@ fn read_form(f: &[(String, String)], s: &Settings, existing: &[repo::Variant]) -
         featured: on("featured"),
         download_limit: get("download_limit").trim().parse::<i64>().unwrap_or(0).clamp(0, 10_000),
         download_days: get("download_days").trim().parse::<i64>().unwrap_or(0).clamp(0, 36_500),
+        demo_url: rules::clean_web_url(&get("demo_url")),
+        purchase_url: rules::clean_web_url(&get("purchase_url")),
     };
     let base = repo::VariantInput {
         id: None,

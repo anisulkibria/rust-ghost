@@ -24,7 +24,10 @@ impl GetHelper {
 /// `core/frontend/helpers/get.js`. Anything else sets `@data.error` and renders
 /// `{{else}}` rather than quietly producing an empty list — a theme asking for
 /// `{{#get "members"}}` is a theme bug, and Ghost says so.
-const RESOURCES: &[&str] = &["posts", "pages", "tags", "authors", "tiers", "newsletters"];
+///
+/// Vuuut adds `products`: the online store's active products, so a theme can
+/// show its catalogue anywhere (see [`browse_products`]).
+const RESOURCES: &[&str] = &["posts", "pages", "tags", "authors", "tiers", "newsletters", "products"];
 
 /// Ghost's `optimization:maxLimit`. Since 6.x `limit="all"` is capped here too
 /// rather than fetching the whole table.
@@ -481,9 +484,88 @@ async fn run_get(
                 vuuut_core::models::pagination_json(page, if limit > 0 { limit } else { 15 }, total);
             Ok((Value::Array(items), pagination))
         }
+        "products" => browse_products(deps, filter_expr.as_ref(), order, limit, page).await,
         _ => Ok((Value::Array(vec![]), vuuut_core::models::pagination_json(1, limit.max(1), 0))),
     }
 }
+
+/// `{{#get "products"}}`: the store's active products, newest first, as the
+/// storefront would list them. Nothing at all while the store is switched
+/// off, so a theme's `{{else}}` shows instead.
+///
+/// Each product is [`vuuut_db::repos::ecom::card_json`]: `title`, `url`,
+/// `excerpt`, `vendor`, `product_type`, `tags`, `meta`, `image`, `price`
+/// (formatted, `"Free"` at zero), `on_sale`, `sold_out`, `demo_url`, …,
+/// plus `collections`: the handles of the published collections it is in.
+///
+/// `filter` is NQL over those fields; `order` takes `price asc|desc`,
+/// `title asc`, `featured` or (default) newest.
+async fn browse_products(
+    deps: &HelperDeps,
+    filter: Option<&vuuut_nql::Expr>,
+    order: Option<&str>,
+    limit: i64,
+    page: i64,
+) -> vuuut_core::Result<(Value, Value)> {
+    use vuuut_core::ecom as rules;
+    use vuuut_db::repos::ecom as repo;
+
+    let per_page = if limit > 0 { limit } else { 15 };
+    let empty = || (Value::Array(vec![]), vuuut_core::models::pagination_json(1, per_page, 0));
+    let stored: std::collections::HashMap<String, String> =
+        vuuut_db::repos::settings::all(&deps.pool).await?.into_iter().map(|s| (s.key, s.value)).collect();
+    let settings = rules::Settings::read(|k| stored.get(k).cloned());
+    if !settings.enabled {
+        return Ok(empty());
+    }
+    let paths = rules::Paths::from_settings(&settings);
+    let order = order.unwrap_or("").to_ascii_lowercase();
+    let sort = match order.trim() {
+        "price asc" | "price" => "price_asc",
+        "price desc" => "price_desc",
+        "title asc" | "title" => "title",
+        "featured" | "featured desc" => "newest",
+        _ => "newest",
+    };
+    let browse = repo::ProductBrowse { status: Some("active"), sort, limit: 1000, ..Default::default() };
+    let (products, _) = repo::browse_products(&deps.pool, &browse).await?;
+    let ids: Vec<String> = products.iter().map(|p| p.id.clone()).collect();
+    let variants = repo::variants_for(&deps.pool, &ids).await;
+    // product id → handles of the published collections it is in, so a
+    // theme can ask for `filter="collections:themes"`
+    let mut member_of: std::collections::HashMap<String, Vec<String>> = std::collections::HashMap::new();
+    for c in repo::collections(&deps.pool).await.into_iter().filter(|c| c.published != 0) {
+        for id in repo::collection_product_ids(&deps.pool, &c, true).await {
+            member_of.entry(id).or_default().push(c.handle.clone());
+        }
+    }
+
+    let mut items: Vec<Value> = products
+        .iter()
+        .map(|p| {
+            let vs = variants.get(&p.id).map(Vec::as_slice).unwrap_or_default();
+            let url = vuuut_core::url::base(&paths.public_path(&format!("/shop/products/{}/", p.handle)));
+            let mut j = repo::card_json(p, vs, &settings, &url);
+            j["collections"] = json!(member_of.get(&p.id).cloned().unwrap_or_default());
+            j
+        })
+        .collect();
+    if order.starts_with("featured") {
+        // stable: featured first, newest order kept within each group
+        items.sort_by_key(|i| !i["featured"].as_bool().unwrap_or(false));
+    }
+    if let Some(f) = filter {
+        items.retain(|i| vuuut_nql::evaluate(f, i));
+    }
+    let total = items.len() as i64;
+    let items: Vec<Value> = if limit < 0 {
+        items
+    } else {
+        items.into_iter().skip(((page.max(1) - 1) * per_page) as usize).take(per_page as usize).collect()
+    };
+    Ok((Value::Array(items), vuuut_core::models::pagination_json(page, per_page, total)))
+}
+
 
 // ---------------------------------------------------------------------------
 // prev_post / next_post

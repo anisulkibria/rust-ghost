@@ -32,7 +32,8 @@
 //!
 //! Writes are same-origin only; checkout has a per-address budget.
 
-use crate::routes::render_virtual_page_with;
+use crate::routes::{render_virtual_page_as, render_virtual_page_with};
+use serde_json::{json, Value};
 use axum::{
     extract::{Path, Query, State},
     http::{header, HeaderMap, HeaderValue, StatusCode},
@@ -189,12 +190,103 @@ async fn page(state: &AppState, headers: &HeaderMap, path: &str, title: &str, ex
     );
     // The page's own URL (canonical, sharing) is its public address.
     let public_url = public(path);
-    let mut res = render_virtual_page_with(state, headers, &public_url, title, excerpt, html, image, false).await;
-    // A page that shows a cart is somebody's; it must not be shared.
+    let res = render_virtual_page_with(state, headers, &public_url, title, excerpt, html, image, false).await;
+    keep_private(res, count, path)
+}
+
+/// A page that shows a cart is somebody's; it must not be shared.
+fn keep_private(mut res: Response, count: i64, path: &str) -> Response {
     if count > 0 || path.starts_with("/shop/cart") || path.starts_with("/shop/checkout") || path.starts_with("/shop/orders") || path.starts_with("/shop/account") || path.starts_with("/shop/downloads") || path.starts_with("/shop/dashboard") {
         res.headers_mut().insert(header::CACHE_CONTROL, HeaderValue::from_static("private, no-store"));
     }
     res
+}
+
+// ---------------------------------------------------------------------------
+// theme templates
+// ---------------------------------------------------------------------------
+//
+// A theme can draw the store's catalogue, collections and product pages
+// itself with `shop/shop.hbs`, `shop/collection.hbs`, `shop/collections.hbs`
+// and `shop/product.hbs`. When it has the template, the store hands it data
+// instead of HTML; otherwise the store's own markup renders as before. Cart,
+// checkout, orders and the dashboard stay the store's, since they carry
+// payment and download state.
+//
+// Every store template gets `shop` (name, links, cart count); the rest is
+// per page and documented on each builder below.
+
+/// Those of `names` the active theme has, in order.
+async fn theme_templates(state: &AppState, names: &[&str]) -> Vec<String> {
+    let theme = state.theme.read().await.clone();
+    names.iter().filter(|n| theme.has_template(n)).map(|n| n.to_string()).collect()
+}
+
+/// `shop`: what every store template can use.
+fn shop_json(state: &AppState, s: &Settings, count: i64) -> Value {
+    let site_title = state.settings.get_str("title").unwrap_or_default();
+    let v = assets_version();
+    let mut policies = Vec::new();
+    if !s.policy_shipping.is_empty() {
+        policies.push(json!({ "title": "Shipping policy", "url": link("/shop/policies/shipping/") }));
+    }
+    if !s.policy_refund.is_empty() {
+        policies.push(json!({ "title": "Refund policy", "url": link("/shop/policies/refund/") }));
+    }
+    json!({
+        "name": s.name(&site_title),
+        "intro": s.intro,
+        "currency": s.currency,
+        "url": link(BASE),
+        "collections_url": link("/shop/collections/"),
+        "cart_url": link("/shop/cart/"),
+        "checkout_url": link("/shop/checkout/"),
+        "dashboard_url": link("/shop/dashboard/"),
+        "add_url": link("/shop/cart/add/"),
+        "cart_count": count,
+        "style_url": link(&format!("/shop/assets/{v}/shop.css")),
+        "script_url": link(&format!("/shop/assets/{v}/shop.js")),
+        "policies": policies,
+        "tax_note": if s.tax_rate_bp > 0 { if s.tax_included { "Tax included." } else { "Tax calculated at checkout." } } else { "" },
+    })
+}
+
+/// A product card's data at its public address.
+fn product_card(p: &repo::Product, vs: &[repo::Variant], s: &Settings) -> Value {
+    repo::card_json(p, vs, s, &link(&format!("/shop/products/{}/", p.handle)))
+}
+
+fn collection_json(c: &repo::Collection) -> Value {
+    json!({
+        "id": c.id,
+        "title": c.title,
+        "handle": c.handle,
+        "slug": c.handle,
+        "description": c.description,
+        "feature_image": if c.image.is_empty() { Value::Null } else { json!(c.image) },
+        "url": link(&format!("/shop/collections/{}/", c.handle)),
+    })
+}
+
+/// Render one of the theme's store templates.
+#[allow(clippy::too_many_arguments)]
+async fn theme_page(
+    state: &AppState,
+    headers: &HeaderMap,
+    path: &str,
+    title: &str,
+    excerpt: &str,
+    image: Option<String>,
+    templates: Vec<String>,
+    mut data: serde_json::Map<String, Value>,
+    kind: &str,
+) -> Response {
+    let s = settings(state);
+    let count: i64 = current_cart(state, headers).await.map(|c| c.lines().iter().map(|l| l.qty).sum()).unwrap_or(0);
+    data.insert("shop".into(), shop_json(state, &s, count));
+    let public_url = public(path);
+    let res = render_virtual_page_as(state, headers, &public_url, title, excerpt, String::new(), image, false, &templates, data, &["shop", kind]).await;
+    keep_private(res, count, path)
 }
 
 // ---------------------------------------------------------------------------
@@ -332,20 +424,7 @@ async fn listing(state: AppState, headers: HeaderMap, q: HashMap<String, String>
     }
     let pids: Vec<String> = products.iter().map(|p| p.id.clone()).collect();
     let vs = repo::variants_for(&state.db, &pids).await;
-    let cards: String = products.iter().map(|p| card(p, vs.get(&p.id).map(Vec::as_slice).unwrap_or(&[]), &s)).collect();
-
     let colls: Vec<repo::Collection> = repo::collections(&state.db).await.into_iter().filter(|c| c.published != 0).collect();
-    let chips: String = std::iter::once(format!(r#"<a class="vs-chip{on}" href="{h}">All products</a>"#, on = if coll.is_none() { " on" } else { "" }, h = link(BASE)))
-        .chain(colls.iter().take(12).map(|c| {
-            format!(
-                r#"<a class="vs-chip{on}" href="{h}">{t}</a>"#,
-                on = if coll.as_ref().is_some_and(|x| x.id == c.id) { " on" } else { "" },
-                h = link(&format!("/shop/collections/{}/", c.handle)),
-                t = esc(&c.title)
-            )
-        }))
-        .collect();
-    let sort_opts: String = PUBLIC_SORTS.iter().map(|(k, l)| format!(r#"<option value="{k}"{s}>{l}</option>"#, s = if *k == sort { " selected" } else { "" })).collect();
     let pages = total / s.per_page + i64::from(total % s.per_page != 0);
     let page_link = |n: i64| {
         let mut p = vec![format!("page={n}")];
@@ -357,6 +436,62 @@ async fn listing(state: AppState, headers: HeaderMap, q: HashMap<String, String>
         }
         format!("{}?{}", link(&path), p.join("&amp;"))
     };
+    let site_title = state.settings.get_str("title").unwrap_or_default();
+    let (title, intro, hero) = match &coll {
+        Some(c) => (c.title.clone(), c.description.clone(), c.image.clone()),
+        None => (if query.is_empty() { s.name(&site_title).to_string() } else { format!("Search: {query}") }, if query.is_empty() { s.intro.clone() } else { String::new() }, String::new()),
+    };
+    let excerpt = coll.as_ref().map(|c| if c.seo_description.is_empty() { c.description.clone() } else { c.seo_description.clone() }).unwrap_or_else(|| s.intro.clone());
+    let page_title = coll.as_ref().map(|c| if c.seo_title.is_empty() { c.title.clone() } else { c.seo_title.clone() }).unwrap_or_else(|| title.clone());
+
+    // The theme's `shop/collection.hbs` (falling back to `shop/shop.hbs`)
+    // or `shop/shop.hbs`: `products`, `collection` (on a collection),
+    // `collections` (each with `current`), `query`, `sort`, `sorts`,
+    // `heading`, `intro`, `total` and `pagination`.
+    let names: &[&str] = if coll.is_some() { &["shop/collection", "shop/shop"] } else { &["shop/shop"] };
+    let templates = theme_templates(&state, names).await;
+    if !templates.is_empty() {
+        let mut data = serde_json::Map::new();
+        data.insert("products".into(), Value::Array(products.iter().map(|p| product_card(p, vs.get(&p.id).map(Vec::as_slice).unwrap_or(&[]), &s)).collect()));
+        data.insert("collection".into(), coll.as_ref().map(collection_json).unwrap_or(Value::Null));
+        data.insert("collections".into(), Value::Array(colls.iter().map(|c| {
+            let mut j = collection_json(c);
+            j["current"] = json!(coll.as_ref().is_some_and(|x| x.id == c.id));
+            j
+        }).collect()));
+        data.insert("query".into(), json!(query));
+        data.insert("sort".into(), json!(sort));
+        data.insert("sorts".into(), Value::Array(PUBLIC_SORTS.iter().map(|(k, l)| json!({ "value": k, "label": l, "selected": *k == sort })).collect()));
+        data.insert("heading".into(), json!(title));
+        data.insert("intro".into(), json!(intro));
+        data.insert("total".into(), json!(total));
+        data.insert("pagination".into(), json!({
+            "page": page_no,
+            "pages": pages.max(1),
+            "total": total,
+            "limit": s.per_page,
+            "prev": if page_no > 1 { json!(page_no - 1) } else { Value::Null },
+            "next": if page_no < pages { json!(page_no + 1) } else { Value::Null },
+            "prev_url": if page_no > 1 { json!(page_link(page_no - 1).replace("&amp;", "&")) } else { Value::Null },
+            "next_url": if page_no < pages { json!(page_link(page_no + 1).replace("&amp;", "&")) } else { Value::Null },
+        }));
+        let image = coll.as_ref().and_then(|c| (!c.image.is_empty()).then(|| c.image.clone()));
+        let kind = if coll.is_some() { "shop-collection" } else { "shop-home" };
+        return theme_page(&state, &headers, &path, &page_title, &excerpt, image, templates, data, kind).await;
+    }
+
+    let cards: String = products.iter().map(|p| card(p, vs.get(&p.id).map(Vec::as_slice).unwrap_or(&[]), &s)).collect();
+    let chips: String = std::iter::once(format!(r#"<a class="vs-chip{on}" href="{h}">All products</a>"#, on = if coll.is_none() { " on" } else { "" }, h = link(BASE)))
+        .chain(colls.iter().take(12).map(|c| {
+            format!(
+                r#"<a class="vs-chip{on}" href="{h}">{t}</a>"#,
+                on = if coll.as_ref().is_some_and(|x| x.id == c.id) { " on" } else { "" },
+                h = link(&format!("/shop/collections/{}/", c.handle)),
+                t = esc(&c.title)
+            )
+        }))
+        .collect();
+    let sort_opts: String = PUBLIC_SORTS.iter().map(|(k, l)| format!(r#"<option value="{k}"{s}>{l}</option>"#, s = if *k == sort { " selected" } else { "" })).collect();
     let pager = if pages > 1 {
         format!(
             r#"<nav class="vs-pager">{prev}<span>Page {page_no} of {pages}</span>{next}</nav>"#,
@@ -365,11 +500,6 @@ async fn listing(state: AppState, headers: HeaderMap, q: HashMap<String, String>
         )
     } else {
         String::new()
-    };
-    let site_title = state.settings.get_str("title").unwrap_or_default();
-    let (title, intro, hero) = match &coll {
-        Some(c) => (c.title.clone(), c.description.clone(), c.image.clone()),
-        None => (if query.is_empty() { s.name(&site_title).to_string() } else { format!("Search: {query}") }, if query.is_empty() { s.intro.clone() } else { String::new() }, String::new()),
     };
     let body = format!(
         r#"<header class="vs-hero{hero_cls}">{hero}<div><h1>{title}</h1>{intro}</div></header>
@@ -386,8 +516,6 @@ async fn listing(state: AppState, headers: HeaderMap, q: HashMap<String, String>
         count = if total == 1 { "1 product".to_string() } else { format!("{total} products") },
         empty = if products.is_empty() { r#"<p class="vs-empty">No products here yet.</p>"#.to_string() } else { String::new() },
     );
-    let excerpt = coll.as_ref().map(|c| if c.seo_description.is_empty() { c.description.clone() } else { c.seo_description.clone() }).unwrap_or_else(|| s.intro.clone());
-    let page_title = coll.as_ref().map(|c| if c.seo_title.is_empty() { c.title.clone() } else { c.seo_title.clone() }).unwrap_or(title);
     page(&state, &headers, &path, &page_title, &excerpt, body, coll.and_then(|c| (!c.image.is_empty()).then_some(c.image))).await
 }
 
@@ -398,6 +526,10 @@ async fn collections_index(State(state): State<AppState>, headers: HeaderMap) ->
         return not_found(&state, path, headers).await;
     }
     let colls: Vec<repo::Collection> = repo::collections(&state.db).await.into_iter().filter(|c| c.published != 0).collect();
+    // The theme's `shop/collections.hbs`: `collections`, each with `image`
+    // (its own, else its first product's) and `product_count`.
+    let templates = theme_templates(&state, &["shop/collections"]).await;
+    let mut listed = Vec::new();
     let mut cards = String::new();
     for c in &colls {
         let ids = repo::collection_product_ids(&state.db, c, true).await;
@@ -406,6 +538,10 @@ async fn collections_index(State(state): State<AppState>, headers: HeaderMap) ->
         } else {
             c.image.clone()
         };
+        let mut j = collection_json(c);
+        j["feature_image"] = if image.is_empty() { Value::Null } else { json!(image) };
+        j["product_count"] = json!(ids.len());
+        listed.push(j);
         cards.push_str(&format!(
             r#"<a class="vs-coll" href="{h}">{img}<span><b>{t}</b><small>{n}</small></span></a>"#,
             h = link(&format!("/shop/collections/{}/", c.handle)),
@@ -413,6 +549,11 @@ async fn collections_index(State(state): State<AppState>, headers: HeaderMap) ->
             t = esc(&c.title),
             n = if ids.len() == 1 { "1 product".to_string() } else { format!("{} products", ids.len()) },
         ));
+    }
+    if !templates.is_empty() {
+        let mut data = serde_json::Map::new();
+        data.insert("collections".into(), Value::Array(listed));
+        return theme_page(&state, &headers, path, "Collections", "", None, templates, data, "shop-collections").await;
     }
     let body = format!(
         r#"<header class="vs-hero"><div><h1>Collections</h1></div></header><div class="vs-colls">{cards}</div>{empty}"#,
@@ -551,6 +692,59 @@ async fn product(State(state): State<AppState>, headers: HeaderMap, Path(handle)
         format!(r#"<section class="vs-related"><h2>You may also like</h2><div class="vs-grid">{}</div></section>"#, related.iter().map(|r| card(r, rvs.get(&r.id).map(Vec::as_slice).unwrap_or(&[]), &s)).collect::<String>())
     };
     let absolute = vuuut_core::url::absolute(&state.site_url(), &link(&path));
+    let excerpt = if !p.seo_description.is_empty() { p.seo_description.clone() } else if !p.excerpt.is_empty() { p.excerpt.clone() } else { vuuut_render::markdown::html_to_plaintext(&p.description_html).chars().take(160).collect() };
+    let page_title = if p.seo_title.is_empty() { p.title.clone() } else { p.seo_title.clone() };
+
+    // The theme's `shop/product.hbs`: `product` (the card data plus
+    // `description` HTML, `options`, `variants`, `variant` — the one
+    // selected —, `variants_json` for the store script's `data-variants`,
+    // `files`, `button_label`, `get_free`, `added`, `schema`), `collection`
+    // (its first) and `related`.
+    let templates = theme_templates(&state, &["shop/product"]).await;
+    if !templates.is_empty() {
+        let chosen = first.values();
+        let variant = |v: &repo::Variant| json!({
+            "id": v.id,
+            "title": v.title,
+            "options": v.values(),
+            "price": rules::format_money(v.price_cents, &s.currency),
+            "price_cents": v.price_cents,
+            "compare_at": if v.compare_at_cents > v.price_cents { json!(rules::format_money(v.compare_at_cents, &s.currency)) } else { Value::Null },
+            "available": v.available(1),
+            "selected": v.id == first.id,
+            "feature_image": if v.image.is_empty() { Value::Null } else { json!(v.image) },
+            "stock": if v.tracked() { json!(v.inventory) } else { Value::Null },
+            "low_stock": v.tracked() && v.inventory > 0 && v.inventory <= s.low_stock && !v.backorder(),
+            "stock_line": stock_line(v, &s),
+        });
+        let mut product = product_card(&p, &vs, &s);
+        product["description"] = json!(p.description_html);
+        product["options"] = Value::Array(options.iter().enumerate().map(|(i, o)| json!({
+            "name": o.name,
+            "index": i,
+            "input": format!("opt{i}"),
+            "chosen": chosen.get(i).cloned().unwrap_or_default(),
+            "values": o.values.iter().map(|v| json!({ "value": v, "input": format!("opt{i}"), "selected": chosen.get(i) == Some(v) })).collect::<Vec<_>>(),
+        })).collect());
+        product["variants"] = Value::Array(vs.iter().map(variant).collect());
+        product["variant"] = variant(first);
+        product["has_variants"] = json!(vs.len() > 1);
+        product["variants_json"] = json!(variant_json);
+        product["files"] = Value::Array(files.iter().map(|f| json!({ "name": f.name, "size": rules::format_bytes(f.size_bytes.max(0) as u64) })).collect());
+        product["digital"] = json!(!files.is_empty());
+        product["get_free"] = json!(free && !files.is_empty());
+        product["available"] = json!(first.available(1));
+        product["button_label"] = json!(if !first.available(1) { "Sold out" } else if free && !files.is_empty() { "Get it free" } else { "Add to cart" });
+        product["max_quantity"] = json!(rules::MAX_LINE_QTY);
+        product["added"] = json!(added);
+        product["schema"] = json!(product_schema(&p, &vs, &images, &s, &absolute, &state.site_url()));
+        let mut data = serde_json::Map::new();
+        data.insert("product".into(), product);
+        data.insert("collection".into(), collections.first().map(collection_json).unwrap_or(Value::Null));
+        data.insert("related".into(), Value::Array(related.iter().map(|r| product_card(r, rvs.get(&r.id).map(Vec::as_slice).unwrap_or(&[]), &s)).collect()));
+        return theme_page(&state, &headers, &path, &page_title, &excerpt, images.first().cloned(), templates, data, "shop-product").await;
+    }
+
     let body = format!(
         r#"<nav class="vs-crumbs"><a href="{home}">Shop</a>{crumb} › <span>{title}</span></nav>
 <div class="vs-product">{gallery}
@@ -561,8 +755,7 @@ async fn product(State(state): State<AppState>, headers: HeaderMap, Path(handle)
 <form class="vs-buy" method="post" action="{add}" data-variants="{vjson}">
 {pickers}{select}
 <p class="vs-stock" id="vs-stock">{stock}</p>
-<div class="vs-buy-row"><label class="vs-qty"><span>Quantity</span><input type="number" name="qty" value="1" min="1" max="{maxq}" inputmode="numeric"></label>
-<button class="vs-btn vs-btn-big" id="vs-add" type="submit"{disabled}>{add_label}</button></div>
+<div class="vs-buy-row">{buy}{demo}</div>
 {free_back}{added}
 </form>
 {digital}
@@ -583,9 +776,20 @@ async fn product(State(state): State<AppState>, headers: HeaderMap, Path(handle)
         add = link("/shop/cart/add/"),
         vjson = esc(&variant_json),
         stock = stock_line(first, &s),
-        maxq = rules::MAX_LINE_QTY,
-        disabled = if first.available(1) { "" } else { " disabled" },
-        add_label = if !first.available(1) { "Sold out" } else if free && !files.is_empty() { "Get it free" } else { "Add to cart" },
+        // A direct purchase link elsewhere (Polar, Gumroad) takes the place
+        // of the cart.
+        buy = if p.purchase_url.is_empty() {
+            format!(
+                r#"<label class="vs-qty"><span>Quantity</span><input type="number" name="qty" value="1" min="1" max="{maxq}" inputmode="numeric"></label>
+<button class="vs-btn vs-btn-big" id="vs-add" type="submit"{disabled}>{add_label}</button>"#,
+                maxq = rules::MAX_LINE_QTY,
+                disabled = if first.available(1) { "" } else { " disabled" },
+                add_label = if !first.available(1) { "Sold out" } else if free && !files.is_empty() { "Get it free" } else { "Add to cart" },
+            )
+        } else {
+            format!(r#"<a class="vs-btn vs-btn-big vs-buy-now" href="{}" rel="noopener">Buy now ↗</a>"#, esc(&p.purchase_url))
+        },
+        demo = if p.demo_url.is_empty() { String::new() } else { format!(r#"<a class="vs-btn vs-btn-big vs-btn-tonal vs-demo" href="{}" target="_blank" rel="noopener">Live demo ↗</a>"#, esc(&p.demo_url)) },
         free_back = if free && !files.is_empty() { r#"<input type="hidden" name="back" value="checkout" data-keep>"# } else { "" },
         digital = digital,
         added = if added { format!(r#"<p class="vs-added" role="status">Added to your cart. <a href="{}">View cart</a> · <a href="{}">Check out</a></p>"#, link("/shop/cart/"), link("/shop/checkout/")) } else { String::new() },
@@ -594,9 +798,7 @@ async fn product(State(state): State<AppState>, headers: HeaderMap, Path(handle)
         related = related_html,
         schema = product_schema(&p, &vs, &images, &s, &absolute, &state.site_url()),
     );
-    let excerpt = if !p.seo_description.is_empty() { p.seo_description.clone() } else if !p.excerpt.is_empty() { p.excerpt.clone() } else { vuuut_render::markdown::html_to_plaintext(&p.description_html).chars().take(160).collect() };
-    let title = if p.seo_title.is_empty() { p.title.clone() } else { p.seo_title.clone() };
-    page(&state, &headers, &path, &title, &excerpt, body, images.first().cloned()).await
+    page(&state, &headers, &path, &page_title, &excerpt, body, images.first().cloned()).await
 }
 
 fn stock_line(v: &repo::Variant, s: &Settings) -> String {

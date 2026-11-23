@@ -957,3 +957,55 @@ async fn payments_settings_manage_providers_and_offers_mapped_digital_checkout()
     assert!(!checkout.body.contains(r#"name="payment" value="polar""#));
     assert!(!checkout.body.contains(r#"name="payment" value="gumroad""#));
 }
+
+#[tokio::test]
+async fn a_product_carries_its_demo_and_direct_purchase_links() {
+    let f = fixture().await;
+    let owner = f.session().await;
+    set(&f, "ecom_enabled", serde_json::json!(true)).await;
+
+    // Anything but a full web address is refused, not silently dropped.
+    let bad = post(&f.state, "/ecom/products/new/", &owner, &[
+        ("title", "Theme"), ("status", "active"), ("price", "29"), ("demo_url", "javascript:alert(1)"),
+    ]).await;
+    assert!(bad.flash().contains("live demo link"), "{}", bad.flash());
+    let bad = post(&f.state, "/ecom/products/new/", &owner, &[
+        ("title", "Theme"), ("status", "active"), ("price", "29"), ("purchase_url", "polar.sh/checkout"),
+    ]).await;
+    assert!(bad.flash().contains("direct purchase link"), "{}", bad.flash());
+
+    let made = post(&f.state, "/ecom/products/new/", &owner, &[
+        ("title", "Asahi"), ("status", "active"), ("price", "29"),
+        ("demo_url", "https://theme1.ghost-theme.com"),
+        ("purchase_url", "https://anisul.gumroad.com/l/asahi-ghost"),
+    ]).await;
+    assert_eq!(made.flash(), "Product created.");
+    let p = vuuut_db::repos::ecom::product_by_handle(&f.state.db, "asahi").await.unwrap().unwrap();
+    assert_eq!(p.demo_url, "https://theme1.ghost-theme.com");
+    assert_eq!(p.purchase_url, "https://anisul.gumroad.com/l/asahi-ghost");
+    let editor = get(&f.state, &format!("/ecom/products/{}/", p.id), &owner).await;
+    assert!(editor.body.contains(r#"name="purchase_url""#) && editor.body.contains("anisul.gumroad.com/l/asahi-ghost"));
+
+    // The store sends buyers to the outside checkout instead of the cart,
+    // and offers the demo beside it.
+    let page = site(&f.state, "GET", "/shop/products/asahi/", None).await;
+    assert_eq!(page.status, StatusCode::OK);
+    assert!(page.body.contains(r#"href="https://anisul.gumroad.com/l/asahi-ghost""#) && page.body.contains("Buy now"));
+    assert!(page.body.contains(r#"href="https://theme1.ghost-theme.com""#) && page.body.contains("Live demo"));
+    assert!(!page.body.contains(r#"id="vs-add""#), "no cart button when the product sells elsewhere");
+
+    // Themes get both; the field wins over a demo link in the description.
+    let vs = vuuut_db::repos::ecom::variants(&f.state.db, &p.id).await;
+    let s = vuuut_api::ecom::settings(&f.state);
+    let card = vuuut_db::repos::ecom::card_json(&p, &vs, &s, "/x/");
+    assert_eq!(card["demo_url"], "https://theme1.ghost-theme.com");
+    assert_eq!(card["purchase_url"], "https://anisul.gumroad.com/l/asahi-ghost");
+
+    // Cleared again, the cart comes back.
+    let saved = post(&f.state, &format!("/ecom/products/{}/", p.id), &owner, &[
+        ("title", "Asahi"), ("status", "active"), ("price", "29"), ("demo_url", ""), ("purchase_url", ""),
+    ]).await;
+    assert_eq!(saved.flash(), "Product saved.");
+    let page = site(&f.state, "GET", "/shop/products/asahi/", None).await;
+    assert!(page.body.contains(r#"id="vs-add""#) && !page.body.contains("Buy now"));
+}

@@ -195,6 +195,9 @@ pub(crate) async fn products_import(State(state): State<AppState>, headers: Head
             featured: existing.as_ref().is_some_and(|e| e.featured != 0),
             download_limit: existing.as_ref().map(|e| e.download_limit).unwrap_or(0),
             download_days: existing.as_ref().map(|e| e.download_days).unwrap_or(0),
+            // Shopify's CSV has no column for these; an import keeps what is set here
+            demo_url: existing.as_ref().map(|e| e.demo_url.clone()).unwrap_or_default(),
+            purchase_url: existing.as_ref().map(|e| e.purchase_url.clone()).unwrap_or_default(),
         };
         let variants: Vec<repo::VariantInput> = p
             .variants

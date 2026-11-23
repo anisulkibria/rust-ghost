@@ -1010,6 +1010,27 @@ pub(crate) async fn render_virtual_page_with(
     image: Option<String>,
     show_title: bool,
 ) -> Response {
+    render_virtual_page_as(state, headers, path, title, excerpt, html, image, show_title, &[], serde_json::Map::new(), &[]).await
+}
+
+/// [`render_virtual_page_with`], tried first against the theme's own
+/// `templates` (falling back to `page`), with `extra` added to the template
+/// data and `context` appended after `page`. The online store renders its
+/// `shop/*.hbs` overrides through this.
+#[allow(clippy::too_many_arguments)]
+pub(crate) async fn render_virtual_page_as(
+    state: &AppState,
+    headers: &HeaderMap,
+    path: &str,
+    title: &str,
+    excerpt: &str,
+    html: String,
+    image: Option<String>,
+    show_title: bool,
+    templates: &[String],
+    extra: serde_json::Map<String, Value>,
+    context: &[&str],
+) -> Response {
     let member = crate::render::member_context(state, headers).await;
     let post = vuuut_core::models::Post {
         id: format!("virtual{}", vuuut_core::ids::new_id()),
@@ -1036,9 +1057,16 @@ pub(crate) async fn render_virtual_page_with(
     let mut root = serde_json::Map::new();
     root.insert("page".into(), page_data(&json, show_title));
     root.insert("post".into(), json);
+    for (k, v) in extra {
+        root.insert(k, v);
+    }
     let theme = state.theme.read().await.clone();
-    let rctx = RenderCtx { context: vec!["page".into()], relative_url: path.to_string(), member, ..Default::default() };
-    match render_template(state, &theme, &["page".to_string(), "post".into()], Value::Object(root), &rctx).await {
+    let mut contexts = vec!["page".to_string()];
+    contexts.extend(context.iter().map(|c| c.to_string()));
+    let rctx = RenderCtx { context: contexts, relative_url: path.to_string(), member, ..Default::default() };
+    let mut candidates: Vec<String> = templates.iter().filter(|t| theme.has_template(t)).cloned().collect();
+    candidates.extend(["page".to_string(), "post".into()]);
+    match render_template(state, &theme, &candidates, Value::Object(root), &rctx).await {
         Ok(html) => html_response(html),
         Err(e) => error_response(e),
     }

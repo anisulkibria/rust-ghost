@@ -55,15 +55,18 @@
           });
         });
         if (!v) {
-          add.disabled = true; add.textContent = 'Unavailable';
+          if (add) { add.disabled = true; add.textContent = 'Unavailable'; }
           if (stock) { stock.textContent = 'This combination is not available.'; }
           return;
         }
         if (select) { select.value = v.id; }
         priceRow.innerHTML = '<span class="vs-price vs-price-lg">' + text(v.price) + '</span>' +
           (v.compare ? ' <s class="vs-was">' + text(v.compare) + '</s> <span class="vs-tag">Sale</span>' : '');
-        add.disabled = !v.available;
-        add.textContent = v.available ? 'Add to cart' : 'Sold out';
+        // no cart button when the product sells through a direct link
+        if (add) {
+          add.disabled = !v.available;
+          add.textContent = v.available ? 'Add to cart' : 'Sold out';
+        }
         if (stock) {
           stock.textContent = !v.available ? 'Sold out' : (v.low ? 'Only ' + v.stock + ' left' : (v.stock === 0 ? 'Available to pre-order' : 'In stock'));
         }

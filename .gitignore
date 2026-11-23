@@ -11,6 +11,7 @@ content/logs/
 content/images/
 content/media/
 content/files/
+content/themes/dripthemes
 # whole-site backups (Settings → Backups): they hold every password hash and API key
 content/backups/
 .DS_Store

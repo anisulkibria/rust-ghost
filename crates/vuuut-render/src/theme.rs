@@ -393,6 +393,30 @@ pub fn load_and_activate(
         }
     }
 
+    // Store templates: `shop/product.hbs` registers as "shop/product". The
+    // online store renders these, when a theme has them, in place of its own
+    // markup (see `vuuut_front::shop`). They take a layout like any template.
+    let shop_dir = theme_dir.join("shop");
+    if shop_dir.is_dir() {
+        for entry in walkdir::WalkDir::new(&shop_dir).max_depth(1) {
+            let entry = entry.map_err(|e| GhostError::Io(std::io::Error::other(e.to_string())))?;
+            let path = entry.path();
+            if path.extension().and_then(|e| e.to_str()) != Some("hbs") {
+                continue;
+            }
+            let stem = path.file_stem().map(|s| s.to_string_lossy().to_string()).unwrap_or_default();
+            let tname = format!("shop/{stem}");
+            let src = std::fs::read_to_string(path)?;
+            let (layout, body) = preprocess::extract_layout(&src);
+            if let Some(l) = layout {
+                layouts.insert(tname.clone(), l);
+            }
+            hb.register_template_string(&tname, preprocess::prepare(&body))
+                .map_err(|e| GhostError::ThemeError(format!("template {tname}: {e}")))?;
+            templates.push(tname);
+        }
+    }
+
     // a bare layout template renders itself through its own body → no layout
     if let Some(l) = layouts.get("default") {
         if l == "default" {

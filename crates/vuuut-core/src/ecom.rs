@@ -491,6 +491,19 @@ pub fn clean_images<'a>(urls: impl Iterator<Item = &'a str>) -> Vec<String> {
     out
 }
 
+/// A product's outside link (live demo, direct purchase): an `http(s)` URL
+/// with a host, at most 500 characters, or empty for anything else.
+pub fn clean_web_url(raw: &str) -> String {
+    let u = raw.trim();
+    let lower = u.to_ascii_lowercase();
+    let rest = lower.strip_prefix("https://").or_else(|| lower.strip_prefix("http://")).unwrap_or("");
+    let ok = !rest.is_empty()
+        && !rest.starts_with('/')
+        && u.len() <= 500
+        && !u.chars().any(|c| c.is_control() || c.is_whitespace() || matches!(c, '"' | '<' | '>' | '\\'));
+    if ok { u.to_string() } else { String::new() }
+}
+
 /// Whether a variant can be bought in `qty`.
 pub fn purchasable(track: bool, inventory: i64, backorder: bool, qty: i64) -> bool {
     !track || backorder || inventory >= qty
@@ -1273,6 +1286,16 @@ pub fn order_unlocks_downloads(status: &str, financial: &str) -> bool {
 
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    fn only_full_web_addresses_are_kept_as_product_links() {
+        assert_eq!(clean_web_url(" https://polar.sh/checkout/x "), "https://polar.sh/checkout/x");
+        assert_eq!(clean_web_url("http://theme1.ghost-theme.com"), "http://theme1.ghost-theme.com");
+        for bad in ["javascript:alert(1)", "polar.sh", "/shop/", "https://", "https:///x", "https://a b", "https://x\"<y"] {
+            assert_eq!(clean_web_url(bad), "", "{bad}");
+        }
+        assert_eq!(clean_web_url(&format!("https://x.test/{}", "a".repeat(600))), "");
+    }
     use super::*;
 
     #[test]

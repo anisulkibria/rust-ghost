@@ -56,6 +56,10 @@ pub struct Product {
     pub updated_at: String,
     pub download_limit: i64,
     pub download_days: i64,
+    /// Live demo link, `http(s)` or empty (migration 0042).
+    pub demo_url: String,
+    /// Direct checkout elsewhere (Polar, Gumroad), `http(s)` or empty.
+    pub purchase_url: String,
 }
 
 impl Product {
@@ -77,7 +81,7 @@ impl Product {
 }
 
 const P_COLS: &str = "id, handle, title, status, description_lexical, description_html, excerpt, vendor, product_type, tags, images, \
-options, seo_title, seo_description, requires_shipping, taxable, featured, published_at, created_at, updated_at, download_limit, download_days";
+options, seo_title, seo_description, requires_shipping, taxable, featured, published_at, created_at, updated_at, download_limit, download_days, demo_url, purchase_url";
 
 #[derive(Debug, Clone, sqlx::FromRow)]
 pub struct Variant {
@@ -141,6 +145,10 @@ pub struct ProductInput {
     /// Downloads per purchase (0 = unlimited) and days they last (0 = forever).
     pub download_limit: i64,
     pub download_days: i64,
+    /// Live demo link; written through [`rules::clean_web_url`].
+    pub demo_url: String,
+    /// Direct purchase link elsewhere; written through [`rules::clean_web_url`].
+    pub purchase_url: String,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -277,21 +285,21 @@ pub async fn save_product(pool: &Db, id: Option<&str>, p: &ProductInput, variant
             sqlx::query(
                 "UPDATE ecom_products SET handle = ?, title = ?, status = ?, description_lexical = ?, description_html = ?, excerpt = ?, vendor = ?, \
                  product_type = ?, tags = ?, images = ?, options = ?, seo_title = ?, seo_description = ?, requires_shipping = ?, taxable = ?, featured = ?, \
-                 published_at = ?, updated_at = ?, download_limit = ?, download_days = ? WHERE id = ?",
+                 published_at = ?, updated_at = ?, download_limit = ?, download_days = ?, demo_url = ?, purchase_url = ? WHERE id = ?",
             )
             .bind(&handle).bind(&p.title).bind(&p.status).bind(&p.description_lexical).bind(&p.description_html).bind(&p.excerpt)
             .bind(&p.vendor).bind(&p.product_type).bind(&tags).bind(&images).bind(&options).bind(&p.seo_title).bind(&p.seo_description)
-            .bind(flag(p.requires_shipping)).bind(flag(p.taxable)).bind(flag(p.featured)).bind(&published_at).bind(&now).bind(p.download_limit).bind(p.download_days).bind(id)
+            .bind(flag(p.requires_shipping)).bind(flag(p.taxable)).bind(flag(p.featured)).bind(&published_at).bind(&now).bind(p.download_limit).bind(p.download_days).bind(rules::clean_web_url(&p.demo_url)).bind(rules::clean_web_url(&p.purchase_url)).bind(id)
             .execute(&mut *tx).await.map_err(dberr)?;
             id.to_string()
         }
         None => {
             let id = ids::new_id();
-            sqlx::query(&format!("INSERT INTO ecom_products ({P_COLS}) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)"))
+            sqlx::query(&format!("INSERT INTO ecom_products ({P_COLS}) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)"))
                 .bind(&id).bind(&handle).bind(&p.title).bind(&p.status).bind(&p.description_lexical).bind(&p.description_html).bind(&p.excerpt)
                 .bind(&p.vendor).bind(&p.product_type).bind(&tags).bind(&images).bind(&options).bind(&p.seo_title).bind(&p.seo_description)
                 .bind(flag(p.requires_shipping)).bind(flag(p.taxable)).bind(flag(p.featured)).bind(&published_at).bind(&now).bind(&now)
-                .bind(p.download_limit).bind(p.download_days)
+                .bind(p.download_limit).bind(p.download_days).bind(rules::clean_web_url(&p.demo_url)).bind(rules::clean_web_url(&p.purchase_url))
                 .execute(&mut *tx).await.map_err(dberr)?;
             id
         }
@@ -395,6 +403,8 @@ pub async fn duplicate_product(pool: &Db, id: &str) -> Result<String> {
         featured: false,
         download_limit: p.download_limit,
         download_days: p.download_days,
+        demo_url: p.demo_url.clone(),
+        purchase_url: p.purchase_url.clone(),
     };
     let vin: Vec<VariantInput> = vs
         .iter()
@@ -1762,4 +1772,113 @@ pub async fn download_log_for_order(pool: &Db, order_id: &str, limit: i64) -> Ve
 /// Which of these products carry files.
 pub async fn digital_ids(pool: &Db, product_ids: &[String]) -> std::collections::HashSet<String> {
     files_for(pool, product_ids).await.into_keys().collect()
+}
+
+// ---------------------------------------------------------------------------
+// products as theme data
+// ---------------------------------------------------------------------------
+
+/// A product as a theme sees it: what `{{#get "products"}}` returns and what
+/// the store hands its `shop/*.hbs` templates. `url` is the product's public
+/// address (the caller knows the store's paths).
+///
+/// Tags written `key:value` are gathered into `meta` (`niche:Magazine` →
+/// `meta.niche`) and left out of `tags`; the first link in the description
+/// whose text mentions "demo" becomes `demo_url` when the product has no
+/// demo link of its own.
+pub fn card_json(p: &Product, vs: &[Variant], s: &rules::Settings, url: &str) -> serde_json::Value {
+    use serde_json::{json, Map, Value};
+    let cheapest = vs.iter().min_by_key(|v| v.price_cents);
+    let min = cheapest.map(|v| v.price_cents).unwrap_or(0);
+    let max = vs.iter().map(|v| v.price_cents).max().unwrap_or(0);
+    let compare = cheapest.map(|v| v.compare_at_cents).unwrap_or(0);
+    let amount = if min == 0 { "Free".to_string() } else { rules::format_money(min, &s.currency) };
+    let price = if max > min { format!("From {amount}") } else { amount };
+    let tags = p.tag_list();
+    let mut meta = Map::new();
+    for t in &tags {
+        if let Some((k, v)) = t.split_once(':') {
+            let (k, v) = (k.trim().to_ascii_lowercase(), v.trim());
+            if !k.is_empty() && !v.is_empty() && !meta.contains_key(&k) {
+                meta.insert(k, json!(v));
+            }
+        }
+    }
+    let plain: Vec<&String> = tags.iter().filter(|t| !t.contains(':')).collect();
+    let images = p.image_list();
+    json!({
+        "id": p.id,
+        "title": p.title,
+        "slug": p.handle,
+        "handle": p.handle,
+        "url": url,
+        "excerpt": p.excerpt,
+        "vendor": p.vendor,
+        "product_type": p.product_type,
+        "tags": plain,
+        "meta": meta,
+        // Ghost's name for a lead image; gscan refuses a bare `image`
+        "feature_image": images.first(),
+        "image": images.first(),
+        "images": images,
+        "price": price,
+        "price_cents": min,
+        "compare_at": if compare > min { json!(rules::format_money(compare, &s.currency)) } else { Value::Null },
+        "on_sale": compare > min,
+        "free": max == 0,
+        "sold_out": !vs.is_empty() && vs.iter().all(|v| !v.available(1)),
+        "featured": p.featured != 0,
+        // the product's own field first; older products named it with a
+        // link in the description
+        "demo_url": if p.demo_url.is_empty() { demo_link(&p.description_html) } else { Some(p.demo_url.clone()) },
+        "purchase_url": if p.purchase_url.is_empty() { Value::Null } else { json!(p.purchase_url) },
+        "published_at": p.published_at,
+    })
+}
+
+/// The first `http(s)` link in `html` whose text says "demo".
+pub fn demo_link(html: &str) -> Option<String> {
+    let lower = html.to_ascii_lowercase();
+    let mut from = 0;
+    while let Some(i) = lower[from..].find("<a").map(|i| i + from) {
+        from = i + 2;
+        if !lower[from..].starts_with(|c: char| c.is_ascii_whitespace()) {
+            continue;
+        }
+        let Some(tag_end) = lower[from..].find('>').map(|e| e + from) else { break };
+        let Some(close) = lower[tag_end..].find("</a>").map(|e| e + tag_end) else { break };
+        let attrs = &html[from..tag_end];
+        let text = &lower[tag_end + 1..close];
+        from = close;
+        if !text.contains("demo") {
+            continue;
+        }
+        let la = attrs.to_ascii_lowercase();
+        let Some(h) = la.find("href") else { continue };
+        let rest = attrs[h + 4..].trim_start();
+        let Some(rest) = rest.strip_prefix('=') else { continue };
+        let rest = rest.trim_start();
+        let Some(q) = rest.chars().next().filter(|c| *c == '"' || *c == '\'') else { continue };
+        let Some(end) = rest[1..].find(q) else { continue };
+        let href = rest[1..1 + end].replace("&amp;", "&");
+        let hl = href.to_ascii_lowercase();
+        if (hl.starts_with("https://") || hl.starts_with("http://")) && !href.contains(char::is_whitespace) {
+            return Some(href);
+        }
+    }
+    None
+}
+
+#[cfg(test)]
+mod card_tests {
+    use super::demo_link;
+
+    #[test]
+    fn a_demo_link_is_found_by_its_text() {
+        let html = r#"<p>See <a href="https://x.test/docs">the docs</a> or the <a class="b" href="https://demo.test/?a=1&amp;b=2">Live <b>demo</b></a>.</p>"#;
+        assert_eq!(demo_link(html).as_deref(), Some("https://demo.test/?a=1&b=2"));
+        assert_eq!(demo_link(r#"<a href="javascript:demo()">demo</a>"#), None);
+        assert_eq!(demo_link(r#"<abbr>demo</abbr><a href='http://d.test'>Demo</a>"#).as_deref(), Some("http://d.test"));
+        assert_eq!(demo_link("<p>no links</p>"), None);
+    }
 }
