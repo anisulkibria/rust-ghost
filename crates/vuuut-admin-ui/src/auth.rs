@@ -244,8 +244,8 @@ pub(crate) fn set_session_cookie(state: &AppState, resp: &mut Response, sid: &st
     resp.headers_mut().insert(
         header::SET_COOKIE,
         format!(
-            "{name}={sid}; Path={}/ghost; HttpOnly; SameSite=Lax; Max-Age={}{}",
-            vuuut_core::url::subdir(),
+            "{name}={sid}; Path={}; HttpOnly; SameSite=Lax; Max-Age={}{}",
+            state.admin_path(),
             60 * 60 * 24 * 7,
             vuuut_api::admin::cookie_secure(state),
             name = vuuut_api::admin::SESSION_COOKIE,
@@ -531,8 +531,8 @@ pub(crate) async fn logout(State(state): State<AppState>, headers: HeaderMap) ->
         // browser keeps the original alongside this one and the sign-out
         // does nothing.
         format!(
-            "{name}=; Path={}/ghost; HttpOnly; SameSite=Lax; Max-Age=0{}",
-            vuuut_core::url::subdir(),
+            "{name}=; Path={}; HttpOnly; SameSite=Lax; Max-Age=0{}",
+            state.admin_path(),
             vuuut_api::admin::cookie_secure(&state),
             name = vuuut_api::admin::SESSION_COOKIE,
         )

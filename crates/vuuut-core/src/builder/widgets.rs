@@ -395,6 +395,7 @@ pub(super) fn html(r: &mut R, kind: &str, id: &str, m: &Value, sel: &str, w: &Va
             super::render::row(r, &w["cols"], m, &row_sel).replacen("class=\"vb-row ", "class=\"vb-row vb-inner ", 1)
         }
         "html" => s(m, "code").to_string(),
+        "elementor-widget" => empty(&format!("Elementor: {}", s(m, "label"))),
         "video" => {
             let url = s(m, "url");
             if url.is_empty() {
@@ -1331,6 +1332,25 @@ pub(super) fn html(r: &mut R, kind: &str, id: &str, m: &Value, sel: &str, w: &Va
                 r.uses_runtime = true;
             }
             dynamic::dyn_marker(kind, id, m)
+        }
+        "products" | "directory-listings" => {
+            let count = m["ids"].as_array().map_or(0, Vec::len);
+            if count == 0 {
+                return if r.ctx.editing { empty(if kind == "products" { "Choose shop products" } else { "Choose directory listings" }) } else { String::new() };
+            }
+            let grid = format!("{sel} .vb-catalogue");
+            let desktop = n(m, "columns").unwrap_or(3).min(count as i64);
+            let tablet = n(m, "columns_t").unwrap_or(desktop.min(2)).min(count as i64);
+            let mobile = n(m, "columns_m").unwrap_or(1).min(count as i64);
+            for (device, columns) in [("", desktop), ("t", tablet), ("m", mobile)] {
+                r.rule(device, &grid, &format!("--vb-catalogue-columns:{columns};"));
+            }
+            r.resp(m, "gap", &grid, |v| format!("gap:{};", px(v)));
+            let mut settings = m.clone();
+            if r.ctx.editing {
+                settings["editing"] = Value::Bool(true);
+            }
+            dynamic::dyn_marker(kind, id, &settings)
         }
         "login" | "breadcrumbs" | "author-box" | "post-nav" | "post-info" | "post-content" | "sitemap" => dynamic::dyn_marker(kind, id, m),
         "template" => match m["ref"].as_str().and_then(|t| r.ctx.templates.get(t)).cloned() {

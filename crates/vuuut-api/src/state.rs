@@ -57,8 +57,18 @@ impl AppState {
             .to_string()
     }
 
+    pub fn admin_slug(&self) -> String {
+        use vuuut_core::admin_address as address;
+        self.settings.get_str(address::PATH_KEY)
+            .as_deref().and_then(address::clean).unwrap_or(address::DEFAULT).to_owned()
+    }
+
+    pub fn admin_path(&self) -> String {
+        vuuut_core::url::base(&format!("/{}", self.admin_slug()))
+    }
+
     pub fn admin_url(&self) -> String {
-        format!("{}/ghost", self.site_url())
+        format!("{}/{}", self.site_url(), self.admin_slug())
     }
 
     /// The frontend Content API key, reading through to the DB once.

@@ -3118,7 +3118,7 @@ impl HelperDef for CommentsHelper {
             ("locale", site.get("locale").and_then(|v| v.as_str()).unwrap_or("en").to_string()),
             ("ghost-comments", format!("{origin}{subdir}/")),
             ("api", format!("{origin}{subdir}/ghost/api/content/")),
-            ("admin", format!("{origin}{subdir}/ghost/")),
+            ("admin", format!("{}/", site["admin_url"].as_str().unwrap_or(&format!("{origin}{subdir}/ghost")).trim_end_matches('/'))),
             ("key", frontend_key),
             ("title", title),
             ("count", count.to_string()),

@@ -54,7 +54,7 @@ pub(crate) const SETTINGS_GROUPS: &[SettingsGroup] = &[
     SettingsGroup { slug: "emails", tool: None, title: "Emails", icon: "mail", tint: "blue", items: &["Transactional email", "SMTP server", "Amazon SES", "Mailgun", "Sender identity", "Send a test"] },
     SettingsGroup { slug: "features", tool: None, title: "Features", icon: "tune", tint: "teal", items: &["Comments", "Automations", "Beta features", "Private features"] },
     SettingsGroup { slug: "forms", tool: Some("forms"), title: "Forms", icon: "form", tint: "amber", items: &["Notifications", "Spam protection", "Privacy & retention"] },
-    SettingsGroup { slug: "general", tool: None, title: "General settings", icon: "settings", tint: "pink", items: &["Name, title & description", "Brand", "Timezone", "Meta data", "Social accounts"] },
+    SettingsGroup { slug: "general", tool: None, title: "General settings", icon: "settings", tint: "pink", items: &["Name, title & description", "Brand", "Timezone", "Meta data", "Social accounts", "Admin address"] },
     SettingsGroup { slug: "images", tool: Some("media"), title: "Images", icon: "image", tint: "green", items: &["Optimisation", "Size", "Quality", "Privacy"] },
     SettingsGroup { slug: "languages", tool: Some("languages"), title: "Languages", icon: "globe", tint: "teal", items: &["Default publication language", "Languages", "Search engines", "Navigation per language"] },
     SettingsGroup { slug: "memberships", tool: Some("memberships"), title: "Membership", icon: "ghost", tint: "teal", items: &["Access", "Spam filters", "Tiers", "Signup portal", "Gift subscriptions", "Tips & donations", "Custom fields"] },

@@ -225,3 +225,12 @@ body.vbe { margin: 0; font: 14px/1.45 var(--vbe-font); color: var(--vbe-ink); ba
 .vbe-tagbtn { border: 1px solid var(--vbe-line-2); border-radius: 6px; background: #fff; padding: 1px 6px; font: 600 11px var(--vbe-mono); color: var(--vbe-ink-3); cursor: pointer; }
 .vbe-tagbtn:hover { color: var(--vbe-primary); border-color: var(--vbe-primary); }
 .vbe-seg button.inherit { opacity: .55; }
+
+
+.vbe-catalogue-picker { display: grid; gap: 8px; }
+.vbe-catalogue-picker p:empty { display: none; }
+.vbe-catalogue-chosen { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; max-height: 124px; overflow: auto; }
+.vbe-catalogue-chosen button { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.vbe-catalogue-results { display: grid; max-height: 236px; overflow: auto; }
+.vbe-catalogue-results label { display: flex; align-items: center; gap: 10px; padding: 8px; border-bottom: 1px solid var(--vbe-line); cursor: pointer; }
+.vbe-catalogue-results input { accent-color: var(--vbe-primary); }

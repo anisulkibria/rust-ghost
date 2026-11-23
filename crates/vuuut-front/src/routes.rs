@@ -282,6 +282,17 @@ pub async fn entrypoint(State(state): State<AppState>, uri: Uri, headers: Header
     let locales = site_locales(&state);
     let (locale, routed) = locales.split_path(&path);
 
+    if path == "/" {
+        let homepage = state.settings.get_str(vuuut_core::builder::SETTING_HOMEPAGE).unwrap_or_default();
+        if !homepage.is_empty() {
+            if let Some(post) = repos::posts::find_by_id(&state.db, &homepage).await.ok().flatten()
+                .filter(|p| p.post_type == "page" && p.status == "published")
+            {
+                return render_resolved_entry(&state, &post, &path, &locale, query.as_deref(), headers, true).await;
+            }
+        }
+    }
+
     // 5. router tree
     let router = state.router.read().await.clone();
     let Some(route) = router.match_path(&routed) else {
@@ -588,10 +599,10 @@ async fn resolve_data_entry(state: &AppState, short: &str, member: &Value) -> Op
 
 async fn render_entry(state: AppState, slug: String, path: &str, locale: &str, query: Option<&str>, headers: HeaderMap) -> Response {
     // posts first, then pages (Ghost's router fallthrough)
-    let (post, post_type) = match repos::posts::find_by_slug(&state.db, &slug, "post", true).await {
-        Ok(Some(p)) => (p, "post"),
+    let post = match repos::posts::find_by_slug(&state.db, &slug, "post", true).await {
+        Ok(Some(p)) => p,
         _ => match repos::posts::find_by_slug(&state.db, &slug, "page", true).await {
-            Ok(Some(p)) => (p, "page"),
+            Ok(Some(p)) => p,
             _ => {
                 // Last chance before a 404: an offer code. Ghost hands these
                 // out as plain `site.com/<code>` links and sends the visitor
@@ -630,14 +641,30 @@ async fn render_entry(state: AppState, slug: String, path: &str, locale: &str, q
         }
     }
 
-    let member = crate::render::member_context(&state, &headers).await;
+    render_resolved_entry(&state, &post, path, locale, query, headers, false).await
+}
+
+async fn render_resolved_entry(
+    state: &AppState,
+    post: &models::Post,
+    path: &str,
+    locale: &str,
+    query: Option<&str>,
+    headers: HeaderMap,
+    home: bool,
+) -> Response {
+    let post_type = post.post_type.as_str();
+    let slug = post.slug.as_deref().unwrap_or_default();
+    let locales = site_locales(state);
+    let member = crate::render::member_context(state, &headers).await;
     let gift_token = form_urlencoded::parse(query.unwrap_or("").as_bytes()).find(|(key,_)|key=="gift").map(|(_,value)|value.into_owned());
-    let gifted = if let Some(token) = &gift_token { vuuut_api::publishing::valid_gift(&state,&post.id,token).await } else { false };
+    let gifted = if let Some(token) = &gift_token { vuuut_api::publishing::valid_gift(state,&post.id,token).await } else { false };
     let post_member = if gifted { json!({"status":"paid","tiers":post.tier_ids}) } else { member.clone() };
-    let post_json = post_json(&state, &post, None, &post_member).await;
+    let url = home.then(|| format!("{}/", state.site_url()));
+    let post_json = post_json(state, post, url.as_deref(), &post_member).await;
     let mut context = vec![post_type.to_string()];
-    if post_type == "page" {
-        context.push("page".into());
+    if home {
+        context.push("home".into());
     }
 
     let mut root = serde_json::Map::new();
@@ -664,21 +691,20 @@ async fn render_entry(state: AppState, slug: String, path: &str, locale: &str, q
         context,
         relative_url: path.to_string(),
         member,
-        locale: locale.to_string(),
-        // Only the languages this entry really has, read from its
-        // translation group — so the switcher cannot offer a link to a
-        // language that would 404 under the rule above.
+        locale: if home { locales.resolve(post.locale.as_deref()) } else { locale.to_string() },
+        // The root links to the site's language homepages. A permalink
+        // links to published translations of the entry.
         translations: translations_for(
-            &state,
+            state,
             &locales,
             locale,
-            PageScope::Entry(post.translation_group.as_deref()),
+            if home { PageScope::Archive } else { PageScope::Entry(post.translation_group.as_deref()) },
             &locales.split_path(path).1,
         )
         .await,
         site_overrides: Default::default(),
     };
-    match render_template(&state, &theme, &candidates, Value::Object(root), &rctx).await {
+    match render_template(state, &theme, &candidates, Value::Object(root), &rctx).await {
         Ok(html) => {
             let mut response = html_response(html);
             if gift_token.is_some() {

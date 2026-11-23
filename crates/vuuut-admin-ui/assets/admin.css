@@ -3969,6 +3969,12 @@ a.dr-tile:hover { border-color: var(--outline); }
 .vb-start-card { display: flex; gap: 14px; align-items: flex-start; }
 .vb-start-body { flex: 1; min-width: 0; }
 .vb-start-body p { margin: 2px 0 12px; }
+.vb-import { margin-top: 12px; }
+.vb-import-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
+.vb-import-file { flex: 1 1 260px; min-width: 0; max-width: 420px; box-sizing: border-box; padding: 4px; border: 1px solid var(--outline-variant, GrayText); border-radius: 12px; font: inherit; font-size: 14px; color: inherit; }
+.vb-import-file::file-selector-button { margin-inline-end: 10px; padding: 7px 12px; border: 0; border-radius: 8px; background: color-mix(in srgb, currentColor 9%, transparent); color: inherit; font: inherit; font-weight: 600; cursor: pointer; }
+.vb-import-file::file-selector-button:hover { background: color-mix(in srgb, currentColor 15%, transparent); }
+.vb-import-file:focus-visible { outline: 2px solid currentColor; outline-offset: 2px; }
 .vb-inline { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
 .vb-actions { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; justify-content: flex-end; }
 .vb-actions form { margin: 0; }

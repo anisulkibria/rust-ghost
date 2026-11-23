@@ -235,7 +235,7 @@ pub(crate) async fn send_invite_email(
 ) -> (String, Option<String>) {
     let site_url = state.site_url();
     let title = state.settings.get_str("title").unwrap_or_else(|| vuuut_core::DEFAULT_SITE_TITLE.into());
-    let link = format!("{site_url}/ghost/invite/{}/", invite.token);
+    let link = format!("{}/invite/{}/", state.admin_url(), invite.token);
     let cfg = vuuut_mail::MailConfig::from_settings(&state.settings, &title, &site_url);
     let (subject, html, text) = vuuut_mail::templates::staff_invite(
         &title,
@@ -593,8 +593,8 @@ pub(crate) async fn invite_accept_submit(
                 Ok(sid) => {
                     let mut resp = Redirect::to(ADMIN_HOME).into_response();
                     if let Ok(v) = format!(
-                        "{name}={sid}; Path={}/ghost; HttpOnly; SameSite=Lax; Max-Age={}{}",
-                        vuuut_core::url::subdir(),
+                        "{name}={sid}; Path={}; HttpOnly; SameSite=Lax; Max-Age={}{}",
+                        state.admin_path(),
                         60 * 60 * 24 * 7,
                         vuuut_api::admin::cookie_secure(&state),
                         name = vuuut_api::admin::SESSION_COOKIE,

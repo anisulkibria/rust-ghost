@@ -186,10 +186,10 @@ async fn staff_toolbar_links_to_public_products_and_directory_listings() {
         ("ecom_enabled", json!(true)),
         ("directory_enabled", json!(true)),
     ]).await.unwrap();
-    let product_url = format!("/ghost/ecom/products/{product}/");
-    let listing_url = format!("/ghost/directories/listings/{listing}/");
-    let post_url = format!("/ghost/posts/{post_id}/");
-    let page_url = format!("/ghost/pages/{page_id}/");
+    let product_url = format!("/vuuut/ecom/products/{product}/");
+    let listing_url = format!("/vuuut/directories/listings/{listing}/");
+    let post_url = format!("/vuuut/posts/{post_id}/");
+    let page_url = format!("/vuuut/pages/{page_id}/");
     for (path, kind, url) in [
         ("/shop/products/paper-notebook/", "product", &product_url),
         ("/directory/corner-cafe/", "listing", &listing_url),

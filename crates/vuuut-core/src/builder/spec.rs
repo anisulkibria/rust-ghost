@@ -48,6 +48,8 @@ pub enum Field {
     Template(&'static str),
     /// A vuuut Forms id.
     FormRef,
+    /// Selected records from a public catalogue.
+    Catalogue(&'static str),
 }
 
 /// One setting.
@@ -226,6 +228,8 @@ pub const SECTION: &[F] = &[
     f("min_h", Num(0, 100, "vh"), "Minimum height", 'c').r(),
     f("valign", Choice(&[("top", "Top"), ("center", "Middle"), ("bottom", "Bottom"), ("stretch", "Stretch")]), "Align columns", 'c'),
     f("stack", Choice(&[("mobile", "Mobile"), ("tablet", "Tablet"), ("never", "Never")]), "Stack columns on", 'c'),
+    f("row_reverse", Bool, "Reverse column order", 'c'),
+    f("edge_padding", Sides(0, 600), "Padding", 's').r(),
     f("reverse", Bool, "Reverse order when stacked", 'c'),
     f("tag", Choice(&[("section", "section"), ("header", "header"), ("footer", "footer"), ("aside", "aside"), ("article", "article"), ("nav", "nav"), ("div", "div")]), "HTML tag", 'c'),
     f("overflow", Bool, "Clip overflowing content", 'c'),
@@ -432,9 +436,13 @@ pub const WIDGETS: &[W] = &[
         f("gap", Num(0, 160, "px"), "Column gap", 'c').r(),
         f("valign", Choice(&[("top", "Top"), ("center", "Middle"), ("bottom", "Bottom"), ("stretch", "Stretch")]), "Align columns", 'c'),
         f("stack", Choice(&[("mobile", "Mobile"), ("tablet", "Tablet"), ("never", "Never")]), "Stack columns on", 'c'),
+        f("row_reverse", Bool, "Reverse column order", 'c'),
     ]},
     W { key: "html", label: "HTML", cat: "basic", typo: false, defaults: r#"{"code":"<div style=\"padding:24px;border:1px dashed #ccc;text-align:center\">Your custom HTML</div>"}"#, fields: &[
         f("code", Code(150_000), "HTML", 'c').h("Shown as written. Scripts run on the site, not in this editor."),
+    ]},
+    W { key: "elementor-widget", label: "Elementor widget", cat: "imported", typo: false, defaults: r#"{}"#, fields: &[
+        f("label", Text(70), "Original element type", 'c'),
     ]},
     // ---- media ----
     W { key: "video", label: "Video", cat: "media", typo: false, defaults: r#"{"url":"https://www.youtube.com/watch?v=aqz-KE-bpKQ","ratio":"16/9"}"#, fields: &[
@@ -853,6 +861,16 @@ pub const WIDGETS: &[W] = &[
         f("limit", Num(1, 500, ""), "At most", 'c'),
         f("columns", Num(1, 4, ""), "Columns", 's').r(),
     ]},
+    W { key: "products", label: "Shop products", cat: "site", typo: false, defaults: r#"{}"#, fields: &[
+        f("ids", Catalogue("products"), "Products", 'c'),
+        f("columns", Num(1, 6, ""), "Columns", 's').r().h("Defaults to three on desktop, two on tablet and one on mobile."),
+        f("gap", Num(0, 80, "px"), "Gap", 's').r(),
+    ]},
+    W { key: "directory-listings", label: "Directory listings", cat: "site", typo: false, defaults: r#"{}"#, fields: &[
+        f("ids", Catalogue("directory"), "Listings", 'c'),
+        f("columns", Num(1, 6, ""), "Columns", 's').r().h("Defaults to three on desktop, two on tablet and one on mobile."),
+        f("gap", Num(0, 80, "px"), "Gap", 's').r(),
+    ]},
     W { key: "template", label: "Template", cat: "basic", typo: false, defaults: r#"{}"#, fields: &[
         f("ref", Template("section"), "Saved section or page", 'c').h("Changes to the template show here too."),
     ]},
@@ -884,6 +902,7 @@ pub fn column_fields() -> impl Iterator<Item = &'static F> {
 
 pub const MAX_SECTIONS: usize = 150;
 pub const MAX_COLUMNS: usize = 6;
+pub const MAX_CATALOGUE_ITEMS: usize = 24;
 pub const MAX_WIDGETS: usize = 100;
 /// The largest layout JSON accepted, in bytes.
 pub const MAX_BYTES: usize = 3_000_000;
@@ -975,6 +994,13 @@ fn clean_field(v: &Value, f: &F) -> Option<Value> {
         }
         Icon => v.as_str().map(|s| json!(clip(s.trim(), 16))),
         Font => v.as_str().filter(|s| super::FONTS.iter().any(|f| f.0 == *s)).map(|s| json!(s)),
+        Catalogue(_) => {
+            let mut seen = std::collections::HashSet::new();
+            let ids: Vec<_> = v.as_array()?.iter().filter_map(Value::as_str)
+                .filter(|id| !id.is_empty() && id.len() <= 40 && id.chars().all(|c| c.is_ascii_alphanumeric()))
+                .filter(|id| seen.insert(*id)).take(MAX_CATALOGUE_ITEMS).collect();
+            Some(json!(ids))
+        }
         Template(_) | FormRef => v.as_str().filter(|s| !s.is_empty() && s.len() <= 40 && s.chars().all(|c| c.is_ascii_alphanumeric())).map(|s| json!(s)),
     }
 }
@@ -1019,35 +1045,48 @@ fn clean_columns(cols: &[Value], n: &mut u32, depth: u8) -> Result<Vec<Value>, S
     for c in cols {
         let Some(c) = c.as_object() else { continue };
         let cs = clean_map(c.get("s").and_then(Value::as_object).unwrap_or(&empty), column_fields());
-        let items = c.get("items").and_then(Value::as_array).cloned().unwrap_or_default();
+        let items = c.get("items").and_then(Value::as_array).map(Vec::as_slice).unwrap_or_default();
         if items.len() > MAX_WIDGETS {
             return Err(format!("A column can hold at most {MAX_WIDGETS} widgets."));
         }
         let mut out_items = Vec::new();
-        for w in &items {
+        for w in items {
             let Some(w) = w.as_object() else { continue };
             let Some(kind) = w.get("t").and_then(Value::as_str) else { continue };
             let Some(spec) = widget(kind) else { continue };
-            // one level of inner sections, no deeper
-            if kind == "inner" && depth > 0 {
+            // Native inner sections are one level deep. Imported containers
+            // can contain further containers up to the conversion limit.
+            if kind == "inner" && (depth >= super::elementor::MAX_CONTAINER_DEPTH
+                || (depth > 0 && w.get("elementor").and_then(|m| m["source"]["elType"].as_str()) != Some("container"))) {
                 continue;
             }
             let raw = w.get("s").and_then(Value::as_object).unwrap_or(&empty);
             let ws = clean_map(raw, widget_fields(spec));
             let mut obj = json!({"id": clean_id(w.get("id"), n), "t": kind, "s": ws});
             if kind == "inner" {
-                let inner = w.get("cols").and_then(Value::as_array).cloned().unwrap_or_default();
-                let mut cols = clean_columns(&inner, n, depth + 1)?;
+                let inner = w.get("cols").and_then(Value::as_array).map(Vec::as_slice).unwrap_or_default();
+                let mut cols = clean_columns(inner, n, depth + 1)?;
                 if cols.is_empty() {
                     cols = vec![json!({"id": clean_id(None, n), "s": {}, "items": []}), json!({"id": clean_id(None, n), "s": {}, "items": []})];
                 }
                 obj["cols"] = Value::Array(cols);
             }
+            preserve_elementor(w, &mut obj);
             out_items.push(obj);
         }
-        out.push(json!({"id": clean_id(c.get("id"), n), "s": cs, "items": out_items}));
+        let mut column = json!({"id": clean_id(c.get("id"), n), "s": cs, "items": out_items});
+        preserve_elementor(c, &mut column);
+        out.push(column);
     }
     Ok(out)
+}
+
+/// Imported source is opaque metadata for re-export. Rendering uses only the
+/// separately validated builder settings.
+fn preserve_elementor(input: &Map<String, Value>, output: &mut Value) {
+    if let Some(metadata) = input.get("elementor").filter(|v| v.is_object()) {
+        output["elementor"] = metadata.clone();
+    }
 }
 
 /// Rebuild a layout from untrusted JSON. Errors are messages for the editor.
@@ -1063,15 +1102,19 @@ pub fn normalise(input: &Value) -> Result<Value, String> {
     for s in sections {
         let Some(s) = s.as_object() else { continue };
         let settings = clean_map(s.get("s").and_then(Value::as_object).unwrap_or(&empty), section_fields());
-        let cols = s.get("cols").and_then(Value::as_array).cloned().unwrap_or_default();
-        let mut cols = clean_columns(&cols, &mut n, 0)?;
+        let cols = s.get("cols").and_then(Value::as_array).map(Vec::as_slice).unwrap_or_default();
+        let mut cols = clean_columns(cols, &mut n, 0)?;
         if cols.is_empty() {
             cols.push(json!({"id": clean_id(None, &mut n), "s": {}, "items": []}));
         }
-        out.push(json!({"id": clean_id(s.get("id"), &mut n), "s": settings, "cols": cols}));
+        let mut section = json!({"id": clean_id(s.get("id"), &mut n), "s": settings, "cols": cols});
+        preserve_elementor(s, &mut section);
+        out.push(section);
     }
     let page = clean_map(obj.get("page").and_then(Value::as_object).unwrap_or(&empty), PAGE.iter());
-    Ok(json!({"v": 2, "page": page, "sections": out}))
+    let mut layout = json!({"v": 2, "page": page, "sections": out});
+    preserve_elementor(obj, &mut layout);
+    Ok(layout)
 }
 
 // ---------------------------------------------------------------------------
@@ -1099,6 +1142,7 @@ fn field_json(f: &F) -> Value {
         Font => ("font", json!({})),
         Template(kind) => ("template", json!({"of": kind})),
         FormRef => ("form", json!({})),
+        Catalogue(kind) => ("catalogue", json!({"of": kind, "max": MAX_CATALOGUE_ITEMS})),
     };
     let mut v = json!({"key": f.key, "kind": kind, "label": f.label, "group": f.group.to_string(), "resp": f.resp, "hint": f.hint});
     if let Some((k, vals)) = f.when {

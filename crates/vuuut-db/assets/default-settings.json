@@ -1821,6 +1821,13 @@
   },
   {
     "group": "builder",
+    "key": "builder_homepage",
+    "type": "string",
+    "flags": "",
+    "value": ""
+  },
+  {
+    "group": "builder",
     "key": "builder_maintenance",
     "type": "string",
     "flags": "",
@@ -2021,5 +2028,19 @@
     "type": "boolean",
     "flags": "",
     "value": "false"
+  },
+  {
+    "group": "core",
+    "key": "admin_path",
+    "type": "string",
+    "flags": "",
+    "value": "vuuut"
+  },
+  {
+    "group": "core",
+    "key": "admin_default_redirect",
+    "type": "boolean",
+    "flags": "",
+    "value": "true"
   }
 ]

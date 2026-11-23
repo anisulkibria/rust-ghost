@@ -588,10 +588,19 @@ fn section(r: &mut R, sec: &Value) -> String {
         d.push_str(&format!("box-shadow:{};", shadow(s(m, "shadow"))));
     }
     r.rule("", &sel, &d);
+    r.resp(m, "edge_padding", &sel, |v| {
+        let padding = sides(v);
+        format!("--vb-pt:{};--vb-pb:{};", padding.split_whitespace().next().unwrap_or("0px"), padding.split_whitespace().nth(2).unwrap_or("0px"))
+    });
     r.resp(m, "pt", &sel, |v| v.as_i64().filter(|v| *v >= 0).map(|v| format!("--vb-pt:{v}px;")).unwrap_or_default());
     r.resp(m, "pb", &sel, |v| v.as_i64().filter(|v| *v >= 0).map(|v| format!("--vb-pb:{v}px;")).unwrap_or_default());
     r.resp(m, "min_h", &sel, |v| v.as_i64().filter(|v| *v > 0).map(|v| format!("min-height:{v}vh;")).unwrap_or_else(|| "min-height:0;".into()));
     let inner = format!("{sel} > .vb-in");
+    r.resp(m, "edge_padding", &inner, |v| {
+        let padding = sides(v);
+        let mut edges = padding.split_whitespace();
+        format!("padding-right:{};padding-left:{};", edges.nth(1).unwrap_or("0px"), edges.nth(1).unwrap_or("0px"))
+    });
     if s(m, "layout") == "full" {
         r.rule("", &inner, "max-width:none;");
     } else {
@@ -619,7 +628,10 @@ fn section(r: &mut R, sec: &Value) -> String {
 
 /// A row of columns: a section's, or an inner section's.
 pub(super) fn row(r: &mut R, cols: &Value, m: &Value, row_sel: &str) -> String {
-    let cols = cols.as_array().cloned().unwrap_or_default();
+    let mut cols: Vec<_> = cols.as_array().into_iter().flatten().collect();
+    if b(m, "row_reverse") {
+        cols.reverse();
+    }
     let tpl = |dev: &str| -> Option<String> {
         let key = if dev.is_empty() { "w".to_string() } else { format!("w_{dev}") };
         if !dev.is_empty() && !cols.iter().any(|c| c["s"][&key].is_i64()) {
@@ -699,6 +711,9 @@ fn column(r: &mut R, col: &Value) -> String {
 
 pub(super) fn widget(r: &mut R, w: &Value) -> String {
     let kind = s(w, "t").to_string();
+    if kind == "elementor-widget" && !r.ctx.editing {
+        return String::new();
+    }
     let id = s(w, "id").to_string();
     // a global widget is drawn as the widget it points at, under this id
     if kind == "global" && r.depth < 3 {

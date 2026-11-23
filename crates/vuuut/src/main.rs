@@ -2,6 +2,7 @@
 //!
 //! config → db + migrate + seed → settings cache → routes.yaml → redirects
 //! → theme activation → build app → listen.
+mod admin_address;
 mod cli;
 mod serve;
 
@@ -290,14 +291,15 @@ async fn main() {
     // Automatic backups, on the schedule set in Settings → Backups.
     vuuut_api::backups::spawn(state.clone());
     vuuut_api::federation::spawn(state.clone());
-    let app = mount(build_app(state), subdir);
+    let admin_url = state.admin_url();
+    let app = mount(build_app(state.clone()), subdir, state);
 
     // 9. listen
     tracing::info!(
-        "Vuuut ready in {:.2}s — {} (admin at {}/ghost/)",
+        "Vuuut ready in {:.2}s — {} (admin at {}/)",
         started.elapsed().as_secs_f64(),
         config.canonical_url(),
-        config.canonical_url()
+        admin_url,
     );
     if let Err(e) = serve::run(&plan, app, &config.canonical_url()).await {
         tracing::error!("server stopped: {e}");
@@ -341,6 +343,7 @@ async fn main() {
 fn mount(
     app: axum::Router,
     subdir: &'static str,
+    state: AppState,
 ) -> impl tower::Service<
     axum::extract::Request,
     Response = axum::response::Response,
@@ -354,7 +357,7 @@ fn mount(
     use axum::response::IntoResponse;
     use tower::Layer;
 
-    axum::middleware::from_fn(move |mut req: Request, next: axum::middleware::Next| async move {
+    axum::middleware::from_fn_with_state(state, move |axum::extract::State(state): axum::extract::State<AppState>, mut req: Request, next: axum::middleware::Next| async move {
         if !subdir.is_empty() {
             let path = req.uri().path();
 
@@ -375,7 +378,7 @@ fn mount(
                 }
             }
         }
-        next.run(req).await
+        admin_address::route(&state, req, next).await
     })
     .layer(app)
 }

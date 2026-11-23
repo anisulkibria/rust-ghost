@@ -272,11 +272,15 @@ pub fn admin_ui_router(state: AppState) -> Router<AppState> {
         .route("/builder/new/", post(builder::builder_new))
         .route("/builder/open/", get(builder::builder_open))
         .route("/builder/theme/", get(builder::theme_page))
+        .route("/builder/import/", post(builder::builder_import).layer(axum::extract::DefaultBodyLimit::max(vuuut_core::builder::spec::MAX_BYTES + 8192)))
+        .route("/builder/{id}/export/", get(builder::builder_export))
         .route("/builder/templates/", get(builder::templates_page))
         .route("/builder/templates/new/", post(builder::template_new))
         .route("/builder/templates/{id}/edit/", get(builder::template_editor))
-        .route("/builder/templates/{id}/save/", post(builder::template_save))
-        .route("/builder/templates/{id}/render/", post(builder::template_render))
+        .route("/builder/templates/{id}/save/", post(builder::template_save).layer(axum::extract::DefaultBodyLimit::max(vuuut_core::builder::spec::MAX_BYTES)))
+        .route("/builder/templates/{id}/catalogue/", get(builder::template_catalogue))
+        .route("/builder/templates/{id}/interchange/", post(builder::template_interchange).layer(axum::extract::DefaultBodyLimit::max(vuuut_core::builder::spec::MAX_BYTES)))
+        .route("/builder/templates/{id}/render/", post(builder::template_render).layer(axum::extract::DefaultBodyLimit::max(vuuut_core::builder::spec::MAX_BYTES)))
         .route("/builder/templates/{id}/active/", post(builder::template_active))
         .route("/builder/templates/{id}/rename/", post(builder::template_rename))
         .route("/builder/templates/{id}/delete/", post(builder::template_delete))
@@ -495,8 +499,10 @@ pub fn admin_ui_router(state: AppState) -> Router<AppState> {
         // The visual editor: under /posts/ so the right to edit the post is
         // what opens it, not a grant on the Page Builder tool.
         .route("/posts/{id}/builder/", get(builder::editor_page))
-        .route("/posts/{id}/builder/save/", post(builder::editor_save))
-        .route("/posts/{id}/builder/render/", post(builder::editor_render))
+        .route("/posts/{id}/builder/save/", post(builder::editor_save).layer(axum::extract::DefaultBodyLimit::max(vuuut_core::builder::spec::MAX_BYTES)))
+        .route("/posts/{id}/builder/catalogue/", get(builder::editor_catalogue))
+        .route("/posts/{id}/builder/interchange/", post(builder::editor_interchange).layer(axum::extract::DefaultBodyLimit::max(vuuut_core::builder::spec::MAX_BYTES)))
+        .route("/posts/{id}/builder/render/", post(builder::editor_render).layer(axum::extract::DefaultBodyLimit::max(vuuut_core::builder::spec::MAX_BYTES)))
         .route("/posts/{id}/builder/revisions/", get(builder::editor_revisions))
         .route("/posts/{id}/builder/revisions/{rid}/", get(builder::editor_revision))
         .route("/posts/{id}/builder/templates/", post(builder::editor_template_save))
@@ -622,6 +628,7 @@ pub fn admin_ui_router(state: AppState) -> Router<AppState> {
         )
         .route("/settings/", get(settings_page))
         .route("/settings/general/", get(general_page).post(general_save))
+        .route("/settings/general/admin-address/", post(admin_address_save))
         // Meta data and Social accounts are sections of General settings now.
         // The old paths stay as redirects: they are what an existing bookmark,
         // or a link from elsewhere in this admin, still points at.

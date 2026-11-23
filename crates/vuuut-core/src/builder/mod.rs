@@ -9,8 +9,8 @@
 //! * [`spec`] — every setting of every element, once: its type, label, group,
 //!   whether it varies per device, and when it is shown. The editor's panels
 //!   are generated from it ([`spec::spec_json`]) and [`spec::normalise`]
-//!   rebuilds every layout from it before it is stored or drawn. Nothing the
-//!   browser sends is kept as it came.
+//!   rebuilds the renderable layout before it is stored or drawn. Elementor
+//!   source data is retained separately for JSON export.
 //! * [`render`] — layout → HTML plus one generated stylesheet of per-element
 //!   rules (responsive values, hover states, typography, borders, shadows,
 //!   motion). Every text is escaped; the Text widget keeps a small set of
@@ -24,6 +24,7 @@
 //! [`CSS`] and [`RUNTIME`] are served to the site at `/public/vuuut-builder.*`.
 
 pub mod dynamic;
+pub mod elementor;
 pub mod icons;
 pub mod parts;
 pub mod render;
@@ -57,6 +58,7 @@ pub const SETTING_ANIMATIONS: &str = "builder_animations";
 pub const SETTING_HIDE_HEADER: &str = "builder_theme_header_selector";
 pub const SETTING_HIDE_FOOTER: &str = "builder_theme_footer_selector";
 pub const SETTING_MAINTENANCE: &str = "builder_maintenance";
+pub const SETTING_HOMEPAGE: &str = "builder_homepage";
 pub const SETTING_MAINTENANCE_PAGE: &str = "builder_maintenance_page";
 
 /// Every settings key this tool owns.
@@ -64,7 +66,7 @@ pub const SETTING_KEYS: &[&str] = &[
     SETTING_ENABLED, SETTING_POST_TYPES, SETTING_WHO, SETTING_WIDTH, SETTING_SPACE, SETTING_RADIUS,
     SETTING_PALETTE, SETTING_FONT, SETTING_BODY_FONT, SETTING_GOOGLE_FONTS, SETTING_CUSTOM_FONT_NAME,
     SETTING_CUSTOM_FONT_URL, SETTING_ANIMATIONS, SETTING_HIDE_HEADER, SETTING_HIDE_FOOTER,
-    SETTING_MAINTENANCE, SETTING_MAINTENANCE_PAGE,
+    SETTING_MAINTENANCE, SETTING_MAINTENANCE_PAGE, SETTING_HOMEPAGE,
 ];
 
 pub const DEFAULT_HIDE_HEADER: &str = "#gh-head, .gh-head, .site-header, body > header, body > nav";
@@ -400,7 +402,13 @@ pub fn plain_text(layout: &Value) -> String {
     fn walk(v: &Value, out: &mut Vec<String>) {
         match v {
             Value::Object(m) => {
+                if m.get("t").is_some_and(|kind| kind == "elementor-widget") {
+                    return;
+                }
                 for (k, v) in m {
+                    if k == "elementor" {
+                        continue;
+                    }
                     if matches!(k.as_str(), "text" | "title" | "quote" | "q" | "a" | "label" | "caption" | "before" | "after" | "words" | "heading" | "desc") {
                         if let Some(s) = v.as_str() {
                             out.push(s.to_string());

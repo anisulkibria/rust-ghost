@@ -241,6 +241,28 @@ fn card(p: &repo::Product, vs: &[repo::Variant], s: &Settings) -> String {
     )
 }
 
+pub(crate) async fn builder_cards(state: &AppState, ids: &[String]) -> String {
+    let s = settings(state);
+    if !s.enabled {
+        return String::new();
+    }
+    let products: HashMap<_, _> = repo::products_by_ids(&state.db, ids).await.into_iter()
+        .filter(repo::Product::is_active).map(|product| (product.id.clone(), product)).collect();
+    if products.is_empty() {
+        return String::new();
+    }
+    let product_ids: Vec<_> = products.keys().cloned().collect();
+    let variants = repo::variants_for(&state.db, &product_ids).await;
+    PATHS.scope(rules::Paths::from_settings(&s), async {
+        let cards: String = ids.iter().filter_map(|id| {
+            let product = products.get(id)?;
+            Some(card(product, variants.get(id).map(Vec::as_slice).unwrap_or_default(), &s))
+        }).collect();
+        let css = link(&format!("/shop/assets/{}/shop.css", assets_version()));
+        format!(r#"<link rel="stylesheet" href="{css}"><div class="vs"><div class="vb-catalogue">{cards}</div></div>"#)
+    }).await
+}
+
 // ---------------------------------------------------------------------------
 // catalogue
 // ---------------------------------------------------------------------------

@@ -678,3 +678,6 @@ body:has(.vb-page){overflow-x:clip}
 @media (min-width:641px) and (max-width:760px){
   .vb-page .vb-row.vb-n3:not(.vb-stack-n){grid-template-columns:1fr}
 }
+
+.vb-page .vb-catalogue{display:grid;grid-template-columns:repeat(var(--vb-catalogue-columns,3),minmax(0,1fr));gap:16px}
+.vb-page .vb-catalogue > a{min-width:0;margin:0}

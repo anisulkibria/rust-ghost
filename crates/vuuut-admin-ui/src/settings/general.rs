@@ -57,6 +57,7 @@ pub(crate) async fn general_page(State(state): State<AppState>, headers: HeaderM
 {metadata}
 {social}
 </form>
+{admin_address}
 <script src="{assets}/unsplash-picker.js" defer></script>"#,
             head = group_head(group, Some("general-form")),
             assets = ASSETS,
@@ -78,6 +79,7 @@ pub(crate) async fn general_page(State(state): State<AppState>, headers: HeaderM
             name = s("name"),
             description = s("description"),
             tz_opts = select_options(TIMEZONES, &state.settings.get_str("timezone").unwrap_or_else(|| "Etc/UTC".into())),
+            admin_address = if actor_role == Role::Owner { admin_address_form(&state) } else { String::new() },
             metadata = metadata_sections(&state),
             social = social_sections(&state),
         ),
@@ -132,6 +134,91 @@ pub(crate) async fn general_save(State(state): State<AppState>, headers: HeaderM
     } else {
         settings_flash("general", "error", "Saving failed — check the logs.")
     }
+}
+
+fn admin_address_form(state: &AppState) -> String {
+    use vuuut_core::admin_address as address;
+    let path = esc(&state.admin_slug());
+    let site = esc(&state.site_url());
+    let default = address::DEFAULT;
+    let checked = if state.settings.get(address::REDIRECT_KEY).is_none()
+        || state.settings.get_bool(address::REDIRECT_KEY) { " checked" } else { "" };
+    format!(r#"<div class="section" id="admin-address">Admin address</div>
+<form class="card padded rise" method="post" action="/ghost/settings/general/admin-address/">
+<label class="ec-urlfield"><span class="ec-urlfield-label">Dashboard path</span><span class="ec-urlfield-box">
+<span class="ec-urlfield-site">{site}/</span><input name="admin_path" value="{path}" placeholder="{default}" maxlength="64" required spellcheck="false"><span class="ec-urlfield-site">/</span></span></label>
+<p><label><input type="checkbox" name="admin_default_redirect" value="1"{checked}> Redirect the default /{default}/ address to the current dashboard</label></p>
+<button class="btn" type="submit">Save admin address</button>
+</form>"#)
+}
+
+pub(crate) async fn admin_address_save(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Form(form): Form<HashMap<String, String>>,
+) -> Response {
+    use vuuut_core::admin_address as address;
+    let actor = match require_actor(&state, &headers).await {
+        Ok(actor) => actor,
+        Err(response) => return response,
+    };
+    if actor.role != Role::Owner || !vuuut_api::forms::same_origin(&headers, &state.site_url()) {
+        return StatusCode::FORBIDDEN.into_response();
+    }
+    let Some(slug) = form.get(address::PATH_KEY).and_then(|value| address::clean(value)) else {
+        return settings_flash("general", "error", "Enter one path segment using lowercase letters, numbers, and dashes. Choose an address available on this site.");
+    };
+    if slug != address::DEFAULT && slug != state.admin_slug() && admin_address_taken(&state, slug).await {
+        return settings_flash("general", "error", "That address is already used on this site.");
+    }
+    let changed = slug != state.admin_slug();
+    let redirect = form.get(address::REDIRECT_KEY).is_some_and(|value| value == "1");
+    if state.settings.set_many(&state.db, &[
+        (address::PATH_KEY, serde_json::json!(slug)),
+        (address::REDIRECT_KEY, serde_json::json!(redirect)),
+    ]).await.is_err() {
+        return settings_flash("general", "error", "Could not save the admin address.");
+    }
+    let mut response = settings_saved(&state, "general", "Admin address saved.");
+    if changed {
+        if let Some(session) = crate::auth::session_id_from(&headers) {
+            crate::auth::set_session_cookie(&state, &mut response, &session);
+        }
+    }
+    response
+}
+
+async fn admin_address_taken(state: &AppState, slug: &str) -> bool {
+    let store = vuuut_api::ecom::paths(state);
+    let directory = vuuut_core::directory::Paths::read(|key| state.settings.get_str(key));
+    if [store.base.as_str(), &store.product, &directory.base, &directory.listing]
+        .iter().any(|prefix| vuuut_core::admin_address::suffix(prefix, slug).is_some())
+    {
+        return true;
+    }
+
+    let locales = vuuut_core::locales::Locales::from_settings(
+        state.settings.get_str("locale").as_deref(),
+        state.settings.get("locales_enabled").as_ref(),
+    );
+    if locales.multilingual() && locales.enabled().iter().any(|locale| locale.eq_ignore_ascii_case(slug)) {
+        return true;
+    }
+
+    let path = format!("/{slug}/");
+    use vuuut_routing::tree::RouteMatch;
+    let route = state.router.read().await.match_path(&path);
+    if !matches!(route, None | Some(RouteMatch::CollectionEntry { .. } | RouteMatch::StaticPage { .. }))
+        || state.redirects.read().await.match_path(&path, None).is_some()
+    {
+        return true;
+    }
+    for kind in ["post", "page"] {
+        if vuuut_db::repos::posts::slug_exists(&state.db, slug, kind, None).await.unwrap_or(true) {
+            return true;
+        }
+    }
+    false
 }
 
 // --- meta data: metadata, twitter card, facebook card ---

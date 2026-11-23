@@ -125,7 +125,7 @@ pub async fn notify_staff(state: &AppState, o: &repo::Order) {
     let title = state.settings.get_str("title").unwrap_or_default();
     let store = s.name(&title).to_string();
     let items = repo::order_items(&state.db, &o.id).await;
-    let admin = format!("{}/ghost/ecom/orders/{}/", state.admin_url().trim_end_matches('/').trim_end_matches("/ghost"), o.id);
+    let admin = format!("{}/ecom/orders/{}/", state.admin_url(), o.id);
     let body = format!(
         r#"<h1 style="font-size:20px;margin:0 0 6px">New order #{n}</h1><p style="color:#555;margin:0 0 18px">{email} · {pay}</p>{summary}
 <p style="margin:22px 0 0"><a href="{admin}">Open it in the admin</a></p>"#,

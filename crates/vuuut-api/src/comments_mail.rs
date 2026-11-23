@@ -69,7 +69,7 @@ async fn context(state: &AppState, comment: &repo::Comment) -> Option<Context> {
             member_initials: rules::initials(&member_name),
             accent_color: state.settings.get_str("accent_color").unwrap_or_default(),
             moderation_enabled: true,
-            moderation_url: format!("{site_url}/ghost/comments/?id={}", comment.id),
+            moderation_url: format!("{}/comments/?id={}", state.admin_url(), comment.id),
             ..Default::default()
         },
     })

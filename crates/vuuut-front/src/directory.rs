@@ -293,6 +293,26 @@ fn card(s: &Settings, l: &repo::Listing, cats: &HashMap<&str, &repo::Category>) 
     )
 }
 
+pub(crate) async fn builder_cards(state: &AppState, ids: &[String]) -> String {
+    let s = settings(state);
+    if !s.enabled {
+        return String::new();
+    }
+    let now = vuuut_core::dates::now_db();
+    let listings: HashMap<_, _> = repo::visible_by_ids(&state.db, ids, &now).await
+        .into_iter().map(|listing| (listing.id.clone(), listing)).collect();
+    if listings.is_empty() {
+        return String::new();
+    }
+    let categories = repo::categories(&state.db).await.unwrap_or_default();
+    let cats = categories.iter().map(|c| (c.id.as_str(), c)).collect();
+    PATHS.scope(s.paths.clone(), async {
+        let cards: String = ids.iter().filter_map(|id| listings.get(id))
+            .map(|listing| card(&s, listing, &cats)).collect();
+        format!(r#"{}<div class="vd"><div class="vb-catalogue">{cards}</div></div>"#, stylesheet())
+    }).await
+}
+
 // ---------------------------------------------------------------------------
 // one listing
 // ---------------------------------------------------------------------------

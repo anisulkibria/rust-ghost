@@ -545,7 +545,7 @@ async fn invite(
         Ok(i) => i,
         Err(e) => return failed(e),
     };
-    let link = format!("{}/ghost/invite/{}/", state.site_url(), invite.token);
+    let link = format!("{}/invite/{}/", state.admin_url(), invite.token);
     let cfg = vuuut_mail::MailConfig::from_settings(
         &state.settings,
         &state.settings.site_name(),

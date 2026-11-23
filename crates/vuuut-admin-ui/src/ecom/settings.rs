@@ -224,6 +224,10 @@ pub(crate) async fn ecom_settings_save(State(state): State<AppState>, headers: H
     };
     let base_path = if base_raw.trim().is_empty() && !form.contains_key("ecom_product_style") { current.base_path.clone() } else { base_path };
     if base_path != current.base_path || product_path != current.product_path {
+        let admin = state.admin_slug();
+        if [&base_path, &product_path].iter().any(|path| vuuut_core::admin_address::suffix(path, &admin).is_some()) {
+            return flash_to(SETTINGS, "error", "Choose paths outside the admin address.");
+        }
         let directory = vuuut_core::directory::Paths::read(|key| state.settings.get_str(key));
         if directory.overlaps_store(&base_path, &product_path) {
             return flash_to(SETTINGS, "error", "Choose paths outside the directory and its listing addresses.");

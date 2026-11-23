@@ -92,6 +92,17 @@ async fn draw(state: &AppState, kind: &str, id: &str, q: &Value, post: Option<&V
     let flag = |k: &str| q[k].as_bool().unwrap_or(false);
     let al = match st("align") { "" => "left", a => a };
     match kind {
+        "products" | "directory-listings" => {
+            let ids: Vec<_> = q["ids"].as_array().into_iter().flatten()
+                .filter_map(Value::as_str).take(b::spec::MAX_CATALOGUE_ITEMS).map(String::from).collect();
+            let cards = if kind == "products" { crate::shop::builder_cards(state, &ids).await }
+                else { crate::directory::builder_cards(state, &ids).await };
+            if cards.is_empty() && flag("editing") {
+                r#"<div class="vb-empty">None of the selected items is publicly available.</div>"#.into()
+            } else {
+                cards
+            }
+        }
         "post-content" => match (original, post) {
             (Some(h), _) => format!(r#"<div class="vb-post-content gh-content">{h}</div>"#),
             (None, Some(p)) if p["html"].is_string() => String::new(),

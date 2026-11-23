@@ -135,7 +135,7 @@
     countdown: 'history', toc: 'list', share: 'social', blockquote: 'testimonial', code: 'html', 'text-path': 'heading', 'progress-tracker': 'stat',
     'off-canvas': 'panel', 'pay-button': 'pricing', form: 'page', signup: 'button', login: 'button', search: 'eye', 'nav-menu': 'list',
     'site-logo': 'image', breadcrumbs: 'link', 'author-box': 'testimonial', 'post-nav': 'link', 'post-info': 'text', 'post-content': 'page',
-    sitemap: 'list', template: 'copy', global: 'save'
+    sitemap: 'list', products: 'pricing', 'directory-listings': 'list', template: 'copy', global: 'save'
   };
   function ui(name, cls) {
     var d = UI[name] || UI[GLYPH[name]] || UI.add;
@@ -249,8 +249,15 @@
     return w;
   }
 
-  function insertSections(list, afterId) {
+  function insertSections(list, afterId, imported) {
     record();
+    if (imported) {
+      if (imported.replaceBlank) S.layout.sections = [];
+      if (!S.layout.elementor && imported.layout.elementor) {
+        S.layout.elementor = imported.layout.elementor;
+        S.layout.page = Object.assign({}, imported.layout.page, S.layout.page);
+      }
+    }
     var at = sections().length;
     var loc = (afterId || S.sel) && locate(afterId || S.sel);
     if (loc) at = loc.si + 1;
@@ -948,7 +955,7 @@
     if (sel) pane.appendChild(h('p', {class: 'vbe-hint', style: 'margin:10px 2px 0;font-size:12px;color:var(--vbe-ink-3)', text: 'Clicking adds ' + (sel.kind === 'widget' ? 'below the selected widget' : sel.kind === 'column' ? 'to the selected column' : 'to the selected section') + '. Sections and templates go after it.'}));
     // One list of every widget, A–Z: no Basic / Pro split to hunt across.
     var ws = SPEC.widgets.filter(function (w) {
-      if (w.key === 'global') return false;
+      if (w.key === 'global' || w.cat === 'imported') return false;
       if (w.key === 'post-content') return IS_TEMPLATE && T.templateKind === 'single';
       return true;
     }).sort(function (a, b) { return a.label.localeCompare(b.label); });
@@ -1183,6 +1190,18 @@
         SPEC.fonts.forEach(function (x) { fs.appendChild(h('option', {value: x[0], text: x[1], selected: v === x[0]})); });
         fs.addEventListener('change', function () { set(fs.value); });
         wrap.appendChild(fs);
+        break;
+      }
+      case 'catalogue': {
+        lab();
+        var selected = Array.isArray(v) ? v : [];
+        wrap.appendChild(h('button', {class: 'vbe-btn tonal small', type: 'button',
+          text: (selected.length ? 'Edit selection (' + selected.length + ')' : 'Choose ' + fd.label.toLowerCase()),
+          onclick: function () {
+            cataloguePicker(fd, selected).then(function (ids) {
+              if (ids && ids.join(',') !== selected.join(',')) set(ids);
+            });
+          }}));
         break;
       }
       case 'template':
@@ -1602,7 +1621,7 @@
     var list = h('div', {class: 'vbe-finder-list', role: 'listbox'});
     var box = h('div', null, [input, list]);
     var cmds = [];
-    SPEC.widgets.forEach(function (w) { if (w.key !== 'global') cmds.push(['Add ' + w.label, w.key, function () { insertWidget(w.key); }]); });
+    SPEC.widgets.forEach(function (w) { if (w.key !== 'global' && w.cat !== 'imported') cmds.push(['Add ' + w.label, w.key, function () { insertWidget(w.key); }]); });
     TEMPLATES.forEach(function (t) { cmds.push(['Insert template: ' + t.name, 'layout', function () { insertSections(t.make()); }]); });
     sections().forEach(function (s, i) { cmds.push(['Go to section ' + (i + 1) + (s.s && s.s.anchor ? ' #' + s.s.anchor : ''), 'section', function () { select(s.id); scrollIntoView(s.id); }]); });
     [['desktop', 'Desktop'], ['tablet', 'Tablet'], ['mobile', 'Mobile']].forEach(function (d) { cmds.push(['Preview on ' + d[1], d[0], function () { setDevice(d[0]); }]); });
@@ -1671,13 +1690,105 @@
     });
   }
 
+  function cataloguePicker(field, initial) {
+    var selected = initial.slice();
+    var labels = new Map();
+    var offset = 0, request = 0, timer, closed = false;
+    var singular = field.of === 'products' ? 'product' : 'listing';
+    var search = h('input', {class: 'vbe-in', type: 'search', maxlength: 100, placeholder: 'Search ' + field.label.toLowerCase(), 'aria-label': 'Search ' + field.label.toLowerCase()});
+    var chosen = h('div', {class: 'vbe-catalogue-chosen', 'aria-label': 'Selected items'});
+    var status = h('p', {role: 'status'});
+    var results = h('div', {class: 'vbe-catalogue-results', role: 'group', 'aria-label': 'Search results'});
+    var previous = h('button', {class: 'vbe-btn text small', type: 'button', text: 'Previous', disabled: true});
+    var next = h('button', {class: 'vbe-btn text small', type: 'button', text: 'Next', disabled: true});
+
+    function fetchItems(query) {
+      var params = new URLSearchParams(Object.assign({kind: field.of}, query));
+      return fetch(BOOT.endpoints.catalogue + '?' + params, {credentials: 'same-origin', headers: {Accept: 'application/json'}}).then(function (response) {
+        if (!response.ok || response.redirected) throw new Error('The catalogue could not be loaded.');
+        return response.json();
+      });
+    }
+    function updateSelection() {
+      chosen.replaceChildren(h('span', {class: 'vbe-hint', text: selected.length + ' selected'}));
+      selected.forEach(function (id) {
+        var label = labels.get(id) || 'Unavailable ' + singular;
+        chosen.appendChild(h('button', {class: 'vbe-btn tonal small', type: 'button',
+          text: label + ' ×', 'aria-label': 'Remove ' + label,
+          onclick: function () {
+            selected = selected.filter(function (selectedId) { return selectedId !== id; });
+            updateSelection();
+            var inputs = Array.from(results.querySelectorAll('input'));
+            var input = inputs.find(function (item) { return item.value === id; });
+            var focus = input || chosen.querySelector('button') || search;
+            focus.focus();
+          }}));
+      });
+      results.querySelectorAll('input').forEach(function (input) {
+        input.checked = selected.includes(input.value);
+        input.disabled = !input.checked && selected.length >= field.max;
+      });
+    }
+    function load() {
+      var current = ++request;
+      previous.disabled = next.disabled = true;
+      results.replaceChildren();
+      status.textContent = 'Loading…';
+      fetchItems({search: search.value.trim(), offset: String(offset)}).then(function (data) {
+        if (closed || current !== request) return;
+        data.items.forEach(function (item) {
+          var id = item[0], title = item[1];
+          labels.set(id, title);
+          var input = h('input', {type: 'checkbox', value: id, onchange: function () {
+            if (input.checked && selected.length < field.max) selected.push(id);
+            else if (!input.checked) selected = selected.filter(function (value) { return value !== id; });
+            updateSelection();
+          }});
+          results.appendChild(h('label', {}, [input, h('span', {text: title})]));
+        });
+        status.textContent = data.items.length ? '' : 'No matching ' + field.label.toLowerCase() + '.';
+        previous.disabled = offset === 0;
+        previous.onclick = function () { offset = Math.max(0, offset - data.pageSize); load(); };
+        next.disabled = data.next == null;
+        next.onclick = function () { if (data.next != null) { offset = data.next; load(); } };
+        updateSelection();
+      }).catch(function (error) {
+        if (!closed && current === request) status.textContent = error.message;
+      });
+    }
+    search.addEventListener('input', function () {
+      offset = 0;
+      request++;
+      clearTimeout(timer);
+      timer = setTimeout(load, 180);
+    });
+    updateSelection();
+    if (initial.length) {
+      fetchItems({selected: initial.join(',')}).then(function (data) {
+        if (closed) return;
+        data.items.forEach(function (item) { labels.set(item[0], item[1]); });
+        updateSelection();
+      }).catch(function () {});
+    }
+    load();
+    var body = h('div', {class: 'vbe-catalogue-picker'}, [search, chosen, status, results,
+      h('div', {class: 'vbe-actions-row'}, [previous, next])]);
+    return dialog('Choose ' + field.label.toLowerCase(), 'Select up to ' + field.max + ' items. Cards follow your selection order.', body, 'Apply').then(function (ok) {
+      closed = true;
+      clearTimeout(timer);
+      return ok ? selected : null;
+    });
+  }
+
   function saveTemplate(kind, data) {
     if (!BOOT.endpoints.templates) return;
     var name = h('input', {class: 'vbe-in', maxlength: '120', placeholder: kind === 'page' ? 'e.g. Product launch page' : 'e.g. Dark call to action'});
     dialog(kind === 'page' ? 'Save the page as a template' : 'Save the section as a template', 'It will be offered under Add → Templates on every page.', name, 'Save template').then(function (ok) {
       if (!ok) return;
       if (!name.value.trim()) { toast('A template needs a name.', true); return; }
-      post(BOOT.endpoints.templates, {name: name.value.trim(), kind: kind, data: {v: 2, page: data.page || {}, sections: data.sections}}).then(function (j) {
+      var layout = {v: 2, page: data.page || {}, sections: data.sections};
+      if (kind === 'page' && data.elementor) layout.elementor = data.elementor;
+      post(BOOT.endpoints.templates, {name: name.value.trim(), kind: kind, data: layout}).then(function (j) {
         S.templates = j.templates || S.templates; S.refs = j.refs || S.refs;
         toast('Template saved.');
         if (S.tab === 'add') renderSide();
@@ -1685,25 +1796,93 @@
     });
   }
   function exportJson() {
-    var t = h('textarea', {class: 'vbe-ta code', readonly: true});
-    t.value = JSON.stringify(S.layout, null, 2);
-    dialog('Export layout', 'Copy this to keep it, or to paste into another page’s Import.', t, 'Copy').then(function (ok) {
-      if (ok && navigator.clipboard) navigator.clipboard.writeText(t.value).then(function () { toast('Copied.'); });
+    if (EDITING) finishEditing();
+    var title = (IS_TEMPLATE ? T.name : BOOT.post.title) || 'Layout';
+    var filename = title.replace(/[^a-z0-9_-]+/gi, '-').replace(/^-|-$/g, '') || 'layout';
+    var format = h('select', {class: 'vbe-in', 'aria-label': 'JSON format'}, [
+      h('option', {value: 'elementor', text: 'Elementor JSON'}),
+      h('option', {value: 'vuuut', text: 'Vuuut JSON'})
+    ]);
+    var content = h('textarea', {class: 'vbe-ta code', readonly: true, 'aria-label': 'Exported JSON'});
+    var status = h('p', {role: 'status'});
+    var download = h('button', {class: 'vbe-btn tonal small', type: 'button', text: 'Download JSON', disabled: true, onclick: function () {
+      var url = URL.createObjectURL(new Blob([content.value], {type: 'application/json'}));
+      var link = h('a', {href: url, download: filename + '.json'});
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      setTimeout(function () { URL.revokeObjectURL(url); }, 1000);
+    }});
+    var request = 0;
+    function load() {
+      var current = ++request;
+      download.disabled = true;
+      content.value = '';
+      status.textContent = 'Preparing JSON…';
+      var result = format.value === 'vuuut'
+        ? Promise.resolve({document: S.layout})
+        : post(BOOT.endpoints.interchange, {export: S.layout, title: title});
+      result.then(function (response) {
+        if (current !== request) return;
+        content.value = JSON.stringify(response.document, null, 2);
+        status.textContent = (response.warnings || []).join(' ');
+        download.disabled = false;
+      }).catch(function (error) {
+        if (current === request) status.textContent = error.message;
+      });
+    }
+    format.addEventListener('change', load);
+    load();
+    dialog('Export layout', 'Use Elementor JSON to import this layout into WordPress.', h('div', {}, [format, content, status, download]), 'Copy JSON').then(function (ok) {
+      if (!ok || !content.value) return;
+      if (navigator.clipboard) {
+        navigator.clipboard.writeText(content.value).then(function () { toast('Copied.'); }, function () { toast('Clipboard access was denied. You can download the JSON instead.', true); });
+      } else {
+        toast('Clipboard access is unavailable. You can download the JSON instead.', true);
+      }
     });
-    setTimeout(function () { t.select(); }, 50);
   }
+
   function importJson() {
-    var t = h('textarea', {class: 'vbe-ta code', placeholder: '{"sections": […]}'});
-    dialog('Import layout', 'Paste a layout exported from this builder. Its sections are added after the selection.', t, 'Import').then(function (ok) {
-      if (!ok) return;
-      try {
-        var v = JSON.parse(t.value);
-        var list = Array.isArray(v) ? v : v.sections;
-        if (!Array.isArray(list) || !list.length) throw new Error('No sections found.');
-        insertSections(list.filter(function (s) { return s && Array.isArray(s.cols); }));
-        toast('Imported. The server checks every value when you save.');
-      } catch (e) { toast('That is not a layout: ' + e.message, true); }
+    if (EDITING) finishEditing();
+    var content = h('textarea', {class: 'vbe-ta code', placeholder: 'Paste JSON', 'aria-label': 'Layout JSON'});
+    var file = h('input', {type: 'file', accept: '.json,application/json', 'aria-label': 'Choose a layout JSON file'});
+    var status = h('p', {role: 'status'});
+    var pending;
+    file.addEventListener('change', function () {
+      var selected = file.files[0];
+      if (!selected) return;
+      status.textContent = '';
+      pending = selected.size <= BOOT.layoutLimits.bytes
+        ? selected.text()
+        : Promise.reject(new Error('This layout file is too large.'));
+      pending.then(function (text) { content.value = text; }, function (error) { status.textContent = error.message; });
     });
+    content.addEventListener('input', function () { pending = null; status.textContent = ''; });
+    dialog('Import layout', 'Choose or paste Elementor or Vuuut JSON. Sections go after your selection.', h('div', {}, [file, content, status]), 'Import').then(function (ok) {
+      if (!ok) return;
+      return (pending || Promise.resolve(content.value)).then(function (text) {
+        var document;
+        try { document = JSON.parse(text.replace(/^\uFEFF/, '')); }
+        catch (_) { throw new Error('The file does not contain valid JSON.'); }
+        return post(BOOT.endpoints.interchange, {import: document});
+      }).then(function (result) {
+        var list = result.layout.sections;
+        if (!list.length) throw new Error('The file has no sections.');
+        var first = sections()[0];
+        var replaceBlank = result.elementor && sections().length === 1 && first.cols.length === 1 &&
+          !first.cols[0].items.length && !first.elementor && !Object.keys(first.s).length &&
+          !Object.keys(first.cols[0].s).length;
+        var total = list.length + (replaceBlank ? 0 : sections().length);
+        if (total > BOOT.layoutLimits.sections) throw new Error('The imported sections would exceed the page’s section limit.');
+        if (new Blob([JSON.stringify(S.layout), JSON.stringify(result.layout)]).size > BOOT.layoutLimits.bytes - 1024) {
+          throw new Error('The imported sections would exceed the layout size limit.');
+        }
+        insertSections(list, null, {layout: result.layout, replaceBlank: replaceBlank});
+        var warnings = result.warnings || [];
+        toast(warnings.length ? warnings.join(' ') : 'Layout imported. Save to keep your changes.', !!warnings.length);
+      });
+    }).catch(function (error) { toast(error.message, true); });
   }
 
   // ---------------------------------------------------------------------
@@ -1897,5 +2076,6 @@
   renderTop();
   renderSide();
   initCanvas();
-  if (BOOT.isNew) toast('Your text has been brought in as the first section. Nothing changes on the site until you save.');
+  if (BOOT.importNotice) toast(BOOT.importNotice, true);
+  else if (BOOT.isNew) toast('Your text has been brought in as the first section. Nothing changes on the site until you save.');
 })();

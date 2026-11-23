@@ -77,7 +77,7 @@ async fn request(
             if saved {
                 let title = state.settings.site_name();
                 let site = state.site_url();
-                let link = format!("{site}/ghost/forgot-password/?token={token}");
+                let link = format!("{}/forgot-password/?token={token}", state.admin_url());
                 let html=format!("<p>Reset your password for {}.</p><p><a href=\"{}\">Choose a new password</a></p><p>This link expires in 30 minutes. If you did not request it, you can ignore this message.</p>",title.replace('&',"&amp;").replace('<',"&lt;").replace('>',"&gt;"),link);
                 let cfg = vuuut_mail::MailConfig::from_settings(&state.settings, &title, &site);
                 let msg = vuuut_mail::Message {

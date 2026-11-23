@@ -52,13 +52,16 @@ The first build takes a few minutes. After that you should see:
 INFO vuuut: database ready at .../content/data/ghost-dev.db
 INFO vuuut: seeded initial data (roles, settings, fixture posts)
 INFO vuuut: theme 'source' activated
-INFO vuuut: Vuuut ready in 0.6s — http://localhost:1971 (admin at http://localhost:1971/ghost/)
+INFO vuuut: Vuuut ready in 0.6s — http://localhost:1971 (admin at http://localhost:1971/vuuut/)
 ```
 
 ### Step 3 — Create your account
 
-Open **http://localhost:1971/ghost/** and fill in the setup form. That creates
+Open **http://localhost:1971/vuuut/** and fill in the setup form. That creates
 the owner account and names the site.
+
+The owner can change the admin path in **Settings → General → Admin address**.
+The default `/vuuut/` address can temporarily redirect to the current one.
 
 The site itself is at **http://localhost:1971**.
 
@@ -348,7 +351,7 @@ Run `vuuut systemd` without `--write` to read the unit before installing it.
 
 ### Step 10 — Create your account
 
-Open **https://example.com/ghost/** and fill in the setup form.
+Open **https://example.com/vuuut/** and fill in the setup form.
 
 The first HTTPS request is also when the certificate is issued, so that first
 page load takes a few seconds. Watch it happen:
@@ -389,7 +392,7 @@ A subdomain is just a hostname, so there are no extra steps. Two things change:
 
 Everything else — the service user, `doctor`, `systemd`, the firewall, the
 certificate — is identical. The admin ends up at
-`https://blog.example.com/ghost/`.
+`https://blog.example.com/vuuut/`.
 
 ### Under a subdirectory — `example.com/blog`
 
@@ -403,7 +406,7 @@ That moves the whole install:
 
 ```
 https://example.com/blog/          site
-https://example.com/blog/ghost/    admin
+https://example.com/blog/vuuut/    admin
 https://example.com/blog/rss/      feed
 ```
 
@@ -890,7 +893,7 @@ Hosted email volumes are enforced at send time through `hostSettings.emailQuota`
 and `hostSettings.limits.emails.maxPeriodic`. Transactional and newsletter sends
 share persistent monthly reservations across every transport. An operator may
 set `emailQuota.autoStop` to false to keep counting without stopping delivery.
-`GET /ghost/api/admin/email_usage/` is private to administrators and Admin API
+`GET /vuuut/api/admin/email_usage/` is private to administrators and Admin API
 integrations and reports current-period usage, daily activity and provider totals.
 Standalone installs with no host ceiling keep sending without a volume limit.
 

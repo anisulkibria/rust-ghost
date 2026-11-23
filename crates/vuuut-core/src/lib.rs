@@ -106,3 +106,5 @@ mod version_tests {
 /// name, so it names neither. One constant, so no `unwrap_or("Ghost")` can
 /// quietly bring the old one back.
 pub const DEFAULT_SITE_TITLE: &str = "My Publication";
+
+pub mod admin_address;

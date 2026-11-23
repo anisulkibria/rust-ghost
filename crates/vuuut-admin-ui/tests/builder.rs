@@ -586,3 +586,167 @@ async fn serve_for_screenshots() {
     let server = axum::serve(listener, app);
     let _ = tokio::time::timeout(std::time::Duration::from_secs(150), server).await;
 }
+
+#[tokio::test]
+async fn elementor_upload_edit_and_download_use_the_builder_routes() {
+    use serde_json::{json, Value};
+
+    let fixture = fixture().await;
+    let state = &fixture.state;
+    let cookie = fixture.session().await;
+    let app = vuuut_admin_ui::admin_ui_router(state.clone()).with_state(state.clone());
+    let overview = get(state, "/builder/", &cookie).await;
+    assert!(overview.body.contains(r#"action="/ghost/builder/import/""#));
+    assert!(overview.body.contains(r#"id="vb-import-file""#));
+
+    let document = json!({
+        "title": "Elementor fixture", "type": "page", "version": "0.4",
+        "page_settings": {"background_background": "classic", "background_color": "#fff"},
+        "content": [{"id": "123abcd", "elType": "container", "isInner": false,
+            "settings": {"content_width": "full", "flex_direction": "column"},
+            "elements": [
+                {"id": "123abce", "elType": "widget", "widgetType": "heading", "settings":
+                    {"title": "Original title", "header_size": "h1", "align_mobile": "center"}, "elements": []},
+                {"id": "123abcf", "elType": "widget", "widgetType": "html", "settings":
+                    {"html": "<script>opaqueElementorSource()</script>"}, "elements": []}
+            ]
+        }]
+    });
+    let multipart = format!("--layout-boundary\r\nContent-Disposition: form-data; name=\"layout\"; filename=\"design.json\"\r\nContent-Type: application/json\r\n\r\n{document}\r\n--layout-boundary--\r\n");
+    let request = Request::post("/builder/import/").header("host", HOST).header("origin", ORIGIN)
+        .header("cookie", &cookie).header("content-type", "multipart/form-data; boundary=layout-boundary")
+        .body(Body::from(multipart)).unwrap();
+    let response = app.clone().oneshot(request).await.unwrap();
+    assert_eq!(response.status(), StatusCode::SEE_OTHER);
+    let destination = response.headers()["location"].to_str().unwrap();
+    let editor = destination.split('?').next().unwrap().strip_prefix("/ghost").unwrap();
+    let post_id = editor.split('/').nth(2).unwrap();
+    assert!(destination.contains("import_notice"));
+    let post = vuuut_db::repos::posts::find_by_id(&state.db, post_id).await.unwrap().unwrap();
+    assert_eq!(post.status, "draft");
+    assert_eq!(post.title.as_deref(), Some("Elementor fixture"));
+    let saved = vuuut_db::repos::builder::get(&state.db, post_id).await.unwrap().unwrap();
+    assert!(saved.html.contains("Original title"));
+    assert!(!saved.html.contains("opaqueElementorSource"));
+    let mut layout: Value = serde_json::from_str(&saved.data).unwrap();
+    layout["sections"][0]["cols"][0]["items"][0]["s"]["text"] = json!("Edited in Vuuut");
+
+    let request = Request::post(format!("{editor}save/")).header("host", HOST).header("origin", ORIGIN)
+        .header("cookie", &cookie).header("content-type", "application/json")
+        .body(Body::from(json!({"layout": layout}).to_string())).unwrap();
+    assert_eq!(app.clone().oneshot(request).await.unwrap().status(), StatusCode::OK);
+
+    let request = Request::get(format!("/builder/{post_id}/export/")).header("host", HOST)
+        .header("cookie", &cookie).body(Body::empty()).unwrap();
+    let downloaded = app.clone().oneshot(request).await.unwrap();
+    assert_eq!(downloaded.status(), StatusCode::OK);
+    assert!(downloaded.headers()["content-disposition"].to_str().unwrap().starts_with("attachment"));
+    let output: Value = serde_json::from_slice(&to_bytes(downloaded.into_body(), 3_000_000).await.unwrap()).unwrap();
+    assert_eq!(output["type"], "page");
+    assert_eq!(output["version"], "0.4");
+    assert_eq!(output["page_settings"], document["page_settings"]);
+    assert_eq!(output["content"][0]["elements"][0]["settings"]["title"], "Edited in Vuuut");
+    assert_eq!(output["content"][0]["elements"][0]["settings"]["align_mobile"], "center");
+    assert_eq!(output["content"][0]["elements"][1], document["content"][0]["elements"][1]);
+
+    let request = Request::post(format!("{editor}interchange/")).header("host", HOST).header("origin", ORIGIN)
+        .header("cookie", &cookie).header("content-type", "application/json")
+        .body(Body::from(json!({"import": output}).to_string())).unwrap();
+    let response = app.oneshot(request).await.unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let result: Value = serde_json::from_slice(&to_bytes(response.into_body(), 3_000_000).await.unwrap()).unwrap();
+    assert_eq!(result["layout"]["sections"][0]["cols"][0]["items"][0]["s"]["text"], "Edited in Vuuut");
+}
+
+#[tokio::test]
+async fn homepage_override_renders_selected_catalogue_items_and_falls_back() {
+    use serde_json::{json, Value};
+    use vuuut_db::repos::{directory, ecom, posts};
+
+    let f = fixture().await;
+    let state = &f.state;
+    let owner = f.session().await;
+    f.post("landing", "Landing page", "Original landing copy", "page", "public", &[]).await;
+    f.post("members-landing", "Private landing", "Members-only copy", "page", "members", &[]).await;
+    f.post("not-a-page", "Regular post", "Regular post copy", "post", "public", &[]).await;
+    let page_id = post_id(&f, "landing").await;
+    let regular_post = post_id(&f, "not-a-page").await;
+    let private_id = post_id(&f, "members-landing").await;
+    state.settings.set_many(&state.db, &[
+        ("ecom_enabled", json!(true)),
+        ("ecom_base_path", json!("store")),
+        ("ecom_product_path", json!("goods")),
+        ("directory_enabled", json!(true)),
+        ("directory_base_path", json!("listings")),
+    ]).await.unwrap();
+
+    let product = |title: &str, handle: &str, status: &str| ecom::ProductInput {
+        title: title.into(), handle: handle.into(), status: status.into(), ..Default::default()
+    };
+    let variant = ecom::VariantInput { price_cents: 2500, ..Default::default() };
+    let first = ecom::save_product(&state.db, None, &product("Catalogue Alpha", "catalogue-alpha", "active"), &[variant.clone()], &[]).await.unwrap();
+    let second = ecom::save_product(&state.db, None, &product("Catalogue Beta", "catalogue-beta", "active"), &[variant.clone()], &[]).await.unwrap();
+    let draft = ecom::save_product(&state.db, None, &product("Invisible product", "invisible-product", "draft"), &[variant], &[]).await.unwrap();
+    let listing = |title: &str, slug: &str| vuuut_core::directory::ListingInput {
+        title: title.into(), slug: slug.into(), kind: "listing".into(), ..Default::default()
+    };
+    let one = directory::insert(&state.db, &listing("Directory One", "directory-one"), "published", None, None).await.unwrap();
+    let two = directory::insert(&state.db, &listing("Directory Two", "directory-two"), "published", None, None).await.unwrap();
+    let expired = directory::insert(&state.db, &listing("Expired listing", "expired-listing"), "published", Some("2020-01-01 00:00:00"), None).await.unwrap();
+
+    let settings = get(state, "/builder/settings/", &owner).await;
+    assert!(settings.body.contains("Landing page (/landing/)"));
+    assert!(settings.body.contains("Private landing (/members-landing/)"));
+    assert!(!settings.body.contains("Regular post (/not-a-page/)"));
+    let rejected = post(state, "/builder/settings/", &owner, &[("builder_enabled", "1"), ("builder_homepage", &regular_post)]).await;
+    assert!(rejected.flash().contains("existing page"));
+
+    let editor = format!("/posts/{page_id}/builder/");
+    let product_picker = get(state, &format!("{editor}catalogue/?kind=products&search=Beta"), &owner).await;
+    let data: Value = serde_json::from_str(&product_picker.body).unwrap();
+    assert_eq!(data["items"], json!([[second, "Catalogue Beta"]]));
+    let listing_picker = get(state, &format!("{editor}catalogue/?kind=directory&selected={one},{two},{expired}"), &owner).await;
+    let data: Value = serde_json::from_str(&listing_picker.body).unwrap();
+    assert_eq!(data["items"].as_array().unwrap().len(), 2);
+    assert!(!listing_picker.body.contains("Expired listing"));
+
+    let design = json!({"sections": [{"id":"s1", "s":{}, "cols":[
+        {"id":"c1", "s":{}, "items":[
+            {"id":"hd", "t":"heading", "s":{"text":"Designed homepage"}},
+            {"id":"pr", "t":"products", "s":{"ids":[second, first, first, draft]}},
+            {"id":"dl", "t":"directory-listings", "s":{"ids":[one, two, expired]}}
+        ]}
+    ]}]});
+    let saved = json(state, &format!("{editor}save/"), Some(&owner), Some(ORIGIN), &json!({"layout": design})).await;
+    assert_eq!(saved.status, StatusCode::OK, "{}", saved.body);
+    let saved_layout: Value = serde_json::from_str(&saved.body).unwrap();
+    assert_eq!(saved_layout["layout"]["sections"][0]["cols"][0]["items"][1]["s"]["ids"].as_array().unwrap().len(), 3);
+    let canvas = json(state, &format!("{editor}render/"), Some(&owner), Some(ORIGIN), &json!({"layout": design})).await;
+    assert!(canvas.body.contains("/goods/catalogue-alpha/") && canvas.body.contains("/listings/directory-two/"));
+    let before = site(state, "GET", "/", None).await;
+    assert!(!before.body.contains("Designed homepage"));
+    let change = post(state, "/builder/settings/", &owner, &[("builder_enabled", "1"), ("builder_homepage", &page_id)]).await;
+    assert!(change.flash().contains("saved"), "{}", change.location);
+
+    let home = site(state, "GET", "/", None).await;
+    assert_eq!(home.status, StatusCode::OK);
+    assert!(home.body.contains("Designed homepage"));
+    assert!(home.body.contains("/goods/catalogue-alpha/") && home.body.contains("/listings/directory-two/"));
+    assert!(home.body.find("Catalogue Beta").unwrap() < home.body.find("Catalogue Alpha").unwrap());
+    assert!(!home.body.contains("Invisible product") && !home.body.contains("Expired listing"));
+    assert!(site(state, "GET", "/landing/", None).await.body.contains("Designed homepage"));
+
+    // Changes in the source records are reflected without saving the design.
+    ecom::set_product_status(&state.db, &first, "archived").await.unwrap();
+    assert!(!site(state, "GET", "/", None).await.body.contains("Catalogue Alpha"));
+    posts::update(&state.db, &page_id, &posts::PostChanges { status: Some("draft".into()), ..Default::default() }).await.unwrap();
+    assert!(!site(state, "GET", "/", None).await.body.contains("Designed homepage"));
+    let gated = post(state, "/builder/settings/", &owner, &[("builder_enabled", "1"), ("builder_homepage", &private_id)]).await;
+    assert!(gated.flash().contains("saved"));
+    let home = site(state, "GET", "/", None).await;
+    assert!(home.body.contains("Private landing"));
+    assert!(!home.body.contains("Members-only copy"), "The homepage must respect the selected page’s access rules.");
+    let reset = post(state, "/builder/settings/", &owner, &[("builder_enabled", "1"), ("builder_homepage", "")]).await;
+    assert!(reset.flash().contains("saved"));
+    assert_eq!(state.settings.get_str("builder_homepage").as_deref(), Some(""));
+}

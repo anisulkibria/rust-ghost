@@ -147,6 +147,20 @@ pub async fn find(pool: &Db, id: &str) -> Result<Option<Listing>> {
         .map_err(dberr)
 }
 
+/// Resolve a selection in one query and enforce the public listing rules.
+pub async fn visible_by_ids(pool: &Db, ids: &[String], now: &str) -> Vec<Listing> {
+    if ids.is_empty() {
+        return Vec::new();
+    }
+    let marks = vec!["?"; ids.len()].join(",");
+    let sql = format!("SELECT {COLS} FROM directory_listings WHERE status = 'published' AND (expires_at IS NULL OR expires_at > ?) AND id IN ({marks})");
+    let mut query = sqlx::query_as::<_, Listing>(&sql).bind(now);
+    for id in ids {
+        query = query.bind(id);
+    }
+    query.fetch_all(pool).await.unwrap_or_default()
+}
+
 pub async fn by_slug(pool: &Db, slug: &str) -> Result<Option<Listing>> {
     sqlx::query_as::<_, Listing>(&format!("SELECT {COLS} FROM directory_listings WHERE slug = ?"))
         .bind(slug)

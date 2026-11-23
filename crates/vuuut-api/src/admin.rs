@@ -539,16 +539,16 @@ pub fn cookie_secure(state: &AppState) -> &'static str {
 
 fn session_cookie_header(state: &AppState, sid: &str, max_age_secs: i64) -> String {
     format!(
-        "{SESSION_COOKIE}={sid}; Path={}/ghost; HttpOnly; SameSite=Lax; Max-Age={max_age_secs}{}",
-        vuuut_core::url::subdir(),
+        "{SESSION_COOKIE}={sid}; Path={}; HttpOnly; SameSite=Lax; Max-Age={max_age_secs}{}",
+        state.admin_path(),
         cookie_secure(state)
     )
 }
 
 fn clear_session_cookie_header(state: &AppState) -> String {
     format!(
-        "{SESSION_COOKIE}=; Path={}/ghost; HttpOnly; SameSite=Lax; Max-Age=0{}",
-        vuuut_core::url::subdir(),
+        "{SESSION_COOKIE}=; Path={}; HttpOnly; SameSite=Lax; Max-Age=0{}",
+        state.admin_path(),
         cookie_secure(state)
     )
 }

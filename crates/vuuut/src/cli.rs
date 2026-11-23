@@ -278,7 +278,7 @@ pub fn setup(args: &Args) -> Result<(), String> {
 
     println!("\n  wrote {}\n", path.display());
     println!("  site        {}", check.canonical_url());
-    println!("  admin       {}/ghost/", check.canonical_url());
+    println!("  admin       {}/vuuut/", check.canonical_url());
     println!("  listening   {}", plan.bind_addr());
     match &plan.tls {
         TlsPlan::Off => println!("  https       off (plain HTTP)"),
@@ -303,7 +303,7 @@ pub fn setup(args: &Args) -> Result<(), String> {
     } else {
         println!("  vuuut                                 # start the server");
     }
-    println!("\nThen open {}/ghost/ to create the owner account.\n", check.canonical_url());
+    println!("\nThen open {}/vuuut/ to create the owner account.\n", check.canonical_url());
     Ok(())
 }
 
@@ -621,7 +621,7 @@ pub async fn doctor() -> bool {
                     report.warn(
                         "owner",
                         "no owner account yet",
-                        &format!("open {}/ghost/ to create it", config.canonical_url()),
+                        &format!("open {}/vuuut/ to create it", config.canonical_url()),
                     );
                 } else {
                     report.ok("owner", "owner account exists");

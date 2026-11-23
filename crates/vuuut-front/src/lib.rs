@@ -85,7 +85,11 @@ fn site_routes(state: AppState) -> Router {
             vuuut_core::builder::RUNTIME,
         )}))
         .route("/public/cards.min.js", get(cards::cards_js))
-        .route("/public/staff-toolbar.js", get(||async {([(axum::http::header::CONTENT_TYPE,"text/javascript; charset=utf-8")],include_str!("staff_toolbar.js"))}))
+        .route("/public/staff-toolbar.js", get(|axum::extract::State(state): axum::extract::State<AppState>| async move {
+            use axum::http::header::{CACHE_CONTROL, CONTENT_TYPE};
+            let script = include_str!("staff_toolbar.js").replace("base+'ghost/", &format!("base+'{}/", state.admin_slug()));
+            ([(CONTENT_TYPE, "text/javascript; charset=utf-8"), (CACHE_CONTROL, "no-store")], script)
+        }))
         .route("/public/comment-counts.min.js", get(comment_counts::comment_counts_js))
         // The language switcher dropdown `{{ghost_head}}` injects. Versioned
         // by content hash in its URL, so it can be cached for good.

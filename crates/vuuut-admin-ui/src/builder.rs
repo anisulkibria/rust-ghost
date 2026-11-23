@@ -17,13 +17,13 @@
 //! ## The security contract
 //!
 //! Every handler guards first; every write is origin-checked. A layout is
-//! rebuilt by `normalise` before it is stored or rendered — nothing the
-//! browser sends is kept as it came. Editor endpoints take the body as a
+//! rebuilt by `normalise` before it is stored or rendered. Elementor source
+//! metadata is kept separately and only used for JSON export. Editor endpoints take the body as a
 //! string and parse it after the guard, so a stranger gets the sign-in
 //! redirect rather than an extractor's 4xx.
 
 use super::*;
-use vuuut_core::builder::{self as rules, Settings, Who};
+use vuuut_core::builder::{self as rules, elementor, Settings, Who};
 use vuuut_db::repos::builder as repo;
 
 const BASE: &str = "/ghost/builder/";
@@ -168,7 +168,7 @@ pub(crate) async fn builder_page(State(state): State<AppState>, headers: HeaderM
 <div class="body"><span class="title"><a href="{edit}">{title}</a> <span class="chip {schip}">{status}</span> <span class="chip {lchip}">{live}</span></span>
 <span class="detail">{kind} · {sections} · {widgets} · saved {at}</span></div>
 <div class="trailing vb-actions">
-<a class="btn tonal small" href="{edit}">{pen} Edit design</a>{view}
+<a class="btn tonal small" href="{edit}">{pen} Edit design</a><a class="btn text small" href="{BASE}{id}/export/">Export</a>{view}
 <form method="post" action="{BASE}{id}/active/"><input type="hidden" name="active" value="{flip}"><button class="btn text small" type="submit">{fliplabel}</button></form>
 <form method="post" action="{BASE}{id}/delete/" data-confirm="Remove this layout?|&#8220;{title}&#8221; goes back to its own content. The layout and its history are deleted."><button class="icon-btn" type="submit" title="Remove layout">{del}</button></form>
 </div></div>"#,
@@ -216,6 +216,10 @@ pub(crate) async fn builder_page(State(state): State<AppState>, headers: HeaderM
 <form class="card padded vb-start-card" method="get" action="{BASE}open/"><span class="ic tint-blue">{edit}</span><div class="vb-start-body"><b>Open an existing page</b><p class="muted">Its title and text come in as the first section; the original is kept.</p>
 <div class="vb-inline"><label class="field fixed" style="margin:0;flex:1"><select name="post" required>{options}</select><span>Post or page</span>{caret}</label><button class="btn tonal" type="submit">Open</button></div></div></form>
 </div>
+<form class="card padded vb-start-card vb-import" method="post" enctype="multipart/form-data" action="{BASE}import/">
+<span class="ic tint-purple">{upload}</span>
+<div class="vb-start-body"><label for="vb-import-file"><b>Import a layout</b></label><p class="muted" id="vb-import-help">Open an Elementor or Vuuut JSON file as a new draft page.</p>
+<div class="vb-import-actions"><input class="vb-import-file" id="vb-import-file" name="layout" type="file" aria-describedby="vb-import-help" accept=".json,application/json" required><button class="btn tonal" type="submit">Import</button></div></div></form>
 <div class="section">Designed with the builder</div><div class="rise" style="--i:4">{list}</div>
 <p class="muted rise" style="--i:5;margin:14px 4px 0">A layout replaces only the content area: the theme still draws the header, footer and navigation. Switch a layout off and the page shows what was written in the editor again.</p>"#,
             head = crate::tools::tool_head("builder", None, ""),
@@ -228,6 +232,7 @@ pub(crate) async fn builder_page(State(state): State<AppState>, headers: HeaderM
             add = svg("add"),
             edit = svg("edit"),
             caret = SELECT_CARET,
+            upload = svg("upload"),
         ),
         true,
     )
@@ -258,8 +263,12 @@ pub(crate) async fn builder_new(State(state): State<AppState>, headers: HeaderMa
     if title.is_empty() {
         return flash_to(BASE, "error", "Give the page a title.");
     }
+    create_draft(&state, &actor, title, rules::blank(), &[]).await
+}
+
+async fn create_draft(state: &AppState, actor: &Actor, title: String, layout: serde_json::Value, warnings: &[String]) -> Response {
     let new = vuuut_db::repos::posts::NewPost {
-        title: title.clone(),
+        title,
         post_type: "page".into(),
         status: "draft".into(),
         visibility: "public".into(),
@@ -269,18 +278,79 @@ pub(crate) async fn builder_new(State(state): State<AppState>, headers: HeaderMa
     };
     match vuuut_db::repos::posts::insert(&state.db, &new, &actor.user.id).await {
         Ok(post) => {
-            let layout = rules::blank();
-            let html = draw(&state, &layout, &post.id, &HashMap::new());
+            let templates = repo::templates_map(&state.db).await;
+            let html = draw(state, &layout, &post.id, &templates);
             if let Err(e) = repo::save(&state.db, &post.id, &layout.to_string(), &html, true, &actor.user.id).await {
                 tracing::error!("builder: first save failed: {}", e.message());
+                return flash_to(BASE, "error", "The draft page was created, but its layout could not be saved.");
             }
-            Redirect::to(&editor_href(&post.id)).into_response()
+            let href = editor_href(&post.id);
+            if warnings.is_empty() {
+                Redirect::to(&href).into_response()
+            } else {
+                flash_to(&href, "import_notice", &warnings.join(" "))
+            }
         }
         Err(e) => {
             tracing::error!("builder: creating a page failed: {}", e.message());
             flash_to(BASE, "error", "The page could not be created — check the logs.")
         }
     }
+}
+
+pub(crate) async fn builder_import(State(state): State<AppState>, headers: HeaderMap, mut form: axum::extract::Multipart) -> Response {
+    let actor = match guard(&state, &headers, Role::Administrator, true).await {
+        Ok(actor) => actor,
+        Err(response) => return response,
+    };
+    if !builder_settings(&state).enabled {
+        return flash_to(BASE, "error", "Turn on the page builder before importing a layout.");
+    }
+    let file = match form.next_field().await {
+        Ok(Some(file)) if file.name() == Some("layout") => file,
+        _ => return flash_to(BASE, "error", "Choose a layout JSON file."),
+    };
+    let bytes = match file.bytes().await {
+        Ok(bytes) if bytes.len() <= rules::spec::MAX_BYTES => bytes,
+        _ => return flash_to(BASE, "error", "The layout JSON could not be read or is too large."),
+    };
+    let json = bytes.strip_prefix("\u{feff}".as_bytes()).unwrap_or(&bytes);
+    let Ok(input) = serde_json::from_slice::<serde_json::Value>(json) else {
+        return flash_to(BASE, "error", "The file does not contain valid JSON.");
+    };
+    match elementor::import_layout(&input) {
+        Ok(import) if import.layout["sections"].as_array().is_some_and(|sections| !sections.is_empty()) =>
+            create_draft(&state, &actor, import.title, import.layout, &import.warnings).await,
+        Ok(_) => flash_to(BASE, "error", "The file has no sections."),
+        Err(error) => flash_to(BASE, "error", &error),
+    }
+}
+
+pub(crate) async fn builder_export(State(state): State<AppState>, headers: HeaderMap, Path(id): Path<String>) -> Response {
+    if let Err(response) = guard(&state, &headers, Role::Administrator, false).await {
+        return response;
+    }
+    if !valid_id(&id) {
+        return flash_to(BASE, "error", "That layout does not exist.");
+    }
+    let Some(saved) = repo::get(&state.db, &id).await.ok().flatten() else {
+        return flash_to(BASE, "error", "That layout does not exist.");
+    };
+    let Ok(layout) = serde_json::from_str::<serde_json::Value>(&saved.data) else {
+        return flash_to(BASE, "error", "The saved layout could not be read.");
+    };
+    let post = vuuut_db::repos::posts::find_by_id(&state.db, &id).await.ok().flatten();
+    let title = post.as_ref().and_then(|post| post.title.as_deref()).unwrap_or("Layout");
+    let export = match export_layout(&state, &layout, title, "page").await {
+        Ok(export) => export,
+        Err(error) => return flash_to(BASE, "error", &error),
+    };
+    let filename: String = vuuut_core::ecom::safe_filename(title).chars().take(175).collect();
+    let disposition = vuuut_core::ecom::content_disposition(&format!("{filename}.json"));
+    let body = serde_json::to_string_pretty(&export.document).unwrap_or_else(|_| export.document.to_string());
+    ([(axum::http::header::CONTENT_TYPE, "application/json".to_owned()),
+      (axum::http::header::CONTENT_DISPOSITION, disposition),
+      (axum::http::header::CACHE_CONTROL, "private, no-store".to_owned())], body).into_response()
 }
 
 pub(crate) async fn builder_open(State(state): State<AppState>, headers: HeaderMap, Query(q): Query<HashMap<String, String>>) -> Response {
@@ -603,6 +673,18 @@ pub(crate) async fn settings_page(State(state): State<AppState>, headers: Header
                 .map(|(id, t)| (id, t.unwrap_or_else(|| "Untitled".into()))),
         )
         .collect();
+    let homepage = state.settings.get_str(rules::SETTING_HOMEPAGE).unwrap_or_default();
+    let mut home_options = vec![(String::new(), "Default homepage".to_string())];
+    home_options.extend(sqlx::query_as::<_, (String, Option<String>, Option<String>, String)>(
+        "SELECT id, title, slug, status FROM posts WHERE type = 'page' ORDER BY title, id",
+    ).fetch_all(&state.db).await.unwrap_or_default().into_iter().map(|(id, title, slug, status)| {
+        let title = title.filter(|t| !t.trim().is_empty()).unwrap_or_else(|| "Untitled".into());
+        let state = if status == "published" { String::new() } else { format!(" · {}", capitalise(&status)) };
+        (id, format!("{title} (/{}/){state}", slug.unwrap_or_default()))
+    }));
+    if !home_options.iter().any(|(id, _)| id == &homepage) {
+        home_options.push((homepage.clone(), "Unavailable page (using the default homepage)".into()));
+    }
     let palette: String = s
         .palette
         .iter()
@@ -628,6 +710,8 @@ pub(crate) async fn settings_page(State(state): State<AppState>, headers: Header
 <form method="post" action="{SETTINGS}" id="vb-settings">
 <div class="section">The builder</div>
 <div class="card rows rise" style="--i:2">{enabled}{types}{who}</div>
+<div class="section">Homepage</div>
+<div class="card rows rise" style="--i:3">{home}</div>
 <div class="section">Global colours</div>
 <div class="card padded rise" style="--i:3"><p class="muted" style="margin:0 0 14px">Every colour control in the editor offers these first. Change one here and every page that uses it changes with it.</p><div class="vb-swatches">{palette}</div></div>
 <div class="section">Typography</div>
@@ -647,6 +731,7 @@ pub(crate) async fn settings_page(State(state): State<AppState>, headers: Header
             enabled = setting_row("layout", if s.enabled { "green" } else { "slate" }, "Use the page builder", if s.enabled { "Layouts and Theme Builder parts are live." } else { "Off: every page shows its own content. Layouts are kept." }, &switch(rules::SETTING_ENABLED, s.enabled)),
             types = setting_row("pages", "blue", "Available on", "Which entries can be designed with the builder.", &select(rules::SETTING_POST_TYPES, "Available on", &[("all".into(), "Posts and pages".into()), ("pages".into(), "Pages only".into())], if s.post_types == rules::PostTypes::Pages { "pages" } else { "all" })),
             who = setting_row("group", "purple", "Who can use it", "On top of being allowed to edit the post or page.", &select(rules::SETTING_WHO, "Who", &[("everyone".into(), "Anyone who can edit it".into()), ("editors".into(), "Editors and above".into()), ("administrators".into(), "Administrators only".into())], s.who.key())),
+            home = setting_row("home", "teal", "Page to show at the site root", "The selected page takes over once published. Active builder layouts and page access rules apply.", &select(rules::SETTING_HOMEPAGE, "Homepage", &home_options, &homepage)),
             hfont = setting_row("title", "slate", "Heading font", "Used by every heading unless a widget picks its own.", &select(rules::SETTING_FONT, "Headings", &fonts, &s.font)),
             bfont = setting_row("title", "slate", "Body font", "Text in builder layouts.", &select(rules::SETTING_BODY_FONT, "Body", &fonts, &s.body_font)),
             google = setting_row("globe", "blue", "Load Google Fonts", "Only fonts a page uses are requested, from fonts.googleapis.com. Off: those fall back to the system font.", &switch(rules::SETTING_GOOGLE_FONTS, s.google_fonts)),
@@ -669,6 +754,16 @@ pub(crate) async fn settings_page(State(state): State<AppState>, headers: Header
 pub(crate) async fn settings_save(State(state): State<AppState>, headers: HeaderMap, Form(form): Form<HashMap<String, String>>) -> Response {
     if let Err(r) = guard(&state, &headers, Role::Administrator, true).await {
         return r;
+    }
+    let current = state.settings.get_str(rules::SETTING_HOMEPAGE).unwrap_or_default();
+    let homepage = form.get(rules::SETTING_HOMEPAGE).map(String::as_str).unwrap_or(&current);
+    if !homepage.is_empty() && homepage != current {
+        let eligible = valid_id(homepage)
+            && vuuut_db::repos::posts::find_by_id(&state.db, homepage).await.ok().flatten()
+                .is_some_and(|p| p.post_type == "page");
+        if !eligible {
+            return flash_to(SETTINGS, "error", "Choose an existing page for the homepage.");
+        }
     }
     let flag = |k: &str| form.get(k).is_some_and(|v| v == "1");
     let palette: Vec<String> = (0..6)
@@ -703,12 +798,11 @@ pub(crate) async fn settings_save(State(state): State<AppState>, headers: Header
         (rules::SETTING_HIDE_FOOTER, serde_json::json!(s.hide_footer)),
         (rules::SETTING_MAINTENANCE, serde_json::json!(s.maintenance.key())),
         (rules::SETTING_MAINTENANCE_PAGE, serde_json::json!(s.maintenance_page)),
+        (rules::SETTING_HOMEPAGE, serde_json::json!(homepage)),
     ];
-    for (key, value) in writes {
-        if let Err(e) = state.settings.set(&state.db, key, &value).await {
-            tracing::error!("builder: saving {key} failed: {}", e.message());
-            return flash_to(SETTINGS, "error", "Saving failed — check the logs.");
-        }
+    if let Err(error) = state.settings.set_many(&state.db, &writes).await {
+        tracing::error!("builder: saving settings failed: {}", error.message());
+        return flash_to(SETTINGS, "error", "Saving failed — check the logs.");
     }
     if s.maintenance != rules::Maintenance::Off && s.maintenance_page.is_empty() {
         return flash_to(SETTINGS, "error", "Saved — but maintenance mode needs a page to show, so the site stays open until you choose one.");
@@ -786,9 +880,10 @@ async fn template_guard(state: &AppState, headers: &HeaderMap, id: &str, writes:
     }
 }
 
-/// JSON for a `<script type="application/json">`: `</` cannot close it.
+/// Escape the less-than character so HTML inside an imported template is
+/// safe to embed and remains valid JSON.
 fn script_json(v: &serde_json::Value) -> String {
-    v.to_string().replace("</", "<\\/").replace("<!--", "<\\!--")
+    v.to_string().replace('<', r"\u003c")
 }
 
 fn templates_json(list: &[repo::Template]) -> serde_json::Value {
@@ -835,6 +930,7 @@ async fn boot_common(state: &AppState, canvas_uuid: Option<String>) -> serde_jso
         "forms": forms,
         "unsplash": crate::editor::unsplash_headers(state),
         "toolUrl": BASE,
+        "layoutLimits": {"bytes": rules::spec::MAX_BYTES, "sections": rules::spec::MAX_SECTIONS},
         "upload": "/ghost/api/admin/images/upload/",
     })
 }
@@ -866,7 +962,7 @@ fn editor_shell(title: &str, back: &str, boot: &serde_json::Value) -> Response {
     .into_response()
 }
 
-pub(crate) async fn editor_page(State(state): State<AppState>, headers: HeaderMap, Path(id): Path<String>) -> Response {
+pub(crate) async fn editor_page(State(state): State<AppState>, headers: HeaderMap, Path(id): Path<String>, Query(query): Query<HashMap<String, String>>) -> Response {
     let (_actor, post) = match editor_guard(&state, &headers, &id, false).await {
         Ok(x) => x,
         Err(r) => return r,
@@ -887,8 +983,8 @@ pub(crate) async fn editor_page(State(state): State<AppState>, headers: HeaderMa
             "showTitle": post.show_title_and_feature_image, "editUrl": format!("/ghost/posts/{}/", post.id), "viewUrl": view_url,
             "previewUrl": if uuid.is_empty() { String::new() } else { vuuut_core::url::base(&format!("/p/{uuid}/")) },
         },
-        "layout": layout, "active": active, "savedAt": saved_at, "isNew": existing.is_none(),
-        "endpoints": {"save": format!("{base}save/"), "render": format!("{base}render/"), "revisions": format!("{base}revisions/"), "templates": format!("{base}templates/")},
+        "layout": layout, "active": active, "savedAt": saved_at, "isNew": existing.is_none(), "importNotice": query.get("import_notice"),
+        "endpoints": {"save": format!("{base}save/"), "render": format!("{base}render/"), "interchange": format!("{base}interchange/"), "catalogue": format!("{base}catalogue/"), "revisions": format!("{base}revisions/"), "templates": format!("{base}templates/")},
     });
     merge(&mut boot, extra);
     editor_shell(&format!("Design · {}", post.title.as_deref().unwrap_or("Untitled")), &format!("/ghost/posts/{}/", post.id), &boot)
@@ -926,10 +1022,124 @@ pub(crate) async fn template_editor(State(state): State<AppState>, headers: Head
             "triggers": rules::parts::TRIGGERS, "freqs": rules::parts::FREQS, "positions": rules::parts::POSITIONS, "back": back},
         "post": {"id": "", "title": t.name, "type": t.kind, "status": if t.active { "on" } else { "off" }, "showTitle": true, "editUrl": back, "viewUrl": "", "previewUrl": ""},
         "layout": layout, "active": t.active, "savedAt": t.updated_at, "isNew": false,
-        "endpoints": {"save": format!("{base}save/"), "render": format!("{base}render/"), "revisions": "", "templates": ""},
+        "endpoints": {"save": format!("{base}save/"), "render": format!("{base}render/"), "interchange": format!("{base}interchange/"), "catalogue": format!("{base}catalogue/"), "revisions": "", "templates": ""},
     });
     merge(&mut boot, extra);
     editor_shell(&format!("{} · {}", kind_label(&t.kind), t.name), back, &boot)
+}
+
+#[derive(serde::Deserialize)]
+pub(crate) struct CatalogueQuery {
+    kind: String,
+    search: Option<String>,
+    offset: Option<i64>,
+    selected: Option<String>,
+}
+
+pub(crate) async fn editor_catalogue(State(state): State<AppState>, headers: HeaderMap, Path(id): Path<String>, Query(query): Query<CatalogueQuery>) -> Response {
+    if let Err(response) = editor_guard(&state, &headers, &id, false).await {
+        return response;
+    }
+    catalogue(&state, query).await
+}
+
+pub(crate) async fn template_catalogue(State(state): State<AppState>, headers: HeaderMap, Path(id): Path<String>, Query(query): Query<CatalogueQuery>) -> Response {
+    if let Err(response) = template_guard(&state, &headers, &id, false).await {
+        return response;
+    }
+    catalogue(&state, query).await
+}
+
+async fn catalogue(state: &AppState, query: CatalogueQuery) -> Response {
+    use vuuut_db::repos::{directory, ecom};
+
+    const PAGE_SIZE: i64 = 20;
+    let search: String = query.search.as_deref().unwrap_or("").chars().take(100).collect();
+    let terms: Vec<_> = search.split_whitespace()
+        .map(|word| word.to_lowercase().replace(['%', '_'], ""))
+        .filter(|word| !word.is_empty()).take(8).collect();
+    let offset = query.offset.unwrap_or_default().max(0);
+    let now = vuuut_core::dates::now_db();
+    let selected = query.selected.map(|ids| ids.split(',').filter(|id| valid_id(id))
+        .take(rules::spec::MAX_CATALOGUE_ITEMS).map(String::from).collect::<Vec<_>>());
+
+    let result = match (query.kind.as_str(), selected.as_deref()) {
+        ("products", Some(ids)) => {
+            let rows = ecom::products_by_ids(&state.db, ids).await.into_iter().filter(ecom::Product::is_active);
+            Ok((rows.map(|p| (p.id, p.title)).collect::<Vec<_>>(), 0))
+        }
+        ("directory", Some(ids)) => {
+            let rows = directory::visible_by_ids(&state.db, ids, &now).await;
+            Ok((rows.into_iter().map(|l| (l.id, l.title)).collect(), 0))
+        }
+        ("products", None) => {
+            let browse = ecom::ProductBrowse { terms: &terms, status: Some("active"), sort: "title", limit: PAGE_SIZE, offset, ..Default::default() };
+            ecom::browse_products(&state.db, &browse).await.map(|(rows, total)| {
+                (rows.into_iter().map(|p| (p.id, p.title)).collect(), total)
+            })
+        }
+        ("directory", None) => {
+            let browse = directory::Browse { terms: &terms, visible_at: Some(&now), limit: PAGE_SIZE, offset, ..Default::default() };
+            directory::browse(&state.db, &browse).await.map(|(rows, total)| {
+                (rows.into_iter().map(|l| (l.id, l.title)).collect(), total)
+            })
+        }
+        _ => return json_error(StatusCode::BAD_REQUEST, "Unknown catalogue."),
+    };
+    match result {
+        Ok((items, total)) => axum::Json(serde_json::json!({"items": items, "next": (offset.saturating_add(PAGE_SIZE) < total).then(|| offset + PAGE_SIZE), "pageSize": PAGE_SIZE})).into_response(),
+        Err(error) => {
+            tracing::error!("builder: loading catalogue failed: {}", error.message());
+            json_error(StatusCode::INTERNAL_SERVER_ERROR, "The catalogue could not be loaded.")
+        }
+    }
+}
+
+async fn export_layout(state: &AppState, value: &serde_json::Value, title: &str, kind: &str) -> Result<elementor::Export, String> {
+    let layout = rules::normalise(value)?;
+    let settings = builder_settings(state);
+    let templates = repo::templates_map(&state.db).await;
+    elementor::export(&layout, title, kind, &settings, &state.site_url(), &templates)
+}
+
+pub(crate) async fn editor_interchange(State(state): State<AppState>, headers: HeaderMap, Path(id): Path<String>, body: String) -> Response {
+    let (_, post) = match editor_guard(&state, &headers, &id, true).await {
+        Ok(value) => value,
+        Err(response) => return response,
+    };
+    interchange(&state, &body, post.title.as_deref().unwrap_or("Layout"), "page").await
+}
+
+pub(crate) async fn template_interchange(State(state): State<AppState>, headers: HeaderMap, Path(id): Path<String>, body: String) -> Response {
+    let (_, template) = match template_guard(&state, &headers, &id, true).await {
+        Ok(value) => value,
+        Err(response) => return response,
+    };
+    interchange(&state, &body, &template.name, &template.kind).await
+}
+
+async fn interchange(state: &AppState, body: &str, title: &str, kind: &str) -> Response {
+    if body.len() > rules::spec::MAX_BYTES {
+        return json_error(StatusCode::PAYLOAD_TOO_LARGE, "This layout is too large.");
+    }
+    let Ok(input) = serde_json::from_str::<serde_json::Value>(body) else {
+        return json_error(StatusCode::BAD_REQUEST, "The layout could not be read.");
+    };
+    let response = if let Some(document) = input.get("import") {
+        elementor::import_layout(document).map(|result| serde_json::json!({
+            "layout": result.layout, "warnings": result.warnings, "elementor": document.get("content").is_some(),
+        }))
+    } else {
+        let export_title = input["title"].as_str().filter(|s| !s.trim().is_empty()).unwrap_or(title);
+        let export_title: String = export_title.trim().chars().take(200).collect();
+        export_layout(state, &input["export"], &export_title, kind).await.map(|result| serde_json::json!({
+            "document": result.document, "warnings": result.warnings,
+        }))
+    };
+    match response {
+        Ok(value) => axum::Json(value).into_response(),
+        Err(error) => json_error(StatusCode::UNPROCESSABLE_ENTITY, &error),
+    }
 }
 
 fn parse_layout(body: &str) -> Result<(serde_json::Value, serde_json::Value), Response> {
@@ -1116,6 +1326,7 @@ mod tests {
         let s = script_json(&v);
         assert!(!s.contains("</script>"));
         assert!(!s.contains("<!--"));
+        assert_eq!(serde_json::from_str::<serde_json::Value>(&s).unwrap(), v);
     }
 
     #[test]

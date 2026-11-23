@@ -287,7 +287,7 @@ async fn config(State(state): State<AppState>, headers: HeaderMap) -> Response {
         // point its admin at Tinybird points at this server instead. `id` is
         // the site's own uuid, as Ghost's is.
         "stats": {
-            "endpoint": format!("{}/ghost/api/admin/stats", state.site_url()),
+            "endpoint": format!("{}/api/admin/stats", state.admin_url()),
             "id": state.settings.get_str("site_uuid"),
             "provider": "native",
         },

@@ -131,8 +131,14 @@ pub(crate) async fn dir_settings_save(State(state): State<AppState>, headers: He
         return flash_to(SETTINGS, "error", "Enter an available directory and listing path with up to three parts, using letters, numbers and dashes.");
     };
     let store = vuuut_core::ecom::Settings::read(|key| state.settings.get_str(key));
-    if paths != current.paths && paths.overlaps_store(&store.base_path, &store.product_path) {
-        return flash_to(SETTINGS, "error", "Choose paths outside the store and its product addresses.");
+    if paths != current.paths {
+        let admin = state.admin_slug();
+        if [&paths.base, &paths.listing].iter().any(|path| vuuut_core::admin_address::suffix(path, &admin).is_some()) {
+            return flash_to(SETTINGS, "error", "Choose paths outside the admin address.");
+        }
+        if paths.overlaps_store(&store.base_path, &store.product_path) {
+            return flash_to(SETTINGS, "error", "Choose paths outside the store and its product addresses.");
+        }
     }
     let flag = |k: &str| form.get(k).is_some_and(|v| v == "1");
     let s = d::Settings::read(|key| match key {

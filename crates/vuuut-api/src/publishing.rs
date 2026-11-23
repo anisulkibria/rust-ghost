@@ -511,7 +511,8 @@ async fn editor_context(
         "edit_url": null,
     });
     if let Some((kind, url)) = target {
-        context["edit_url"] = json!(vuuut_core::url::base(&url));
+        let tail = url.strip_prefix("/ghost").unwrap_or(&url);
+        context["edit_url"] = json!(format!("{}{tail}", state.admin_path()));
         context["type"] = json!(kind);
     }
     ([("cache-control", "private, no-store")], Json(json!({"context": context}))).into_response()

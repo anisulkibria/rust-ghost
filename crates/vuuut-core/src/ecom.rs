@@ -1101,7 +1101,7 @@ pub const RESERVED_HANDLES: &[&str] = &["cart", "checkout", "collections", "orde
 
 /// First segments the site already owns; the store may not take them.
 const RESERVED_ROOTS: &[&str] = &[
-    "ghost", "members", "content", "assets", "public", "p", "private", "tag", "author", "rss", "sitemap.xml", "page", "email", "webmentions",
+    "ghost", "vuuut", "members", "content", "assets", "public", "p", "private", "tag", "author", "rss", "sitemap.xml", "page", "email", "webmentions",
     "unsubscribe", "r", ".well-known", ".ghost", "search", "forms", "cookies", "ads", "popups", "llms.txt", "robots.txt", "favicon.ico",
 ];
 
