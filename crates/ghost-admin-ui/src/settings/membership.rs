@@ -1258,6 +1258,12 @@ engines and asks every visitor for one shared access code.</p>
                     }
                     _ => vec!["free".to_string()],
                 };
+                // Show what Portal really offers, so the screen and the site agree.
+                let current = ghost_core::memberships::offered_plans(
+                    &get("members_signup_access", "all"),
+                    &current,
+                    ghost_stripe::StripeConfig::from_settings(&state.settings).is_some(),
+                );
                 chip_set(
                     "portal_plans",
                     &[
@@ -1393,6 +1399,9 @@ pub(crate) async fn membership_save(State(state): State<AppState>, headers: Head
         .into_iter()
         .filter(|p| ["free", "monthly", "yearly"].contains(&p.as_str()))
         .collect();
+    // Open signup with nothing that can be sold would leave Portal saying
+    // "invite-only": keep the free plan on in that case.
+    let plans = ghost_core::memberships::offered_plans(&access, &plans, ghost_stripe::StripeConfig::from_settings(&state.settings).is_some());
     let default_plan = one_of(get("portal_default_plan"), &["monthly", "yearly"], "monthly".into());
     let default_plan = if plans.contains(&default_plan) {
         default_plan

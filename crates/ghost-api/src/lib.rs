@@ -27,6 +27,7 @@ pub mod locales;
 pub mod explore;
 pub mod federation;
 pub mod firewall;
+pub mod ecom;
 pub mod forms;
 pub mod member_events;
 pub mod members;

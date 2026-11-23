@@ -1096,6 +1096,9 @@ pub(crate) const SITE_TABLES: &[&str] = &[
     "workflow_events", "workflow_notes", "workflow_checks", "workflow_items",
     // Shares, then the accounts (and their credentials) they went to.
     "social_shares", "social_accounts",
+    // The store: orders (with the buyers' details) before the catalogue.
+    "ecom_download_log", "ecom_downloads", "ecom_files",
+    "ecom_order_events", "ecom_order_items", "ecom_orders", "ecom_carts", "ecom_collection_products", "ecom_collections", "ecom_variants", "ecom_products", "ecom_customers", "ecom_discounts", "ecom_shipping_rates",
     // Listings (with what visitors sent), then their categories.
     "directory_listings", "directory_categories",
     // Page Builder: history and layouts (which go with their posts), then

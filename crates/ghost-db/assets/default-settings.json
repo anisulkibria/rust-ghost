@@ -1818,5 +1818,152 @@
     "type": "string",
     "flags": "",
     "value": ""
+  },
+  {
+    "group": "ecom",
+    "key": "ecom_enabled",
+    "type": "boolean",
+    "flags": "",
+    "value": "false"
+  },
+  {
+    "group": "ecom",
+    "key": "ecom_store_name",
+    "type": "string",
+    "flags": "",
+    "value": ""
+  },
+  {
+    "group": "ecom",
+    "key": "ecom_intro",
+    "type": "string",
+    "flags": "",
+    "value": ""
+  },
+  {
+    "group": "ecom",
+    "key": "ecom_currency",
+    "type": "string",
+    "flags": "",
+    "value": "USD"
+  },
+  {
+    "group": "ecom",
+    "key": "ecom_tax_rate",
+    "type": "number",
+    "flags": "",
+    "value": "0"
+  },
+  {
+    "group": "ecom",
+    "key": "ecom_tax_included",
+    "type": "boolean",
+    "flags": "",
+    "value": "false"
+  },
+  {
+    "group": "ecom",
+    "key": "ecom_tax_shipping",
+    "type": "boolean",
+    "flags": "",
+    "value": "false"
+  },
+  {
+    "group": "ecom",
+    "key": "ecom_pay_manual",
+    "type": "boolean",
+    "flags": "",
+    "value": "true"
+  },
+  {
+    "group": "ecom",
+    "key": "ecom_pay_bank",
+    "type": "boolean",
+    "flags": "",
+    "value": "false"
+  },
+  {
+    "group": "ecom",
+    "key": "ecom_bank_details",
+    "type": "string",
+    "flags": "",
+    "value": ""
+  },
+  {
+    "group": "ecom",
+    "key": "ecom_pay_stripe",
+    "type": "boolean",
+    "flags": "",
+    "value": "false"
+  },
+  {
+    "group": "ecom",
+    "key": "ecom_per_page",
+    "type": "number",
+    "flags": "",
+    "value": "24"
+  },
+  {
+    "group": "ecom",
+    "key": "ecom_low_stock",
+    "type": "number",
+    "flags": "",
+    "value": "5"
+  },
+  {
+    "group": "ecom",
+    "key": "ecom_notify_email",
+    "type": "string",
+    "flags": "",
+    "value": ""
+  },
+  {
+    "group": "ecom",
+    "key": "ecom_send_receipts",
+    "type": "boolean",
+    "flags": "",
+    "value": "true"
+  },
+  {
+    "group": "ecom",
+    "key": "ecom_countries",
+    "type": "string",
+    "flags": "",
+    "value": ""
+  },
+  {
+    "group": "ecom",
+    "key": "ecom_require_phone",
+    "type": "boolean",
+    "flags": "",
+    "value": "false"
+  },
+  {
+    "group": "ecom",
+    "key": "ecom_policy_refund",
+    "type": "string",
+    "flags": "",
+    "value": ""
+  },
+  {
+    "group": "ecom",
+    "key": "ecom_policy_shipping",
+    "type": "string",
+    "flags": "",
+    "value": ""
+  },
+  {
+    "group": "ecom",
+    "key": "ecom_base_path",
+    "type": "string",
+    "flags": "",
+    "value": "shop"
+  },
+  {
+    "group": "ecom",
+    "key": "ecom_product_path",
+    "type": "string",
+    "flags": "",
+    "value": "shop/products"
   }
 ]

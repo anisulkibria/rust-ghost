@@ -834,7 +834,16 @@ async fn browse_tiers(State(state): State<AppState>, Query(params): Query<HashMa
             Ok(found) => found,
             Err(e) => return error_from(e),
         };
+    // The free tier is offered whenever the plans Portal is given include
+    // free — including when open signup puts it there (see
+    // `ghost_core::memberships::offered_plans`); Portal hides a free tier
+    // whose visibility is `none` even when the plan is listed.
+    let site = ghost_render::context::build_site(&state.settings, &state.site_url(), &state.admin_url());
+    let free_offered = site["portal_plans"].as_array().is_some_and(|a| a.iter().any(|v| v == "free"));
     for item in items.iter_mut() {
+        if free_offered && item["type"] == "free" {
+            item["visibility"] = json!("public");
+        }
         select_fields(item, &p);
     }
     let pagination =

@@ -77,6 +77,9 @@ pub mod caching;
 // Tools → Directory & Classified Listings. The public directory is
 // `ghost_front::directory`; the rules are `ghost_core::directory`.
 pub mod directories;
+// Tools → E-commerce & Online Stores. The storefront is `ghost_front::shop`;
+// the rules are `ghost_core::ecom`.
+pub mod ecom;
 // Tools → Page Builder & Visual Editor. Rules and renderer in
 // `ghost_core::builder`; the public swap in `ghost_front::routes`.
 pub mod builder;
@@ -126,6 +129,11 @@ const ONE_MB_BYTES: usize = 1024 * 1024;
 const MAX_MEDIA_BYTES: usize = 200 * 1024 * 1024;
 /// Body limit for uploading a backup taken elsewhere: it holds the whole
 /// media library and every theme, not one file.
+/// Tools → E-commerce: one downloadable product file, plus multipart overhead.
+const ECOM_FILE_BYTES: usize = 2 * 1024 * 1024 * 1024 + 1024 * 1024;
+/// The product form, which carries any number of those files (each still
+/// capped at 2 GB while it streams).
+const ECOM_FORM_BYTES: usize = 8 * 1024 * 1024 * 1024;
 const MAX_BACKUP_BYTES: usize = 2 * 1024 * 1024 * 1024;
 
 tokio::task_local! {
@@ -274,6 +282,58 @@ pub fn admin_ui_router(state: AppState) -> Router<AppState> {
         .route("/builder/settings/", get(builder::settings_page).post(builder::settings_save))
         .route("/builder/{id}/active/", post(builder::builder_active))
         .route("/builder/{id}/delete/", post(builder::builder_delete))
+        // Tools → E-commerce & Online Stores (static segments before {id}).
+        .route("/ecom/", get(ecom::ecom_home))
+        .route("/ecom/analytics/", get(ecom::ecom_analytics))
+        .route("/ecom/products/", get(ecom::products_page))
+        .route("/ecom/products/export.csv", get(ecom::products_export))
+        .route("/ecom/products/bulk/", post(ecom::products_bulk))
+        .route("/ecom/products/import/", get(ecom::products_import_page).post(ecom::products_import).layer(axum::extract::DefaultBodyLimit::max(26 * 1024 * 1024)))
+        .route("/ecom/products/new/", get(ecom::product_new).post(ecom::product_create).layer(axum::extract::DefaultBodyLimit::max(ECOM_FORM_BYTES)))
+        .route("/ecom/products/{id}/", get(ecom::product_edit).post(ecom::product_save).layer(axum::extract::DefaultBodyLimit::max(ECOM_FORM_BYTES)))
+        .route("/ecom/products/{id}/delete/", post(ecom::product_delete))
+        .route("/ecom/products/{id}/duplicate/", post(ecom::product_duplicate))
+        .route("/ecom/products/{id}/files/", post(ecom::product_file_upload).layer(axum::extract::DefaultBodyLimit::max(ECOM_FILE_BYTES)))
+        .route("/ecom/products/{id}/files/{fid}/", get(ecom::product_file_download))
+        .route("/ecom/products/{id}/files/{fid}/delete/", post(ecom::product_file_delete))
+        .route("/ecom/collections/", get(ecom::collections_page))
+        .route("/ecom/collections/new/", get(ecom::collection_new).post(ecom::collection_create))
+        .route("/ecom/collections/{id}/", get(ecom::collection_edit).post(ecom::collection_save))
+        .route("/ecom/collections/{id}/products/", post(ecom::collection_products))
+        .route("/ecom/collections/{id}/delete/", post(ecom::collection_delete))
+        .route("/ecom/inventory/", get(ecom::inventory_page))
+        .route("/ecom/inventory/{id}/", post(ecom::inventory_set))
+        .route("/ecom/orders/", get(ecom::orders_page))
+        .route("/ecom/orders/export.csv", get(ecom::orders_export))
+        .route("/ecom/orders/abandoned/", get(ecom::abandoned_page))
+        .route("/ecom/orders/new/", get(ecom::order_new).post(ecom::order_create))
+        .route("/ecom/orders/{id}/", get(ecom::order_page))
+        .route("/ecom/orders/{id}/print/", get(ecom::order_print))
+        .route("/ecom/orders/{id}/paid/", post(ecom::order_paid))
+        .route("/ecom/orders/{id}/fulfil/", post(ecom::order_fulfil))
+        .route("/ecom/orders/{id}/unfulfil/", post(ecom::order_unfulfil))
+        .route("/ecom/orders/{id}/refund/", post(ecom::order_refund))
+        .route("/ecom/orders/{id}/cancel/", post(ecom::order_cancel))
+        .route("/ecom/orders/{id}/archive/", post(ecom::order_archive))
+        .route("/ecom/orders/{id}/note/", post(ecom::order_note))
+        .route("/ecom/orders/{id}/comment/", post(ecom::order_comment))
+        .route("/ecom/orders/{id}/contact/", post(ecom::order_contact))
+        .route("/ecom/orders/{id}/resend/", post(ecom::order_resend))
+        .route("/ecom/orders/{id}/delete/", post(ecom::order_delete))
+        .route("/ecom/orders/{id}/downloads/", post(ecom::order_downloads))
+        .route("/ecom/customers/", get(ecom::customers_page))
+        .route("/ecom/customers/export.csv", get(ecom::customers_export))
+        .route("/ecom/customers/new/", get(ecom::customer_new).post(ecom::customer_create))
+        .route("/ecom/customers/{id}/", get(ecom::customer_page).post(ecom::customer_save))
+        .route("/ecom/customers/{id}/delete/", post(ecom::customer_delete))
+        .route("/ecom/discounts/", get(ecom::discounts_page).post(ecom::discount_create))
+        .route("/ecom/discounts/{id}/", post(ecom::discount_save))
+        .route("/ecom/discounts/{id}/delete/", post(ecom::discount_delete))
+        .route("/ecom/settings/", get(ecom::ecom_settings_page).post(ecom::ecom_settings_save))
+        .route("/ecom/settings/shipping/", post(ecom::shipping_create))
+        .route("/ecom/settings/shipping/{id}/", post(ecom::shipping_save))
+        .route("/ecom/settings/shipping/{id}/delete/", post(ecom::shipping_delete))
+        .route("/ecom", get(|| async { Redirect::permanent("/ghost/ecom/") }))
         .route("/directories/", get(directories::directories_page))
         .route("/directories/export.csv", get(directories::export_csv))
         .route("/directories/listings/", get(directories::listings_page))

@@ -748,3 +748,47 @@ mod tests {
         assert_eq!(countable(2, "paid tier"), "2 paid tiers");
     }
 }
+
+/// The plans Portal may really offer.
+///
+/// "Anybody can sign up" and the Portal plans are two separate settings,
+/// and they can contradict each other: with Free unticked and no paid plan
+/// that can be sold (none ticked, or Stripe not connected), Portal has
+/// nothing to show and tells every visitor the site is invite-only — while
+/// the admin says anyone can sign up. Open signup wins: in that case the
+/// free plan is offered. Any other combination is returned as chosen.
+pub fn offered_plans(signup_access: &str, plans: &[String], stripe_connected: bool) -> Vec<String> {
+    let mut out: Vec<String> = plans.to_vec();
+    if signup_access != "all" {
+        return out;
+    }
+    let sellable = out.iter().any(|p| p == "free" || (stripe_connected && (p == "monthly" || p == "yearly")));
+    if !sellable {
+        out.retain(|p| p != "free");
+        out.insert(0, "free".into());
+    }
+    out
+}
+
+#[cfg(test)]
+mod offered_plans_tests {
+    use super::offered_plans;
+
+    fn v(p: &[&str]) -> Vec<String> {
+        p.iter().map(|s| s.to_string()).collect()
+    }
+
+    #[test]
+    fn open_signup_always_has_something_to_offer() {
+        // The reported bug: anyone may sign up, nothing is ticked, no Stripe.
+        assert_eq!(offered_plans("all", &[], false), v(&["free"]));
+        // Paid plans ticked but Stripe not connected: they cannot be sold.
+        assert_eq!(offered_plans("all", &v(&["monthly", "yearly"]), false), v(&["free", "monthly", "yearly"]));
+        // Paid plans that can be sold are a real offer: left alone.
+        assert_eq!(offered_plans("all", &v(&["monthly"]), true), v(&["monthly"]));
+        assert_eq!(offered_plans("all", &v(&["free", "monthly"]), false), v(&["free", "monthly"]));
+        // Invite-only and closed sites keep exactly what was chosen.
+        assert_eq!(offered_plans("invite", &[], false), Vec::<String>::new());
+        assert_eq!(offered_plans("none", &v(&["monthly"]), false), v(&["monthly"]));
+    }
+}

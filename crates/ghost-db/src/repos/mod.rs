@@ -33,6 +33,7 @@ pub mod workflows;
 pub mod social_media;
 pub mod caching;
 pub mod directory;
+pub mod ecom;
 pub mod builder;
 pub mod offers;
 pub mod recommendations;

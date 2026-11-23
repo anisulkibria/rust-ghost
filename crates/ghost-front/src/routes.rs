@@ -970,7 +970,7 @@ pub(crate) async fn render_virtual_page(
 }
 
 #[allow(clippy::too_many_arguments)]
-async fn render_virtual_page_with(
+pub(crate) async fn render_virtual_page_with(
     state: &AppState,
     headers: &HeaderMap,
     path: &str,

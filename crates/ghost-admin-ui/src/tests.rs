@@ -864,7 +864,7 @@ fn settings_groups_match_ghosts_navigation() {
     assert_eq!(
         crate::tools::TOOLS.iter().map(|t| t.href).collect::<Vec<_>>(),
         ["/ghost/ads/", "/ghost/analytics/", "/ghost/announcement/", "/ghost/automations/", "/ghost/backups/",
-         "/ghost/caching/", "/ghost/code-injection/", "/ghost/comments/", "/ghost/cookies/", "/ghost/directories/", "/ghost/forms/", "/ghost/growth/",
+         "/ghost/caching/", "/ghost/code-injection/", "/ghost/comments/", "/ghost/cookies/", "/ghost/directories/", "/ghost/ecom/", "/ghost/forms/", "/ghost/growth/",
          "/ghost/history/", "/ghost/integrations/", "/ghost/languages/", "/ghost/machine-payments/",
          "/ghost/media/", "/ghost/memberships/", "/ghost/migrations/", "/ghost/navigations/",
          "/ghost/newsletters/", "/ghost/builder/", "/ghost/permissions/", "/ghost/popups/", "/ghost/redirects/", "/ghost/routes/",

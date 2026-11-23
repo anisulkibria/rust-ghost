@@ -729,3 +729,51 @@ pub async fn checkout_preview(cfg:&StripeConfig,price_id:&str,site_url:&str)->Re
 pub async fn create_subscription(cfg: &StripeConfig, customer: &str, price: &str) -> Result<serde_json::Value> {
     post(cfg,"/subscriptions",&[("customer".into(),customer.into()),("items[0][price]".into(),price.into()),("payment_behavior".into(),"error_if_incomplete".into())]).await
 }
+
+/// Tools → E-commerce: one payment for a whole store order. The order is
+/// a single inline line item at its final total (discounts, shipping and
+/// tax already applied), so what the buyer pays is exactly what the order
+/// says. `order_id` goes on the session as `client_reference_id`, which is
+/// what the return trip checks before marking anything paid.
+/// Returns `(session id, checkout URL)`.
+#[allow(clippy::too_many_arguments)]
+pub async fn create_shop_checkout_session(
+    cfg: &StripeConfig,
+    order_id: &str,
+    label: &str,
+    amount_cents: i64,
+    currency: &str,
+    customer_email: &str,
+    success_url: &str,
+    cancel_url: &str,
+) -> Result<(String, String)> {
+    let p = OneTimeParams {
+        customer_email: Some(customer_email),
+        success_url,
+        cancel_url,
+        metadata: vec![("vuuut_shop_order".to_string(), order_id.to_string())],
+    };
+    let mut form = one_time_form(&p, "pay");
+    form.push(("client_reference_id".to_string(), order_id.to_string()));
+    form.push(("line_items[0][quantity]".to_string(), "1".to_string()));
+    form.push(("line_items[0][price_data][currency]".to_string(), currency.to_lowercase()));
+    form.push(("line_items[0][price_data][unit_amount]".to_string(), amount_cents.to_string()));
+    form.push(("line_items[0][price_data][product_data][name]".to_string(), label.to_string()));
+    let v = post(cfg, "/checkout/sessions", &form).await?;
+    let id = v.get("id").and_then(|x| x.as_str()).unwrap_or_default().to_string();
+    Ok((id, checkout_url(&v)?))
+}
+
+/// A Checkout Session as Stripe has it now — never as the browser says.
+pub async fn get_checkout_session(cfg: &StripeConfig, session_id: &str) -> Result<serde_json::Value> {
+    if !session_id.starts_with("cs_") || !session_id.chars().all(|c| c.is_ascii_alphanumeric() || c == '_') {
+        return Err(GhostError::BadRequest("Not a checkout session".into()));
+    }
+    get(cfg, &format!("/checkout/sessions/{session_id}")).await
+}
+
+/// Refund part or all of the payment behind a Checkout Session.
+pub async fn refund_payment_intent(cfg: &StripeConfig, payment_intent: &str, amount_cents: i64) -> Result<serde_json::Value> {
+    let form = vec![("payment_intent".to_string(), payment_intent.to_string()), ("amount".to_string(), amount_cents.to_string())];
+    post_raw(cfg, "/refunds", &form).await
+}

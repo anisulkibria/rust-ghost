@@ -5,6 +5,8 @@ mod analytics;
 pub mod builder_site;
 // The public directory (Tools → Directory & Classified Listings).
 mod directory;
+// The online store (Tools → E-commerce & Online Stores).
+mod shop;
 mod images;
 pub mod cards;
 pub mod comment_counts;
@@ -34,6 +36,17 @@ pub async fn preview_snapshot(
 }
 
 pub fn site_router(state: AppState) -> Router {
+    // Tools → E-commerce: the store's configurable addresses are translated
+    // to its internal routes *before* routing, which a layer on the inner
+    // router cannot do (those run after a route is chosen). So the whole
+    // site is the fallback of an outer router whose only job is that.
+    let inner = site_routes(state.clone());
+    Router::new()
+        .fallback_service(inner)
+        .layer(axum::middleware::from_fn_with_state(state, shop::addresses))
+}
+
+fn site_routes(state: AppState) -> Router {
     Router::new()
         .merge(ghost_api::newsletter_events::public_router())
         .merge(ghost_api::federation::public_router())
@@ -47,6 +60,8 @@ pub fn site_router(state: AppState) -> Router {
         .merge(ghost_api::social_media::share_router())
         // Tools → Directory & Classified Listings: the public directory.
         .merge(directory::router())
+        // Tools → E-commerce & Online Stores: the storefront at /shop/.
+        .merge(shop::router())
         .route("/assets/{*path}", get(routes::theme_asset))
         .route("/content/images/{*path}", get(images::serve))
         .route("/content/media/{*path}", get(routes::content_media))

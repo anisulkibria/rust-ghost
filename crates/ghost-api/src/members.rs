@@ -3327,3 +3327,65 @@ pub async fn send_due_gift_reminders(state:&AppState)->ghost_core::Result<u64>{
 }
 
 pub(crate) async fn subscriptions_for(state:&AppState,id:&str)->Vec<Value>{subscriptions::list(state,id).await}
+
+// ---------------------------------------------------------------------------
+// Tools → E-commerce: buyers of digital products become members
+// ---------------------------------------------------------------------------
+
+/// The member for a buyer's email, created through the same path a signup
+/// takes (default newsletters, automations, `member.added` webhooks) when
+/// there is none. `(member id, whether it was created now)`.
+pub async fn ensure_member_for_purchase(state: &AppState, email: &str, name: Option<&str>) -> Option<(String, bool)> {
+    let email = email.trim().to_lowercase();
+    if email.is_empty() || !email.contains('@') {
+        return None;
+    }
+    if let Some(m) = member_by_email(state, &email).await {
+        return Some((m.id, false));
+    }
+    let attribution = crate::member_events::Attribution {
+        url: Some(format!("{}/shop/", state.site_url())),
+        kind: Some("url".into()),
+        referrer_medium: Some("shop".into()),
+        ..Default::default()
+    };
+    create_member(state, &email, name.filter(|n| !n.trim().is_empty()), &Value::Null, &attribution).await.map(|m| (m.id, true))
+}
+
+/// A single-use, 24-hour magic link for `email` that signs in (or signs up)
+/// and lands on `redirect_path` of this site.
+pub async fn magic_link_for(state: &AppState, email: &str, action: &str, redirect_path: &str) -> Option<String> {
+    let token = ids::random_hex(32);
+    let now = now_rfc3339();
+    let data = json!({ "email": email.trim().to_lowercase(), "action": action, "redirect": redirect_path });
+    sqlx::query(
+        "INSERT INTO tokens (id, token, uuid, data, created_at, updated_at, used_count, otc_used_count) VALUES (?, ?, ?, ?, ?, ?, 0, 0)",
+    )
+    .bind(ids::new_id())
+    .bind(&token)
+    .bind(ids::uuid_v4())
+    .bind(data.to_string())
+    .bind(&now)
+    .bind(&now)
+    .execute(&state.db)
+    .await
+    .ok()?;
+    // The site URL already carries any subdirectory; the landing only follows
+    // a redirect that starts with it.
+    let target = format!("{}{}", state.site_url(), redirect_path);
+    Some(format!(
+        "{}/members/?token={token}&action={action}&r={}",
+        state.site_url(),
+        percent_encoding::utf8_percent_encode(&target, percent_encoding::NON_ALPHANUMERIC)
+    ))
+}
+
+/// The site's regular signup email ("complete your signup"), carrying `link`.
+pub async fn send_signup_email(state: &AppState, email: &str, link: &str) -> ghost_core::Result<()> {
+    send_magic_link_email(state, email, "signup", link, None).await
+}
+
+/// The site's regular sign-in email, carrying `link`.
+pub async fn send_signin_email(state: &AppState, email: &str, link: &str) -> ghost_core::Result<()> {
+    send_magic_link_email(state, email, "signin", link, None).await
+}

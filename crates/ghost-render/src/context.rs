@@ -144,6 +144,15 @@ pub fn build_site_for_page(
         .iter()
         .any(|k| settings.get_str(k).is_some_and(|v| !v.trim().is_empty()));
     m.insert("paid_members_enabled".into(), json!(stripe_connected));
+    // What Portal may really offer: with signup open to anyone and nothing
+    // sellable chosen, the free plan — never an empty list, which Portal
+    // reads as "this site is invite-only".
+    let chosen: Vec<String> = match m.get("portal_plans") {
+        Some(Value::Array(a)) => a.iter().filter_map(|v| v.as_str().map(str::to_string)).collect(),
+        Some(Value::String(t)) => serde_json::from_str(t).unwrap_or_default(),
+        _ => Vec::new(),
+    };
+    m.insert("portal_plans".into(), json!(ghost_core::memberships::offered_plans(&signup_access, &chosen, stripe_connected)));
     m.insert("donations_enabled".into(), json!(stripe_connected));
     m.entry("comments_enabled".to_string()).or_insert(json!("off"));
     m.entry("recommendations_enabled".to_string()).or_insert(json!(false));

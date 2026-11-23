@@ -12,6 +12,7 @@ ghost-render = { workspace = true }
 ghost-routing = { workspace = true }
 ghost-api = { workspace = true }
 tokio = { workspace = true }
+futures = { workspace = true }
 sqlx = { workspace = true }
 axum = { workspace = true }
 tower = { workspace = true }

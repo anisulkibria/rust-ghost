@@ -30,6 +30,7 @@ pub(crate) const CONTENT: &[(&str, &[&str])] = &[
     ("workflows", &["Editorial board", "Kanban", "Stages", "Ideas", "Writing", "In review", "Approved", "Assigned to", "Reviewer", "Due date", "Overdue", "Priority", "Calendar", "Editorial calendar", "Checklist", "Notes", "History", "Require approval to publish", "Approval stage", "Work in progress limit"]),
     ("builder", &["Page builder", "Visual editor", "Drag and drop", "Sections", "Columns", "Widgets", "Heading", "Button", "Icon box", "Gallery", "Testimonial", "Accordion", "FAQ", "Pricing table", "Counter", "Video", "Map", "Templates", "Global colours", "Content width", "Responsive", "Mobile preview", "Landing page", "Elementor", "Hero section"]),
     ("caching", &["Page cache", "Purge everything", "Cached pages", "Hit rate", "Response time", "Slowest pages", "Cache-Control", "max-age", "s-maxage", "ETag", "304 Not Modified", "gzip", "Compression", "Lazy-load images", "Speculation rules", "Prerender", "Preconnect", "Cloudflare", "CDN", "Purge cache", "Performance", "Speed", "TTFB"]),
+    ("ecom", &["Store", "Shop", "Products", "Variants", "Options", "Inventory", "Stock", "SKU", "Collections", "Smart collections", "Orders", "Fulfil", "Refund", "Customers", "Discount codes", "Coupons", "Shipping rates", "Taxes", "VAT", "Checkout", "Cart", "Abandoned checkouts", "Payments", "Bank transfer", "Cash on delivery", "Stripe", "Packing slip", "Refund policy", "Digital downloads", "Downloadable files", "Download limit", "Revoke downloads"]),
     ("directories", &["Directory", "Classifieds", "Listings", "Business listings", "For sale", "Wanted", "Jobs", "Categories", "Waiting for review", "Approve", "Reject", "Featured", "Expiry", "Renew", "Submit a listing", "Visitor submissions", "Price", "Location", "Contact details"]),
     ("analytics", &["Total views", "Unique visitors", "Top content", "Top sources", "Locations", "Campaigns", "Audience", "Signup sources", "New members per day", "Recent members", "Newsletters sent", "Traffic", "Referrers", "Web analytics"]),
     ("announcement", &["Announcement bar", "Banner text", "Background colour", "Visibility", "Visitors", "Free members", "Paid members", "Dismiss"]),
@@ -114,6 +115,9 @@ pub(crate) async fn things_inside(state: &AppState) -> HashMap<&'static str, Vec
     for a in ghost_db::repos::ads::advertisers(&state.db).await.unwrap_or_default() {
         put("ads", "Advertiser", &a.name);
     }
+    for c in ghost_db::repos::ecom::collections(&state.db).await {
+        put("ecom", "Collection", &c.title);
+    }
     for c in ghost_db::repos::directory::categories(&state.db).await.unwrap_or_default() {
         put("directories", "Category", &c.name);
     }
@@ -147,6 +151,15 @@ pub(crate) async fn former_module_states(state: &AppState) -> Vec<(&'static str,
     };
     let plural = |n: i64, one: &str, many: &str| format!("{n} {}", if n == 1 { one } else { many });
     let mut out = Vec::new();
+
+    let es = ghost_api::ecom::settings(state);
+    let active = count("SELECT COUNT(*) FROM ecom_products WHERE status = 'active'").await;
+    let to_ship = count("SELECT COUNT(*) FROM ecom_orders WHERE status = 'open' AND fulfillment_status = 'unfulfilled'").await;
+    out.push(("ecom", (es.enabled, match (es.enabled, to_ship) {
+        (_, n) if n > 0 => format!("{} to fulfil · {active} products", plural(n, "order", "orders")),
+        (true, _) => format!("Open · {}", plural(active, "product", "products")),
+        (false, _) => format!("Closed · {}", plural(active, "product", "products")),
+    })));
 
     let ds = crate::directories::dir_settings(state);
     let live = count("SELECT COUNT(*) FROM directory_listings WHERE status = 'published'").await;
