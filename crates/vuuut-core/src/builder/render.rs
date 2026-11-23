@@ -687,7 +687,7 @@ pub(super) fn row(r: &mut R, node: &Value, row_sel: &str) -> String {
     format!(r#"<div class="{rc}" style="--vb-cols:{desktop}">{body}</div>"#)
 }
 
-fn column(r: &mut R, col: &Value) -> String {
+pub(super) fn column(r: &mut R, col: &Value) -> String {
     let id = s(col, "id").to_string();
     let m = &col["s"];
     let sel = r.sel(&id);
@@ -727,7 +727,9 @@ fn column(r: &mut R, col: &Value) -> String {
 
 pub(super) fn widget(r: &mut R, w: &Value) -> String {
     let kind = s(w, "t").to_string();
-    if kind == "elementor-widget" && !r.ctx.editing {
+    if kind == "elementor-widget"
+        && (super::elementor::style::stylesheet_widget(r, w) || !r.ctx.editing)
+    {
         return String::new();
     }
     let id = s(w, "id").to_string();

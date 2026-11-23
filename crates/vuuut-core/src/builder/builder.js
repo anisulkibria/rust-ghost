@@ -99,7 +99,8 @@
     all(root, '[data-vb-tabs]').forEach(function (t) {
       if (!once(t, 'Tabs')) return;
       t.classList.add('vb-tabs-js');
-      var btns = all(t, '.vb-tab-btn'), panels = all(t, '.vb-tab-panel');
+      var btns = all(t, ':scope > .vb-tab-list > .vb-tab-btn');
+      var panels = all(t, ':scope > .vb-tab-panels > .vb-tab-panel');
       function show(i) {
         btns.forEach(function (b, k) { b.classList.toggle('on', k === i); b.setAttribute('aria-selected', k === i ? 'true' : 'false'); b.tabIndex = k === i ? 0 : -1; });
         panels.forEach(function (p, k) { p.classList.toggle('on', k === i); });
@@ -308,6 +309,45 @@
 
   // ---- click-to-play videos and playlists ----
   function videos(root) {
+    all(root, '[data-vb-video-dialog]').forEach(function (trigger) {
+      if (!once(trigger, 'VideoDialog') || typeof HTMLDialogElement === 'undefined') return;
+      trigger.addEventListener('click', function (e) {
+        var url;
+        try { url = new URL(trigger.dataset.vbVideoDialog); } catch (_) { return; }
+        if (url.origin !== 'https://www.youtube-nocookie.com' && url.origin !== 'https://player.vimeo.com') return;
+        e.preventDefault();
+        var dialog = document.createElement('dialog');
+        dialog.className = 'vb-video-dialog';
+        var title = trigger.textContent.trim() || 'Video';
+        dialog.setAttribute('aria-label', title);
+        var close = document.createElement('button');
+        close.type = 'button';
+        close.setAttribute('aria-label', 'Close video');
+        close.textContent = '×';
+        close.onclick = function () { dialog.close(); };
+        var frame = document.createElement('iframe');
+        frame.src = url.href;
+        frame.allow = 'autoplay; encrypted-media; picture-in-picture';
+        frame.allowFullscreen = true;
+        frame.title = title;
+        dialog.appendChild(close);
+        dialog.appendChild(frame);
+        dialog.addEventListener('click', function (event) {
+          if (event.target === dialog) {
+            var bounds = dialog.getBoundingClientRect();
+            if (event.clientX < bounds.left || event.clientX > bounds.right ||
+                event.clientY < bounds.top || event.clientY > bounds.bottom) dialog.close();
+          }
+        });
+        dialog.addEventListener('close', function () {
+          dialog.remove();
+          trigger.focus();
+        }, {once:true});
+        document.body.appendChild(dialog);
+        dialog.showModal();
+        close.focus();
+      });
+    });
     all(root, '.vb-facade').forEach(function (b) {
       if (!once(b, 'Fac')) return;
       b.addEventListener('click', function () {

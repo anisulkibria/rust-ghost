@@ -163,7 +163,7 @@
         for (var wi = 0; wi < col.items.length && !found; wi++) {
           var w = col.items[wi];
           if (w.id === id) { found = {kind: 'widget', node: w, list: col.items, index: wi, sec: sec, si: si, col: col, owner: owner, w: w}; return; }
-          if (w.t === 'inner' && w.cols) inCols(w.cols, sec, si, w);
+          if (w.cols) inCols(w.cols, sec, si, w);
         }
       }
     }
@@ -250,19 +250,24 @@
   }
 
   function insertSections(list, afterId, imported) {
-    record();
-    if (imported) {
-      if (imported.replaceBlank) S.layout.sections = [];
-      if (!S.layout.elementor && imported.layout.elementor) {
-        S.layout.elementor = imported.layout.elementor;
-        S.layout.page = Object.assign({}, imported.layout.page, S.layout.page);
-      }
-    }
-    var at = sections().length;
     var loc = (afterId || S.sel) && locate(afterId || S.sel);
-    if (loc) at = loc.si + 1;
-    list = list.map(function (s) { return reid(clone(s)); });
-    Array.prototype.splice.apply(sections(), [at, 0].concat(list));
+    list = list.map(function (s) { return reid(imported ? s : clone(s)); });
+    if (imported) {
+      var next = Object.assign({}, S.layout, {sections: imported.replaceBlank ? [] : sections().slice()});
+      if (!next.elementor && imported.layout.elementor) {
+        next.elementor = imported.layout.elementor;
+        next.page = Object.assign({}, imported.layout.page, next.page);
+      }
+      Array.prototype.splice.apply(next.sections, [loc && !imported.replaceBlank ? loc.si + 1 : next.sections.length, 0].concat(list));
+      if (new Blob([JSON.stringify(next)]).size > BOOT.layoutLimits.bytes) {
+        throw new Error('The combined editable layout exceeds 12 MiB. Import into a separate page.');
+      }
+      record();
+      S.layout = next;
+    } else {
+      record();
+      Array.prototype.splice.apply(sections(), [loc ? loc.si + 1 : sections().length, 0].concat(list));
+    }
     S.sel = list[list.length - 1].id; S.tab = 'edit'; S.subtab = 'c';
     renderAll().then(function () { scrollIntoView(list[0].id); });
   }
@@ -593,7 +598,7 @@
     if (EDITING && EDITING.el.contains(e.target)) return;
     if (e.target.closest && (e.target.closest('.vbx-rich') || e.target.closest('.vbx-bar'))) return;
     hideMenu();
-    e.preventDefault();
+    if (!(e.target.closest && e.target.closest('summary'))) e.preventDefault();
     if (EDITING) finishEditing();
     var add = e.target.closest && e.target.closest('[data-vbx-add]');
     if (add) { S.tab = 'add'; S.sel = null; markSelection(); renderSide(); flash($('.vbe-structs')); return; }
@@ -1489,7 +1494,7 @@
         col.items.forEach(function (w) {
           var txt = w.s && (w.s.text || w.s.title || w.s.name || w.s.before);
           row(d, w.t, label(w.t) + (txt ? ' — ' + String(txt).slice(0, 40) : ''), w.id, 'widget');
-          if (w.t === 'inner' && w.cols) cols(w.cols, d + 1);
+          if (w.cols) cols(w.cols, d + 1);
         });
       });
     }
@@ -1671,9 +1676,9 @@
     toastTimer = setTimeout(function () { t.classList.remove('show'); }, error ? 5000 : 2600);
   }
   function flash(n) { if (n) n.animate([{boxShadow: '0 0 0 0 rgba(255,26,117,.6)'}, {boxShadow: '0 0 0 8px rgba(255,26,117,0)'}], {duration: 700}); }
-  function dialog(title, text, body, okLabel) {
+  function dialog(title, text, body, okLabel, dialogClass) {
     return new Promise(function (resolve) {
-      var d = h('dialog', {class: 'vbe-dialog'});
+      var d = h('dialog', {class: 'vbe-dialog' + (dialogClass ? ' ' + dialogClass : ''), 'aria-label': title});
       d.appendChild(h('h2', {text: title}));
       if (text) d.appendChild(h('p', {text: text}));
       if (body) d.appendChild(body);
@@ -1847,26 +1852,72 @@
     if (EDITING) finishEditing();
     var content = h('textarea', {class: 'vbe-ta code', placeholder: 'Paste JSON', 'aria-label': 'Layout JSON'});
     var file = h('input', {type: 'file', accept: '.json,application/json', 'aria-label': 'Choose a layout JSON file'});
-    var status = h('p', {role: 'status'});
-    var pending;
+    var htmlFile = h('input', {type: 'file', accept: '.html,.htm,text/html', 'aria-label': 'Choose a companion HTML file'});
+    var kitFile = h('input', {type: 'file', accept: '.json,application/json', 'aria-label': 'Choose kit global.json'});
+    var linkedFiles = h('input', {type: 'file', accept: '.json,application/json', multiple:true, 'aria-label':'Choose linked carousel templates'});
+    var status = h('p', {role: 'status', class:'vbe-import-status'});
+    function uploadField(label, description, input) {
+      return h('label', {class:'vbe-import-field'}, [
+        h('span', {class:'vbe-import-label', text:label}),
+        h('small', {text:description}),
+        input,
+      ]);
+    }
+    var fields = h('div', {class:'vbe-import-fields'}, [
+      uploadField('Layout file', 'Elementor or Vuuut JSON', file),
+      h('details', {class:'vbe-import-paste'}, [h('summary', {text:'Paste JSON instead'}), content]),
+      h('fieldset', {class:'vbe-import-companions'}, [
+        h('legend', {text:'Companion files (optional)'}),
+        uploadField('Kit global.json', 'Shared colors and fonts', kitFile),
+        uploadField('Companion HTML', 'Recover missing image URLs', htmlFile),
+        uploadField('Linked carousel templates', 'Add the JSON file for each referenced slide', linkedFiles),
+      ]),
+      status,
+    ]);
     file.addEventListener('change', function () {
       var selected = file.files[0];
-      if (!selected) return;
-      status.textContent = '';
-      pending = selected.size <= BOOT.layoutLimits.bytes
-        ? selected.text()
-        : Promise.reject(new Error('This layout file is too large.'));
-      pending.then(function (text) { content.value = text; }, function (error) { status.textContent = error.message; });
+      if (selected) content.value = '';
+      status.textContent = selected && selected.size > BOOT.layoutLimits.uploadBytes
+        ? 'The layout JSON file exceeds 64 MiB.' : '';
     });
-    content.addEventListener('input', function () { pending = null; status.textContent = ''; });
-    dialog('Import layout', 'Choose or paste Elementor or Vuuut JSON. Sections go after your selection.', h('div', {}, [file, content, status]), 'Import').then(function (ok) {
+    content.addEventListener('input', function () { file.value = ''; status.textContent = ''; });
+    dialog('Import layout', '', fields, 'Import', 'vbe-import-dialog').then(function (ok) {
       if (!ok) return;
-      return (pending || Promise.resolve(content.value)).then(function (text) {
+      var html = htmlFile.files[0];
+      var kit = kitFile.files[0];
+      var selected = file.files[0];
+      var linked = Array.prototype.slice.call(linkedFiles.files);
+      if (html && html.size > BOOT.layoutLimits.companionBytes) throw new Error('The companion HTML file exceeds 1 MB.');
+      if (kit && kit.size > BOOT.layoutLimits.kitSettingsBytes) throw new Error('The kit settings file exceeds 1 MB.');
+      if (linked.length > BOOT.layoutLimits.linkedFiles) throw new Error('Choose at most 12 linked carousel files.');
+      if (linked.reduce(function (total, item) { return total + item.size; }, 0) > BOOT.layoutLimits.linkedBytes) {
+        throw new Error('Linked carousel files exceed 8 MiB in total.');
+      }
+      var request;
+      if (selected || linked.length) {
+        var layoutFile = selected || new Blob([content.value], {type:'application/json'});
+        if (layoutFile.size > BOOT.layoutLimits.uploadBytes) throw new Error('The layout JSON file exceeds 64 MiB.');
+        var upload = new FormData();
+        upload.append('layout', layoutFile, selected ? selected.name : 'layout.json');
+        if (html) upload.append('companion', html);
+        if (kit) upload.append('kitSettings', kit);
+        linked.forEach(function (item) { upload.append('linkedTemplate', item); });
+        request = post(BOOT.endpoints.import, upload);
+      } else {
+        if (new Blob([content.value]).size > BOOT.layoutLimits.uploadBytes) throw new Error('The layout JSON exceeds 64 MiB.');
         var document;
-        try { document = JSON.parse(text.replace(/^\uFEFF/, '')); }
+        try { document = JSON.parse(content.value.replace(/^\uFEFF/, '')); }
         catch (_) { throw new Error('The file does not contain valid JSON.'); }
-        return post(BOOT.endpoints.interchange, {import: document});
-      }).then(function (result) {
+        request = Promise.all([html ? html.text() : '', kit ? kit.text() : '']).then(function (files) {
+          var body = {import: document, companion: files[0]};
+          if (kit) {
+            try { body.kitSettings = JSON.parse(files[1].replace(/^\uFEFF/, '')); }
+            catch (_) { throw new Error('The kit settings file does not contain valid JSON.'); }
+          }
+          return post(BOOT.endpoints.interchange, body);
+        });
+      }
+      return request.then(function (result) {
         var list = result.layout.sections;
         if (!list.length) throw new Error('The file has no sections.');
         var first = sections()[0];
@@ -1875,9 +1926,6 @@
           !Object.keys(first.cols[0].s).length;
         var total = list.length + (replaceBlank ? 0 : sections().length);
         if (total > BOOT.layoutLimits.sections) throw new Error('The imported sections would exceed the page’s section limit.');
-        if (new Blob([JSON.stringify(S.layout), JSON.stringify(result.layout)]).size > BOOT.layoutLimits.bytes - 1024) {
-          throw new Error('The imported sections would exceed the layout size limit.');
-        }
         insertSections(list, null, {layout: result.layout, replaceBlank: replaceBlank});
         var warnings = result.warnings || [];
         toast(warnings.length ? warnings.join(' ') : 'Layout imported. Save to keep your changes.', !!warnings.length);
@@ -1889,9 +1937,14 @@
   // saving
   // ---------------------------------------------------------------------
   function post(url, body) {
-    return fetch(url, {method: 'POST', credentials: 'same-origin', headers: {'Content-Type': 'application/json', Accept: 'application/json'}, body: JSON.stringify(body)}).then(function (r) {
+    var headers = {Accept: 'application/json'};
+    if (!(body instanceof FormData)) {
+      headers['Content-Type'] = 'application/json';
+      body = JSON.stringify(body);
+    }
+    return fetch(url, {method: 'POST', credentials: 'same-origin', headers: headers, body: body}).then(function (r) {
       return r.json().catch(function () { return {}; }).then(function (j) {
-        if (!r.ok) throw new Error(j.error || (r.status === 401 ? 'You have been signed out — sign in again in another tab, then save.' : 'Saving failed (' + r.status + ').'));
+        if (!r.ok) throw new Error(j.error || (r.status === 401 ? 'You have been signed out — sign in again in another tab, then save.' : r.status === 413 ? 'The request exceeds the server’s upload limit.' : 'The request failed (' + r.status + ').'));
         return j;
       });
     });

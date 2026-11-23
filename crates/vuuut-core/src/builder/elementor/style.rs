@@ -50,6 +50,26 @@ fn length(value: &Value, key: &str, units: &[&str]) -> Option<String> {
     })
 }
 
+fn grid_tracks(value: &Value, max_tracks: f64) -> Option<String> {
+    if value["unit"] == "custom" {
+        let tracks = value["size"].as_str()?.trim();
+        if tracks.is_empty()
+            || tracks.len() > 512
+            || !tracks.chars().all(|c| c.is_ascii_alphanumeric() || " \t\n\r-.%+(),".contains(c))
+            || FUNCTION.captures_iter(tracks).any(|m| {
+                !matches!(&m[1], "repeat" | "minmax" | "fit-content" | "calc" | "min" | "max" | "clamp")
+            })
+        {
+            return None;
+        }
+        return Some(rem_to_px(tracks));
+    }
+    number(&value["size"])
+        .or_else(|| number(value))
+        .filter(|n| *n > 0.0)
+        .map(|n| format!("repeat({},minmax(0,1fr))", n.round().clamp(1.0, max_tracks) as u8))
+}
+
 fn sides(value: &Value) -> Option<String> {
     ["top", "right", "bottom", "left"]
         .iter()
@@ -129,30 +149,19 @@ pub(in crate::builder) fn container_row(r: &mut R, node: &Value, selector: &str)
             |name: &str, allowed: &[&str]| choice(&source[format!("{name}{remote}")], allowed);
         if grid {
             let columns = &source[format!("grid_columns_grid{remote}")];
-            let tracks = number(&columns["size"])
-                .or_else(|| number(columns))
-                .or_else(|| number(&source[format!("grid_column{remote}")]));
             append(
                 &mut css,
                 "grid-template-columns",
-                tracks
-                    .or_else(|| remote.is_empty().then_some(3.0))
-                    .map(|n| format!("repeat({},minmax(0,1fr))", n.round().clamp(1.0, 12.0) as u8)),
+                grid_tracks(columns, 12.0)
+                    .or_else(|| grid_tracks(&source[format!("grid_column{remote}")], 12.0))
+                    .or_else(|| remote.is_empty().then(|| "repeat(3,minmax(0,1fr))".into())),
             );
-            let rows = &source[format!("grid_rows_grid{remote}")];
-            if let Some(n) = number(&rows["size"])
-                .or_else(|| number(rows))
-                .filter(|n| *n > 0.0)
-            {
-                append(
-                    &mut css,
-                    "grid-template-rows",
-                    Some(format!(
-                        "repeat({},minmax(0,1fr))",
-                        n.round().clamp(1.0, 40.0) as u8
-                    )),
-                );
-            }
+            append(&mut css, "grid-template-rows", grid_tracks(&source[format!("grid_rows_grid{remote}")], 40.0));
+            append(
+                &mut css,
+                "justify-items",
+                choice_at("grid_justify_items", &["start", "end", "center", "stretch"]),
+            );
         } else {
             let direction = choice_at(
                 "flex_direction",
@@ -194,7 +203,7 @@ pub(in crate::builder) fn container_row(r: &mut R, node: &Value, selector: &str)
             &mut css,
             "align-items",
             choice_at(
-                "flex_align_items",
+                if grid { "grid_align_items" } else { "flex_align_items" },
                 &[
                     "flex-start",
                     "flex-end",
@@ -527,34 +536,45 @@ pub(in crate::builder) fn node(
                 let inner = if section {
                     format!("{selector} > .vb-in")
                 } else {
-                    selector.to_owned()
+                    format!("{selector} > .vb-row")
                 };
                 if let Some(width) = boxed {
                     rule(
                         r,
                         media,
                         &inner,
-                        &format!("max-width:{width};margin-inline:auto;"),
+                        &format!("width:100%;max-width:{width};margin-inline:auto;"),
                     );
                 }
             }
+        }
+        if unchanged(node, &format!("self_align{local}")) {
+            append(
+                &mut css,
+                "align-self",
+                choice(
+                    &source[format!("_flex_align_self{remote}")],
+                    &[
+                        "auto", "start", "end", "flex-start", "flex-end", "center", "stretch",
+                        "baseline",
+                    ],
+                ),
+            );
         }
         if !container
             && unchanged(node, "width_mode")
             && unchanged(node, &format!("width_px{local}"))
         {
-            append(
-                &mut css,
-                "width",
-                length(
-                    &source[format!("_element_custom_width{remote}")],
-                    "size",
-                    LENGTHS,
-                )
-                .filter(|_| {
-                    source["_element_width"] == "initial" || source["_element_width"] == "custom"
-                }),
-            );
+            let mode = source[format!("_element_width{remote}")]
+                .as_str()
+                .filter(|mode| !mode.is_empty())
+                .or_else(|| source["_element_width"].as_str());
+            if matches!(mode, Some("initial" | "custom")) {
+                let width = &source[format!("_element_custom_width{remote}")];
+                if let Some(width) = length(width, "size", LENGTHS) {
+                    css.push_str(&format!("width:{width};max-width:100%;"));
+                }
+            }
         }
         if let Some(target) = &target {
             let typ = if widget == "list" {
@@ -671,17 +691,20 @@ pub(in crate::builder) fn node(
     }
 }
 
-fn selectors(input: &str, scope: &str) -> Option<String> {
+fn selectors(input: &str, scope: &str, stylesheet: bool) -> Option<String> {
     input
         .split(',')
         .map(|s| {
-            let tail = s.trim().strip_prefix("selector")?;
-            if !tail.is_empty() && !tail.starts_with([' ', '.', ':', '>']) {
+            let s = s.trim();
+            let tail = if stylesheet { s } else { s.strip_prefix("selector")? };
+            if stylesheet && tail.is_empty()
+                || !stylesheet && !tail.is_empty() && !tail.starts_with([' ', '.', ':', '>'])
+            {
                 return None;
             }
             if !tail
                 .chars()
-                .all(|c| c.is_ascii_alphanumeric() || " .:_->".contains(c))
+                .all(|c| c.is_ascii_alphanumeric() || " .:_->".contains(c) || (stylesheet && c == '#'))
             {
                 return None;
             }
@@ -693,7 +716,8 @@ fn selectors(input: &str, scope: &str) -> Option<String> {
                 .replace(".elementor-background-overlay", ".vb-el-overlay")
                 .replace(".elementor-icon", ".vb-icon")
                 .replace(".fa-arrow-right", ".vb-icon");
-            Some(format!("{scope}{tail}"))
+            let separator = if stylesheet { " " } else { "" };
+            Some(format!("{scope}{separator}{tail}"))
         })
         .collect::<Option<Vec<_>>>()
         .map(|v| v.join(","))
@@ -719,13 +743,22 @@ fn declarations(input: &str) -> (String, String) {
                 | "aspect-ratio"
                 | "background-size"
                 | "background-position"
+                | "object-fit"
+                | "object-position"
                 | "inset"
                 | "font-size"
                 | "font-weight"
                 | "font-style"
+                | "text-transform"
+                | "text-decoration-line"
                 | "letter-spacing"
                 | "line-height"
                 | "border-top-color"
+                | "border-right-color"
+                | "border-bottom-color"
+                | "border-left-color"
+                | "border-top-left-radius"
+                | "border-top-right-radius"
                 | "border-bottom-left-radius"
                 | "border-bottom-right-radius"
                 | "display"
@@ -767,6 +800,14 @@ fn declarations(input: &str) -> (String, String) {
                 | "border-right"
                 | "border-bottom"
                 | "border-left"
+                | "border-top-width"
+                | "border-right-width"
+                | "border-bottom-width"
+                | "border-left-width"
+                | "border-top-style"
+                | "border-right-style"
+                | "border-bottom-style"
+                | "border-left-style"
                 | "padding"
                 | "padding-top"
                 | "padding-right"
@@ -836,7 +877,13 @@ fn declarations(input: &str) -> (String, String) {
     (normal, layout)
 }
 
-fn scoped_rules(mut input: &str, scope: &str, row: Option<&str>, media_allowed: bool) -> String {
+fn scoped_rules(
+    mut input: &str,
+    scope: &str,
+    row: Option<&str>,
+    media_allowed: bool,
+    stylesheet: bool,
+) -> String {
     let mut out = String::new();
     while let Some((prelude, rest)) = input.trim().split_once('{') {
         let mut depth = 1;
@@ -854,11 +901,11 @@ fn scoped_rules(mut input: &str, scope: &str, row: Option<&str>, media_allowed: 
         input = &rest[end + 1..];
         let prelude = prelude.trim();
         if media_allowed && MEDIA.is_match(prelude) {
-            let css = scoped_rules(body, scope, row, false);
+            let css = scoped_rules(body, scope, row, false, stylesheet);
             if !css.is_empty() {
                 out.push_str(&format!("{prelude}{{{css}}}"));
             }
-        } else if let Some(selector) = selectors(prelude, scope) {
+        } else if let Some(selector) = selectors(prelude, scope, stylesheet) {
             let (normal, layout) = declarations(body);
             if !normal.is_empty() {
                 out.push_str(&format!("{selector}{{{normal}}}"));
@@ -876,7 +923,36 @@ fn custom_css(input: &str, scope: &str, row: Option<&str>) -> String {
     if input.len() > 16_000 {
         return String::new();
     }
-    scoped_rules(&COMMENTS.replace_all(input, ""), scope, row, true)
+    scoped_rules(&COMMENTS.replace_all(input, ""), scope, row, true, false)
+}
+
+/// Elementor exports page-level CSS as HTML widgets containing only style tags.
+pub(super) fn style_blocks(mut html: &str) -> Option<Vec<&str>> {
+    if html.len() > 16_000 {
+        return None;
+    }
+    let mut blocks = Vec::new();
+    while !html.trim().is_empty() {
+        let (css, rest) = html.trim_start().strip_prefix("<style>")?.split_once("</style>")?;
+        blocks.push(css);
+        html = rest;
+    }
+    (!blocks.is_empty()).then_some(blocks)
+}
+
+pub(in crate::builder) fn stylesheet_widget(r: &mut R, node: &Value) -> bool {
+    if node["elementor"]["source"]["widgetType"] != "html" {
+        return false;
+    }
+    let Some(blocks) = style_blocks(str_at(raw(node), "html")) else {
+        return false;
+    };
+    r.has_elementor = true;
+    let scope = format!(".vb-L{}", r.ctx.scope);
+    for css in blocks {
+        r.imported(&scoped_rules(&COMMENTS.replace_all(css, ""), &scope, None, true, true));
+    }
+    true
 }
 
 /// A WordPress form has no local submission destination until staff select a Vuuut form.
@@ -1039,12 +1115,47 @@ mod tests {
     }
 
     #[test]
+    fn restores_stylesheet_widgets_and_centers_imported_boxed_content() {
+        let document = json!({
+            "type":"page", "version":"0.4", "content":[{
+                "id":"outer", "elType":"container", "settings":{"_element_id":"design"},
+                "elements":[
+                    {"id":"styles","elType":"widget","widgetType":"html","settings":{
+                        "html":"<style>#design .card{border-bottom-width:1px;background:url(https://example.test/a);}</style>\n<style>@media(max-width:480px){#design .card{padding:8px}}</style>"
+                    }},
+                    {"id":"box","elType":"container","settings":{
+                        "content_width":"boxed","boxed_width":{"unit":"px","size":800},
+                        "margin":{"unit":"px","top":0,"right":0,"bottom":24,"left":0}
+                    },"elements":[
+                        {"id":"text","elType":"widget","widgetType":"text-editor","settings":{
+                            "editor":"<p>Centered content</p>",
+                            "_element_width":"initial",
+                            "_element_custom_width":{"unit":"px","size":600},
+                            "_flex_align_self":"center"
+                        }}
+                    ]}
+                ]
+            }]
+        });
+        let imported = elementor::import(&document).unwrap();
+        assert!(imported.warnings.is_empty());
+        let html = render(&imported.layout, &Settings::default());
+        assert!(html.contains(".vb-Lp #design .card{border-bottom-width:1px;}"));
+        assert!(html.contains("@media(max-width:480px){.vb-Lp #design .card{padding:8px;}}"));
+        assert!(html.contains("> .vb-row{width:100%;max-width:800px;margin-inline:auto;}"));
+        assert!(html.contains("align-self:center;width:600px;max-width:100%;"));
+        assert!(!html.contains("example.test") && !html.contains("vb-w-elementor-widget"));
+    }
+
+    #[test]
     fn restores_imported_grid_forms_icons_and_responsive_styles() {
         let document = json!({
             "title":"Template", "type":"page", "version":"0.4", "content":[{
                 "id":"grid", "elType":"container", "settings":{
                     "container_type":"grid", "grid_columns_grid":{"unit":"fr","size":2},
-                    "grid_columns_grid_mobile":{"unit":"fr","size":1},
+                    "grid_columns_grid_tablet":{"unit":"custom","size":"minmax(0px, 0.8fr) minmax(0px, 1.2fr)"},
+                    "grid_columns_grid_mobile":{"unit":"custom","size":"minmax(0px, 1fr)"},
+                    "grid_rows_grid":{"unit":"custom","size":"auto"},
                     "padding":{"unit":"rem","top":3,"right":1,"bottom":3,"left":1},
                     "background_background":"classic","background_color":"rgba(26,0,51,0.45)"
                 }, "elements":[
@@ -1073,7 +1184,9 @@ mod tests {
         for expected in [
             elementor::STYLE_MARKER,
             "repeat(2,minmax(0,1fr))",
-            "repeat(1,minmax(0,1fr))",
+            "grid-template-columns:minmax(0px, 0.8fr) minmax(0px, 1.2fr)",
+            "grid-template-columns:minmax(0px, 1fr)",
+            "grid-template-rows:auto",
             "padding:48px 16px 48px 16px",
             "background:rgba(26,0,51,0.45)",
             "font-size:40px",
@@ -1088,5 +1201,7 @@ mod tests {
             assert!(html.contains(expected), "missing {expected}");
         }
         assert!(!html.contains("private@example.test"));
+        assert!(grid_tracks(&json!({"unit":"custom","size":"1fr;display:none"}), 12.0).is_none());
+        assert!(grid_tracks(&json!({"unit":"custom","size":"url(remote)"}), 12.0).is_none());
     }
 }

@@ -28,6 +28,7 @@ pub(crate) const KOENIG_VERSION: &str = koenig_version!();
 pub(crate) const ASSETS: &str = concat!("/ghost/assets/", koenig_version!());
 
 pub(crate) const ECOM_EDITOR_JS: &str = include_str!("../assets/ecom-editor.js");
+pub(crate) const BUILDER_EDITOR_CSS: &str = concat!(include_str!("../assets/unsplash-picker.css"), include_str!("../assets/builder-editor.css"));
 
 pub(crate) fn pintura_asset_tags(config: &serde_json::Value) -> String {
     match (config["jsUrl"].as_str(), config["cssUrl"].as_str()) {
@@ -86,7 +87,7 @@ pub(crate) async fn admin_asset(Path((version, file)): Path<(String, String)>) -
         "workflows-board.js" => include_str!("../assets/workflows-board.js"),
         // Tools → Page Builder: the visual editor and its own stylesheet.
         "builder-editor.js" => include_str!("../assets/builder-editor.js"),
-        "builder-editor.css" => include_str!("../assets/builder-editor.css"),
+        "builder-editor.css" => BUILDER_EDITOR_CSS,
         // Tools → E-commerce: the product editor (Koenig mount, media, variants).
         "ecom-editor.js" => ECOM_EDITOR_JS,
         "social-compose.js" => include_str!("../assets/social-compose.js"),

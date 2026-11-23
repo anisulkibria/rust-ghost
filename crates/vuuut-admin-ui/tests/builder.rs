@@ -365,6 +365,7 @@ async fn a_layout_is_designed_saved_shown_and_switched_off() {
     let uuid: String = sqlx::query_scalar("SELECT uuid FROM posts WHERE id = ?").bind(&id).fetch_one(&f.state.db).await.unwrap();
     let canvas = site(&f.state, "GET", &format!("/p/{uuid}/?vb=canvas"), None).await;
     assert!(canvas.body.contains("data-vb-canvas"));
+    assert!(!canvas.body.contains("/public/staff-toolbar.js"));
 
     // a second save keeps the first as a revision
     let mut second = layout();
@@ -608,14 +609,24 @@ async fn elementor_upload_edit_and_download_use_the_builder_routes() {
                 {"id": "123abce", "elType": "widget", "widgetType": "heading", "settings":
                     {"title": "Original title", "header_size": "h1", "align_mobile": "center", "typography_font_size": {"unit":"rem","size":2.5}}, "elements": []},
                 {"id": "123abcf", "elType": "widget", "widgetType": "html", "settings":
-                    {"html": "<script>opaqueElementorSource()</script>"}, "elements": []}
+                    {"html": "<script>opaqueElementorSource()</script>"}, "elements": []},
+                {"id": "123abca", "elType": "widget", "widgetType": "image", "settings":
+                    {"image":{"url":"","id":""},"caption":"Brick house"}, "elements": []},
+                {"id": "123abcb", "elType": "widget", "widgetType": "image-box", "settings":
+                    {"image":{"url":"","id":""},"title_text":"Listing"}, "elements": []}
             ]
         }]
     });
-    let multipart = format!("--layout-boundary\r\nContent-Disposition: form-data; name=\"layout\"; filename=\"design.json\"\r\nContent-Type: application/json\r\n\r\n{document}\r\n--layout-boundary--\r\n");
+    let companion = r#"<script>var dummy = '<img src="https://example.test/wrong.jpg">';</script>
+        <img src="https://example.test/house.jpg" alt="Brick house">
+        <img src="https://example.test/listing.jpg" alt="Listing photograph">"#;
+    // A pretty-printed export can exceed the old 3 MB file/request limit
+    // even when its editable layout is small.
+    let padding = " ".repeat(5_100_000);
+    let multipart = format!("--layout-boundary\r\nContent-Disposition: form-data; name=\"layout\"; filename=\"design.json\"\r\nContent-Type: application/json\r\n\r\n{padding}{document}\r\n--layout-boundary\r\nContent-Disposition: form-data; name=\"companion\"; filename=\"design.html\"\r\nContent-Type: text/html\r\n\r\n{companion}\r\n--layout-boundary--\r\n");
     let request = Request::post("/builder/import/").header("host", HOST).header("origin", ORIGIN)
         .header("cookie", &cookie).header("content-type", "multipart/form-data; boundary=layout-boundary")
-        .body(Body::from(multipart)).unwrap();
+        .body(Body::from(multipart.clone())).unwrap();
     let response = app.clone().oneshot(request).await.unwrap();
     assert_eq!(response.status(), StatusCode::SEE_OTHER);
     let destination = response.headers()["location"].to_str().unwrap();
@@ -628,6 +639,16 @@ async fn elementor_upload_edit_and_download_use_the_builder_routes() {
     let saved = vuuut_db::repos::builder::get(&state.db, post_id).await.unwrap().unwrap();
     assert!(saved.html.contains("Original title"));
     assert!(!saved.html.contains("opaqueElementorSource"));
+    assert!(saved.html.contains(r#"src="https://example.test/house.jpg" alt="Brick house""#));
+    assert!(saved.html.contains(r#"src="https://example.test/listing.jpg" alt="Listing photograph""#));
+    assert!(!saved.html.contains("wrong.jpg"));
+    let upload = Request::post(format!("{editor}import/")).header("host", HOST).header("origin", ORIGIN)
+        .header("cookie", &cookie).header("content-type", "multipart/form-data; boundary=layout-boundary")
+        .body(Body::from(multipart)).unwrap();
+    let upload = app.clone().oneshot(upload).await.unwrap();
+    assert_eq!(upload.status(), StatusCode::OK);
+    let upload: Value = serde_json::from_slice(&to_bytes(upload.into_body(), 3_000_000).await.unwrap()).unwrap();
+    assert_eq!(upload["layout"]["sections"][0]["cols"][0]["items"][2]["s"]["src"], "https://example.test/house.jpg");
     vuuut_db::repos::builder::set_html(&state.db, post_id, "<div>Old cached layout</div>").await.unwrap();
     vuuut_admin_ui::builder::refresh_elementor_layouts(state).await;
     let refreshed = vuuut_db::repos::builder::get(&state.db, post_id).await.unwrap().unwrap();

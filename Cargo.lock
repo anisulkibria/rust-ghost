@@ -8486,6 +8486,7 @@ dependencies = [
  "chrono",
  "chrono-tz",
  "hex",
+ "html5ever",
  "once_cell",
  "rand 0.9.5",
  "regex",

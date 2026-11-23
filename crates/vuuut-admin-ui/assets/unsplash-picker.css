@@ -1,0 +1,75 @@
+/* Shared Unsplash picker for the admin and the visual builder. */
+dialog.unsplash { width: min(1920px, calc(100vw - 24px)); height: calc(100vh - 24px);
+  height: calc(100dvh - 24px); max-height: none;
+  min-width: 0; max-width: none; border: none; border-radius: 16px; padding: 0;
+  background: var(--sc-lowest); color: var(--on-surface); box-shadow: var(--shadow-2);
+  overflow: hidden; }
+dialog.unsplash [hidden] { display: none !important; }
+dialog.unsplash[open] { display: grid; grid-template-rows: auto minmax(0, 1fr); }
+dialog.unsplash::backdrop { background: rgba(0,0,0,.6); }
+.u-close { display: grid; place-items: center; width: 40px; height: 40px; border: none; background: transparent;
+  color: var(--on-surface-variant); cursor: pointer; padding: 0; border-radius: 50%; }
+.u-close:hover { background: color-mix(in srgb, var(--on-surface) 8%, transparent); color: var(--on-surface); }
+.u-close svg.i { width: 18px; height: 18px; display: block; }
+.u-head { display: grid; grid-template-columns: 1fr minmax(240px, 480px) 40px; align-items: center; gap: 20px;
+  padding: 20px 24px; border-bottom: 1px solid var(--outline-variant); }
+.u-head h3 { margin: 0; font-size: 22px; font-weight: 700; letter-spacing: -.3px; white-space: nowrap; }
+.u-searchbox { position: relative; min-width: 0; }
+.u-searchbox svg.i { position: absolute; left: 15px; top: 50%; transform: translateY(-50%);
+  width: 17px; height: 17px; color: var(--on-surface-variant); pointer-events: none; }
+.u-searchbox input { width: 100%; height: 40px; border-radius: 999px; border: 1px solid var(--outline);
+  background: transparent; color: var(--on-surface); font: inherit; font-size: 14px;
+  padding: 0 16px 0 42px; outline: none; }
+.u-searchbox input:focus { border-color: var(--primary); box-shadow: 0 0 0 2px color-mix(in srgb, var(--primary) 15%, transparent); }
+.u-searchbox input::placeholder { color: var(--on-surface-variant); }
+.u-body { position: relative; min-height: 0; overflow-y: auto; overscroll-behavior: contain;
+  padding: 24px; scrollbar-width: thin;
+  scrollbar-color: var(--outline-variant) transparent; }
+/* Four masonry columns keep each photograph's original proportions. */
+.u-grid { columns: 4; column-gap: 16px; }
+@media (max-width: 1100px) { .u-grid { columns: 3; } }
+@media (max-width: 800px) { .u-grid { columns: 2; } }
+@media (max-width: 500px) { .u-grid { columns: 1; } }
+@media (max-width: 600px) {
+  .u-head { grid-template-columns: minmax(0, 1fr) 40px; padding: 16px; gap: 12px; }
+  .u-searchbox { grid-row: 2; grid-column: 1 / -1; }
+  .u-close { grid-row: 1; grid-column: 2; }
+  .u-body { padding: 16px; }
+}
+.u-tile { position: relative; min-width: 0; break-inside: avoid; margin-bottom: 16px; border-radius: 10px;
+  overflow: hidden; cursor: zoom-in; }
+.u-tile > img { display: block; width: 100%; height: auto; }
+.u-hover { position: absolute; inset: 0; display: flex; flex-direction: column; justify-content: space-between;
+  padding: 12px; opacity: 0; transition: opacity .15s var(--ease);
+  background: linear-gradient(180deg, rgba(0,0,0,.15), transparent 40%, rgba(0,0,0,.65)); }
+.u-tile:hover .u-hover, .u-tile:focus-within .u-hover { opacity: 1; }
+@media (hover: none) { .u-hover { opacity: 1; } }
+.u-top { display: flex; justify-content: flex-end; gap: 8px; }
+.u-chip { display: inline-flex; align-items: center; gap: 6px; height: 30px; padding: 0 12px;
+  border-radius: 999px; background: rgba(255,255,255,.85); color: #201A1B; font-size: 12.5px;
+  font-weight: 600; text-decoration: none; backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px); }
+.u-chip svg.i { width: 15px; height: 15px; }
+.u-chip:hover { background: #fff; }
+.u-bottom { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.u-credit { display: inline-flex; align-items: center; gap: 8px; color: #fff; font-size: 13px;
+  font-weight: 500; min-width: 0; text-shadow: 0 1px 3px rgba(0,0,0,.5); }
+.u-credit-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.u-credit > img.u-avatar { display: block; width: 26px; height: 26px; min-width: 26px; max-width: 26px;
+  object-fit: cover; border-radius: 50%; flex: none; }
+.u-insert { border: none; height: 34px; padding: 0 12px; border-radius: 999px; background: #fff;
+  color: #201A1B; font: inherit; font-size: 13px; font-weight: 600; cursor: pointer; flex: none; }
+.u-insert:hover { box-shadow: var(--shadow-1); }
+dialog.unsplash button:focus-visible, .u-chip:focus-visible { outline: 2px solid var(--primary); outline-offset: 3px; }
+.u-empty { column-span: all; padding: 9vh 0; text-align: center; color: var(--on-surface-variant);
+  font-size: 14px; }
+.u-zoom { display: flex; justify-content: center; align-items: center; height: 100%; cursor: zoom-out; }
+.u-zoom .u-tile { cursor: zoom-out; aspect-ratio: auto; margin: 0; max-width: 100%; max-height: 100%; }
+.u-zoom .u-tile > img { max-height: calc(100dvh - 220px); height: auto; width: auto; max-width: 100%; object-fit: contain; }
+/* Ghost's spinner: a ring with a dot, hung in the middle of the gallery. */
+.u-loading { position: absolute; inset: 0; display: grid; place-items: center; pointer-events: none; }
+.u-loading i { display: block; width: 46px; height: 46px; border-radius: 50%;
+  border: 1px solid color-mix(in srgb, var(--on-surface) 10%, transparent); position: relative;
+  animation: u-spin 1s linear infinite; }
+.u-loading i::before { content: ""; position: absolute; top: 6px; left: 50%; margin-left: -3.5px;
+  width: 7px; height: 7px; border-radius: 50%; background: var(--on-surface-variant); }
+@keyframes u-spin { to { transform: rotate(360deg); } }

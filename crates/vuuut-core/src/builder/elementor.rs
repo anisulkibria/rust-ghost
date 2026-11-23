@@ -1,13 +1,23 @@
 //! Elementor template JSON interchange and scoped rendering of supported styles.
 
 pub(super) mod style;
+mod addons;
+mod globals;
+mod media;
 
 use super::{spec, Settings};
 use serde_json::{json, Map, Value};
 use std::collections::{BTreeSet, HashSet};
 
 const VERSION: &str = "0.4";
-pub const STYLE_MARKER: &str = r#"data-vb-elementor="2""#;
+pub const STYLE_MARKER: &str = r#"data-vb-elementor="6""#;
+pub const MAX_COMPANION_BYTES: usize = 1_000_000;
+pub const MAX_UPLOAD_BYTES: usize = 64 * 1024 * 1024;
+pub const MAX_KIT_SETTINGS_BYTES: usize = 1_000_000;
+pub const MAX_LINKED_BYTES: usize = 8 * 1024 * 1024;
+pub const MAX_LINKED_FILES: usize = 12;
+pub const MAX_IMPORT_BODY: usize = MAX_UPLOAD_BYTES + MAX_COMPANION_BYTES + MAX_KIT_SETTINGS_BYTES + MAX_LINKED_BYTES + 16384;
+pub const MAX_INTERCHANGE_BODY: usize = MAX_UPLOAD_BYTES + 6 * MAX_COMPANION_BYTES + MAX_KIT_SETTINGS_BYTES + 8192;
 pub(super) const MAX_CONTAINER_DEPTH: u8 = 10;
 
 type Object = Map<String, Value>;
@@ -189,11 +199,10 @@ fn widget(kind: &str) -> Option<(&'static str, &'static [Control])> {
                 ("radius", "border_radius", Slider("px")),
             ],
         ),
-        "counter" => (
+        "stat" => (
             "counter",
             &[
-                ("from", "starting_number", Plain),
-                ("to", "ending_number", Plain),
+                ("number", "ending_number", Plain),
                 ("prefix", "prefix", Plain),
                 ("suffix", "suffix", Plain),
                 ("label", "title", Plain),
@@ -287,7 +296,8 @@ fn native_widget(kind: &str) -> Option<&'static str> {
         "spacer" => "spacer",
         "divider" => "divider",
         "video" => "video",
-        "counter" => "counter",
+        "counter" => "stat",
+        "rating" => "rating",
         "progress" => "progress",
         "google_maps" => "map",
         "testimonial" => "testimonial",
@@ -301,7 +311,7 @@ fn native_widget(kind: &str) -> Option<&'static str> {
         "accordion" | "toggle" => "accordion",
         // Imported HTML can contain executable code. It is retained as
         // source data and never inserted into the canvas or public page.
-        _ => return None,
+        _ => return addons::native(kind),
     })
 }
 
@@ -431,18 +441,20 @@ pub(super) fn upgrade_widget(metadata: Option<&Value>) -> Option<(&'static str, 
     if !children(source).is_empty() {
         return None;
     }
-    let kind = native_widget(str_at(source, "widgetType"))?;
-    Some((kind, widget_import(kind, &source["settings"])))
+    let external = str_at(source, "widgetType");
+    let kind = native_widget(external)?;
+    Some((kind, widget_import(kind, external, &source["settings"])))
 }
 
-fn widget_import(kind: &str, source: &Value) -> Object {
+fn widget_import(kind: &str, external: &str, source: &Value) -> Object {
     let mut settings = Object::new();
-    let (_, controls) = widget(kind).expect("mapped widget");
+    let controls = widget(kind).map_or(&[][..], |(_, controls)| controls);
     import_controls(source, &mut settings, ADVANCED);
     background(source, &mut settings, "box_bg", "_");
     import_controls(source, &mut settings, TYPOGRAPHY);
     import_controls(source, &mut settings, controls);
     match kind {
+        "image-box" => copy_value(&mut settings, "alt", &source["image"]["alt"]),
         "icon" => {
             settings.insert(
                 "icon".into(),
@@ -626,7 +638,17 @@ fn widget_import(kind: &str, source: &Value) -> Object {
         }
         _ => {}
     }
+    addons::settings(external, source, &mut settings);
     settings
+}
+
+pub(super) fn nested_kind(source: &Value) -> Option<&'static str> {
+    match str_at(source, "widgetType") {
+        "nested-tabs" => Some("tabs"),
+        "nested-accordion" => Some("accordion"),
+        "premium-carousel-widget" => Some("slides"),
+        _ => None,
+    }
 }
 
 fn source(element: &Value, opaque: bool) -> Value {
@@ -643,12 +665,14 @@ pub struct Import {
     pub warnings: Vec<String>,
 }
 
-struct Importer {
+struct Importer<'a> {
     next_id: usize,
     unsupported: BTreeSet<String>,
+    linked: &'a std::collections::HashMap<String, Vec<Value>>,
+    resolving_linked: bool,
 }
 
-impl Importer {
+impl Importer<'_> {
     fn id(&mut self) -> String {
         self.next_id += 1;
         format!("el{}", self.next_id)
@@ -660,6 +684,11 @@ impl Importer {
 
     fn item(&mut self, element: &Value, depth: u8) -> Value {
         let kind = str_at(element, "widgetType");
+        if kind == "premium-carousel-widget" {
+            if let Some(slides) = self.linked_carousel(element, depth) {
+                return slides;
+            }
+        }
         match str_at(element, "elType") {
             "container" if depth < MAX_CONTAINER_DEPTH => {
                 let (settings, cols) = self.container(element, false, depth + 1);
@@ -670,9 +699,34 @@ impl Importer {
                 let cols = self.legacy_columns(element, depth + 1);
                 json!({"id": self.id(), "t": "inner", "s": settings, "cols": cols, "elementor": source(element, false)})
             }
+            "widget" if matches!(nested_kind(element), Some("tabs" | "accordion")) && depth < MAX_CONTAINER_DEPTH => {
+                let native = nested_kind(element).unwrap();
+                let source_settings = &element["settings"];
+                let mut settings = widget_import(native, kind, source_settings);
+                let panels = children(element);
+                let titles = &source_settings[if native == "tabs" { "tabs" } else { "items" }];
+                let items: Vec<_> = panels.iter().enumerate().map(|(i, panel)| {
+                    let title = str_at(&titles[i], if native == "tabs" { "tab_title" } else { "item_title" });
+                    let title = if title.is_empty() { str_at(&panel["settings"], "_title") } else { title };
+                    if native == "tabs" { json!({"title":title}) } else { json!({"q":title}) }
+                }).collect();
+                settings.insert("items".into(), json!(items));
+                if native == "tabs" && source_settings["tabs_direction"] == "inline-start" {
+                    settings.insert("layout".into(), json!("left"));
+                }
+                if native == "accordion" {
+                    settings.insert("open_first".into(), json!(source_settings["default_state"] != "all_collapsed"));
+                    settings.insert("single".into(), json!(source_settings["max_items_expended"] != "multiple"));
+                }
+                let cols: Vec<_> = panels.iter().map(|panel| {
+                    let item = self.item(panel, depth + 1);
+                    self.column(Object::new(), vec![item])
+                }).collect();
+                json!({"id": self.id(), "t":native, "s":settings, "cols":cols, "elementor":source(element, false)})
+            }
             "widget" if children(element).is_empty() && native_widget(kind).is_some() => {
                 let native = native_widget(kind).expect("matched widget");
-                let settings = widget_import(native, &element["settings"]);
+                let settings = widget_import(native, kind, &element["settings"]);
                 json!({"id": self.id(), "t": native, "s": settings, "elementor": source(element, false)})
             }
             _ => {
@@ -684,10 +738,46 @@ impl Importer {
                 .chars()
                 .take(70)
                 .collect();
-                self.unsupported.insert(label.clone());
+                if label != "html" || style::style_blocks(str_at(&element["settings"], "html")).is_none() {
+                    self.unsupported.insert(label.clone());
+                }
                 json!({"id": self.id(), "t": "elementor-widget", "s": {"label": label}, "elementor": source(element, true)})
             }
         }
+    }
+
+    fn linked_carousel(&mut self, element: &Value, depth: u8) -> Option<Value> {
+        if self.resolving_linked || depth >= MAX_CONTAINER_DEPTH - 1 {
+            return None;
+        }
+        let settings = &element["settings"];
+        let slides = settings["premium_carousel_templates_repeater"].as_array()?;
+        if slides.is_empty() || slides.len() > spec::MAX_COLUMNS {
+            return None;
+        }
+        let content: Vec<_> = slides.iter().map(|slide| {
+            self.linked.get(&str_at(slide, "premium_carousel_repeater_item").trim().to_lowercase()).cloned()
+        }).collect::<Option<_>>()?;
+        self.resolving_linked = true;
+        let cols: Vec<_> = content.into_iter().map(|elements| {
+            let items = elements.iter().map(|item| self.item(item, depth + 1)).collect();
+            self.column(Object::new(), items)
+        }).collect();
+        self.resolving_linked = false;
+        let desktop = number(&settings["premium_carousel_responsive_desktop"]).unwrap_or(1.0);
+        let tablet = number(&settings["premium_carousel_responsive_tabs"]).unwrap_or(desktop.min(2.0));
+        let mobile = number(&settings["premium_carousel_responsive_mobile"]).unwrap_or(1.0);
+        let autoplay = number(&settings["premium_carousel_autoplay_speed"]).filter(|n| *n > 0.0);
+        let mut style = widget_import("slides", "premium-carousel-widget", settings);
+        style.extend(Object::from_iter([
+            ("per_view".into(), json!(desktop)), ("per_view_t".into(), json!(tablet)), ("per_view_m".into(), json!(mobile)),
+            ("arrows".into(), json!(true)), ("dots".into(), json!(true)),
+            ("autoplay".into(), json!(autoplay.is_some())),
+        ]));
+        if let Some(speed) = autoplay {
+            style.insert("speed".into(), json!(speed / 1000.0));
+        }
+        Some(json!({"id":self.id(),"t":"slides","s":style,"cols":cols,"elementor":source(element,true)}))
     }
 
     fn legacy_columns(&mut self, element: &Value, depth: u8) -> Vec<Value> {
@@ -872,6 +962,10 @@ fn has_form(element: &Value) -> bool {
 }
 
 pub fn import(input: &Value) -> Result<Import, String> {
+    import_with_html(input, None, &Default::default())
+}
+
+fn import_with_html(input: &Value, html: Option<&str>, linked: &std::collections::HashMap<String, Vec<Value>>) -> Result<Import, String> {
     let content = input["content"]
         .as_array()
         .ok_or("Choose a single Elementor template JSON file exported from WordPress.")?;
@@ -895,6 +989,8 @@ pub fn import(input: &Value) -> Result<Import, String> {
     let mut importer = Importer {
         next_id: 0,
         unsupported: BTreeSet::new(),
+        linked,
+        resolving_linked: false,
     };
     let sections: Vec<_> = content.iter().map(|e| importer.section(e)).collect();
     let mut page = Object::new();
@@ -909,10 +1005,13 @@ pub fn import(input: &Value) -> Result<Import, String> {
     }))?;
     snapshot(&mut layout);
     layout["elementor"]["snapshot"] = layout["page"].clone();
-    if layout.to_string().len() > spec::MAX_BYTES {
-        return Err("The converted Elementor template exceeds the builder’s size limit.".into());
-    }
+    let missing_images = media::restore(&mut layout, html);
+    spec::check_layout_size(&layout)?;
     let mut warnings = Vec::new();
+    if missing_images > 0 {
+        let missing = if missing_images == 1 { "1 image widget has".into() } else { format!("{missing_images} image widgets have") };
+        warnings.push(format!("{missing} no usable image URL. Add the matching companion HTML when importing, or assign images in the builder."));
+    }
     if !importer.unsupported.is_empty() {
         let names = importer
             .unsupported
@@ -922,6 +1021,9 @@ pub fn import(input: &Value) -> Result<Import, String> {
             .collect::<Vec<_>>()
             .join(", ");
         warnings.push(format!("These elements are preserved for Elementor export and hidden on the Vuuut page ({names})."));
+        if importer.unsupported.contains("premium-carousel-widget") {
+            warnings.push("Add the carousel’s linked template JSON files along with its main layout.".into());
+        }
     }
     if content.iter().any(has_form) {
         warnings.push(
@@ -943,8 +1045,45 @@ pub fn import(input: &Value) -> Result<Import, String> {
 /// The existing Vuuut clipboard format and Elementor files share the same
 /// import action. A native import keeps the original section insertion behavior.
 pub fn import_layout(input: &Value) -> Result<Import, String> {
+    import_layout_with_html(input, None)
+}
+
+pub fn import_layout_with_html(input: &Value, html: Option<&str>) -> Result<Import, String> {
+    import_layout_with_kit(input, html, None)
+}
+
+pub fn import_layout_with_kit(input: &Value, html: Option<&str>, kit: Option<&Value>) -> Result<Import, String> {
+    import_layout_with_links(input, html, kit, &[])
+}
+
+pub fn import_layout_with_links(input: &Value, html: Option<&str>, kit: Option<&Value>, files: &[Value]) -> Result<Import, String> {
     if input.get("content").is_some() {
-        return import(input);
+        if html.is_some_and(|html| html.len() > MAX_COMPANION_BYTES) {
+            return Err("The companion HTML file exceeds 1 MB.".into());
+        }
+        let mut document = input.clone();
+        let mut unresolved = globals::apply(&mut document, kit)?;
+        let mut linked = std::collections::HashMap::new();
+        for file in files {
+            let title = str_at(file, "title").trim().to_lowercase();
+            let mut file = file.clone();
+            unresolved |= globals::apply(&mut file, kit)?;
+            let content = file.get_mut("content").and_then(Value::as_array_mut)
+                .filter(|nodes| !nodes.is_empty() && nodes.iter().all(|node| node["elType"] == "container"))
+                .ok_or("A linked carousel template must contain Elementor containers.")?;
+            if title.is_empty() || linked.insert(title, std::mem::take(content)).is_some() {
+                return Err("Every linked carousel template needs a unique title.".into());
+            }
+        }
+        let mut imported = import_with_html(&document, html, &linked)?;
+        if unresolved {
+            imported.warnings.push(if kit.is_some() {
+                "Some template globals are missing from the supplied kit settings.".into()
+            } else {
+                "Add the matching kit global.json to import its shared colors and fonts.".into()
+            });
+        }
+        return Ok(imported);
     }
     let sections = input
         .as_array()
@@ -958,9 +1097,11 @@ pub fn import_layout(input: &Value) -> Result<Import, String> {
     } else {
         input.clone()
     };
+    let layout = super::normalise(&layout)?;
+    spec::check_layout_size(&layout)?;
     Ok(Import {
         title: "Imported layout".into(),
-        layout: super::normalise(&layout)?,
+        layout,
         warnings: Vec::new(),
     })
 }
@@ -1113,6 +1254,31 @@ impl Exporter<'_> {
                 .is_object()
                 .then(|| node["elementor"]["source"].clone());
         }
+        let original = &node["elementor"]["source"];
+        if original["widgetType"] == "premium-carousel-widget" && kind == "slides" {
+            return Some(if node["s"] == node["elementor"]["snapshot"] { original.clone() } else { self.fallback(node) });
+        }
+        if nested_kind(original) == Some(kind) {
+            let mut settings = source_settings(node);
+            let key = if kind == "tabs" { "tabs" } else { "items" };
+            let title = if kind == "tabs" { "tab_title" } else { "item_title" };
+            let old = settings.get(key).and_then(Value::as_array).cloned().unwrap_or_default();
+            let items: Vec<_> = node["s"]["items"].as_array().into_iter().flatten().enumerate().map(|(i, item)| {
+                let mut row = old.get(i).and_then(Value::as_object).cloned().unwrap_or_default();
+                row.insert(title.into(), item[if kind == "tabs" { "title" } else { "q" }].clone());
+                json!(row)
+            }).collect();
+            settings.insert(key.into(), json!(items));
+            let panels = node["cols"].as_array().into_iter().flatten().filter_map(|col| {
+                self.widget(col["items"].get(0)?, false)
+            }).collect();
+            return Some(self.element(node, "widget", original["widgetType"].as_str(), settings, panels, false));
+        }
+        if addons::native(str_at(original, "widgetType")).is_some() || original["widgetType"] == "rating" {
+            return Some(if node["s"] == node["elementor"]["snapshot"] {
+                self.element(node, "widget", original["widgetType"].as_str(), source_settings(node), Vec::new(), false)
+            } else { self.fallback(node) });
+        }
         if !node["elementor"]["source"].is_object()
             && matches!(
                 kind,
@@ -1180,7 +1346,8 @@ impl Exporter<'_> {
             }
             "image" => {
                 if setting_changed(node, "caption") {
-                    settings.insert("caption_source".into(), json!("custom"));
+                    let source = if str_at(m, "caption").is_empty() { "none" } else { "custom" };
+                    settings.insert("caption_source".into(), json!(source));
                 }
                 if setting_changed(node, "src") || setting_changed(node, "alt") {
                     if let Some(image) = settings.get_mut("image").and_then(Value::as_object_mut) {
@@ -1200,6 +1367,11 @@ impl Exporter<'_> {
                         "open_lightbox".into(),
                         json!(if m["lightbox"] == true { "yes" } else { "no" }),
                     );
+                }
+            }
+            "image-box" if setting_changed(node, "src") || setting_changed(node, "alt") => {
+                if let Some(image) = settings.get_mut("image").and_then(Value::as_object_mut) {
+                    image.insert("alt".into(), m["alt"].clone());
                 }
             }
             "gallery" => {
@@ -1622,6 +1794,35 @@ pub fn export(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn kit_import_resolves_globals_and_keeps_nested_interactions() {
+        let input = json!({
+            "title":"Kit","type":"page","version":"0.4","content":[{
+                "id":"outer","elType":"container","settings":{"background_background":"classic","__globals__":{"background_color":"globals/colors?id=brand"}},
+                "elements":[
+                    {"id":"title","elType":"widget","widgetType":"elementskit-heading","settings":{"ekit_heading_title":"Kit heading","ekit_heading_sub_title":"A subtitle"}},
+                    {"id":"tabs","elType":"widget","widgetType":"nested-tabs","settings":{"tabs":[{"tab_title":"First"},{"tab_title":"Second"}]},
+                     "elements":[
+                        {"id":"first","elType":"container","elements":[{"id":"a","elType":"widget","widgetType":"heading","settings":{"title":"First panel"}}]},
+                        {"id":"second","elType":"container","elements":[{"id":"b","elType":"widget","widgetType":"counter","settings":{"ending_number":25}}]}
+                     ]}
+                ]
+            }]
+        });
+        let kit = json!({"page_settings":{"custom_colors":[{"_id":"brand","color":"#914821"}]}});
+        let unresolved = import_layout(&input).unwrap();
+        assert!(unresolved.warnings.iter().any(|warning| warning.contains("global.json")));
+        let imported = import_layout_with_kit(&input, None, Some(&kit)).unwrap();
+        assert!(imported.warnings.is_empty(), "{:?}", imported.warnings);
+        let layout = super::super::normalise(&imported.layout).unwrap();
+        let html = super::super::render(&layout, &Settings::default());
+        for expected in ["#914821", "Kit heading", "A subtitle", "First panel", "data-vb-tabs", "data-vb-count=\"25\""] {
+            assert!(html.contains(expected), "missing {expected}");
+        }
+        let exported = export(&layout, "Kit", "page", &Settings::default(), "https://example.test", &Default::default()).unwrap();
+        assert_eq!(exported.document["content"][0]["elements"][1]["elements"].as_array().unwrap().len(), 2);
+    }
 
     #[test]
     fn legacy_sections_and_opaque_widgets_keep_their_elementor_data() {

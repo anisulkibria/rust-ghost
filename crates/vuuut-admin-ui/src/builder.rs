@@ -219,7 +219,15 @@ pub(crate) async fn builder_page(State(state): State<AppState>, headers: HeaderM
 <form class="card padded vb-start-card vb-import" method="post" enctype="multipart/form-data" action="{BASE}import/">
 <span class="ic tint-purple">{upload}</span>
 <div class="vb-start-body"><label for="vb-import-file"><b>Import a layout</b></label><p class="muted" id="vb-import-help">Open an Elementor or Vuuut JSON file as a new draft page.</p>
-<div class="vb-import-actions"><input class="vb-import-file" id="vb-import-file" name="layout" type="file" aria-describedby="vb-import-help" accept=".json,application/json" required><button class="btn tonal" type="submit">Import</button></div></div></form>
+<div class="vb-import-actions"><input class="vb-import-file" id="vb-import-file" name="layout" type="file" aria-describedby="vb-import-help" accept=".json,application/json" required><button class="btn tonal" type="submit">Import</button></div>
+<label for="vb-import-companion">Companion HTML (optional)</label>
+<input class="vb-import-file" id="vb-import-companion" name="companion" type="file" accept=".html,.htm,text/html" aria-describedby="vb-import-media-help">
+<p class="muted" id="vb-import-media-help">Add the matching HTML from your Elementor kit to recover missing image URLs.</p>
+<label for="vb-import-kit-settings">Kit global.json (optional)</label>
+<input class="vb-import-file" id="vb-import-kit-settings" name="kitSettings" type="file" accept=".json,application/json" aria-describedby="vb-import-kit-help">
+<p class="muted" id="vb-import-kit-help">Use the global.json from the same templates folder for shared colors and fonts.</p>
+<label for="vb-import-linked">Linked carousel templates (optional)</label>
+<input class="vb-import-file" id="vb-import-linked" name="linkedTemplate" type="file" accept=".json,application/json" multiple></div></form>
 <div class="section">Designed with the builder</div><div class="rise" style="--i:4">{list}</div>
 <p class="muted rise" style="--i:5;margin:14px 4px 0">A layout replaces only the content area: the theme still draws the header, footer and navigation. Switch a layout off and the page shows what was written in the editor again.</p>"#,
             head = crate::tools::tool_head("builder", None, ""),
@@ -298,7 +306,7 @@ async fn create_draft(state: &AppState, actor: &Actor, title: String, layout: se
     }
 }
 
-pub(crate) async fn builder_import(State(state): State<AppState>, headers: HeaderMap, mut form: axum::extract::Multipart) -> Response {
+pub(crate) async fn builder_import(State(state): State<AppState>, headers: HeaderMap, form: axum::extract::Multipart) -> Response {
     let actor = match guard(&state, &headers, Role::Administrator, true).await {
         Ok(actor) => actor,
         Err(response) => return response,
@@ -306,24 +314,88 @@ pub(crate) async fn builder_import(State(state): State<AppState>, headers: Heade
     if !builder_settings(&state).enabled {
         return flash_to(BASE, "error", "Turn on the page builder before importing a layout.");
     }
-    let file = match form.next_field().await {
-        Ok(Some(file)) if file.name() == Some("layout") => file,
-        _ => return flash_to(BASE, "error", "Choose a layout JSON file."),
+    let upload = match read_layout_upload(form).await {
+        Ok(files) => files,
+        Err(error) => return flash_to(BASE, "error", error),
     };
-    let bytes = match file.bytes().await {
-        Ok(bytes) if bytes.len() <= rules::spec::MAX_BYTES => bytes,
-        _ => return flash_to(BASE, "error", "The layout JSON could not be read or is too large."),
-    };
-    let json = bytes.strip_prefix("\u{feff}".as_bytes()).unwrap_or(&bytes);
-    let Ok(input) = serde_json::from_slice::<serde_json::Value>(json) else {
-        return flash_to(BASE, "error", "The file does not contain valid JSON.");
-    };
-    match elementor::import_layout(&input) {
+    match elementor::import_layout_with_links(&upload.document, upload.companion.as_deref(), upload.kit.as_ref(), &upload.linked) {
         Ok(import) if import.layout["sections"].as_array().is_some_and(|sections| !sections.is_empty()) =>
             create_draft(&state, &actor, import.title, import.layout, &import.warnings).await,
         Ok(_) => flash_to(BASE, "error", "The file has no sections."),
         Err(error) => flash_to(BASE, "error", &error),
     }
+}
+
+async fn read_upload_field(
+    mut field: axum::extract::multipart::Field<'_>,
+    max: usize,
+    too_large: &'static str,
+) -> Result<Vec<u8>, &'static str> {
+    let mut bytes = Vec::new();
+    while let Some(chunk) = field.chunk().await.map_err(|error| {
+        if error.status() == StatusCode::PAYLOAD_TOO_LARGE { too_large } else { "The uploaded file could not be read." }
+    })? {
+        if chunk.len() > max - bytes.len() {
+            return Err(too_large);
+        }
+        bytes.extend_from_slice(&chunk);
+    }
+    Ok(bytes)
+}
+
+struct LayoutUpload {
+    document: serde_json::Value,
+    companion: Option<String>,
+    kit: Option<serde_json::Value>,
+    linked: Vec<serde_json::Value>,
+}
+
+async fn read_layout_upload(mut form: axum::extract::Multipart) -> Result<LayoutUpload, &'static str> {
+    let mut layout = None;
+    let mut companion = None;
+    let mut kit = None;
+    let mut linked = Vec::new();
+    let mut remaining_linked_bytes = elementor::MAX_LINKED_BYTES;
+    loop {
+        let field = match form.next_field().await {
+            Ok(Some(field)) => field,
+            Ok(None) => break,
+            Err(_) => return Err("The uploaded files could not be read."),
+        };
+        match field.name() {
+            Some("layout") if layout.is_none() => {
+                let bytes = read_upload_field(field, elementor::MAX_UPLOAD_BYTES, "The layout JSON file exceeds 64 MiB.").await?;
+                let json = bytes.strip_prefix("\u{feff}".as_bytes()).unwrap_or(&bytes);
+                layout = Some(serde_json::from_slice(json).map_err(|_| "The file does not contain valid JSON.")?);
+            }
+            Some("companion") if companion.is_none() => {
+                let bytes = read_upload_field(field, elementor::MAX_COMPANION_BYTES, "The companion HTML file exceeds 1 MB.").await?;
+                if !bytes.is_empty() {
+                    companion = Some(String::from_utf8(bytes).map_err(|_| "Choose a UTF-8 companion HTML file.")?);
+                }
+            }
+            Some("kitSettings") if kit.is_none() => {
+                let bytes = read_upload_field(field, elementor::MAX_KIT_SETTINGS_BYTES, "The kit settings file exceeds 1 MB.").await?;
+                if !bytes.is_empty() {
+                    let json = bytes.strip_prefix("\u{feff}".as_bytes()).unwrap_or(&bytes);
+                    kit = Some(serde_json::from_slice(json).map_err(|_| "The kit settings file does not contain valid JSON.")?);
+                }
+            }
+            Some("linkedTemplate") => {
+                let bytes = read_upload_field(field, remaining_linked_bytes, "Linked carousel files exceed 8 MiB in total.").await?;
+                if !bytes.is_empty() {
+                    if linked.len() >= elementor::MAX_LINKED_FILES {
+                        return Err("Choose at most 12 linked carousel files.");
+                    }
+                    remaining_linked_bytes -= bytes.len();
+                    let json = bytes.strip_prefix("\u{feff}".as_bytes()).unwrap_or(&bytes);
+                    linked.push(serde_json::from_slice(json).map_err(|_| "A linked carousel file does not contain valid JSON.")?);
+                }
+            }
+            _ => {}
+        }
+    }
+    Ok(LayoutUpload {document: layout.ok_or("Choose a layout JSON file.")?, companion, kit, linked})
 }
 
 pub(crate) async fn builder_export(State(state): State<AppState>, headers: HeaderMap, Path(id): Path<String>) -> Response {
@@ -927,7 +999,7 @@ fn editor_js_hash() -> &'static str {
 }
 
 fn editor_css_hash() -> &'static str {
-    static HASH: std::sync::LazyLock<String> = std::sync::LazyLock::new(|| crate::asset_hash(include_str!("../assets/builder-editor.css")));
+    static HASH: std::sync::LazyLock<String> = std::sync::LazyLock::new(|| crate::asset_hash(crate::assets::BUILDER_EDITOR_CSS));
     &HASH
 }
 
@@ -953,7 +1025,7 @@ async fn boot_common(state: &AppState, canvas_uuid: Option<String>) -> serde_jso
         "forms": forms,
         "unsplash": crate::editor::unsplash_headers(state),
         "toolUrl": BASE,
-        "layoutLimits": {"bytes": rules::spec::MAX_BYTES, "sections": rules::spec::MAX_SECTIONS},
+        "layoutLimits": {"bytes": rules::spec::MAX_BYTES, "uploadBytes": elementor::MAX_UPLOAD_BYTES, "sections": rules::spec::MAX_SECTIONS, "companionBytes": elementor::MAX_COMPANION_BYTES, "kitSettingsBytes": elementor::MAX_KIT_SETTINGS_BYTES, "linkedBytes": elementor::MAX_LINKED_BYTES, "linkedFiles": elementor::MAX_LINKED_FILES},
         "upload": "/ghost/api/admin/images/upload/",
     })
 }
@@ -1007,7 +1079,7 @@ pub(crate) async fn editor_page(State(state): State<AppState>, headers: HeaderMa
             "previewUrl": if uuid.is_empty() { String::new() } else { vuuut_core::url::base(&format!("/p/{uuid}/")) },
         },
         "layout": layout, "active": active, "savedAt": saved_at, "isNew": existing.is_none(), "importNotice": query.get("import_notice"),
-        "endpoints": {"save": format!("{base}save/"), "render": format!("{base}render/"), "interchange": format!("{base}interchange/"), "catalogue": format!("{base}catalogue/"), "revisions": format!("{base}revisions/"), "templates": format!("{base}templates/")},
+        "endpoints": {"save": format!("{base}save/"), "render": format!("{base}render/"), "import": format!("{base}import/"), "interchange": format!("{base}interchange/"), "catalogue": format!("{base}catalogue/"), "revisions": format!("{base}revisions/"), "templates": format!("{base}templates/")},
     });
     merge(&mut boot, extra);
     editor_shell(&format!("Design · {}", post.title.as_deref().unwrap_or("Untitled")), &format!("/ghost/posts/{}/", post.id), &boot)
@@ -1045,7 +1117,7 @@ pub(crate) async fn template_editor(State(state): State<AppState>, headers: Head
             "triggers": rules::parts::TRIGGERS, "freqs": rules::parts::FREQS, "positions": rules::parts::POSITIONS, "back": back},
         "post": {"id": "", "title": t.name, "type": t.kind, "status": if t.active { "on" } else { "off" }, "showTitle": true, "editUrl": back, "viewUrl": "", "previewUrl": ""},
         "layout": layout, "active": t.active, "savedAt": t.updated_at, "isNew": false,
-        "endpoints": {"save": format!("{base}save/"), "render": format!("{base}render/"), "interchange": format!("{base}interchange/"), "catalogue": format!("{base}catalogue/"), "revisions": "", "templates": ""},
+        "endpoints": {"save": format!("{base}save/"), "render": format!("{base}render/"), "import": format!("{base}import/"), "interchange": format!("{base}interchange/"), "catalogue": format!("{base}catalogue/"), "revisions": "", "templates": ""},
     });
     merge(&mut boot, extra);
     editor_shell(&format!("{} · {}", kind_label(&t.kind), t.name), back, &boot)
@@ -1141,18 +1213,56 @@ pub(crate) async fn template_interchange(State(state): State<AppState>, headers:
     interchange(&state, &body, &template.name, &template.kind).await
 }
 
+pub(crate) async fn editor_upload(State(state): State<AppState>, headers: HeaderMap, Path(id): Path<String>, form: axum::extract::Multipart) -> Response {
+    if let Err(response) = editor_guard(&state, &headers, &id, true).await {
+        return response;
+    }
+    upload_layout(form).await
+}
+
+pub(crate) async fn template_upload(State(state): State<AppState>, headers: HeaderMap, Path(id): Path<String>, form: axum::extract::Multipart) -> Response {
+    if let Err(response) = template_guard(&state, &headers, &id, true).await {
+        return response;
+    }
+    upload_layout(form).await
+}
+
+async fn upload_layout(form: axum::extract::Multipart) -> Response {
+    let upload = match read_layout_upload(form).await {
+        Ok(files) => files,
+        Err(error) => return json_error(StatusCode::BAD_REQUEST, error),
+    };
+    match interchange_import(&upload.document, upload.companion.as_deref(), upload.kit.as_ref(), &upload.linked) {
+        Ok(value) => axum::Json(value).into_response(),
+        Err(error) => json_error(StatusCode::UNPROCESSABLE_ENTITY, &error),
+    }
+}
+
+fn interchange_import(document: &serde_json::Value, companion: Option<&str>, kit: Option<&serde_json::Value>, linked: &[serde_json::Value]) -> Result<serde_json::Value, String> {
+    elementor::import_layout_with_links(document, companion, kit, linked).map(|result| serde_json::json!({
+        "layout": result.layout, "warnings": result.warnings, "elementor": document.get("content").is_some(),
+    }))
+}
+
 async fn interchange(state: &AppState, body: &str, title: &str, kind: &str) -> Response {
-    if body.len() > rules::spec::MAX_BYTES {
+    if body.len() > elementor::MAX_INTERCHANGE_BODY {
         return json_error(StatusCode::PAYLOAD_TOO_LARGE, "This layout is too large.");
     }
     let Ok(input) = serde_json::from_str::<serde_json::Value>(body) else {
         return json_error(StatusCode::BAD_REQUEST, "The layout could not be read.");
     };
     let response = if let Some(document) = input.get("import") {
-        elementor::import_layout(document).map(|result| serde_json::json!({
-            "layout": result.layout, "warnings": result.warnings, "elementor": document.get("content").is_some(),
-        }))
+        if document.to_string().len() > elementor::MAX_UPLOAD_BYTES {
+            return json_error(StatusCode::PAYLOAD_TOO_LARGE, "The layout JSON exceeds 64 MiB.");
+        }
+        if input.get("kitSettings").is_some_and(|kit| kit.to_string().len() > elementor::MAX_KIT_SETTINGS_BYTES) {
+            return json_error(StatusCode::PAYLOAD_TOO_LARGE, "The kit settings file exceeds 1 MB.");
+        }
+        interchange_import(document, input["companion"].as_str(), input.get("kitSettings"), &[])
     } else {
+        if body.len() > rules::spec::MAX_LAYOUT_BODY {
+            return json_error(StatusCode::PAYLOAD_TOO_LARGE, "This layout is too large.");
+        }
         let export_title = input["title"].as_str().filter(|s| !s.trim().is_empty()).unwrap_or(title);
         let export_title: String = export_title.trim().chars().take(200).collect();
         export_layout(state, &input["export"], &export_title, kind).await.map(|result| serde_json::json!({
@@ -1166,11 +1276,12 @@ async fn interchange(state: &AppState, body: &str, title: &str, kind: &str) -> R
 }
 
 fn parse_layout(body: &str) -> Result<(serde_json::Value, serde_json::Value), Response> {
-    if body.len() > rules::spec::MAX_BYTES {
-        return Err(json_error(StatusCode::PAYLOAD_TOO_LARGE, "This layout is too large to save."));
+    if body.len() > rules::spec::MAX_LAYOUT_BODY {
+        return Err(json_error(StatusCode::PAYLOAD_TOO_LARGE, "The editable layout exceeds 12 MiB. Split the layout into smaller pages."));
     }
     let input: serde_json::Value = serde_json::from_str(body).map_err(|_| json_error(StatusCode::BAD_REQUEST, "The layout could not be read."))?;
     let layout = rules::normalise(&input["layout"]).map_err(|m| json_error(StatusCode::UNPROCESSABLE_ENTITY, &m))?;
+    rules::spec::check_layout_size(&layout).map_err(|m| json_error(StatusCode::PAYLOAD_TOO_LARGE, &m))?;
     Ok((input, layout))
 }
 

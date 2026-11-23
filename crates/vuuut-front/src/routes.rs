@@ -874,6 +874,10 @@ async fn render_custom(
 fn html_response(mut html: String) -> Response {
     let script=format!("<script src=\"{}\" defer></script>",vuuut_core::url::base("/public/staff-toolbar.js"));
     if let Some(index)=html.rfind("</body>"){html.insert_str(index,&script);}else{html.push_str(&script);}
+    site_html_response(html)
+}
+
+fn site_html_response(html: String) -> Response {
     (
         [(header::VARY, header::COOKIE.as_str())],
         Html(html),
@@ -906,7 +910,7 @@ async fn render_preview(state: AppState, uuid: String, path: &str, query: Option
     }
 
     match render_preview_snapshot(&state, &post, post_json, member, path).await {
-        Ok(html) if canvas => html_response(strip_overlays(&html)),
+        Ok(html) if canvas => site_html_response(strip_overlays(&html)),
         Ok(html) => html_response(html),
         Err(e) => error_response(e),
     }

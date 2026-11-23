@@ -19,3 +19,4 @@ unicode-segmentation = { workspace = true }
 regex = { workspace = true }
 once_cell = { workspace = true }
 slug = { workspace = true }
+html5ever = "0.40.1"

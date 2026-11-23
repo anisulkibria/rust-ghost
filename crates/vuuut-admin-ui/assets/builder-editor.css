@@ -187,6 +187,35 @@ body.vbe { margin: 0; font: 14px/1.45 var(--vbe-font); color: var(--vbe-ink); ba
 .vbe-dialog p { margin: 0 0 14px; color: var(--vbe-ink-2); }
 .vbe-dialog .vbe-dlg-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 16px; }
 .vbe-dialog .vbe-ta.code { min-height: 220px; }
+.vbe-import-dialog { width: min(620px, calc(100% - 24px)); max-height: calc(100dvh - 24px); padding: 22px; overflow: auto; }
+.vbe-import-dialog h2 { margin-bottom: 16px; }
+.vbe-import-fields { display: grid; gap: 14px; }
+.vbe-import-field { display: grid; align-content: start; gap: 4px; min-width: 0; }
+.vbe-import-label { color: var(--vbe-ink); font-weight: 650; }
+.vbe-import-field small { color: var(--vbe-ink-2); font-size: 12.5px; }
+.vbe-import-field input[type=file] { display: block; width: 100%; min-width: 0; margin-top: 4px; padding: 5px; border: 1px solid var(--vbe-line-2); border-radius: 10px; background: #fff; color: var(--vbe-ink-2); font-size: 13px; }
+.vbe-import-field input[type=file]::file-selector-button { margin-right: 8px; padding: 6px 10px; border: 0; border-radius: 6px; background: var(--vbe-tint); color: var(--vbe-primary); font: inherit; font-weight: 650; cursor: pointer; }
+.vbe-import-field input[type=file]:focus-visible, .vbe-import-paste summary:focus-visible { outline: 2px solid var(--vbe-primary); outline-offset: 2px; }
+.vbe-import-paste summary { width: fit-content; color: var(--vbe-primary); font-weight: 600; cursor: pointer; }
+.vbe-import-dialog .vbe-import-paste textarea { margin-top: 8px; min-height: 120px; }
+.vbe-import-companions { display: grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap: 12px; min-width: 0; margin: 0; padding: 12px; border: 1px solid var(--vbe-line); border-radius: 12px; background: var(--vbe-panel-2); }
+.vbe-import-companions legend { padding: 0 6px; color: var(--vbe-ink-2); font-size: 13px; font-weight: 600; }
+.vbe-import-companions .vbe-import-field:last-child { grid-column: 1 / -1; }
+.vbe-import-dialog .vbe-import-status { margin: 0; color: #93000a; }
+.vbe-import-status:empty { display: none; }
+@media (max-width: 480px) { .vbe-import-dialog { padding: 16px; border-radius: 16px; }.vbe-import-companions { grid-template-columns: minmax(0,1fr); } }
+
+.vbe dialog.unsplash {
+  --sc-lowest: var(--vbe-panel); --on-surface: var(--vbe-ink);
+  --on-surface-variant: var(--vbe-ink-2); --outline: var(--vbe-line-2); --outline-variant: var(--vbe-line);
+  --primary: var(--vbe-primary); --ease: var(--vbe-ease);
+  --shadow-1: 0 2px 8px rgb(32 26 27 / .2); --shadow-2: 0 30px 80px -20px rgb(32 26 27 / .45);
+  width: min(1200px, calc(100vw - 24px)); height: min(800px, calc(100dvh - 24px));
+}
+.vbe dialog.unsplash::backdrop { background: rgb(32 26 27 / .48); backdrop-filter: blur(3px); }
+.vbe dialog.unsplash .u-head { background: var(--vbe-panel); }
+.vbe dialog.unsplash .u-searchbox input { background: #fff; }
+.vbe dialog.unsplash .u-insert { color: #201a1b; font-size: 13px; font-weight: 600; }
 .vbe-kbd { display: grid; grid-template-columns: auto 1fr; gap: 6px 14px; font-size: 13px; }
 .vbe-kbd kbd { font: 12px var(--vbe-mono); padding: 2px 6px; border-radius: 6px; background: var(--vbe-panel-2); border: 1px solid var(--vbe-line-2); white-space: nowrap; }
 

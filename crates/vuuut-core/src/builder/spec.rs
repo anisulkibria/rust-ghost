@@ -306,7 +306,7 @@ pub const PAGE: &[F] = &[
 // ---------------------------------------------------------------------------
 
 const LINK_ITEM: &[F] = &[f("text", Text(300), "Text", 'c'), f("icon", Icon, "Icon", 'c'), f("link", Url, "Link", 'c')];
-const ACC_ITEM: &[F] = &[f("q", Text(300), "Title", 'c'), f("a", Long(6000), "Content", 'c')];
+const ACC_ITEM: &[F] = &[f("q", Text(300), "Title", 'c'), f("a", Long(6000), "Content", 'c'), f("open", Bool, "Starts open", 'c')];
 const TAB_ITEM: &[F] = &[f("title", Text(120), "Title", 'c'), f("icon", Icon, "Icon", 'c'), f("text", Long(8000), "Content", 'c')];
 const IMG_ITEM: &[F] = &[f("src", Image, "Image", 'c'), f("alt", Text(300), "Alt text", 'c'), f("caption", Text(300), "Caption", 'c'), f("link", Url, "Link", 'c')];
 const SOCIAL_ITEM: &[F] = &[f("net", Choice(NETS), "Network", 'c'), f("href", Url, "Link", 'c')];
@@ -324,9 +324,14 @@ const PLAY_ITEM: &[F] = &[f("title", Text(160), "Title", 'c'), f("url", Url, "Vi
 const TEXT_ITEM: &[F] = &[f("text", Text(500), "Text", 'c')];
 
 pub const WIDGETS: &[W] = &[
+    W { key: "marquee", label: "Scrolling text", cat: "media", typo: true, defaults: r#"{"items":[{"text":"Scrolling text"}]}"#, fields: &[
+        f("items", Items(TEXT_ITEM, 20), "Text", 'c'),
+        f("colour", Colour, "Text colour", 's'),
+    ]},
     // ---- basic ----
     W { key: "heading", label: "Heading", cat: "basic", typo: true, defaults: r#"{"text":"Add your heading here","tag":"h2"}"#, fields: &[
         f("text", Long(600), "Text", 'c').h("Dynamic tags work here: [[post.title]], [[site.title]]…"),
+        f("subtitle", Long(1200), "Subtitle", 'c'),
         f("tag", Choice(TAGS), "HTML tag", 'c'),
         f("link", Url, "Link", 'c'),
         f("align", Choice(ALIGN_J), "Alignment", 's').r(),
@@ -346,6 +351,7 @@ pub const WIDGETS: &[W] = &[
     W { key: "button", label: "Button", cat: "basic", typo: true, defaults: r##"{"text":"Get started","href":"#","style":"filled","size":"m"}"##, fields: &[
         f("text", Text(120), "Label", 'c'),
         f("href", Url, "Link", 'c'),
+        f("video_popup", Bool, "Open YouTube or Vimeo in a dialog", 'c'),
         f("new_tab", Bool, "Open in a new tab", 'c'),
         f("nofollow", Bool, "Add nofollow", 'c'),
         f("icon", Icon, "Icon", 'c'),
@@ -390,6 +396,7 @@ pub const WIDGETS: &[W] = &[
     ]},
     W { key: "image-box", label: "Image box", cat: "basic", typo: true, defaults: r#"{"title":"A title for this image","text":"A short description beneath it."}"#, fields: &[
         f("src", Image, "Image", 'c'),
+        f("alt", Text(300), "Alt text", 'c'),
         f("title", Text(200), "Title", 'c'),
         f("text", Long(2000), "Text", 'c'),
         f("link", Url, "Link", 'c'),
@@ -486,6 +493,7 @@ pub const WIDGETS: &[W] = &[
     ]},
     W { key: "slides", label: "Slides", cat: "media", typo: true, defaults: r##"{"items":[{"heading":"Slide one","text":"Something worth saying.","button":"Learn more","href":"#","colour":"c1","align":"center"},{"heading":"Slide two","text":"And the next thing.","button":"Get started","href":"#","colour":"c2","align":"center"}],"height":480,"autoplay":true,"speed":6,"arrows":true,"dots":true}"##, fields: &[
         f("items", Items(SLIDE_ITEM, 20), "Slides", 'c'),
+        f("per_view", Num(1, 6, ""), "Cards at once", 's').r(),
         f("height", Num(120, 1200, "px"), "Height", 's').r(),
         f("transition", Choice(&[("slide", "Slide"), ("fade", "Fade")]), "Transition", 'c'),
         f("autoplay", Bool, "Autoplay", 'c'),
@@ -904,8 +912,16 @@ pub const MAX_SECTIONS: usize = 150;
 pub const MAX_COLUMNS: usize = 6;
 pub const MAX_CATALOGUE_ITEMS: usize = 24;
 pub const MAX_WIDGETS: usize = 100;
-/// The largest layout JSON accepted, in bytes.
-pub const MAX_BYTES: usize = 3_000_000;
+/// Bound the compact, editable layout below MySQL's MEDIUMTEXT limit.
+pub const MAX_BYTES: usize = 12 * 1024 * 1024;
+pub const MAX_LAYOUT_BODY: usize = MAX_BYTES + 8192;
+
+pub fn check_layout_size(layout: &Value) -> Result<(), String> {
+    if layout.to_string().len() > MAX_BYTES {
+        return Err("The editable layout exceeds 12 MiB. Split the layout into smaller pages.".into());
+    }
+    Ok(())
+}
 
 /// A colour a layout may use: hex, one of the six global colours, or
 /// `transparent`/`currentColor`.
@@ -1066,13 +1082,16 @@ fn clean_columns(cols: &[Value], n: &mut u32, depth: u8) -> Result<Vec<Value>, S
                 .or_else(|| w.get("s").and_then(Value::as_object)).unwrap_or(&empty);
             let ws = clean_map(raw, widget_fields(spec));
             let mut obj = json!({"id": clean_id(w.get("id"), n), "t": kind, "s": ws});
-            if kind == "inner" {
+            let nested = super::elementor::nested_kind(&w.get("elementor").unwrap_or(&Value::Null)["source"]) == Some(kind);
+            if kind == "inner" || nested && depth < super::elementor::MAX_CONTAINER_DEPTH {
                 let inner = w.get("cols").and_then(Value::as_array).map(Vec::as_slice).unwrap_or_default();
                 let mut cols = clean_columns(inner, n, depth + 1)?;
-                if cols.is_empty() {
+                if cols.is_empty() && kind == "inner" {
                     cols = vec![json!({"id": clean_id(None, n), "s": {}, "items": []}), json!({"id": clean_id(None, n), "s": {}, "items": []})];
                 }
-                obj["cols"] = Value::Array(cols);
+                if !cols.is_empty() {
+                    obj["cols"] = Value::Array(cols);
+                }
             }
             preserve_elementor(w, &mut obj);
             if upgraded.is_some() {

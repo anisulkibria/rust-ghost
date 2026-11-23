@@ -164,6 +164,13 @@ fn carousel_attrs(m: &Value, r: &mut R, sel: &str, default_pv: i64) -> String {
     )
 }
 
+fn panel_content(r: &mut R, widget: &Value, index: usize, text: &str) -> String {
+    match widget["cols"].get(index) {
+        Some(col) => super::render::column(r, col),
+        None => paragraphs(text),
+    }
+}
+
 pub(super) fn html(r: &mut R, kind: &str, id: &str, m: &Value, sel: &str, w: &Value) -> String {
     match kind {
         "heading" => {
@@ -190,7 +197,12 @@ pub(super) fn html(r: &mut R, kind: &str, id: &str, m: &Value, sel: &str, w: &Va
                 Some(l) => format!("{}{t}</a>", link_open(l, false, "vb-hlink", "")),
                 None => t,
             };
-            format!(r#"<{tag} class="vb-h">{t}</{tag}>"#)
+            let subtitle = s(m, "subtitle");
+            let subtitle = if subtitle.is_empty() { String::new() } else {
+                align_rules(r, m, &format!("{sel} .vb-h-subtitle"));
+                format!(r#"<p class="vb-h-subtitle">{}</p>"#, text(subtitle))
+            };
+            format!(r#"<{tag} class="vb-h">{t}</{tag}>{subtitle}"#)
         }
         "text" => {
             let ts = format!("{sel} .vb-text");
@@ -203,7 +215,15 @@ pub(super) fn html(r: &mut R, kind: &str, id: &str, m: &Value, sel: &str, w: &Va
             let body = dynamic::mark_tags(&crate::comments::sanitize_rich_html(s(m, "html")));
             format!(r#"<div class="vb-text{}">{body}</div>"#, if b(m, "dropcap") { " vb-dropcap" } else { "" })
         }
-        "button" => button(r, m, sel),
+        "button" => button(r, m, sel, w),
+        "marquee" => {
+            if let Some(c) = colour(m, "colour") {
+                r.rule("", sel, &format!("color:{c};"));
+            }
+            let words: String = m["items"].as_array().into_iter().flatten()
+                .map(|item| format!("<span>{}</span>", text(s(item, "text")))).collect();
+            format!(r#"<div class="vb-marquee"><div class="vb-marquee-track"><div>{words}</div><div aria-hidden="true">{words}</div></div></div>"#)
+        }
         "image" => {
             let Some(src) = m["src"].as_str() else { return empty("Image") };
             let is = format!("{sel} img");
@@ -288,7 +308,7 @@ pub(super) fn html(r: &mut R, kind: &str, id: &str, m: &Value, sel: &str, w: &Va
             if let Some(rad) = n(m, "radius") {
                 r.rule("", &format!("{sel} .vb-ib-img img"), &format!("border-radius:{rad}px;"));
             }
-            let img = m["src"].as_str().map(|u| format!(r#"<span class="vb-ib-img"><img src="{}" alt="" loading="lazy"></span>"#, href(u))).unwrap_or_default();
+            let img = m["src"].as_str().map(|u| format!(r#"<span class="vb-ib-img"><img src="{}" alt="{}" loading="lazy"></span>"#, href(u), esc(s(m, "alt")))).unwrap_or_default();
             let title = match (s(m, "title"), m["link"].as_str()) {
                 ("", _) => String::new(),
                 (t, Some(l)) => format!("<h3>{}{}</a></h3>", link_open(l, false, "vb-hlink", ""), text(t)),
@@ -530,6 +550,13 @@ pub(super) fn html(r: &mut R, kind: &str, id: &str, m: &Value, sel: &str, w: &Va
             format!(r#"<div class="vb-carousel"{attrs}><div class="vb-track">{slides}</div></div>"#)
         }
         "slides" => {
+            if let Some(columns) = w["cols"].as_array().filter(|cols| !cols.is_empty()) {
+                let attrs = carousel_attrs(m, r, &format!("{sel} .vb-carousel"), 1);
+                let slides: String = columns.iter().map(|col| {
+                    format!(r#"<div class="vb-slide">{}</div>"#, super::render::column(r, col))
+                }).collect();
+                return format!(r#"<div class="vb-carousel vb-linked-carousel"{attrs}><div class="vb-track">{slides}</div></div>"#);
+            }
             let csel = format!("{sel} .vb-carousel");
             let attrs = carousel_attrs(m, r, &csel, 1);
             r.rule("", &csel, "--vb-pv:1;--vb-cg:0px;");
@@ -733,8 +760,8 @@ pub(super) fn html(r: &mut R, kind: &str, id: &str, m: &Value, sel: &str, w: &Va
                     format!(
                         r#"<details class="vb-acc-i"{group}{o}><summary>{}<span class="vb-acc-x" aria-hidden="true"></span></summary><div class="vb-acc-a">{}</div></details>"#,
                         text(s(it, "q")),
-                        paragraphs(s(it, "a")),
-                        o = if open && i == 0 { " open" } else { "" },
+                        panel_content(r, w, i, s(it, "a")),
+                        o = if (open && i == 0) || b(it, "open") { " open" } else { "" },
                     )
                 })
                 .collect();
@@ -777,7 +804,7 @@ pub(super) fn html(r: &mut R, kind: &str, id: &str, m: &Value, sel: &str, w: &Va
                     format!(
                         r#"<div role="tabpanel" class="vb-tab-panel{on}" id="p-{id}-{i}" aria-labelledby="t-{id}-{i}"><p class="vb-tab-nojs">{}</p>{}</div>"#,
                         text(s(it, "title")),
-                        paragraphs(s(it, "text")),
+                        panel_content(r, w, i, s(it, "text")),
                         on = if i == 0 { " on" } else { "" },
                         id = esc(id),
                     )
@@ -1370,7 +1397,7 @@ pub(super) fn html(r: &mut R, kind: &str, id: &str, m: &Value, sel: &str, w: &Va
     }
 }
 
-fn button(r: &mut R, m: &Value, sel: &str) -> String {
+fn button(r: &mut R, m: &Value, sel: &str, widget: &Value) -> String {
     let bsel = format!("{sel} .vb-btn");
     let mut d = String::new();
     if let Some(c) = colour(m, "colour") {
@@ -1414,7 +1441,17 @@ fn button(r: &mut R, m: &Value, sel: &str) -> String {
         (false, true) => r#" rel="nofollow""#,
         _ => "",
     };
-    let mut html = format!(r#"<a class="vb-btn vb-btn-{kind} vb-btn-{size}" href="{}"{rel}>{content}</a>"#, href(m["href"].as_str().unwrap_or("#")));
+    let link = m["href"].as_str().unwrap_or("#");
+    let popup = m["video_popup"].as_bool().unwrap_or(widget["elementor"]["source"]["widgetType"] == "jkit_video_button");
+    let dialog = if popup {
+        embed_src(link, true, false, false, true, 0).map(|url| {
+            r.uses_runtime = true;
+            format!(r#" data-vb-video-dialog="{url}" aria-haspopup="dialog""#)
+        }).unwrap_or_default()
+    } else {
+        String::new()
+    };
+    let mut html = format!(r#"<a class="vb-btn vb-btn-{kind} vb-btn-{size}" href="{}"{rel}{dialog}>{content}</a>"#, href(link));
     if !s(m, "text2").is_empty() {
         let c2 = colour(m, "colour").map(|c| format!(r#" style="--vb-bc:{}""#, esc(&c))).unwrap_or_default();
         html.push_str(&format!(r#"<a class="vb-btn vb-btn-outline vb-btn-{size}" href="{}"{rel}{c2}><span>{}</span></a>"#, href(m["href2"].as_str().unwrap_or("#")), text(s(m, "text2"))));

@@ -2,7 +2,7 @@
    the editor's canvas. Everything is under .vb-page so a theme is untouched
    on pages without a layout. No rem: many Ghost themes re-base the root. */
 body:has(.vb-page){overflow-x:clip}
-.vb-page{--vb-gap:32px;--vb-wgap:16px;position:relative;font-family:var(--vb-bf,inherit);width:100vw;max-width:100vw;margin-left:calc(50% - 50vw)!important;margin-right:calc(50% - 50vw)!important;line-height:1.6;text-align:left}
+.vb-page{--vb-gap:32px;--vb-wgap:16px;position:relative;font-family:var(--vb-bf,inherit);width:100vw;max-width:100vw;margin-top:0!important;margin-bottom:0!important;margin-left:calc(50% - 50vw)!important;margin-right:calc(50% - 50vw)!important;line-height:1.6;text-align:left}
 .vb-page *,.vb-page *::before,.vb-page *::after{box-sizing:border-box}
 .vb-page .vb-w :is(h1,h2,h3,h4,h5,h6,p,figure,blockquote,ul,ol,hr){margin:0}
 .vb-page :is(h1,h2,h3,h4,h5,h6){color:inherit}
@@ -255,7 +255,7 @@ body:has(.vb-page){overflow-x:clip}
 .vb-page .vb-tab-panel p+p{margin-top:.7em}
 .vb-page .vb-tab-list{display:none}
 .vb-page .vb-tabs-js .vb-tab-list{display:flex}
-.vb-page .vb-tabs-js .vb-tab-panel:not(.on){display:none}
+.vb-page .vb-tabs-js > .vb-tab-panels > .vb-tab-panel:not(.on){display:none}
 .vb-page .vb-tabs-js .vb-tab-nojs{display:none}
 .vb-page .vb-tab-nojs{font-weight:700}
 .vb-page .vb-tabs-al-center .vb-tab-list{justify-content:center}
@@ -458,6 +458,16 @@ body:has(.vb-page){overflow-x:clip}
 .vb-oc .vb-s{padding:16px 0}
 
 /* video facade, playlist, lottie, hotspots */
+.vb-video-dialog{width:min(90vw,900px);max-height:90vh;overflow:auto;padding:0;border:0;color:#fff;background:#15171a}
+.vb-video-dialog::backdrop{background:rgba(0,0,0,.72)}
+.vb-video-dialog iframe{display:block;width:100%;aspect-ratio:16/9;border:0}
+.vb-video-dialog button{display:block;margin-left:auto;padding:6px 14px;color:inherit;background:none;border:0;font-size:24px;cursor:pointer}
+.vb-page .vb-marquee{overflow:hidden}
+.vb-page .vb-marquee-track{display:flex;width:max-content;min-width:200%;animation:vb-marquee-scroll 24s linear infinite}
+.vb-page .vb-marquee-track > div{display:flex;flex:1 0 50%;align-items:center;justify-content:space-around;gap:2rem;padding-inline:1rem;white-space:nowrap}
+.vb-page .vb-marquee:hover .vb-marquee-track{animation-play-state:paused}
+@keyframes vb-marquee-scroll{to{transform:translateX(-50%)}}
+@media(prefers-reduced-motion:reduce){.vb-page .vb-marquee-track{animation:none;min-width:0;width:100%}.vb-page .vb-marquee-track > div{flex-wrap:wrap;white-space:normal}.vb-page .vb-marquee-track > [aria-hidden=true]{display:none}}
 .vb-page .vb-facade{position:absolute;inset:0;width:100%;height:100%;border:0;padding:0;cursor:pointer;background:#000 center/cover no-repeat;display:grid;place-items:center}
 .vb-page .vb-play{display:grid;place-items:center;width:76px;height:76px;border-radius:50%;background:rgba(0,0,0,.6);color:#fff;font-size:34px;transition:transform .2s,background .2s}
 .vb-page .vb-facade:hover .vb-play{transform:scale(1.08);background:var(--vb-c1)}

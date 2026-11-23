@@ -166,7 +166,7 @@ pub(crate) fn svg_stroke(name: &str) -> String {
 /// the largest thing in every admin response and was sent again with each
 /// page; it is now linked, served by [`admin_asset`] from the binary, and
 /// cached behind [`admin_css_hash`].
-pub(crate) const CSS: &str = include_str!("../assets/admin.css");
+pub(crate) const CSS: &str = concat!(include_str!("../assets/admin.css"), include_str!("../assets/unsplash-picker.css"));
 
 /// A short content hash, for an asset's cache-busting query string.
 ///
