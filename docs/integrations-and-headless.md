@@ -170,9 +170,9 @@ webhooks to reach the application.
 ## Verify locally
 
 ```sh
-cargo test -p ghost-api --test headless
-cargo test -p ghost-api -p ghost-admin-ui -p ghost-render --lib
-node --test crates/ghost-admin-ui/tests/koenig-saving.cjs
+cargo test -p vuuut-api --test headless
+cargo test -p vuuut-api -p vuuut-admin-ui -p vuuut-render --lib
+node --test crates/vuuut-admin-ui/tests/koenig-saving.cjs
 ```
 
 The webhook test opens an isolated localhost HTTP listener. All API tests use

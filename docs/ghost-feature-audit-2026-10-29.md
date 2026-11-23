@@ -129,7 +129,7 @@ It exited 101 before completing the suite:
 
 ```text
 error[E0063]: missing field `host_settings` in initializer of `config::Config`
-  --> crates/ghost-core/src/config.rs:520:9
+  --> crates/vuuut-core/src/config.rs:520:9
 ```
 
 The test helper `with_url` does not initialize the newly added field. No pass

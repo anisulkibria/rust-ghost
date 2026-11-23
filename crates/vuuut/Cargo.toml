@@ -1,0 +1,38 @@
+[package]
+name = "vuuut"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "vuuut"
+path = "src/main.rs"
+
+[dependencies]
+vuuut-core = { workspace = true }
+vuuut-db = { workspace = true }
+vuuut-nql = { workspace = true }
+vuuut-render = { workspace = true }
+vuuut-routing = { workspace = true }
+vuuut-api = { workspace = true }
+vuuut-admin-ui = { workspace = true }
+vuuut-front = { workspace = true }
+tokio = { workspace = true }
+axum = { workspace = true }
+tower = { workspace = true }
+tower-http = { workspace = true }
+serde_json = { workspace = true }
+sqlx = { workspace = true }
+hex = { workspace = true }
+sha2 = { workspace = true }
+walkdir = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+rustls-acme = { version = "0.15", default-features = false, features = ["ring", "tls12", "webpki-roots", "tokio"] }
+tokio-rustls = { version = "0.26", default-features = false, features = ["ring", "tls12"] }
+rustls-pemfile = "2"
+hyper-util = { version = "0.1", features = ["server", "server-auto", "http1", "http2", "tokio"] }
+hyper = "1"
+futures.workspace = true
+rustls = { version = "0.23", default-features = false, features = ["ring", "tls12", "logging", "std"] }
+tokio-stream = { version = "0.1", features = ["net"] }

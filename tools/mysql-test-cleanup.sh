@@ -1,7 +1,7 @@
 #!/bin/sh
 # Remove leftover `ghost_test_%` databases from a MySQL test server.
 #
-# `ghost_db::pool::connect_test` drops each test's database when the test
+# `vuuut_db::pool::connect_test` drops each test's database when the test
 # ends — killing the connections still holding it first — so a run normally
 # leaves nothing behind. This script is for the cases it cannot: a run
 # interrupted with Ctrl-C, a crashed binary, a drop that lost its retries.

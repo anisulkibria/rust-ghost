@@ -1,0 +1,108 @@
+//! vuuut-core: config, errors, ids, slugs, dates and domain models.
+pub mod automations;
+pub mod comments;
+pub mod config;
+pub mod countries;
+pub mod dashboard;
+pub mod database;
+pub mod dialect;
+pub mod dates;
+pub mod error;
+pub mod firewall;
+pub mod forms;
+pub mod ids;
+pub mod images;
+pub mod locales;
+pub mod media;
+pub mod memberships;
+pub mod metafields;
+pub mod newsletters;
+pub mod permissions;
+pub mod popups;
+pub mod cookies;
+pub mod site_search;
+pub mod ads;
+pub mod workflows;
+pub mod social_media;
+pub mod caching;
+pub mod directory;
+pub mod ecom;
+pub mod shopify_csv;
+pub mod builder;
+pub mod mail_settings;
+pub mod models;
+pub mod revisions;
+pub mod security;
+pub mod seo;
+pub mod slug;
+pub mod url;
+pub mod windows;
+
+pub use config::Config;
+pub use database::{Engine, Target as DbTarget};
+pub use error::{GhostError, Result};
+
+/// The Ghost release this port tracks.
+///
+/// Ghost reports two forms of its own version and they are not
+/// interchangeable: `@tryghost/version` exposes `full` (`6.75.0`), which is
+/// what the export file's meta is stamped with, and `safe` (`6.75`), which is
+/// what `/members/api/site` publishes to Portal and what a theme or an
+/// integration branches on. Both live here, in the one crate every other one
+/// depends on, because they were previously declared in two places and had
+/// already drifted two dozen releases apart.
+///
+/// Raising this is a claim, not a formality: it is what a theme, an
+/// integration or Portal branches on. The release-specific tables below and
+/// elsewhere — [`LABS_GA_FLAGS`], the webhook event list in
+/// `vuuut_api::webhooks`, the app version pins in `vuuut_render::apps` —
+/// were transcribed from 6.73 and have not been re-checked against 6.75, so
+/// anything added or renamed between the two is not reflected there yet.
+pub const GHOST_VERSION: &str = "6.75.0";
+
+/// `major.minor` of [`GHOST_VERSION`] — Ghost's `version.safe`.
+pub const GHOST_VERSION_SAFE: &str = "6.75";
+
+/// Labs flags that have shipped — Ghost 6.73's `GA_FEATURES`, which is the
+/// last release these were read off; see the caveat on [`GHOST_VERSION`].
+///
+/// `labs.getAll()` forces every one of these to `true` regardless of what is
+/// stored, and drops them from the writable allowlist, so they are no longer
+/// switches: a theme reading `{{#if @labs.editorReact}}` gets `true` on any
+/// site from that release on. They are listed here so the `labs` object this
+/// port publishes says the same thing, and so the settings screen knows not
+/// to offer a toggle for something that cannot be turned off.
+pub const LABS_GA_FLAGS: &[&str] = &[
+    "automationsArchive",
+    "automationsPerTier",
+    "selfServeArchives",
+    "admin7EditorImprovements",
+    "editorReact",
+    "billingReact",
+    "stripeCheckoutDesign",
+];
+
+#[cfg(test)]
+mod version_tests {
+    use super::*;
+
+    #[test]
+    fn the_safe_version_is_the_full_ones_major_minor() {
+        // Ghost derives one from the other at runtime; these are two consts,
+        // so this is the check that keeps a bump to one from leaving the
+        // other behind.
+        let parts: Vec<&str> = GHOST_VERSION.split('.').collect();
+        assert_eq!(parts.len(), 3, "the full version is major.minor.patch");
+        assert_eq!(GHOST_VERSION_SAFE, format!("{}.{}", parts[0], parts[1]));
+        assert!(GHOST_VERSION.starts_with(GHOST_VERSION_SAFE));
+    }
+}
+
+/// What a site is called when it has not been given a name.
+///
+/// It was "Ghost" — Ghost's own default, which then appeared in every email
+/// subject, sender name and feed of a site whose owner had not set a title.
+/// The fallback is the reader's view of an unnamed site, not the software's
+/// name, so it names neither. One constant, so no `unwrap_or("Ghost")` can
+/// quietly bring the old one back.
+pub const DEFAULT_SITE_TITLE: &str = "My Publication";

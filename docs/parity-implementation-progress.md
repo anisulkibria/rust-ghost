@@ -201,7 +201,7 @@ The database was backed up before migration.
 ## Validation of this batch
 
 `cargo test --workspace --offline`: **757 passed, 0 failed**.
-`node --test crates/ghost-admin-ui/tests/koenig-saving.cjs`: **14 passed** (three
+`node --test crates/vuuut-admin-ui/tests/koenig-saving.cjs`: **14 passed** (three
 new, covering the collision stamp moving forward on a save, staying put on a
 409, and autosave stopping only for a collision).
 
@@ -421,7 +421,7 @@ instances — so a machine running this port to compare against Ghost had two
 servers contending for one number, and one of them simply failed to start.
 The default is now `DEFAULT_PORT = 1971`: clear of that whole range, and above
 1024 so binding it needs no privileges. One named constant, used by the config
-default, the generated config's url, `ghost setup`'s free-port walk, `run.sh`
+default, the generated config's url, `vuuut setup`'s free-port walk, `run.sh`
 and the README.
 
 Changing it surfaced a real bug. `serve_plan` **never read the port out of the
@@ -453,7 +453,7 @@ mints a `state` onto the caller's session and answers `302` to Stripe's OAuth
 url. Status was honest about what the port did, but it meant Ghost's own admin,
 pointed at this backend, had no way to start a connection at all.
 
-- The handshake now lives in one module, `ghost_api::stripe_connect`, shared by
+- The handshake now lives in one module, `vuuut_api::stripe_connect`, shared by
   the Admin API endpoint and the native admin's form. Upstream's `mode`
   validation (`live`/`test`, lowercased, defaulting to `live`, `422` otherwise),
   its HTTPS-in-production refusal with upstream's message, Ghost's own public
@@ -513,7 +513,7 @@ the other as a flash redirect.
 ## Validation of this batch
 
 `cargo test --workspace --offline`: **831 passed, 0 failed, 2 ignored**, no
-warnings. `node --test crates/ghost-admin-ui/tests/koenig-saving.cjs`: 11
+warnings. `node --test crates/vuuut-admin-ui/tests/koenig-saving.cjs`: 11
 passed. Eight module tests cover the handshake against Ghost 6.73's own client
 ids and messages; five integration tests cover the endpoint, the token, the
 three settings refusals and the disconnect guard. Two admin-UI tests were
@@ -565,7 +565,7 @@ All 266 are now ported.
 ### The table is generated, not transcribed
 
 `tools/gscan-rules.js` reads the real tool's merged v6 spec and emits
-`crates/ghost-render/src/gscan_rules.rs`: every code, level, fatal flag,
+`crates/vuuut-render/src/gscan_rules.rs`: every code, level, fatal flag,
 regex, helper name and wording. Hand-copying 266 rules is how a port drifts
 from the thing it claims to match, so none of it is hand-copied. Three
 transformations are applied and each refuses rather than guesses:
@@ -637,7 +637,7 @@ twice, now one.
 warnings.
 
 The claim that matters is not "this port reports X" but "Ghost agrees", so
-`crates/ghost-render/tests/gscan_parity.rs` runs **both tools** over the same
+`crates/vuuut-render/tests/gscan_parity.rs` runs **both tools** over the same
 themes and compares code for code and level for level. It skips rather than
 fails when the real gscan is not installed, so a contributor without a Ghost
 checkout does not see red; `GSCAN_PATH` overrides the search.

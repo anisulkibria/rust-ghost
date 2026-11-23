@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Vuuut control script
-#   ./run.sh start|stop|restart|status|build|rebuild|test|log
+#   ./run.sh start|stop|restart|status|build|upgrade|rebuild|test|log
 set -euo pipefail
 cd "$(dirname "$0")"
 
@@ -27,7 +27,7 @@ load_env_file() {
 # on and nothing in the tree has to name a directory.
 [ -f .env ] && load_env_file .env
 
-BIN=./target/release/ghost
+BIN=./target/release/vuuut
 # The server binds the configured port and fails if it is taken — it does not
 # go looking for a free one, so this is also the port to check for an instance
 # that is already up.
@@ -45,14 +45,14 @@ fi
 
 pid() { [ -f "$PIDFILE" ] && cat "$PIDFILE" 2>/dev/null || true; }
 
-# Is this one of our processes? Pids are reused, and a pidfile that outlives
-# its process can otherwise name something else entirely.
-is_ghost() { ps -o args= -p "$1" 2>/dev/null | grep -q "target/release/ghost"; }
+# Recognise both release executables so the first upgrade can stop the
+# previous server before starting Vuuut.
+is_vuuut() { ps -o args= -p "$1" 2>/dev/null | grep -Eq '(^|/)target/release/(vuuut|ghost)([[:space:]]|$)'; }
 
 alive() {
     local p
     p=$(pid)
-    [ -n "$p" ] && kill -0 "$p" 2>/dev/null && is_ghost "$p"
+    [ -n "$p" ] && kill -0 "$p" 2>/dev/null && is_vuuut "$p"
 }
 
 # Whatever is listening on the port, started by this script or not.
@@ -61,10 +61,10 @@ listener() { lsof -ti "tcp:$PORT" -sTCP:LISTEN 2>/dev/null | head -1; }
 # The same, but only if it is this project's server. A start that fails
 # because something else owns the port is a different problem from a stale
 # instance of our own, and only one of the two is ours to kill.
-ghost_listener() {
+vuuut_listener() {
     local p
     p=$(listener)
-    if [ -n "$p" ] && is_ghost "$p"; then echo "$p"; fi
+    if [ -n "$p" ] && is_vuuut "$p"; then echo "$p"; fi
 }
 
 # What is holding the port, for an error message.
@@ -82,7 +82,7 @@ start)
     # An instance whose pidfile was lost still serves the site, and starting a
     # second one on the same port only produces a process that exits a moment
     # later. Adopt it instead, so stop/restart can reach it from here on.
-    existing=$(ghost_listener)
+    existing=$(vuuut_listener)
     if [ -n "$existing" ]; then
         echo "$existing" >"$PIDFILE"
         echo "already running (pid $existing, adopted) at $URL"
@@ -134,6 +134,7 @@ PYTHON
         # Running, but nothing on the port yet. Worth saying plainly: the
         # process being up is not the same as the site being up.
         echo "started (pid $started) but nothing is listening on $PORT yet — check $LOG"
+        exit 1
     fi
     ;;
 stop)
@@ -142,7 +143,7 @@ stop)
     else
         # The pidfile is stale or gone; fall back to the port, so an instance
         # this script did not start can still be stopped.
-        target=$(ghost_listener)
+        target=$(vuuut_listener)
     fi
     rm -f "$PIDFILE"
     if [ -z "$target" ]; then
@@ -172,8 +173,8 @@ restart) "$0" stop || true; "$0" start ;;
 status)
     if alive; then
         echo "running (pid $(pid)) at $URL"
-    elif [ -n "$(ghost_listener)" ]; then
-        echo "running (pid $(ghost_listener)) at $URL — started outside this script"
+    elif [ -n "$(vuuut_listener)" ]; then
+        echo "running (pid $(vuuut_listener)) at $URL — started outside this script"
     elif [ -n "$(listener)" ]; then
         echo "not running — port $PORT is held by:"
         echo "  $(describe_listener)"
@@ -182,10 +183,11 @@ status)
     fi
     ;;
 build) cargo build --release ;;
+upgrade) cargo build --locked --release; "$0" restart ;;
 rebuild) cargo clean && cargo build --release ;;
 # With .env loaded, so GHOST_REFERENCE_DIR / GSCAN_PATH / GHOST_TEST_MYSQL_URL
 # reach the tests without being typed each time.
 test) shift; cargo test --workspace "$@" ;;
 log) tail -f "$LOG" ;;
-*) echo "usage: $0 start|stop|restart|status|build|rebuild|test|log   (settings: .env, see .env.example)" ;;
+*) echo "usage: $0 start|stop|restart|status|build|upgrade|rebuild|test|log   (settings: .env, see .env.example)" ;;
 esac

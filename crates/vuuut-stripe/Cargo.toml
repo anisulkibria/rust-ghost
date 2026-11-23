@@ -1,0 +1,16 @@
+[package]
+name = "vuuut-stripe"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+vuuut-core = { workspace = true }
+vuuut-db = { workspace = true }
+reqwest = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+sha2 = { workspace = true }
+hex = { workspace = true }
+chrono = { workspace = true }
+tracing = { workspace = true }

@@ -1,38 +1,38 @@
 [workspace]
 resolver = "2"
 members = [
-    "crates/ghost-core",
-    "crates/ghost-nql",
-    "crates/ghost-db",
-    "crates/ghost-routing",
-    "crates/ghost-render",
-    "crates/ghost-api",
-    "crates/ghost-admin-ui",
-    "crates/ghost-mail",
-    "crates/ghost-stripe",
-    "crates/ghost-front",
-    "crates/ghost",
+    "crates/vuuut-core",
+    "crates/vuuut-nql",
+    "crates/vuuut-db",
+    "crates/vuuut-routing",
+    "crates/vuuut-render",
+    "crates/vuuut-api",
+    "crates/vuuut-admin-ui",
+    "crates/vuuut-mail",
+    "crates/vuuut-stripe",
+    "crates/vuuut-front",
+    "crates/vuuut",
 ]
 
 [workspace.package]
 # Tracks the Ghost release this port targets, so that the crate version and
-# `ghost_core::GHOST_VERSION` cannot say different things about which Ghost
+# `vuuut_core::GHOST_VERSION` cannot say different things about which Ghost
 # this is. Both move together.
 version = "6.75.0"
 edition = "2021"
 license = "MIT"
 
 [workspace.dependencies]
-ghost-core = { path = "crates/ghost-core" }
-ghost-nql = { path = "crates/ghost-nql" }
-ghost-db = { path = "crates/ghost-db" }
-ghost-routing = { path = "crates/ghost-routing" }
-ghost-render = { path = "crates/ghost-render" }
-ghost-api = { path = "crates/ghost-api" }
-ghost-admin-ui = { path = "crates/ghost-admin-ui" }
-ghost-mail = { path = "crates/ghost-mail" }
-ghost-stripe = { path = "crates/ghost-stripe" }
-ghost-front = { path = "crates/ghost-front" }
+vuuut-core = { path = "crates/vuuut-core" }
+vuuut-nql = { path = "crates/vuuut-nql" }
+vuuut-db = { path = "crates/vuuut-db" }
+vuuut-routing = { path = "crates/vuuut-routing" }
+vuuut-render = { path = "crates/vuuut-render" }
+vuuut-api = { path = "crates/vuuut-api" }
+vuuut-admin-ui = { path = "crates/vuuut-admin-ui" }
+vuuut-mail = { path = "crates/vuuut-mail" }
+vuuut-stripe = { path = "crates/vuuut-stripe" }
+vuuut-front = { path = "crates/vuuut-front" }
 
 tokio = { version = "1", features = ["full"] }
 axum = { version = "0.8", features = ["multipart", "macros", "query"] }
@@ -40,7 +40,7 @@ tower = "0.5"
 tower-http = { version = "0.6", features = ["fs", "cors", "trace", "compression-gzip"] }
 # `any` is what lets one build run on either engine, chosen from the config
 # at runtime: SQLite for a single site, MySQL when a host provisions one.
-# See ghost_db::pool.
+# See vuuut_db::pool.
 sqlx = { version = "0.8", default-features = false, features = ["runtime-tokio", "sqlite", "mysql", "any", "macros", "migrate", "chrono", "json"] }
 handlebars = { version = "6", features = ["script_helper", "dir_source"] }
 comrak = { version = "0.42" }

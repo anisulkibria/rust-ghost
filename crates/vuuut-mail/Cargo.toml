@@ -1,0 +1,25 @@
+[package]
+name = "vuuut-mail"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+vuuut-core = { workspace = true }
+vuuut-db = { workspace = true }
+lettre = { workspace = true }
+reqwest = { workspace = true }
+hickory-resolver = { workspace = true }
+# Ghost's newsletter templates are Handlebars, and they are vendored as-is
+handlebars = { workspace = true }
+css-inline = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+once_cell = { workspace = true }
+# per-recipient Message-Id digests for batched sends
+sha2 = { workspace = true }
+hex = { workspace = true }
+tracing = { workspace = true }
+tokio = { workspace = true }
+
+regex = { workspace = true }

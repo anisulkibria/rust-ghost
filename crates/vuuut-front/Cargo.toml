@@ -1,0 +1,34 @@
+[package]
+name = "vuuut-front"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+vuuut-core = { workspace = true }
+vuuut-db = { workspace = true }
+vuuut-nql = { workspace = true }
+vuuut-render = { workspace = true }
+vuuut-routing = { workspace = true }
+vuuut-api = { workspace = true }
+tokio = { workspace = true }
+futures = { workspace = true }
+sqlx = { workspace = true }
+axum = { workspace = true }
+tower = { workspace = true }
+tower-http = { workspace = true }
+serde = { workspace = true }
+serde_yaml = { workspace = true }
+serde_json = { workspace = true }
+chrono = { workspace = true }
+tracing = { workspace = true }
+percent-encoding = { workspace = true }
+mime_guess = { workspace = true }
+regex = { workspace = true }
+form_urlencoded = { workspace = true }
+hex = { workspace = true }
+sha2 = { workspace = true }
+image = { version = "0.25", default-features = false, features = ["jpeg", "png", "webp", "gif", "avif"] }
+
+avif-decode = { version = "3", default-features = false }
+maxminddb = "0.31"

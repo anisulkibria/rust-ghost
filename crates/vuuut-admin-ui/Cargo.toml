@@ -1,0 +1,33 @@
+[package]
+name = "vuuut-admin-ui"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+vuuut-core = { workspace = true }
+vuuut-db = { workspace = true }
+vuuut-mail = { workspace = true }
+vuuut-stripe = { workspace = true }
+csv = { workspace = true }
+chrono = { workspace = true }
+vuuut-routing = { workspace = true }
+sha2 = { workspace = true }
+hex = { workspace = true }
+vuuut-render = { workspace = true }
+vuuut-nql = { workspace = true }
+vuuut-api = { workspace = true }
+vuuut-front = { workspace = true }
+tower = { workspace = true }
+tokio = { workspace = true }
+futures = { workspace = true }
+axum = { workspace = true }
+serde = { workspace = true }
+sqlx = { workspace = true }
+serde_json = { workspace = true }
+serde_yaml = { workspace = true }
+tracing = { workspace = true }
+bcrypt = { workspace = true }
+form_urlencoded = { workspace = true }
+zip = { workspace = true }
+reqwest = { workspace = true }

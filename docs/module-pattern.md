@@ -5,7 +5,7 @@ new module disagrees with this document, the module is wrong.
 
 ## Why this exists
 
-`crates/ghost-admin-ui/src/lib.rs` was 23,600 lines. Every feature that was
+`crates/vuuut-admin-ui/src/lib.rs` was 23,600 lines. Every feature that was
 added by typing into it made the next feature harder to add, review and test:
 a merge touched the same file every time, the CSS and the handlers for
 unrelated screens sat in each other's way, and nothing could be read in
@@ -47,7 +47,7 @@ are the pattern to copy, not deviations:
 no table at all. Its report is computed from `posts` during the request that
 renders it, so there is nothing to invalidate and no way for the report to
 disagree with the editor — see
-[crates/ghost-db/src/repos/seo.rs](../crates/ghost-db/src/repos/seo.rs). Its
+[crates/vuuut-db/src/repos/seo.rs](../crates/vuuut-db/src/repos/seo.rs). Its
 migration exists only to create the eight `settings` rows the module writes,
 because `SettingsCache::set` refuses a key that has no row: **a module with
 settings and no migration has a Save button that always fails.** Two more
@@ -58,7 +58,7 @@ things in it are worth copying:
   site had before the module existed. Installing it changes nothing until
   somebody changes a switch.
 - Four crates read those defaults through one function
-  (`ghost_core::seo::flag`), so the renderer, the sitemap, the public
+  (`vuuut_core::seo::flag`), so the renderer, the sitemap, the public
   robots.txt handler and the report cannot disagree about what is switched on.
 
 **Dashboard (2026-11-15) is the third**, and is the one to read for a module
@@ -71,7 +71,7 @@ that is *not* behind a single role. Three things in it are new:
   open everything it links to — rule 8's real intent, which is that no link
   ever leads to a refusal.
 - **Its `ghost-core` module holds rankings, not validation.** Nothing on the
-  page comes from a visitor, so `ghost_core::dashboard` is not a trust
+  page comes from a visitor, so `vuuut_core::dashboard` is not a trust
   boundary; what it owns is the *order* queues are shown in and the thresholds
   at which a checklist item appears. Those are the parts that go quietly
   wrong, and they are unit-tested there without a database. Rule 2 is about
@@ -118,14 +118,14 @@ report and starts refusing requests**, and it is worth reading for three
 things the four modules before it had no reason to do:
 
 - **It is the first module whose middleware runs before everything else.**
-  `ghost_api::firewall::{public_guard, admin_guard}` are mounted outermost on
+  `vuuut_api::firewall::{public_guard, admin_guard}` are mounted outermost on
   both routers — outside the private-site gate, outside the analytics
   counter, outside the session read. An address that is barred is barred
   before a theme is loaded or a cookie is parsed, which is the whole point of
   a firewall: the work does not happen.
 - **It is the first module that can lock an administrator out of the admin.**
   Three of its four actions can, so each simulates itself before it writes —
-  running the real `ghost_core::firewall::decide` over the real current rules
+  running the real `vuuut_core::firewall::decide` over the real current rules
   plus the change, against the author's own address read through the *same*
   function the middleware will use. A special-case "is this my IP" check
   would have been easier and would miss the case that actually catches people
@@ -230,14 +230,14 @@ went to Analytics, so "home" was two screens depending on how you arrived.
 
 | Layer | File | What lives there |
 |---|---|---|
-| Rules | [crates/ghost-core/src/forms.rs](../crates/ghost-core/src/forms.rs) | Pure domain rules — field types, bounds, normalization, validation. No DB, no HTTP. |
-| Data | [crates/ghost-db/src/repos/forms.rs](../crates/ghost-db/src/repos/forms.rs) | Every query. Structs for rows. Nothing else talks to these tables. |
+| Rules | [crates/vuuut-core/src/forms.rs](../crates/vuuut-core/src/forms.rs) | Pure domain rules — field types, bounds, normalization, validation. No DB, no HTTP. |
+| Data | [crates/vuuut-db/src/repos/forms.rs](../crates/vuuut-db/src/repos/forms.rs) | Every query. Structs for rows. Nothing else talks to these tables. |
 | Schema | [migrations/sqlite/0011_forms.sql](../migrations/sqlite/0011_forms.sql) | Tables, indexes, the one-row config table. |
-| Public | [crates/ghost-api/src/forms.rs](../crates/ghost-api/src/forms.rs) | The internet-facing half: render into a page, accept a response, rate limits, tokens. |
-| Public assets | `crates/ghost-api/assets/forms.{js,css}` | Shipped to visitors' browsers. |
-| Admin | [crates/ghost-admin-ui/src/forms.rs](../crates/ghost-admin-ui/src/forms.rs) | Every admin screen, handler and its page HTML. 1,120 lines. |
-| Admin assets | `crates/ghost-admin-ui/assets/forms-builder.js`, `koenig-forms.js` | The builder UI and the editor card. |
-| Tests | `crates/ghost-admin-ui/tests/forms.rs`, `crates/ghost-db/tests/forms.rs`, `#[cfg(test)]` in each file above | End-to-end, repo-level, and unit. |
+| Public | [crates/vuuut-api/src/forms.rs](../crates/vuuut-api/src/forms.rs) | The internet-facing half: render into a page, accept a response, rate limits, tokens. |
+| Public assets | `crates/vuuut-api/assets/forms.{js,css}` | Shipped to visitors' browsers. |
+| Admin | [crates/vuuut-admin-ui/src/forms.rs](../crates/vuuut-admin-ui/src/forms.rs) | Every admin screen, handler and its page HTML. 1,120 lines. |
+| Admin assets | `crates/vuuut-admin-ui/assets/forms-builder.js`, `koenig-forms.js` | The builder UI and the editor card. |
+| Tests | `crates/vuuut-admin-ui/tests/forms.rs`, `crates/vuuut-db/tests/forms.rs`, `#[cfg(test)]` in each file above | End-to-end, repo-level, and unit. |
 
 Not every module needs all eight rows. A module with no public surface skips
 the `ghost-api` rows; a module with no new tables skips the migration. The
@@ -246,7 +246,7 @@ rows it does need go where the table says.
 ## The admin crate, module by module
 
 Where to look, and where a new screen goes. Everything under
-`crates/ghost-admin-ui/src/`:
+`crates/vuuut-admin-ui/src/`:
 
 | | |
 |---|---|
@@ -272,7 +272,7 @@ Where to look, and where a new screen goes. Everything under
 
 ### 1. One Rust file per module, named for the module
 
-`crates/ghost-admin-ui/src/<module>.rs`, declared `pub mod <module>;` at the
+`crates/vuuut-admin-ui/src/<module>.rs`, declared `pub mod <module>;` at the
 top of `lib.rs`. Every handler, every page function, every helper that only
 this module uses, lives there.
 
@@ -292,9 +292,9 @@ need it, it belongs in `shell.rs`.
 
 Anything that decides what is valid — bounds, normalization, parsing of
 user-supplied structures, "is this an email" — goes in
-`crates/ghost-core/src/<module>.rs` with no database and no HTTP types, so it
+`crates/vuuut-core/src/<module>.rs` with no database and no HTTP types, so it
 can be unit-tested directly and called from both the admin and the public
-side. `ghost_core::forms` is the trust boundary for Forms and says so in its
+side. `vuuut_core::forms` is the trust boundary for Forms and says so in its
 module doc; yours should do the same.
 
 Rebuild untrusted structures from scratch rather than storing what was sent.
@@ -310,18 +310,18 @@ ceiling, not the budget. Repos take `&Db` and typed input structs
 value. Nothing from a request is ever formatted into SQL.
 
 MySQL compatibility is a repo-layer concern: `MEDIUMTEXT`/JSON columns are
-read through `ghost_db::types::Text`, never `String`; no `RETURNING`; no
+read through `vuuut_db::types::Text`, never `String`; no `RETURNING`; no
 `datetime('now', ?)` with a bound modifier — compute the instant in Rust.
 See [the MySQL notes](../migrations/README.md) and the repo's existing
 `dialect::sql` usage.
 
 ### 4. The public half, if there is one, is a `public_router()` in `ghost-api`
 
-`crates/ghost-api/src/<module>.rs` exposes a `Router` that `ghost-front`
+`crates/vuuut-api/src/<module>.rs` exposes a `Router` that `ghost-front`
 merges, plus whatever hooks the renderer needs (`expand_html` for Forms). It
 owns the body limit, the origin check, the rate-limit budgets and the token
 scheme, and states them in the module doc in the order a request meets them.
-Admin code calls into it for shared primitives (`ghost_api::forms::
+Admin code calls into it for shared primitives (`vuuut_api::forms::
 same_origin`) rather than reimplementing them.
 
 ### 5. Registrations only, and each one has an address
@@ -351,7 +351,7 @@ is stopped* (`Critical`, `Blocking`) says so on the admin home. Three lines:
   struct its own `audit()` judges, and its page is changed to call it, so home
   and the module cannot count different things;
 * `dashboard::audits` calls it and keeps the count of that one severity;
-* `ghost_core::dashboard::{Audits, Health, health}` gain a field and a variant,
+* `vuuut_core::dashboard::{Audits, Health, health}` gain a field and a variant,
   and `health` is where the new module is ranked against the others — with a
   test, because a ranking is exactly the kind of judgement that goes quietly
   wrong.
@@ -371,7 +371,7 @@ CSS is not on this list: it lives in `assets/admin.css` (rule 6).
 
 ### 6. CSS: one labelled block in `assets/admin.css`, one class prefix
 
-The admin's stylesheet is [crates/ghost-admin-ui/assets/admin.css](../crates/ghost-admin-ui/assets/admin.css),
+The admin's stylesheet is [crates/vuuut-admin-ui/assets/admin.css](../crates/vuuut-admin-ui/assets/admin.css),
 `include_str!`'d as `CSS` and linked from the page shell. It is not in
 `lib.rs` and nothing should put it back there.
 
@@ -393,7 +393,7 @@ rule 7. Editing it needs no version bump; the URL changes on its own.
 
 ### 7. Scripts are vendored files, served hashed, and are never the authority
 
-- One file per script in `crates/ghost-admin-ui/assets/`, `include_str!`'d
+- One file per script in `crates/vuuut-admin-ui/assets/`, `include_str!`'d
   into an `admin_asset` arm. No build step, no bundler, no CDN. Plain ES5-era
   JS in an IIFE with `'use strict'`.
 - **Cache-bust by content hash**, not by remembering to bump a version. Use
@@ -430,7 +430,7 @@ rule 7. Editing it needs no version bump; the URL changes on its own.
   ```rust
   async fn guard(state: &AppState, headers: &HeaderMap, writes: bool) -> Result<Actor, Response> {
       let actor = require_role(state, headers, Role::Administrator).await?;
-      if writes && !ghost_api::forms::same_origin(headers, &state.site_url()) {
+      if writes && !vuuut_api::forms::same_origin(headers, &state.site_url()) {
           return Err((StatusCode::FORBIDDEN, "This request did not come from the admin.").into_response());
       }
       Ok(actor)
@@ -443,7 +443,7 @@ rule 7. Editing it needs no version bump; the URL changes on its own.
 - **Escape at the point of output.** `esc()` on every interpolated value,
   including values you believe are safe. Store plain text; never store markup.
 - **Validate ids before they are used or linked**:
-  `ghost_core::ids::is_objectid(&id)`.
+  `vuuut_core::ids::is_objectid(&id)`.
 - **Query parameters that come back as links are reduced to known values**
   first — see `filters()`, which maps anything unrecognised to a default, and
   its test asserting a forged status does not survive.
@@ -512,9 +512,9 @@ first in the wipe list.
    reducers in the admin module. Forms tests that a hostile answer comes back
    escaped, that the export defuses formulas, that forged filters collapse to
    defaults, that the pager appears only when needed.
-2. **Repo tests** in `crates/ghost-db/tests/<module>.rs` against
+2. **Repo tests** in `crates/vuuut-db/tests/<module>.rs` against
    `connect_test()`.
-3. **An end-to-end test** in `crates/ghost-admin-ui/tests/<module>.rs` that
+3. **An end-to-end test** in `crates/vuuut-admin-ui/tests/<module>.rs` that
    drives the real router with `tower::ServiceExt::oneshot`: build the thing
    in the admin, exercise the public side the way a browser would, read it
    back, export it, delete it. Start with the refusals —
@@ -542,15 +542,15 @@ choice was made, especially where the obvious alternative is wrong.
 ## Checklist for a new module
 
 ```
-[ ] crates/ghost-admin-ui/src/<module>.rs         — all screens + handlers
-[ ] crates/ghost-core/src/<module>.rs             — pure rules, if any
-[ ] crates/ghost-db/src/repos/<module>.rs         — all queries
-[ ] crates/ghost-api/src/<module>.rs              — public router, if any
+[ ] crates/vuuut-admin-ui/src/<module>.rs         — all screens + handlers
+[ ] crates/vuuut-core/src/<module>.rs             — pure rules, if any
+[ ] crates/vuuut-db/src/repos/<module>.rs         — all queries
+[ ] crates/vuuut-api/src/<module>.rs              — public router, if any
 [ ] migrations/sqlite/00NN_<module>.sql + mysql twin
-[ ] crates/ghost-admin-ui/assets/<module>-*.js    — hashed URL, no build step
-[ ] crates/ghost-admin-ui/assets/admin.css        — one labelled block, prefixed
-[ ] crates/ghost-admin-ui/tests/<module>.rs       — end-to-end, refusals first
-[ ] crates/ghost-db/tests/<module>.rs             — repo level
+[ ] crates/vuuut-admin-ui/assets/<module>-*.js    — hashed URL, no build step
+[ ] crates/vuuut-admin-ui/assets/admin.css        — one labelled block, prefixed
+[ ] crates/vuuut-admin-ui/tests/<module>.rs       — end-to-end, refusals first
+[ ] crates/vuuut-db/tests/<module>.rs             — repo level
 [ ] #[cfg(test)] unit tests in each file
 
 registrations — one line each, in the file named:
@@ -573,7 +573,7 @@ Before calling it done:
 [ ] query params reduced to known values before being linked
 [ ] POST → redirect → GET everywhere
 [ ] a <noscript> answer where a script drives the page
-[ ] cargo build --release -p ghost && ./run.sh restart to see it on :1971
+[ ] cargo build --release -p vuuut && ./run.sh restart to see it on :1971
 ```
 
 ## Known deviations in Forms itself

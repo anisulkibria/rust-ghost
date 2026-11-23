@@ -163,7 +163,7 @@ was initiated by this work.
 Final verification: `cargo test --workspace --offline --quiet` passed with
 613 tests passed, 0 failed and 2 existing tests ignored. The test runner
 needed loopback access for its isolated SMTP, webhook and port-selection fixtures.
-`node --test crates/ghost-admin-ui/tests/koenig-saving.cjs` passed all 9 tests,
+`node --test crates/vuuut-admin-ui/tests/koenig-saving.cjs` passed all 9 tests,
 and `git diff --check` passed.
 
 Coverage includes content round trips and rollback, standard Ghost multipart

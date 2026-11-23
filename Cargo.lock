@@ -3582,275 +3582,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "ghost"
-version = "6.75.0"
-dependencies = [
- "axum",
- "futures",
- "ghost-admin-ui",
- "ghost-api",
- "ghost-core",
- "ghost-db",
- "ghost-front",
- "ghost-nql",
- "ghost-render",
- "ghost-routing",
- "hex",
- "hyper",
- "hyper-util",
- "rustls",
- "rustls-acme",
- "rustls-pemfile",
- "serde_json",
- "sha2 0.10.9",
- "sqlx",
- "tokio",
- "tokio-rustls",
- "tokio-stream",
- "tower",
- "tower-http",
- "tracing",
- "tracing-subscriber",
- "walkdir",
-]
-
-[[package]]
-name = "ghost-admin-ui"
-version = "6.75.0"
-dependencies = [
- "axum",
- "bcrypt",
- "chrono",
- "csv",
- "form_urlencoded",
- "futures",
- "ghost-api",
- "ghost-core",
- "ghost-db",
- "ghost-front",
- "ghost-mail",
- "ghost-nql",
- "ghost-render",
- "ghost-routing",
- "ghost-stripe",
- "hex",
- "reqwest 0.12.28",
- "serde",
- "serde_json",
- "serde_yaml",
- "sha2 0.10.9",
- "sqlx",
- "tokio",
- "tower",
- "tracing",
- "zip",
-]
-
-[[package]]
-name = "ghost-api"
-version = "6.75.0"
-dependencies = [
- "axum",
- "base64 0.22.1",
- "bcrypt",
- "chrono",
- "chrono-tz",
- "csv",
- "form_urlencoded",
- "futures",
- "ghost-core",
- "ghost-db",
- "ghost-mail",
- "ghost-nql",
- "ghost-render",
- "ghost-routing",
- "ghost-stripe",
- "hex",
- "hmac 0.12.1",
- "httpdate",
- "image",
- "jsonwebtoken",
- "mpp",
- "percent-encoding",
- "rand 0.8.8",
- "rand 0.9.5",
- "regex",
- "reqwest 0.12.28",
- "rsa",
- "rustls",
- "serde",
- "serde_json",
- "sha1",
- "sha2 0.10.9",
- "sqlx",
- "tokio",
- "tower",
- "tower-http",
- "tracing",
- "walkdir",
- "zip",
-]
-
-[[package]]
-name = "ghost-core"
-version = "6.75.0"
-dependencies = [
- "chrono",
- "chrono-tz",
- "hex",
- "once_cell",
- "rand 0.9.5",
- "regex",
- "serde",
- "serde_json",
- "serde_yaml",
- "sha2 0.10.9",
- "slug",
- "thiserror 2.0.21",
- "tracing",
- "unicode-segmentation",
-]
-
-[[package]]
-name = "ghost-db"
-version = "6.75.0"
-dependencies = [
- "bcrypt",
- "chrono",
- "futures",
- "ghost-core",
- "ghost-nql",
- "hex",
- "rand 0.9.5",
- "serde",
- "serde_json",
- "sha2 0.10.9",
- "sqlx",
- "tokio",
- "tracing",
-]
-
-[[package]]
-name = "ghost-front"
-version = "6.75.0"
-dependencies = [
- "avif-decode",
- "axum",
- "chrono",
- "form_urlencoded",
- "futures",
- "ghost-api",
- "ghost-core",
- "ghost-db",
- "ghost-nql",
- "ghost-render",
- "ghost-routing",
- "hex",
- "image",
- "maxminddb",
- "mime_guess",
- "percent-encoding",
- "regex",
- "serde",
- "serde_json",
- "serde_yaml",
- "sha2 0.10.9",
- "sqlx",
- "tokio",
- "tower",
- "tower-http",
- "tracing",
-]
-
-[[package]]
-name = "ghost-mail"
-version = "6.75.0"
-dependencies = [
- "css-inline",
- "ghost-core",
- "ghost-db",
- "handlebars",
- "hex",
- "hickory-resolver",
- "lettre",
- "once_cell",
- "regex",
- "reqwest 0.12.28",
- "serde",
- "serde_json",
- "sha2 0.10.9",
- "tokio",
- "tracing",
-]
-
-[[package]]
-name = "ghost-nql"
-version = "6.75.0"
-dependencies = [
- "ghost-core",
- "serde",
- "serde_json",
- "sqlx",
- "thiserror 2.0.21",
-]
-
-[[package]]
-name = "ghost-render"
-version = "6.75.0"
-dependencies = [
- "chrono",
- "chrono-tz",
- "comrak",
- "ghost-core",
- "ghost-db",
- "ghost-nql",
- "handlebars",
- "hex",
- "once_cell",
- "percent-encoding",
- "regex",
- "serde",
- "serde_json",
- "serde_yaml",
- "sha2 0.10.9",
- "slug",
- "sqlx",
- "tokio",
- "tracing",
- "walkdir",
-]
-
-[[package]]
-name = "ghost-routing"
-version = "6.75.0"
-dependencies = [
- "ghost-core",
- "ghost-nql",
- "once_cell",
- "regex",
- "serde",
- "serde_json",
- "serde_yaml",
- "tokio",
- "tracing",
-]
-
-[[package]]
-name = "ghost-stripe"
-version = "6.75.0"
-dependencies = [
- "chrono",
- "ghost-core",
- "ghost-db",
- "hex",
- "reqwest 0.12.28",
- "serde",
- "serde_json",
- "sha2 0.10.9",
- "tracing",
-]
-
-[[package]]
 name = "gif"
 version = "0.14.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -8637,6 +8368,275 @@ name = "version_check"
 version = "0.9.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0b928f33d975fc6ad9f86c8f283853ad26bdd5b10b7f1542aa2fa15e2289105a"
+
+[[package]]
+name = "vuuut"
+version = "6.75.0"
+dependencies = [
+ "axum",
+ "futures",
+ "hex",
+ "hyper",
+ "hyper-util",
+ "rustls",
+ "rustls-acme",
+ "rustls-pemfile",
+ "serde_json",
+ "sha2 0.10.9",
+ "sqlx",
+ "tokio",
+ "tokio-rustls",
+ "tokio-stream",
+ "tower",
+ "tower-http",
+ "tracing",
+ "tracing-subscriber",
+ "vuuut-admin-ui",
+ "vuuut-api",
+ "vuuut-core",
+ "vuuut-db",
+ "vuuut-front",
+ "vuuut-nql",
+ "vuuut-render",
+ "vuuut-routing",
+ "walkdir",
+]
+
+[[package]]
+name = "vuuut-admin-ui"
+version = "6.75.0"
+dependencies = [
+ "axum",
+ "bcrypt",
+ "chrono",
+ "csv",
+ "form_urlencoded",
+ "futures",
+ "hex",
+ "reqwest 0.12.28",
+ "serde",
+ "serde_json",
+ "serde_yaml",
+ "sha2 0.10.9",
+ "sqlx",
+ "tokio",
+ "tower",
+ "tracing",
+ "vuuut-api",
+ "vuuut-core",
+ "vuuut-db",
+ "vuuut-front",
+ "vuuut-mail",
+ "vuuut-nql",
+ "vuuut-render",
+ "vuuut-routing",
+ "vuuut-stripe",
+ "zip",
+]
+
+[[package]]
+name = "vuuut-api"
+version = "6.75.0"
+dependencies = [
+ "axum",
+ "base64 0.22.1",
+ "bcrypt",
+ "chrono",
+ "chrono-tz",
+ "csv",
+ "form_urlencoded",
+ "futures",
+ "hex",
+ "hmac 0.12.1",
+ "httpdate",
+ "image",
+ "jsonwebtoken",
+ "mpp",
+ "percent-encoding",
+ "rand 0.8.8",
+ "rand 0.9.5",
+ "regex",
+ "reqwest 0.12.28",
+ "rsa",
+ "rustls",
+ "serde",
+ "serde_json",
+ "sha1",
+ "sha2 0.10.9",
+ "sqlx",
+ "tokio",
+ "tower",
+ "tower-http",
+ "tracing",
+ "vuuut-core",
+ "vuuut-db",
+ "vuuut-mail",
+ "vuuut-nql",
+ "vuuut-render",
+ "vuuut-routing",
+ "vuuut-stripe",
+ "walkdir",
+ "zip",
+]
+
+[[package]]
+name = "vuuut-core"
+version = "6.75.0"
+dependencies = [
+ "chrono",
+ "chrono-tz",
+ "hex",
+ "once_cell",
+ "rand 0.9.5",
+ "regex",
+ "serde",
+ "serde_json",
+ "serde_yaml",
+ "sha2 0.10.9",
+ "slug",
+ "thiserror 2.0.21",
+ "tracing",
+ "unicode-segmentation",
+]
+
+[[package]]
+name = "vuuut-db"
+version = "6.75.0"
+dependencies = [
+ "bcrypt",
+ "chrono",
+ "futures",
+ "hex",
+ "rand 0.9.5",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "sqlx",
+ "tokio",
+ "tracing",
+ "vuuut-core",
+ "vuuut-nql",
+]
+
+[[package]]
+name = "vuuut-front"
+version = "6.75.0"
+dependencies = [
+ "avif-decode",
+ "axum",
+ "chrono",
+ "form_urlencoded",
+ "futures",
+ "hex",
+ "image",
+ "maxminddb",
+ "mime_guess",
+ "percent-encoding",
+ "regex",
+ "serde",
+ "serde_json",
+ "serde_yaml",
+ "sha2 0.10.9",
+ "sqlx",
+ "tokio",
+ "tower",
+ "tower-http",
+ "tracing",
+ "vuuut-api",
+ "vuuut-core",
+ "vuuut-db",
+ "vuuut-nql",
+ "vuuut-render",
+ "vuuut-routing",
+]
+
+[[package]]
+name = "vuuut-mail"
+version = "6.75.0"
+dependencies = [
+ "css-inline",
+ "handlebars",
+ "hex",
+ "hickory-resolver",
+ "lettre",
+ "once_cell",
+ "regex",
+ "reqwest 0.12.28",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "tokio",
+ "tracing",
+ "vuuut-core",
+ "vuuut-db",
+]
+
+[[package]]
+name = "vuuut-nql"
+version = "6.75.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "sqlx",
+ "thiserror 2.0.21",
+ "vuuut-core",
+]
+
+[[package]]
+name = "vuuut-render"
+version = "6.75.0"
+dependencies = [
+ "chrono",
+ "chrono-tz",
+ "comrak",
+ "handlebars",
+ "hex",
+ "once_cell",
+ "percent-encoding",
+ "regex",
+ "serde",
+ "serde_json",
+ "serde_yaml",
+ "sha2 0.10.9",
+ "slug",
+ "sqlx",
+ "tokio",
+ "tracing",
+ "vuuut-core",
+ "vuuut-db",
+ "vuuut-nql",
+ "walkdir",
+]
+
+[[package]]
+name = "vuuut-routing"
+version = "6.75.0"
+dependencies = [
+ "once_cell",
+ "regex",
+ "serde",
+ "serde_json",
+ "serde_yaml",
+ "tokio",
+ "tracing",
+ "vuuut-core",
+ "vuuut-nql",
+]
+
+[[package]]
+name = "vuuut-stripe"
+version = "6.75.0"
+dependencies = [
+ "chrono",
+ "hex",
+ "reqwest 0.12.28",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "tracing",
+ "vuuut-core",
+ "vuuut-db",
+]
 
 [[package]]
 name = "walkdir"

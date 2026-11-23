@@ -1,7 +1,7 @@
 # migrations
 
 Two directories, one per database engine. Which one runs is decided at startup
-by `ghost_core::Config::db_target` and applied by `ghost_db::pool::migrate`.
+by `vuuut_core::Config::db_target` and applied by `vuuut_db::pool::migrate`.
 
     sqlite/   the source of truth — edit these
     mysql/    generated — do not edit by hand
@@ -56,11 +56,11 @@ to them.** A schema change is a new file, `0012_…` onward.
        cd migrations && python3 -I translate.py
 
    It rewrites every file in `mysql/` and regenerates
-   `../crates/ghost-db/src/schema_kinds.rs`.
-3. Check it: `cargo test -p ghost-db --test schema_parity`, which fails if the
+   `../crates/vuuut-db/src/schema_kinds.rs`.
+3. Check it: `cargo test -p vuuut-db --test schema_parity`, which fails if the
    two schemas have drifted or if a column was added in a type MySQL cannot
-   return — see `ghost_db::types` for what those are.
+   return — see `vuuut_db::types` for what those are.
 
 A new column holding long text must be added to `LONG` or `MEDIUM` in
 `translate.py`; anything in `LONG` is `MEDIUMTEXT` on MySQL and has to be read
-through `ghost_db::types::long`, because MySQL sends it as a blob.
+through `vuuut_db::types::long`, because MySQL sends it as a blob.

@@ -49,10 +49,10 @@ cargo run
 The first build takes a few minutes. After that you should see:
 
 ```
-INFO ghost: database ready at .../content/data/ghost-dev.db
-INFO ghost: seeded initial data (roles, settings, fixture posts)
-INFO ghost: theme 'source' activated
-INFO ghost: Vuuut ready in 0.6s — http://localhost:1971 (admin at http://localhost:1971/ghost/)
+INFO vuuut: database ready at .../content/data/ghost-dev.db
+INFO vuuut: seeded initial data (roles, settings, fixture posts)
+INFO vuuut: theme 'source' activated
+INFO vuuut: Vuuut ready in 0.6s — http://localhost:1971 (admin at http://localhost:1971/ghost/)
 ```
 
 ### Step 3 — Create your account
@@ -65,7 +65,7 @@ The site itself is at **http://localhost:1971**.
 > **Port 1971 already taken?** `cargo run` with no config file insists on it
 > and stops with `Address in use`, because the port is part of the url every
 > link is built from. To put this install somewhere else, write a config that
-> says so — `ghost setup` finds a free port on its own:
+> says so — `vuuut setup` finds a free port on its own:
 >
 > ```bash
 > cargo run -- setup --env development --no-ssl --url http://localhost:1971
@@ -189,8 +189,8 @@ This compiles ~470 crates and takes a few minutes the first time. When it
 finishes, put the binary on the system path:
 
 ```bash
-sudo install -m 755 target/release/ghost /usr/local/bin/ghost
-ghost version
+sudo install -m 755 target/release/vuuut /usr/local/bin/vuuut
+vuuut version
 ```
 
 > **If the build runs out of memory** — the usual symptom on a 512 MB–1 GB
@@ -207,8 +207,8 @@ ghost version
 > binary over and carry on from Step 5:
 >
 > ```bash
-> scp target/release/ghost you@example.com:/tmp/ghost
-> ssh you@example.com 'sudo install -m 755 /tmp/ghost /usr/local/bin/ghost'
+> scp target/release/vuuut you@example.com:/tmp/vuuut
+> ssh you@example.com 'sudo install -m 755 /tmp/vuuut /usr/local/bin/vuuut'
 > ```
 >
 > You will still need the repository's `content/themes/` directory on the
@@ -244,7 +244,7 @@ back up.
 
 ```bash
 cd /var/www/example.com
-sudo -u ghost ghost setup --url https://example.com --ssl --email you@example.com
+sudo -u ghost vuuut setup --url https://example.com --ssl --email you@example.com
 ```
 
 That writes `config.production.json`:
@@ -272,7 +272,7 @@ That writes `config.production.json`:
   past — if something else already holds it, that is a decision to make (stop
   it, or [put it in front](#behind-a-reverse-proxy)) rather than a number to
   avoid.
-- Leave off the flags and `ghost setup` asks you for each value instead.
+- Leave off the flags and `vuuut setup` asks you for each value instead.
 
 > **Also want `www.example.com` to work?** Add a `CNAME` record for `www`
 > pointing at `example.com`, then list both names so the certificate covers
@@ -291,7 +291,7 @@ That writes `config.production.json`:
 ### Step 7 — Check the server can serve it
 
 ```bash
-sudo -u ghost GHOST_ENV=production ghost doctor
+sudo -u ghost GHOST_ENV=production vuuut doctor
 ```
 
 ```
@@ -329,7 +329,7 @@ group as well.
 
 ```bash
 cd /var/www/example.com
-sudo GHOST_ENV=production ghost systemd --write
+sudo GHOST_ENV=production vuuut systemd --user ghost --write
 sudo systemctl enable --now ghost
 systemctl status ghost
 ```
@@ -338,7 +338,7 @@ The generated unit runs as the `ghost` user, restarts on failure, starts on
 boot, and grants `CAP_NET_BIND_SERVICE` so an unprivileged account can bind
 ports 80 and 443 without running as root.
 
-Run `ghost systemd` without `--write` to read the unit before installing it.
+Run `vuuut systemd` without `--write` to read the unit before installing it.
 
 > The unit is sandboxed: `ProtectSystem=strict` makes the filesystem read-only
 > apart from the site directory, and `ProtectHome=yes` hides `/home`. If you
@@ -384,7 +384,7 @@ A subdomain is just a hostname, so there are no extra steps. Two things change:
 2. **Step 6**, the url is the subdomain:
 
    ```bash
-   sudo -u ghost ghost setup --url https://blog.example.com --ssl --email you@example.com
+   sudo -u ghost vuuut setup --url https://blog.example.com --ssl --email you@example.com
    ```
 
 Everything else — the service user, `doctor`, `systemd`, the firewall, the
@@ -396,7 +396,7 @@ certificate — is identical. The admin ends up at
 Also the same as Guide 2, with **one** change: put the path on the url.
 
 ```bash
-sudo -u ghost ghost setup --url https://example.com/blog --ssl --email you@example.com
+sudo -u ghost vuuut setup --url https://example.com/blog --ssl --email you@example.com
 ```
 
 That moves the whole install:
@@ -442,27 +442,27 @@ of giving each one its own directory, port and service name.
 # first site
 sudo mkdir -p /var/www/first.com && sudo chown -R ghost:ghost /var/www/first.com
 cd /var/www/first.com
-sudo -u ghost ghost setup --url https://first.com --no-ssl
-sudo ghost systemd --write --name first
+sudo -u ghost vuuut setup --url https://first.com --no-ssl
+sudo vuuut systemd --write --name first
 sudo systemctl enable --now first
 
 # second site — same commands, different directory and name
 sudo mkdir -p /var/www/second.com && sudo chown -R ghost:ghost /var/www/second.com
 cd /var/www/second.com
-sudo -u ghost ghost setup --url https://second.com --no-ssl
-sudo ghost systemd --write --name second
+sudo -u ghost vuuut setup --url https://second.com --no-ssl
+sudo vuuut systemd --write --name second
 sudo systemctl enable --now second
 ```
 
 Three things make this work:
 
-- **Ports sort themselves out.** `ghost setup` without `--port` starts at 1971
+- **Ports sort themselves out.** `vuuut setup` without `--port` starts at 1971
   and walks upwards until it finds a port nothing is listening on, then writes
   that port *and* the matching url. The second install lands on 1972, the third
   on 1973, and so on. Pass `--port` to choose instead.
 
 - **`--name` gives each instance its own service.** Without it every install
-  writes `ghost.service`, and the second would take over the first. `ghost
+  writes `ghost.service`, and the second would take over the first. `vuuut
   systemd --write` now refuses to overwrite a unit that belongs to another
   directory, and tells you the name flag — but it is simpler to pass it from
   the start. The name is also what `systemctl` uses: `systemctl status first`.
@@ -495,7 +495,7 @@ A stock Ghost install usually holds 2368 — often several, on 2368, 2369, 2370
 
 ```bash
 cd /var/www/new-site
-sudo -u ghost ghost setup --url https://new-site.com --no-ssl
+sudo -u ghost vuuut setup --url https://new-site.com --no-ssl
 ```
 
 The port search steps over whatever is already listening, including the
@@ -503,7 +503,7 @@ loopback-only sockets Node's Ghost binds, and reports the port it settled on.
 Then add a server block to the nginx you already have, pointing at that port,
 exactly as in [Behind a reverse proxy](#behind-a-reverse-proxy).
 
-`ghost doctor` is worth running in each site's directory afterwards: it checks
+`vuuut doctor` is worth running in each site's directory afterwards: it checks
 that instance's own ports, database and certificate state.
 
 ---
@@ -512,20 +512,20 @@ that instance's own ports, database and certificate state.
 
 | Command | What it does |
 |---|---|
-| `ghost` | Run the server |
-| `ghost setup` | Write a config file: domain, HTTPS, port |
-| `ghost doctor` | Check this machine can serve the configured site |
-| `ghost systemd` | Print a systemd unit, or install it with `--write`. `--name` per instance |
-| `ghost seed-demo` | Fill the site with demo content |
-| `ghost version` | Print the version |
-| `ghost --help` | All of the above, with every flag |
+| `vuuut` | Run the server |
+| `vuuut setup` | Write a config file: domain, HTTPS, port |
+| `vuuut doctor` | Check this machine can serve the configured site |
+| `vuuut systemd` | Print a systemd unit, or install it with `--write`. `--name` per instance |
+| `vuuut seed-demo` | Fill the site with demo content |
+| `vuuut version` | Print the version |
+| `vuuut --help` | All of the above, with every flag |
 
-`ghost doctor` exits non-zero when something must be fixed, so it works in a
+`vuuut doctor` exits non-zero when something must be fixed, so it works in a
 provisioning script.
 
 Which config file is read depends on `GHOST_ENV`: `config.production.json`
 when it is `production`, `config.development.json` otherwise (the default).
-`ghost setup` writes the production one unless you pass `--env development`.
+`vuuut setup` writes the production one unless you pass `--env development`.
 
 ---
 
@@ -708,10 +708,28 @@ installs rather than for disaster recovery.
 
 ## Upgrading
 
+Local development installs use the release binary managed by `run.sh`.
+
+```bash
+git pull
+./run.sh upgrade
+```
+
+The script builds the release binary before restarting it. Startup applies
+pending database migrations. Git carries the code and bundled themes. Each
+device keeps its own database, uploaded files, and local configuration.
+To move an existing shop, transfer its database and content backup to the
+other device.
+
+Systemd installations use the system service. For a service installed
+before the executable was renamed, update its `ExecStart` to
+`/usr/local/bin/vuuut` before starting it again.
+
 ```bash
 cd vuuut && git pull && cargo build --release
 sudo systemctl stop ghost
-sudo install -m 755 target/release/ghost /usr/local/bin/ghost
+sudo install -m 755 target/release/vuuut /usr/local/bin/vuuut
+sudo systemctl daemon-reload
 sudo systemctl start ghost
 journalctl -u ghost -n 50
 ```
@@ -724,10 +742,10 @@ Database migrations run automatically at startup. Back the database up first.
 
 | Symptom | Cause and fix |
 |---|---|
-| `cannot listen on 0.0.0.0:443: Permission denied` | Ports under 1024 need a capability. Use the systemd unit from `ghost systemd`, or `sudo setcap 'cap_net_bind_service=+ep' $(which ghost)`. |
-| `cannot listen on …: Address in use` | Something else holds the port — often an existing nginx or Apache. Find it with `sudo lsof -i :443`. To move this install instead, re-run `ghost setup --force --port <n>`, or drop `--port` and let it find a free one. The server itself never changes port on its own: the port is part of the url every link is built from, so moving silently would break them all. |
+| `cannot listen on 0.0.0.0:443: Permission denied` | Ports under 1024 need a capability. Use the systemd unit from `vuuut systemd`, or `sudo setcap 'cap_net_bind_service=+ep' $(which vuuut)`. |
+| `cannot listen on …: Address in use` | Something else holds the port — often an existing nginx or Apache. Find it with `sudo lsof -i :443`. To move this install instead, re-run `vuuut setup --force --port <n>`, or drop `--port` and let it find a free one. The server itself never changes port on its own: the port is part of the url every link is built from, so moving silently would break them all. |
 | Browser shows a certificate warning | Either `"staging": true` is still set, or the certificate has not been issued yet. Check `journalctl -u ghost` for the ACME exchange. |
-| Certificate never issues | Almost always DNS or a blocked port 443. Run `ghost doctor`; it checks both. Cloudflare's orange-cloud proxy also intercepts the challenge — set that record to "DNS only". |
+| Certificate never issues | Almost always DNS or a blocked port 443. Run `vuuut doctor`; it checks both. Cloudflare's orange-cloud proxy also intercepts the challenge — set that record to "DNS only". |
 | `ssl is on but url is 'http://…'` | Change `url` to `https://`. The message names the exact value. |
 | `'/ghost' is reserved … as a base path` | Those path segments belong to the app. Pick another, e.g. `/blog`. |
 | Admin loads but sign-in bounces back to the form | The session cookie is scoped to the base path; make sure you are visiting the `url` from the config, not an IP or a different hostname. |
@@ -746,7 +764,7 @@ sudo systemctl edit ghost     # add: Environment=RUST_LOG=debug
 ## Configuration reference
 
 `config.<env>.json` in the working directory, where `<env>` is `GHOST_ENV`
-(default `development`; `ghost setup` writes `production`). Every key can also
+(default `development`; `vuuut setup` writes `production`). Every key can also
 be set as an environment variable with `GHOST_` and `__` for nesting —
 `GHOST_SERVER__PORT=8080`, `GHOST_DATABASE__CONNECTION__FILENAME=/data/g.db`.
 
@@ -754,7 +772,7 @@ be set as an environment variable with `GHOST_` and `__` for nesting —
 |---|---|---|
 | `url` | `http://localhost:1971` | Public url, including any subdirectory. Decides the base path and every URL the site writes. |
 | `ssl` | `false` | `true` for automatic certificates, `false` for plain HTTP, or an object (see above). |
-| `server.host` | `127.0.0.1` | Address to bind. `ghost setup` writes `0.0.0.0` when serving the public directly. |
+| `server.host` | `127.0.0.1` | Address to bind. `vuuut setup` writes `0.0.0.0` when serving the public directly. |
 | `server.port` | 443 with TLS, else the port in `url`, else 1971 | Port to bind. Left unset, a port in `url` is used, so the listener and every link the site writes always agree. |
 | `database.connection.filename` | `content/data/ghost.db` | SQLite file, relative to the config's directory. |
 | `paths.contentPath` | `content` | Themes, images, data, the ACME cache. |
@@ -794,25 +812,25 @@ compatibility checks cover.
 
 ```
 crates/
-  ghost-core      config (Ghost-style layered JSON + GHOST_* env), errors,
+  vuuut-core      config (Ghost-style layered JSON + GHOST_* env), errors,
                   24-hex ObjectIds, Ghost slug rules, dates, domain models
                   + Content-API JSON serializers, base-path URL handling
                   (`url`: the subdirectory install's single choke point)
-  ghost-nql       Ghost's NQL filter language: parser → parameterized SQL
+  vuuut-nql       Ghost's NQL filter language: parser → parameterized SQL
                   (virtual keys: primary_tag/author(s)/tag(s)), in-memory
                   evaluation for routing ownership
-  ghost-db        SQLite pool + migrations + seeder, repositories
+  vuuut-db        SQLite pool + migrations + seeder, repositories
                   (posts/tags/users/settings/api-keys/sessions/…)
-  ghost-routing   routes.yaml/redirects.yaml → router tree with Ghost's
+  vuuut-routing   routes.yaml/redirects.yaml → router tree with Ghost's
                   dominance order, permalink build/parse, template resolution
-  ghost-render    theme loading/validation, Handlebars registry, preprocessing
+  vuuut-render    theme loading/validation, Handlebars registry, preprocessing
                   (@site → @root rewrite, layout extraction, inverted
                   sections), helpers, comrak markdown pipeline
-  ghost-api       AppState, Content API, Admin API, image upload
-  ghost-admin-ui  built-in server-rendered admin area
-  ghost-front     public site: routing → fetch → render, sitemap, RSS,
+  vuuut-api       AppState, Content API, Admin API, image upload
+  vuuut-admin-ui  built-in server-rendered admin area
+  vuuut-front     public site: routing → fetch → render, sitemap, RSS,
                   theme assets, /content/* static files
-  ghost           the binary: CLI (setup/doctor/systemd), boot sequence,
+  vuuut           the binary: CLI (setup/doctor/systemd), boot sequence,
                   HTTP composition, and listening — plain, TLS from files,
                   or TLS with automatic certificates
 migrations/       embedded SQL migrations (schema mirrors Ghost's columns)
@@ -821,7 +839,7 @@ content/          themes/, data/, images/, routes.yaml, redirects.yaml
 
 Adding an administrative feature of your own? See
 [How to add an admin module](docs/module-pattern.md) — a map of
-`ghost-admin-ui`, the nine places a module registers itself, and the security
+`vuuut-admin-ui`, the nine places a module registers itself, and the security
 and testing rules every module keeps. Forms is the worked example.
 
 ## Compatibility notes
