@@ -617,6 +617,7 @@ pub fn breakdown_card(caption: &str, rows: &[(String, String, i64, i64)], empty:
 #[cfg(test)]
 mod tests {
     use super::*;
+    use vuuut_core::countries::COUNTRY_NAMES;
 
     /// A flag is computed from the code, so a code the name table has never
     /// heard of still gets a flag — and a code that is not a code does not get

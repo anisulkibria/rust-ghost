@@ -1,0 +1,112 @@
+{
+    "name": "paperback",
+    "description": "A magazine theme for Vuuut. Every section gets its own colour, and every story opens like a book cover.",
+    "version": "1.0.0",
+    "engines": {
+        "ghost": ">=5.0.0"
+    },
+    "license": "MIT",
+    "author": {
+        "name": "Vuuut",
+        "email": "hello@vuuut.com",
+        "url": "https://vuuut.com"
+    },
+    "gpm": {
+        "type": "theme",
+        "categories": [
+            "Magazine",
+            "Newsletter"
+        ]
+    },
+    "keywords": [
+        "ghost-theme",
+        "vuuut-theme",
+        "magazine",
+        "publication",
+        "newsletter"
+    ],
+    "config": {
+        "posts_per_page": 13,
+        "image_sizes": {
+            "xs": {
+                "width": 160
+            },
+            "s": {
+                "width": 400
+            },
+            "m": {
+                "width": 760
+            },
+            "l": {
+                "width": 1200
+            },
+            "xl": {
+                "width": 1800
+            },
+            "xxl": {
+                "width": 2400
+            }
+        },
+        "card_assets": true,
+        "custom": {
+            "color_scheme": {
+                "type": "select",
+                "options": ["Light", "Dark", "Follow the reader's device"],
+                "default": "Light",
+                "description": "Where every reader starts. Each can switch with the light/dark button in the header."
+            },
+            "title_font": {
+                "type": "select",
+                "options": [
+                    "Sans-serif",
+                    "Serif"
+                ],
+                "default": "Sans-serif"
+            },
+            "body_font": {
+                "type": "select",
+                "options": [
+                    "Serif",
+                    "Sans-serif"
+                ],
+                "default": "Serif"
+            },
+            "signup_heading": {
+                "type": "text",
+                "description": "Heading of the signup band on every page. Defaults to \"Get every new story by email\"."
+            },
+            "signup_text": {
+                "type": "text",
+                "description": "One line under the signup heading. Defaults to the site description."
+            },
+            "show_cover_story": {
+                "type": "boolean",
+                "default": true,
+                "description": "Opens the homepage with the latest post set as a full cover.",
+                "group": "homepage"
+            },
+            "show_sections": {
+                "type": "boolean",
+                "default": true,
+                "description": "Adds a shelf for each of your three biggest tags, in the tag's accent colour.",
+                "group": "homepage"
+            },
+            "show_images_on_cards": {
+                "type": "boolean",
+                "default": true,
+                "group": "homepage"
+            },
+            "show_author_card": {
+                "type": "boolean",
+                "default": true,
+                "group": "post"
+            },
+            "show_related_posts": {
+                "type": "boolean",
+                "default": true,
+                "description": "Ends each post with three more from the same tag.",
+                "group": "post"
+            }
+        }
+    }
+}

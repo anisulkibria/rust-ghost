@@ -77,6 +77,10 @@ pub mod caching;
 // Tools → Directory & Classified Listings. The public directory is
 // `vuuut_front::directory`; the rules are `vuuut_core::directory`.
 pub mod directories;
+// Tools → Dummy content: demonstration content, generated and removed.
+// Rules and catalogue in `vuuut_core::dummies`; the record in
+// `vuuut_db::repos::dummies`.
+pub mod dummies;
 // Tools → E-commerce & Online Stores. The storefront is `vuuut_front::shop`;
 // the rules are `vuuut_core::ecom`.
 pub mod ecom;
@@ -352,6 +356,11 @@ pub fn admin_ui_router(state: AppState) -> Router<AppState> {
         .route("/directories/categories/{id}/delete/", post(directories::category_delete))
         .route("/directories/settings/", get(directories::dir_settings_page).post(directories::dir_settings_save))
         // Tools → Caching & Performance.
+        // Tools → Dummy content.
+        .route("/dummies/", get(dummies::dummies_page))
+        .route("/dummies/full/", post(dummies::generate_full))
+        .route("/dummies/custom/", post(dummies::generate_custom))
+        .route("/dummies/remove/", post(dummies::remove))
         .route("/caching/", get(caching::caching_page))
         .route("/caching/purge/", post(caching::purge_all))
         .route("/caching/stats/reset/", post(caching::reset_stats))

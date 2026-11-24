@@ -1,0 +1,17 @@
+{{!-- Featured episodes, offered to new listeners as the place to begin.
+     Sits beside the show description, or on its own when that is off. --}}
+{{#get "posts" filter="featured:true" limit="3" fields="id,title,url,published_at" as |picks|}}
+    {{#if picks}}
+        <div class="picks">
+            <h3 class="picks-title">{{t "New here? Start with these"}}</h3>
+            <ol class="picks-list" role="list">
+                {{#foreach picks visibility="all"}}
+                    <li class="pick">
+                        {{#if @custom.number_episodes}}<span class="pick-number"><span class="visually-hidden">{{t "Episode"}} </span>{{> "episode-number"}}</span>{{/if}}
+                        <a class="pick-title" href="{{url}}">{{title}}</a>
+                    </li>
+                {{/foreach}}
+            </ol>
+        </div>
+    {{/if}}
+{{/get}}

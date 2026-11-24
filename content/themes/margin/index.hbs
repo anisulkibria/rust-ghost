@@ -1,0 +1,27 @@
+{{!< default}}
+
+<div class="layout wrap">
+    <main class="layout-main" id="main">
+        {{#is "paged"}}
+            <header class="archive-header">
+                <p class="archive-kicker">{{t "Page {page} of {pages}" page=pagination.page pages=pagination.pages}}</p>
+            </header>
+        {{/is}}
+
+        <div class="feed">
+            {{#foreach posts}}
+                {{#match @custom.homepage_entries "Full post"}}
+                    {{> "entry" full=true}}
+                {{else}}
+                    {{> "entry"}}
+                {{/match}}
+            {{else}}
+                <p class="empty-note">{{t "Nothing has been published yet. New posts will appear here."}}</p>
+            {{/foreach}}
+        </div>
+
+        {{pagination}}
+    </main>
+
+    {{> "sidebar"}}
+</div>

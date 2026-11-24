@@ -32,7 +32,7 @@ pub fn new_token() -> String {
 // products
 // ===========================================================================
 
-#[derive(Debug, Clone, sqlx::FromRow)]
+#[derive(Debug, Clone, serde::Serialize, sqlx::FromRow)]
 pub struct Product {
     pub id: String,
     pub handle: String,
@@ -83,7 +83,7 @@ impl Product {
 const P_COLS: &str = "id, handle, title, status, description_lexical, description_html, excerpt, vendor, product_type, tags, images, \
 options, seo_title, seo_description, requires_shipping, taxable, featured, published_at, created_at, updated_at, download_limit, download_days, demo_url, purchase_url";
 
-#[derive(Debug, Clone, sqlx::FromRow)]
+#[derive(Debug, Clone, serde::Serialize, sqlx::FromRow)]
 pub struct Variant {
     pub id: String,
     pub product_id: String,
@@ -189,11 +189,15 @@ pub async fn products_by_ids(pool: &Db, ids: &[String]) -> Vec<Product> {
 }
 
 pub async fn variants(pool: &Db, product_id: &str) -> Vec<Variant> {
-    sqlx::query_as::<_, Variant>(&format!("SELECT {V_COLS} FROM ecom_variants WHERE product_id = ? ORDER BY position, created_at"))
+    read_variants(pool, product_id).await.unwrap_or_default()
+}
+
+pub(super) async fn read_variants(pool: &Db, product_id: &str) -> Result<Vec<Variant>> {
+    sqlx::query_as::<_, Variant>(&format!("SELECT {V_COLS} FROM ecom_variants WHERE product_id = ? ORDER BY position, created_at, id"))
         .bind(product_id)
         .fetch_all(pool)
         .await
-        .unwrap_or_default()
+        .map_err(dberr)
 }
 
 pub async fn find_variant(pool: &Db, id: &str) -> Option<Variant> {

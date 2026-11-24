@@ -1,0 +1,116 @@
+{
+    "name": "earshot",
+    "description": "A podcast theme for Vuuut. The newest episode plays from the homepage, every episode is drawn to its length, and listeners pick up where they left off.",
+    "version": "1.0.0",
+    "engines": {
+        "ghost": ">=5.0.0"
+    },
+    "license": "MIT",
+    "author": {
+        "name": "Vuuut",
+        "email": "hello@vuuut.com",
+        "url": "https://vuuut.com"
+    },
+    "gpm": {
+        "type": "theme",
+        "categories": [
+            "Podcast"
+        ]
+    },
+    "keywords": [
+        "ghost-theme",
+        "vuuut-theme",
+        "podcast",
+        "audio",
+        "episodes"
+    ],
+    "config": {
+        "posts_per_page": 12,
+        "image_sizes": {
+            "xs": { "width": 160 },
+            "s": { "width": 400 },
+            "m": { "width": 720 },
+            "l": { "width": 1200 },
+            "xl": { "width": 1800 },
+            "xxl": { "width": 2400 }
+        },
+        "card_assets": true,
+        "custom": {
+            "color_scheme": {
+                "type": "select",
+                "options": ["Light", "Dark", "Follow the reader's device"],
+                "default": "Light",
+                "description": "Where every reader starts. Each can switch with the light/dark button in the header."
+            },
+            "cover_art": {
+                "type": "image",
+                "description": "Square show artwork, 1400 px or larger: the image podcast apps show. Falls back to the site icon."
+            },
+            "apple_podcasts_url": {
+                "type": "text",
+                "description": "Link to the show on Apple Podcasts."
+            },
+            "spotify_url": {
+                "type": "text",
+                "description": "Link to the show on Spotify."
+            },
+            "youtube_url": {
+                "type": "text",
+                "description": "Link to the show's YouTube channel or playlist."
+            },
+            "podcast_rss_url": {
+                "type": "text",
+                "description": "The RSS feed from your podcast host. Listeners copy it into any other podcast app."
+            },
+            "number_episodes": {
+                "type": "boolean",
+                "default": true,
+                "description": "Numbers posts in publishing order. Turn off if you also publish posts that aren't episodes."
+            },
+            "signup_heading": {
+                "type": "text",
+                "description": "Heading of the email signup box. Defaults to \"Get new episodes by email\"."
+            },
+            "signup_text": {
+                "type": "text",
+                "description": "One line under the signup heading. Defaults to a line about how often you'll email."
+            },
+            "show_about_section": {
+                "type": "boolean",
+                "default": true,
+                "description": "Shows your cover art, description, hosts and listening links under the newest episode.",
+                "group": "homepage"
+            },
+            "show_start_here": {
+                "type": "boolean",
+                "default": true,
+                "description": "Lists your featured episodes as the place new listeners should start.",
+                "group": "homepage"
+            },
+            "show_episode_art": {
+                "type": "boolean",
+                "default": true,
+                "description": "Shows each episode's feature image beside it in episode lists.",
+                "group": "homepage"
+            },
+            "show_chapters": {
+                "type": "boolean",
+                "default": true,
+                "description": "Turns lines in show notes that start with a timestamp (04:12 Intro) into chapters.",
+                "group": "post"
+            },
+            "show_host_card": {
+                "type": "boolean",
+                "default": true,
+                "description": "Shows each host's photo and bio after the show notes.",
+                "group": "post"
+            },
+            "show_related_episodes": {
+                "type": "boolean",
+                "default": true,
+                "description": "Shows three more episodes on the same topic after the show notes.",
+                "group": "post"
+            }
+        }
+    }
+}

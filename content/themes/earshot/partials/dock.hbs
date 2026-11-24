@@ -1,0 +1,25 @@
+{{!-- The player that stays at the foot of the window once an episode is
+     playing and its own player has scrolled out of view. --}}
+<div class="dock" data-dock hidden role="region" aria-label="{{t "Now playing"}}">
+    <div class="dock-tape">
+        <span class="dock-fill" data-dock-fill></span>
+        <input class="dock-seek" type="range" min="0" max="0" step="1" value="0" aria-label="{{t "Position in episode"}}" data-dock-seek>
+    </div>
+    <div class="dock-inner wrap">
+        <button class="play play-small" type="button" data-dock-play>
+            <span class="play-glyph">{{> "icons/play"}}</span>
+            <span class="pause-glyph">{{> "icons/pause"}}</span>
+            <span class="visually-hidden" data-play-label>{{t "Play"}}</span>
+        </button>
+        <div class="dock-text">
+            <a class="dock-title" href="#" data-dock-title></a>
+            <p class="dock-meta"><span data-dock-elapsed>0:00</span> / <span data-dock-duration>&ndash;:&ndash;&ndash;</span> <span class="dock-chapter" data-dock-chapter></span></p>
+        </div>
+        <div class="dock-controls">
+            <button class="chip" type="button" data-dock-skip="-15" aria-label="{{t "Back 15 seconds"}}">{{> "icons/back"}}<span aria-hidden="true">15</span></button>
+            <button class="chip chip-rate" type="button" data-dock-rate aria-label="{{t "Playback speed"}}"><span data-rate-label>1×</span></button>
+            <button class="chip" type="button" data-dock-skip="30" aria-label="{{t "Forward 30 seconds"}}"><span aria-hidden="true">30</span>{{> "icons/forward"}}</button>
+        </div>
+        <button class="icon-button dock-close" type="button" data-dock-close aria-label="{{t "Stop and close the player"}}">{{> "icons/close"}}</button>
+    </div>
+</div>

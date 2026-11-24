@@ -1,0 +1,13 @@
+{{#if recommendations}}
+<ul class="blogroll">
+    {{#foreach recommendations}}
+    <li>
+        <a href="{{url}}" data-recommendation="{{id}}" target="_blank" rel="noopener">
+            {{#if favicon}}<img src="{{favicon}}" alt="" width="16" height="16" loading="lazy" onerror="this.remove()">{{/if}}
+            <span class="blogroll-title">{{title}}</span>
+        </a>
+        <span class="blogroll-url">{{readable_url url}}</span>
+    </li>
+    {{/foreach}}
+</ul>
+{{/if}}

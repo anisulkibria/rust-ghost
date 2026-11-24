@@ -1,0 +1,22 @@
+{{!< default}}
+
+<div class="layout wrap">
+    <main class="layout-main" id="main">
+        {{#tag}}
+            <header class="archive-header">
+                <p class="archive-kicker">{{t "Topic"}}</p>
+                <h1 class="archive-title">{{name}}</h1>
+                {{#if description}}<p class="archive-description">{{description}}</p>{{/if}}
+                <p class="archive-count">{{plural count.posts empty=(t "No posts yet") singular=(t "% post") plural=(t "% posts")}}</p>
+            </header>
+        {{/tag}}
+
+        <div class="feed">
+            {{#foreach posts}}{{> "entry"}}{{/foreach}}
+        </div>
+
+        {{pagination}}
+    </main>
+
+    {{> "sidebar"}}
+</div>

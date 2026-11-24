@@ -1,0 +1,40 @@
+{{!< default}}
+
+<main class="site-main" id="main">
+    {{#author}}
+        <header class="cover list-cover author-cover wrap">
+            <div class="cover-band cover-top">
+                <a class="cover-section" href="{{@site.url}}">{{@site.title}}</a>
+                <span>{{plural ../pagination.total empty=(t "No posts") singular=(t "1 post") plural=(t "% posts")}}</span>
+            </div>
+            <div class="cover-panel">
+                <div class="cover-text">
+                    {{#if profile_image}}
+                        <img class="author-portrait" src="{{img_url profile_image size="s"}}" alt="" width="112" height="112">
+                    {{/if}}
+                    <h1 class="cover-title">{{name}}</h1>
+                    {{#if bio}}<p class="cover-dek">{{bio}}</p>{{/if}}
+                    <ul class="author-links">
+                        {{#if location}}<li>{{location}}</li>{{/if}}
+                        {{#if website}}<li><a href="{{website}}" target="_blank" rel="noopener">{{readable_url website}}</a></li>{{/if}}
+                        {{#if twitter}}<li><a href="{{social_url type="x"}}" target="_blank" rel="noopener">X</a></li>{{/if}}
+                        {{#if facebook}}<li><a href="{{social_url type="facebook"}}" target="_blank" rel="noopener">Facebook</a></li>{{/if}}
+                        {{#if bluesky}}<li><a href="{{social_url type="bluesky"}}" target="_blank" rel="noopener">Bluesky</a></li>{{/if}}
+                        {{#if mastodon}}<li><a href="{{social_url type="mastodon"}}" target="_blank" rel="noopener">Mastodon</a></li>{{/if}}
+                        {{#if instagram}}<li><a href="{{social_url type="instagram"}}" target="_blank" rel="noopener">Instagram</a></li>{{/if}}
+                        {{#if linkedin}}<li><a href="{{social_url type="linkedin"}}" target="_blank" rel="noopener">LinkedIn</a></li>{{/if}}
+                    </ul>
+                </div>
+            </div>
+            <div class="cover-band cover-bottom">
+                {{#is "paged"}}<span>{{t "Page {page} of {pages}" page=../pagination.page pages=../pagination.pages}}</span>{{/is}}
+            </div>
+        </header>
+    {{/author}}
+
+    <div class="shelf wrap">
+        {{#foreach posts}}{{> "card"}}{{/foreach}}
+    </div>
+
+    {{pagination}}
+</main>

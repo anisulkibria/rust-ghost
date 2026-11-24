@@ -1,0 +1,13 @@
+{{#if pages}}
+{{#match pages ">" 1}}
+<nav class="pager" aria-label="{{t "More episodes"}}">
+    {{#if prev}}
+        <a class="pager-link is-newer" href="{{page_url prev}}" rel="prev">{{t "Newer episodes"}}</a>
+    {{/if}}
+    <span class="pager-count">{{t "Page {page} of {pages}" page=page pages=pages}}</span>
+    {{#if next}}
+        <a class="pager-link is-older" href="{{page_url next}}" rel="next">{{t "Older episodes"}}</a>
+    {{/if}}
+</nav>
+{{/match}}
+{{/if}}

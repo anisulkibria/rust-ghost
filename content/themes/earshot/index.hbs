@@ -1,0 +1,53 @@
+{{!< default}}
+
+<main id="main">
+    {{#is "home"}}
+        <h1 class="visually-hidden">{{@site.title}}</h1>
+        {{!-- The about band sits inside the newest episode's context, so
+             "Hosted by" names that episode's hosts rather than every staff
+             account on the site. --}}
+        {{#foreach posts limit="1"}}
+            {{> "stage" heading="h2"}}
+            {{#if @custom.show_about_section}}
+                {{> "about-show"}}
+            {{else if @custom.show_start_here}}
+                {{> "start-here-section"}}
+            {{/if}}
+        {{else}}
+            <section class="empty-stage">
+                <div class="wrap">
+                    <h2 class="section-title">{{t "No episodes yet"}}</h2>
+                    <p class="empty-note">{{t "No episodes have been published yet. The newest one will play from here."}}</p>
+                </div>
+            </section>
+            {{#if @custom.show_about_section}}{{> "about-show"}}{{/if}}
+        {{/foreach}}
+    {{/is}}
+
+    <section class="episodes-section" aria-labelledby="episodes-title">
+        <div class="wrap">
+            <header class="section-head">
+                {{#is "home"}}
+                    <h2 class="section-title" id="episodes-title">{{t "Earlier episodes"}}</h2>
+                {{else}}
+                    <h1 class="section-title" id="episodes-title">{{t "All episodes"}}</h1>
+                {{/is}}
+                {{> "topics"}}
+            </header>
+
+            <ol class="episodes" role="list">
+                {{#is "home"}}
+                    {{#foreach posts from="2"}}{{> "episode-row"}}{{/foreach}}
+                {{else}}
+                    {{#foreach posts}}{{> "episode-row"}}{{/foreach}}
+                {{/is}}
+            </ol>
+
+            {{pagination}}
+        </div>
+    </section>
+
+    {{#is "home"}}
+        {{#if @site.recommendations_enabled}}{{> "recommended-shows"}}{{/if}}
+    {{/is}}
+</main>

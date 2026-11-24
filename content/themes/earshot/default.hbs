@@ -1,0 +1,75 @@
+<!DOCTYPE html>
+<html lang="{{@site.locale}}" data-scheme="{{#match @custom.color_scheme "Light"}}light{{else match @custom.color_scheme "Dark"}}dark{{else}}auto{{/match}}">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    {{!-- A reader's own light/dark choice, applied before anything paints. --}}
+    <script>try{var s=localStorage.getItem('vuuut-scheme');if(s==='light'||s==='dark')document.documentElement.setAttribute('data-scheme',s)}catch(e){}</script>
+    <title>{{meta_title page=(t " (Page %)")}}</title>
+
+    <link rel="preload" as="font" type="font/woff2" href="{{asset "fonts/radio-canada-roman.woff2"}}" crossorigin>
+    <style>
+        @font-face { font-family: "Radio Canada"; font-style: normal; font-weight: 300 700; font-stretch: 75% 100%; font-display: swap; src: url("{{asset "fonts/radio-canada-roman.woff2"}}") format("woff2"); unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD; }
+        @font-face { font-family: "Radio Canada"; font-style: normal; font-weight: 300 700; font-stretch: 75% 100%; font-display: swap; src: url("{{asset "fonts/radio-canada-roman-ext.woff2"}}") format("woff2"); unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C4, U+2113, U+2C60-2C7F, U+A720-A7FF; }
+        @font-face { font-family: "Radio Canada"; font-style: italic; font-weight: 300 700; font-stretch: 75% 100%; font-display: swap; src: url("{{asset "fonts/radio-canada-italic.woff2"}}") format("woff2"); unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD; }
+        @font-face { font-family: "Radio Canada"; font-style: italic; font-weight: 300 700; font-stretch: 75% 100%; font-display: swap; src: url("{{asset "fonts/radio-canada-italic-ext.woff2"}}") format("woff2"); unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C4, U+2113, U+2C60-2C7F, U+A720-A7FF; }
+        :root { --accent-ink: {{contrast_text_color @site.accent_color}}; }
+    </style>
+    {{!-- Text on the accent colour is black or white, whichever has the higher
+         WCAG contrast. Either choice clears 4.5:1 for any accent, which the
+         YIQ split behind contrast_text_color does not guarantee. --}}
+    <script>
+        document.documentElement.classList.add('js');
+        (function (value) {
+            var m = /^#?([0-9a-f]{3}|[0-9a-f]{6})$/i.exec(String(value).trim());
+            if (!m) return;
+            var hex = m[1].length === 3 ? m[1].replace(/./g, '$&$&') : m[1];
+            var c = [0, 2, 4].map(function (i) {
+                var v = parseInt(hex.substr(i, 2), 16) / 255;
+                return v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4);
+            });
+            var lum = 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2];
+            document.documentElement.style.setProperty('--accent-ink', lum > 0.179 ? '#000000' : '#ffffff');
+        })('{{@site.accent_color}}');
+    </script>
+    <link rel="stylesheet" href="{{asset "css/screen.css"}}">
+
+    {{ghost_head}}
+</head>
+<body class="{{body_class}}{{#unless @custom.number_episodes}} no-numbers{{/unless}}{{#unless @custom.show_episode_art}} no-episode-art{{/unless}}"
+    data-show="{{@site.title}}"
+    data-art="{{#if @custom.cover_art}}{{img_url @custom.cover_art size="s"}}{{else if @site.icon}}{{img_url @site.icon size="s"}}{{/if}}"
+    data-chapters="{{#if @custom.show_chapters}}on{{else}}off{{/if}}">
+
+<a class="skip-link" href="#main">{{t "Skip to content"}}</a>
+
+<div class="site">
+    {{> "masthead"}}
+
+    {{{body}}}
+
+    {{> "subscribe-band"}}
+    {{> "footer"}}
+</div>
+
+{{> "dock"}}
+
+<div hidden data-strings
+    data-play="{{t "Play"}}"
+    data-pause="{{t "Pause"}}"
+    data-resume="{{t "Resume"}}"
+    data-play-from="{{t "Play from {time}"}}"
+    data-played="{{t "Played"}}"
+    data-left="{{t "{time} left"}}"
+    data-minutes="{{t "{n} min"}}"
+    data-hours="{{t "{h} hr {m} min"}}"
+    data-copied="{{t "Link copied"}}"
+    data-copy-at="{{t "Copy link at {time}"}}"
+    data-jump="{{t "Jump to {time}"}}"
+    data-of="{{t "{elapsed} of {total}"}}"
+    data-error="{{t "The audio didn’t load. Press play to try again."}}"></div>
+
+<script src="{{asset "js/earshot.js"}}" defer></script>
+{{ghost_foot}}
+</body>
+</html>

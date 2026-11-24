@@ -1122,7 +1122,7 @@ fn external_colour(value: &Value, site: &Settings) -> Value {
     {
         if let Some(colour) = index.checked_sub(1).and_then(|i| site.palette.get(i)) {
             return json!(if colour.is_empty() {
-                "#ff1a75"
+                "#1f4e79"
             } else {
                 colour.as_str()
             });

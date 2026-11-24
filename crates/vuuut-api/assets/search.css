@@ -6,7 +6,7 @@
  * liquid-glass panel where the browser can blur.
  */
 .vs-root {
-  --vs-accent: var(--ghost-accent-color, #FF1A75);
+  --vs-accent: var(--ghost-accent-color, #1f4e79);
   --vs-surface: rgba(255, 251, 252, .86);
   --vs-solid: #FFFBFC;
   --vs-on: #201A1C;

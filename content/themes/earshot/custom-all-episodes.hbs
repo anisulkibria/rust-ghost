@@ -1,0 +1,46 @@
+{{!< default}}
+{{!-- Template: All episodes. The 100 newest episodes on one page, as a numbered log. --}}
+
+{{#post}}
+<main id="main" class="page-main">
+    <header class="page-head">
+        <div class="wrap">
+            <h1 class="page-title">{{title}}</h1>
+            {{#if custom_excerpt}}<p class="page-lede">{{custom_excerpt}}</p>{{/if}}
+        </div>
+    </header>
+
+    {{#if html}}
+        <div class="page-body wrap">
+            <div class="content" data-content>{{content}}</div>
+        </div>
+    {{/if}}
+
+    <div class="wrap">
+        {{#get "posts" limit="100" fields="title,url,published_at,visibility" order="published_at desc" as |everything pages|}}
+            {{#if everything}}
+                {{!-- A reversed list counts down from `start`: the number of
+                     episodes published, which is the newest one's number. --}}
+                <ol class="log{{#unless @custom.number_episodes}} is-unnumbered{{/unless}}" reversed start="{{pages.total}}">
+                    {{!-- Without html in `fields`, foreach can't tell these are
+                         posts and would drop members-only ones; say so. --}}
+                    {{#foreach everything visibility="all"}}
+                        <li class="log-item">
+                            <span class="log-line">
+                                <a class="log-title" href="{{url}}">{{title}}</a>
+                                {{#match visibility "!=" "public"}}<span class="log-access">{{> "icons/lock"}}<span class="visually-hidden">{{t "Members only"}}</span></span>{{/match}}
+                                <time class="log-date" datetime="{{date format="YYYY-MM-DD"}}">{{date format="D MMM YYYY"}}</time>
+                            </span>
+                        </li>
+                    {{/foreach}}
+                </ol>
+                {{#if pages.next}}
+                    <p class="log-more">{{t "This log shows the 100 newest episodes."}} <a href="{{@site.url}}/page/2/">{{t "Browse every episode"}}</a></p>
+                {{/if}}
+            {{else}}
+                <p class="empty-note">{{t "No episodes have been published yet."}}</p>
+            {{/if}}
+        {{/get}}
+    </div>
+</main>
+{{/post}}

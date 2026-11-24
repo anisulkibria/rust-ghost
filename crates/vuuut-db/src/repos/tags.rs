@@ -43,7 +43,12 @@ pub async fn browse(
 
     let mut tags: Vec<Tag> = all.into_iter().map(Into::into).collect();
 
-    if include_count {
+    // `order="count.posts desc"` is how themes list their biggest tags. The
+    // count is not a column, so that order is applied here, after counting,
+    // with the SQL order (name by default) kept as the tie-break.
+    let by_count = count_order(order);
+
+    if include_count || by_count.is_some() {
         for t in tags.iter_mut() {
             t.count_posts = Some(
                 sqlx::query_scalar(
@@ -54,6 +59,18 @@ pub async fn browse(
                 .await
                 .map_err(dberr)?,
             );
+        }
+    }
+
+    if let Some(desc) = by_count {
+        tags.sort_by(|a, b| {
+            let (x, y) = (a.count_posts.unwrap_or(0), b.count_posts.unwrap_or(0));
+            if desc { y.cmp(&x) } else { x.cmp(&y) }
+        });
+        if !include_count {
+            for t in tags.iter_mut() {
+                t.count_posts = None;
+            }
         }
     }
 
@@ -69,6 +86,17 @@ pub async fn browse(
     Ok((page_tags, total))
 }
 
+
+/// `Some(true)` for `count.posts desc`, `Some(false)` for ascending, when
+/// the post count is the first sort key.
+fn count_order(order: Option<&str>) -> Option<bool> {
+    let first = order?.split(',').next()?.trim().to_ascii_lowercase();
+    let mut tokens = first.split_whitespace();
+    if tokens.next()? != "count.posts" {
+        return None;
+    }
+    Some(tokens.next().is_some_and(|d| d == "desc"))
+}
 
 fn order_clause(order: Option<&str>) -> String {
     let allowed = ["name", "slug", "created_at", "updated_at", "id"];
@@ -327,6 +355,42 @@ pub async fn all(pool: &Db) -> Result<Vec<Tag>> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn post_count_order_is_recognised_only_as_the_first_key() {
+        assert_eq!(count_order(Some("count.posts desc")), Some(true));
+        assert_eq!(count_order(Some("count.posts DESC, name asc")), Some(true));
+        assert_eq!(count_order(Some("count.posts")), Some(false));
+        assert_eq!(count_order(Some("name asc, count.posts desc")), None);
+        assert_eq!(count_order(None), None);
+    }
+
+    #[tokio::test]
+    async fn tags_order_by_published_post_count() {
+        let test_db = crate::pool::connect_test().await.unwrap();
+        let pool = test_db.pool();
+        let mut ids = Vec::new();
+        for name in ["Alpha", "Beta", "Gamma"] {
+            ids.push(insert(&pool, &NewTag { name: name.into(), ..Default::default() }).await.unwrap().id);
+        }
+        // Gamma gets two published posts, Beta one, Alpha none.
+        for (n, tag) in [(1, &ids[2]), (2, &ids[2]), (3, &ids[1])] {
+            let post = format!("p{n}");
+            sqlx::query(
+                "INSERT INTO posts (id, uuid, title, slug, status, type, visibility, created_at) \
+                 VALUES (?, ?, ?, ?, 'published', 'post', 'public', '2026-01-01 00:00:00')",
+            )
+            .bind(&post).bind(&post).bind(&post).bind(&post)
+            .execute(&pool).await.unwrap();
+            sqlx::query("INSERT INTO posts_tags (id, post_id, tag_id, sort_order) VALUES (?, ?, ?, 0)")
+                .bind(format!("pt{n}")).bind(&post).bind(tag)
+                .execute(&pool).await.unwrap();
+        }
+        let (tags, _) = browse(&pool, None, Some("count.posts desc"), 15, 1, true, false).await.unwrap();
+        let names: Vec<_> = tags.iter().map(|t| t.name.clone().unwrap_or_default()).collect();
+        assert_eq!(names, ["Gamma", "Beta", "Alpha"]);
+        assert!(tags.iter().all(|t| t.count_posts.is_none()), "counts stay out unless included");
+    }
 
     #[tokio::test]
     async fn staff_picker_includes_internal_tags_while_public_queries_exclude_them() {

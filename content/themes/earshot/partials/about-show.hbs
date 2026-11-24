@@ -1,0 +1,24 @@
+<section class="about-show" aria-labelledby="about-title">
+    <div class="about-inner wrap">
+        {{#if @custom.cover_art}}
+            <img class="about-art" src="{{img_url @custom.cover_art size="m"}}" alt="{{t "Cover art for {title}" title=@site.title}}" width="240" height="240">
+        {{else if @site.icon}}
+            <img class="about-art" src="{{img_url @site.icon size="m"}}" alt="" width="240" height="240">
+        {{/if}}
+
+        <div class="about-body">
+            <h2 class="about-title" id="about-title">{{t "About the show"}}</h2>
+            {{#if @site.description}}<p class="about-description">{{@site.description}}</p>{{/if}}
+
+            {{!-- Rendered in the newest episode's context: its authors are the
+                 show's current hosts. --}}
+            {{#if authors}}
+                <p class="about-hosts"><span>{{t "Hosted by"}}</span> {{authors}}</p>
+            {{/if}}
+
+            {{> "listen-links"}}
+        </div>
+
+        {{#if @custom.show_start_here}}{{> "start-here"}}{{/if}}
+    </div>
+</section>

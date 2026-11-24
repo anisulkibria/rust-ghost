@@ -10,7 +10,7 @@
  * can blur, and a solid one where it cannot.
  */
 .vc-banner, .vc-scrim, .vc-reopen, .vc-embed, .vc-declaration {
-  --vc-accent: var(--ghost-accent-color, #FF1A75);
+  --vc-accent: var(--ghost-accent-color, #1f4e79);
   --vc-on-accent: #fff;
   --vc-surface: rgba(255, 251, 252, .84);
   --vc-surface-solid: #FFFBFC;

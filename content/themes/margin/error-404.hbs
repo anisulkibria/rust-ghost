@@ -1,0 +1,24 @@
+{{!< default}}
+
+<div class="layout wrap is-solo">
+    <main class="layout-main error" id="main">
+        <p class="error-code">404</p>
+        <h1 class="archive-title">{{t "This page isn’t here"}}</h1>
+        <p class="archive-description">{{t "The link may be old, or the post may have moved. Try a search, or start from the homepage."}}</p>
+        <p class="error-actions">
+            <button class="button" data-ghost-search>{{t "Search the site"}}</button>
+            <a class="text-link" href="{{@site.url}}">{{t "Go to the homepage"}}</a>
+        </p>
+
+        {{#get "posts" limit="5" fields="title,url,published_at" as |recent|}}
+            {{#if recent}}
+                <section class="related">
+                    <h2 class="section-title">{{t "Recent posts"}}</h2>
+                    <ul class="widget-list">
+                        {{#foreach recent}}<li><a href="{{url}}">{{title}}</a> <time datetime="{{date format="YYYY-MM-DD"}}">{{date format="D MMM YYYY"}}</time></li>{{/foreach}}
+                    </ul>
+                </section>
+            {{/if}}
+        {{/get}}
+    </main>
+</div>

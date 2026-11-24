@@ -310,7 +310,7 @@ impl Settings {
     pub fn css_vars(&self) -> String {
         let mut out = String::new();
         for (i, c) in self.palette.iter().enumerate() {
-            let v = if c.is_empty() { "var(--ghost-accent-color, #ff1a75)".to_string() } else { c.clone() };
+            let v = if c.is_empty() { "var(--ghost-accent-color, #1f4e79)".to_string() } else { c.clone() };
             out.push_str(&format!("--vb-c{}:{v};", i + 1));
         }
         out.push_str(&format!(

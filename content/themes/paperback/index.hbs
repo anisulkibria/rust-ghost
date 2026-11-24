@@ -1,0 +1,48 @@
+{{!< default}}
+
+<main class="site-main" id="main">
+    {{#is "paged"}}
+        <header class="list-header wrap">
+            <h1 class="list-title">{{@site.title}}</h1>
+            <p class="list-meta">{{t "Page {page} of {pages}" page=pagination.page pages=pagination.pages}}</p>
+        </header>
+
+        <div class="shelf wrap">
+            {{#foreach posts}}{{> "card"}}{{/foreach}}
+        </div>
+        {{pagination}}
+    {{else}}
+        <h1 class="visually-hidden">{{@site.title}}</h1>
+
+        {{#if posts}}
+            {{#if @custom.show_cover_story}}
+                {{#foreach posts limit="1"}}{{> "cover-story"}}{{/foreach}}
+
+                {{#match posts.length ">" 1}}
+                    <section class="latest" aria-labelledby="latest-heading">
+                        <h2 class="shelf-heading wrap" id="latest-heading">{{t "Latest"}}</h2>
+                        <div class="shelf wrap">
+                            {{#foreach posts from="2"}}{{> "card"}}{{/foreach}}
+                        </div>
+                    </section>
+                {{/match}}
+            {{else}}
+                <section class="latest" aria-labelledby="latest-heading">
+                    <h2 class="shelf-heading wrap" id="latest-heading">{{t "Latest"}}</h2>
+                    <div class="shelf wrap">
+                        {{#foreach posts}}{{> "card"}}{{/foreach}}
+                    </div>
+                </section>
+            {{/if}}
+
+            {{pagination}}
+
+            {{#if @custom.show_sections}}{{> "sections"}}{{/if}}
+        {{else}}
+            <div class="empty wrap">
+                <h2 class="empty-title">{{t "Nothing published yet"}}</h2>
+                <p>{{t "Publish a post and it will open this page as the cover story."}}</p>
+            </div>
+        {{/if}}
+    {{/is}}
+</main>

@@ -1,0 +1,45 @@
+<header class="masthead">
+    <div class="masthead-inner wrap">
+        <a class="brand" href="{{@site.url}}">
+            {{#if @custom.cover_art}}
+                <img class="brand-art" src="{{img_url @custom.cover_art size="xs"}}" alt="" width="44" height="44">
+            {{else if @site.icon}}
+                <img class="brand-art" src="{{img_url @site.icon size="xs"}}" alt="" width="44" height="44">
+            {{/if}}
+            {{#if @site.logo}}
+                <img class="brand-logo" src="{{img_url @site.logo size="s"}}" alt="{{@site.title}}">
+            {{else}}
+                <span class="brand-title">{{@site.title}}</span>
+            {{/if}}
+        </a>
+
+        <nav class="site-nav" id="site-menu" aria-label="{{t "Main"}}">
+            {{navigation}}
+            {{#if @site.members_enabled}}
+                <div class="site-nav-member">
+                    {{#if @member}}
+                        <a href="#/portal/account" data-portal="account">{{t "Your account"}}</a>
+                    {{else}}
+                        <a href="#/portal/signin" data-portal="signin">{{t "Sign in"}}</a>
+                    {{/if}}
+                </div>
+            {{/if}}
+        </nav>
+
+        <div class="masthead-tools">
+            {{> "scheme-toggle"}}
+            <button class="icon-button" type="button" data-ghost-search aria-label="{{t "Search episodes"}}">{{> "icons/search"}}</button>
+            {{#if @site.members_enabled}}
+                {{#if @member}}
+                    <a class="text-link member-link" href="#/portal/account" data-portal="account">{{t "Your account"}}</a>
+                {{else}}
+                    <a class="text-link member-link" href="#/portal/signin" data-portal="signin">{{t "Sign in"}}</a>
+                {{/if}}
+            {{/if}}
+            <button class="button follow-toggle" type="button" popovertarget="follow-panel" aria-controls="follow-panel" data-follow-toggle>{{t "Follow"}}</button>
+            <button class="icon-button menu-toggle" type="button" aria-label="{{t "Menu"}}" aria-expanded="false" aria-controls="site-menu">{{> "icons/menu"}}</button>
+        </div>
+    </div>
+
+    {{> "follow-panel"}}
+</header>

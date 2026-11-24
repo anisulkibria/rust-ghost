@@ -1,0 +1,31 @@
+<li class="tier{{#match type "free"}} is-free{{/match}}">
+    <h2 class="tier-name">{{name}}</h2>
+
+    {{#match type "free"}}
+        <p class="tier-price"><span class="tier-amount">{{t "Free"}}</span></p>
+    {{else}}
+        <p class="tier-price when-monthly"><span class="tier-amount">{{price monthly_price currency=currency}}</span> <span class="tier-per">{{t "a month"}}</span></p>
+        <p class="tier-price when-yearly"><span class="tier-amount">{{price yearly_price currency=currency}}</span> <span class="tier-per">{{t "a year"}}</span></p>
+    {{/match}}
+
+    {{#if description}}<p class="tier-description">{{description}}</p>{{/if}}
+
+    {{#if benefits}}
+        <ul class="tier-benefits" role="list">
+            {{#foreach benefits}}<li>{{> "icons/check"}}<span>{{this}}</span></li>{{/foreach}}
+        </ul>
+    {{/if}}
+
+    <p class="tier-action">
+        {{#if @member}}
+            <a class="button button-quiet" href="#/portal/account/plans" data-portal="account/plans">{{t "Manage your plan"}}</a>
+        {{else}}
+            {{#match type "free"}}
+                <a class="button button-quiet" href="#/portal/signup/free" data-portal="signup/free">{{t "Sign up free"}}</a>
+            {{else}}
+                <a class="button when-monthly" href="#/portal/signup/{{id}}/monthly" data-portal="signup/{{id}}/monthly">{{t "Join {tier}" tier=name}}</a>
+                <a class="button when-yearly" href="#/portal/signup/{{id}}/yearly" data-portal="signup/{{id}}/yearly">{{t "Join {tier}" tier=name}}</a>
+            {{/match}}
+        {{/if}}
+    </p>
+</li>

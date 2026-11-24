@@ -239,7 +239,7 @@ pub(crate) async fn tag_edit_page(
 </div>
 <label class="field" style="margin:12px 0 0"><textarea name="description" rows="2" placeholder=" " maxlength="500">{description}</textarea><span>Description · max 500 characters</span></label>
 <div class="grid2" style="gap:12px;margin-top:12px">
-<label class="field" style="margin:0"><input name="accent_color" value="{accent}" placeholder=" " pattern="^#?[0-9A-Fa-f]{{3,8}}$"><span>Colour · hex, e.g. #ff1a75</span></label>
+<label class="field" style="margin:0"><input name="accent_color" value="{accent}" placeholder=" " pattern="^#?[0-9A-Fa-f]{{3,8}}$"><span>Colour · hex, e.g. #1f4e79</span></label>
 <label class="field" style="margin:0"><input name="feature_image" value="{feature_image}" placeholder=" "><span>Tag image URL</span></label>
 </div>
 <p class="muted" style="margin:10px 0 0">A name starting with <code>#</code> makes the tag internal: it stays off the site and out of search, but still groups posts. {internal_note}</p>

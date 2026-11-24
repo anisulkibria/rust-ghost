@@ -1,0 +1,11 @@
+{{!< default}}
+
+{{#post}}
+<div class="layout wrap{{#unless @custom.show_sidebar_on_posts}} is-solo{{/unless}}">
+    <main class="layout-main" id="main">
+        {{> "article"}}
+    </main>
+
+    {{#if @custom.show_sidebar_on_posts}}{{> "sidebar"}}{{/if}}
+</div>
+{{/post}}

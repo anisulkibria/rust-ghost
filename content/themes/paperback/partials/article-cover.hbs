@@ -1,0 +1,40 @@
+<header class="cover article-cover wrap{{#if image_cover}} is-image-cover{{/if}}" style="{{> "band" color=primary_tag.accent_color}}">
+    <div class="cover-band cover-top">
+        {{#if primary_tag}}<a class="cover-section" href="{{primary_tag.url}}">{{primary_tag.name}}</a>{{else}}<a class="cover-section" href="{{@site.url}}">{{@site.title}}</a>{{/if}}
+        {{#match visibility "!=" "public"}}
+            <span class="cover-access">{{> "icons/lock"}} {{#match visibility "paid"}}{{t "For paid subscribers"}}{{else match visibility "members"}}{{t "For members"}}{{else}}{{t "For selected tiers"}}{{/match}}</span>
+        {{/match}}
+    </div>
+
+    <div class="cover-panel{{#if image_cover}}{{#if feature_image}} has-plate{{/if}}{{/if}}">
+        {{#if image_cover}}
+            {{#if feature_image}}
+                <figure class="cover-plate">
+                    <img
+                        srcset="{{img_url feature_image size="m"}} 760w, {{img_url feature_image size="l"}} 1200w"
+                        sizes="(max-width: 900px) 100vw, 600px"
+                        src="{{img_url feature_image size="l"}}"
+                        alt="{{#if feature_image_alt}}{{feature_image_alt}}{{else}}{{title}}{{/if}}">
+                </figure>
+            {{/if}}
+        {{/if}}
+        <div class="cover-text">
+            <h1 class="cover-title">{{title}}</h1>
+            {{#if custom_excerpt}}<p class="cover-dek">{{custom_excerpt}}</p>{{/if}}
+            <div class="article-byline">
+                {{#if authors}}
+                    <span class="article-avatars" aria-hidden="true">
+                        {{#foreach authors}}{{#if profile_image}}<img src="{{img_url profile_image size="xs"}}" alt="" width="40" height="40">{{/if}}{{/foreach}}
+                    </span>
+                    <span>{{t "By"}} {{authors separator=" & "}}</span>
+                {{/if}}
+                <time datetime="{{date format="YYYY-MM-DD"}}">{{date format="D MMMM YYYY"}}</time>
+            </div>
+        </div>
+    </div>
+
+    <div class="cover-band cover-bottom">
+        <span>{{@site.title}}</span>
+        {{#if reading_time}}<span>{{reading_time minute=(t "1 min read") minutes=(t "% min read")}}</span>{{/if}}
+    </div>
+</header>

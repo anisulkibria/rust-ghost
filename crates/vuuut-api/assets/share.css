@@ -2,7 +2,7 @@
  * Share buttons under a post. Under `vsb-` so any theme's own rules stay
  * out; the site's accent colour for hover; pills that wrap on a phone.
  */
-.vsb { --vsb-accent: var(--ghost-accent-color, #FF1A75); --vsb-line: rgba(0, 0, 0, .12); --vsb-muted: rgba(0, 0, 0, .6);
+.vsb { --vsb-accent: var(--ghost-accent-color, #1f4e79); --vsb-line: rgba(0, 0, 0, .12); --vsb-muted: rgba(0, 0, 0, .6);
   display: block; clear: both; margin: 2.4em 0; font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
 @media (prefers-color-scheme: dark) { .vsb { --vsb-line: rgba(255, 255, 255, .16); --vsb-muted: rgba(255, 255, 255, .65); } }
 html.dark-mode .vsb, body.dark-mode .vsb { --vsb-line: rgba(255, 255, 255, .16); --vsb-muted: rgba(255, 255, 255, .65); }

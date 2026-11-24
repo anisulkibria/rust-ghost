@@ -1,0 +1,69 @@
+{{^match @custom.sidebar "Off"}}
+<aside class="layout-side sidebar" aria-label="{{t "Sidebar"}}">
+
+    {{#if @custom.show_about_in_sidebar}}
+        <section class="widget widget-about">
+            {{#if @site.icon}}<img class="widget-about-icon" src="{{img_url @site.icon size="xs"}}" alt="" width="56" height="56">{{/if}}
+            <h2 class="widget-title">{{t "About"}} {{@site.title}}</h2>
+            {{#if @site.description}}<p>{{@site.description}}</p>{{/if}}
+            <div class="widget-social">{{social_accounts}}</div>
+        </section>
+    {{/if}}
+
+    {{#if @site.members_enabled}}
+        {{#unless @member}}
+            {{#unless @site.members_invite_only}}
+                <section class="widget widget-subscribe">
+                    <h2 class="widget-title">{{#if @custom.signup_heading}}{{@custom.signup_heading}}{{else}}{{t "Get new posts by email"}}{{/if}}</h2>
+                    <p>{{#if @custom.signup_text}}{{@custom.signup_text}}{{else}}{{t "One email when something new is published. Unsubscribe anytime."}}{{/if}}</p>
+                    {{> "subscribe-form" field_id="sidebar-email"}}
+                </section>
+            {{/unless}}
+        {{/unless}}
+    {{/if}}
+
+    {{#if @custom.show_recent_posts_in_sidebar}}
+        {{^is "home"}}
+            {{#get "posts" limit="5" fields="title,url,published_at" as |recent|}}
+                {{#if recent}}
+                    <section class="widget widget-recent">
+                        <h2 class="widget-title">{{t "Recent posts"}}</h2>
+                        <ul class="widget-list">
+                            {{#foreach recent}}
+                                <li><a href="{{url}}">{{title}}</a> <time datetime="{{date format="YYYY-MM-DD"}}">{{date format="D MMM YYYY"}}</time></li>
+                            {{/foreach}}
+                        </ul>
+                    </section>
+                {{/if}}
+            {{/get}}
+        {{/is}}
+    {{/if}}
+
+    {{#if @custom.show_tags_in_sidebar}}
+        {{#get "tags" limit="16" include="count.posts" order="count.posts desc" filter="visibility:public" as |toptags|}}
+            {{#if toptags}}
+                <section class="widget widget-tags">
+                    <h2 class="widget-title">{{t "Topics"}}</h2>
+                    <ul class="tag-list">
+                        {{#foreach toptags}}
+                            <li><a href="{{url}}">{{name}}{{#if count.posts}} <span class="tag-count">{{count.posts}}</span>{{/if}}</a></li>
+                        {{/foreach}}
+                    </ul>
+                </section>
+            {{/if}}
+        {{/get}}
+    {{/if}}
+
+    {{#if @site.recommendations_enabled}}
+        <section class="widget widget-blogroll">
+            <h2 class="widget-title">{{t "Blogroll"}}</h2>
+            {{recommendations limit="8"}}
+            <p class="widget-more"><a href="#/portal/recommendations" data-portal="recommendations">{{t "See all recommendations"}}</a></p>
+        </section>
+    {{/if}}
+
+    <section class="widget widget-feed">
+        <p><a href="{{@site.url}}/rss/">{{> "icons/rss"}} {{t "Follow with RSS"}}</a></p>
+    </section>
+</aside>
+{{/match}}

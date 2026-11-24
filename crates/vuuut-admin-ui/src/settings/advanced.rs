@@ -1106,6 +1106,9 @@ pub(crate) const SITE_TABLES: &[&str] = &[
     "builder_revisions", "builder_layouts", "builder_templates",
     // The CDN connection, credentials included.
     "cdn_config",
+    // Which rows were generated as dummy content (the rows themselves are
+    // wiped with their own tables above).
+    "dummy_items", "dummy_batches",
 ];
 
 pub(crate) async fn wipe_tables(db: &vuuut_db::Db, tables: &[&str]) -> usize {

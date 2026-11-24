@@ -1,0 +1,12 @@
+<footer class="site-footer">
+    <div class="site-footer-inner wrap">
+        <p class="site-footer-copy">&copy; {{date format="YYYY"}} <a href="{{@site.url}}">{{@site.title}}</a></p>
+        {{#if @site.secondary_navigation}}
+            <nav class="site-footer-nav" aria-label="{{t "Footer"}}">{{navigation type="secondary"}}</nav>
+        {{/if}}
+        <p class="site-footer-meta">
+            <a href="{{@site.url}}/rss/">{{t "RSS"}}</a>
+            <span>{{t "Published with Vuuut"}}</span>
+        </p>
+    </div>
+</footer>

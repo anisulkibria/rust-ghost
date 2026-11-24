@@ -4,7 +4,7 @@
  * colour it adds is the site's accent. The store breaks out of the theme's
  * reading column to a shop width, centred on the page.
  */
-.vs { --vs-accent: var(--ghost-accent-color, #FF1A75); --vs-line: color-mix(in srgb, currentColor 22%, transparent);
+.vs { --vs-accent: var(--ghost-accent-color, #1f4e79); --vs-line: color-mix(in srgb, currentColor 22%, transparent);
   --vs-muted: color-mix(in srgb, currentColor 76%, transparent);
   --vs-surface: color-mix(in srgb, currentColor 5%, transparent); --vs-radius: 18px;
   position: relative; width: min(1200px, calc(100vw - 32px)); left: 50%; transform: translateX(-50%);

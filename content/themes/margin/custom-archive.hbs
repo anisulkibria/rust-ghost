@@ -1,0 +1,33 @@
+{{!< default}}
+{{!-- Template: Archive. Lists every published post by date, newest first. --}}
+
+{{#post}}
+<div class="layout wrap">
+    <main class="layout-main" id="main">
+        <header class="archive-header">
+            <h1 class="archive-title">{{title}}</h1>
+            {{#if custom_excerpt}}<p class="archive-description">{{custom_excerpt}}</p>{{/if}}
+        </header>
+
+        {{#if html}}<div class="content archive-intro">{{content}}</div>{{/if}}
+
+        {{#get "posts" limit="100" fields="title,url,published_at" order="published_at desc" as |all pages|}}
+            <ol class="archive-list" reversed>
+                {{#foreach all}}
+                    <li>
+                        <time datetime="{{date format="YYYY-MM-DD"}}">{{date format="D MMM YYYY"}}</time>
+                        <a href="{{url}}">{{title}}</a>
+                    </li>
+                {{else}}
+                    <li class="empty-note">{{t "Nothing has been published yet."}}</li>
+                {{/foreach}}
+            </ol>
+            {{#if pages.next}}
+                <p class="archive-more">{{t "This list shows the 100 most recent posts."}} <a href="{{@site.url}}/page/13/">{{t "Keep going through older posts"}}</a></p>
+            {{/if}}
+        {{/get}}
+    </main>
+
+    {{> "sidebar"}}
+</div>
+{{/post}}

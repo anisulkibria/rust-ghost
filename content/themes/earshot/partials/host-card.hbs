@@ -1,0 +1,11 @@
+{{#if bio}}
+<section class="host-card" aria-label="{{t "About {name}" name=name}}">
+    {{#if profile_image}}
+        <img class="host-photo" src="{{img_url profile_image size="xs"}}" alt="" width="72" height="72" loading="lazy">
+    {{/if}}
+    <div class="host-text">
+        <h2 class="host-name"><a href="{{url}}">{{name}}</a></h2>
+        <p class="host-bio">{{bio}}</p>
+    </div>
+</section>
+{{/if}}

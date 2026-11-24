@@ -1,0 +1,123 @@
+{
+    "name": "margin",
+    "description": "A classic blog theme for Vuuut: dated entries, a working sidebar, archives and full-post reading.",
+    "version": "1.0.0",
+    "engines": {
+        "ghost": ">=5.0.0"
+    },
+    "license": "MIT",
+    "author": {
+        "name": "Vuuut",
+        "email": "hello@vuuut.com",
+        "url": "https://vuuut.com"
+    },
+    "gpm": {
+        "type": "theme",
+        "categories": [
+            "Blog",
+            "Minimal"
+        ]
+    },
+    "keywords": [
+        "ghost-theme",
+        "vuuut-theme",
+        "blog",
+        "classic"
+    ],
+    "config": {
+        "posts_per_page": 8,
+        "image_sizes": {
+            "xs": { "width": 160 },
+            "s": { "width": 320 },
+            "m": { "width": 720 },
+            "l": { "width": 1080 },
+            "xl": { "width": 1600 },
+            "xxl": { "width": 2400 }
+        },
+        "card_assets": true,
+        "custom": {
+            "color_scheme": {
+                "type": "select",
+                "options": ["Light", "Dark", "Follow the reader's device"],
+                "default": "Light",
+                "description": "Where every reader starts. Each can switch with the light/dark button in the header."
+            },
+            "heading_font": {
+                "type": "select",
+                "options": ["Serif", "Sans-serif"],
+                "default": "Serif"
+            },
+            "body_font": {
+                "type": "select",
+                "options": ["Serif", "Sans-serif"],
+                "default": "Serif"
+            },
+            "sidebar": {
+                "type": "select",
+                "options": ["Right", "Left", "Off"],
+                "default": "Right"
+            },
+            "show_dates_in_margin": {
+                "type": "boolean",
+                "default": true,
+                "description": "Sets each entry's date in the left margin. Turn off for undated, essay-style sites."
+            },
+            "signup_heading": {
+                "type": "text",
+                "description": "Heading of the sidebar and footer signup box. Defaults to \"Get new posts by email\"."
+            },
+            "signup_text": {
+                "type": "text",
+                "description": "One line under the signup heading. Defaults to the site description."
+            },
+            "homepage_entries": {
+                "type": "select",
+                "options": ["Excerpt", "Full post"],
+                "default": "Excerpt",
+                "description": "Full post shows each entry in full on the homepage, the way blogs used to.",
+                "group": "homepage"
+            },
+            "show_feature_images_in_list": {
+                "type": "boolean",
+                "default": true,
+                "group": "homepage"
+            },
+            "show_about_in_sidebar": {
+                "type": "boolean",
+                "default": true,
+                "description": "Shows the site icon and description at the top of the sidebar.",
+                "group": "homepage"
+            },
+            "show_recent_posts_in_sidebar": {
+                "type": "boolean",
+                "default": true,
+                "group": "homepage"
+            },
+            "show_tags_in_sidebar": {
+                "type": "boolean",
+                "default": true,
+                "group": "homepage"
+            },
+            "show_sidebar_on_posts": {
+                "type": "boolean",
+                "default": true,
+                "group": "post"
+            },
+            "show_author_bio": {
+                "type": "boolean",
+                "default": true,
+                "group": "post"
+            },
+            "show_previous_and_next": {
+                "type": "boolean",
+                "default": true,
+                "group": "post"
+            },
+            "show_related_posts": {
+                "type": "boolean",
+                "default": true,
+                "group": "post"
+            }
+        }
+    }
+}

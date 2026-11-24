@@ -1,0 +1,59 @@
+{{!-- One episode in a list. The tape under the title is drawn to the
+     episode's length, and fills in as the reader listens. --}}
+<li class="episode{{#unless access}} is-locked{{/unless}}{{#if featured}} is-featured{{/if}}" data-episode>
+    {{#if @custom.number_episodes}}
+        <p class="episode-number"><span class="visually-hidden">{{t "Episode"}} </span>{{> "episode-number"}}</p>
+    {{/if}}
+
+    <div class="episode-body">
+        <h3 class="episode-title"><a href="{{url}}">{{title}}</a></h3>
+        {{#if custom_excerpt}}
+            <p class="episode-subtitle">{{custom_excerpt}}</p>
+        {{else if excerpt}}
+            <p class="episode-subtitle">{{excerpt words="28"}}</p>
+        {{/if}}
+
+        {{#if access}}
+            <div class="listen-line" data-player data-compact
+                data-id="{{id}}"
+                data-url="{{url}}"
+                data-title="{{title}}"
+                data-art="{{#if feature_image}}{{img_url feature_image size="s"}}{{/if}}">
+                <template data-source>{{content words="40"}}</template>
+                <button class="play play-small" type="button" data-play disabled>
+                    <span class="play-glyph">{{> "icons/play"}}</span>
+                    <span class="pause-glyph">{{> "icons/pause"}}</span>
+                    <span class="visually-hidden"><span data-play-label>{{t "Play"}}</span> {{title}}</span>
+                </button>
+                <div class="tape tape-mini" data-tape aria-hidden="true">
+                    <div class="tape-track" data-track><span class="tape-splice"><span class="tape-fill"></span></span></div>
+                </div>
+                <p class="listen-meta">
+                    <span class="listen-length" data-length></span>
+                    <time datetime="{{date format="YYYY-MM-DD"}}">{{date format="D MMM YYYY"}}</time>
+                </p>
+            </div>
+        {{else}}
+            <p class="listen-line is-locked">
+                <a class="lock-link" href="{{url}}">
+                    {{> "icons/lock"}}
+                    {{#has visibility="paid"}}{{t "Paid subscribers"}}{{/has}}{{#has visibility="members"}}{{t "Subscribers"}}{{/has}}{{#has visibility="tiers"}}{{t "Selected tiers"}}{{/has}}
+                </a>
+                <time datetime="{{date format="YYYY-MM-DD"}}">{{date format="D MMM YYYY"}}</time>
+            </p>
+        {{/if}}
+    </div>
+
+    {{#if @custom.show_episode_art}}
+        {{#if feature_image}}
+            <a class="episode-art" href="{{url}}" tabindex="-1" aria-hidden="true">
+                <img
+                    srcset="{{img_url feature_image size="xs"}} 160w, {{img_url feature_image size="s"}} 400w"
+                    sizes="128px"
+                    src="{{img_url feature_image size="s"}}"
+                    alt=""
+                    loading="lazy">
+            </a>
+        {{/if}}
+    {{/if}}
+</li>

@@ -207,7 +207,7 @@
     "key": "accent_color",
     "type": "string",
     "flags": "PUBLIC",
-    "value": "#FF1A75"
+    "value": "#1F4E79"
   },
   {
     "group": "site",

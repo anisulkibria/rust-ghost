@@ -55,6 +55,8 @@ pub(crate) const TOOLS: &[Tool] = &[
         description: "Ask before tracking, hold back what nobody agreed to, and keep the proof." },
     Tool { key: "directories", title: "Directory & Classified Listings", href: "/ghost/directories/", icon: "library", tint: "teal",
         description: "A public directory and classifieds in your theme: categories, visitor submissions, review and expiry." },
+    Tool { key: "dummies", title: "Dummy content", href: "/ghost/dummies/", icon: "box", tint: "purple",
+        description: "Fill the site with demonstration posts, pages, people and products, and remove them in one click." },
     Tool { key: "ecom", title: "E-commerce & Online Stores", href: "/ghost/ecom/", icon: "store", tint: "green",
         description: "Sell from your site: products and variants, collections, orders, customers, discounts, shipping and taxes." },
     Tool { key: "forms", title: "Forms", href: "/ghost/forms/", icon: "form", tint: "amber",

@@ -1,0 +1,16 @@
+{{{html}}}
+<aside class="paywall">
+    <h2 class="paywall-title">
+        {{#has visibility="paid"}}{{t "The rest of this post is for paid subscribers"}}{{/has}}
+        {{#has visibility="members"}}{{t "The rest of this post is for subscribers"}}{{/has}}
+        {{#has visibility="tiers"}}{{t "The rest of this post is for selected tiers"}}{{/has}}
+    </h2>
+    {{#if @member}}
+        <p>{{t "Your current plan doesn’t include this post. Upgrade to keep reading."}}</p>
+        <a class="button" href="#/portal/account/plans" data-portal="account/plans">{{t "Upgrade your plan"}}</a>
+    {{else}}
+        <p>{{t "Subscribe to read it, and get new posts by email."}}</p>
+        <a class="button" href="#/portal/signup" data-portal="signup">{{t "Subscribe"}}</a>
+        <p class="paywall-signin">{{t "Already subscribed?"}} <a href="#/portal/signin" data-portal="signin">{{t "Sign in"}}</a></p>
+    {{/if}}
+</aside>

@@ -1279,7 +1279,7 @@
         });
         var custom = h('label', {class: 'vbe-sw custom' + (v && v.charAt(0) === '#' ? ' on' : ''), title: 'Custom colour'});
         if (v && v.charAt(0) === '#') custom.style.background = v;
-        var ci = h('input', {type: 'color', value: v && v.charAt(0) === '#' && v.length === 7 ? v : '#ff1a75'});
+        var ci = h('input', {type: 'color', value: v && v.charAt(0) === '#' && v.length === 7 ? v : '#1f4e79'});
         ci.addEventListener('input', function () { custom.style.background = ci.value; set(ci.value, true); });
         ci.addEventListener('change', function () { lastKey = null; renderSide(); });
         custom.appendChild(ci);

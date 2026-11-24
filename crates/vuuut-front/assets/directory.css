@@ -3,7 +3,7 @@
  * every rule is under `vd` and takes the theme's own font and colours; the
  * one colour it adds is the site's accent, for buttons and chips.
  */
-.vd { --vd-accent: var(--ghost-accent-color, #FF1A75); --vd-line: rgba(0, 0, 0, .1); --vd-muted: rgba(0, 0, 0, .58);
+.vd { --vd-accent: var(--ghost-accent-color, #1f4e79); --vd-line: rgba(0, 0, 0, .1); --vd-muted: rgba(0, 0, 0, .58);
   --vd-surface: rgba(0, 0, 0, .025); font-size: 16px; line-height: 1.55; }
 @media (prefers-color-scheme: dark) { .vd { --vd-line: rgba(255, 255, 255, .14); --vd-muted: rgba(255, 255, 255, .64); --vd-surface: rgba(255, 255, 255, .04); } }
 html.dark-mode .vd, body.dark-mode .vd { --vd-line: rgba(255, 255, 255, .14); --vd-muted: rgba(255, 255, 255, .64); --vd-surface: rgba(255, 255, 255, .04); }

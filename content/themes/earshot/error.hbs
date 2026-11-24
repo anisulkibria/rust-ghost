@@ -1,0 +1,19 @@
+{{!< default}}
+
+<main id="main" class="error-page">
+    <div class="error-inner wrap">
+        <p class="error-code">{{statusCode}}</p>
+        <div class="error-text">
+            <h1 class="error-title">{{message}}</h1>
+            <p class="error-description">{{t "This page didn’t load. Reload to try again, or go back to the homepage."}}</p>
+            <p class="error-actions"><a class="button" href="{{@site.url}}">{{t "Go to the homepage"}}</a></p>
+            {{#if errorDetails}}
+                <ul class="error-details">
+                    {{#foreach errorDetails}}
+                        <li><strong>{{{rule}}}</strong> {{#foreach failures}}<code>{{ref}}</code> {{message}}{{/foreach}}</li>
+                    {{/foreach}}
+                </ul>
+            {{/if}}
+        </div>
+    </div>
+</main>

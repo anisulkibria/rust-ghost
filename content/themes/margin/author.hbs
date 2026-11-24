@@ -1,0 +1,34 @@
+{{!< default}}
+
+<div class="layout wrap">
+    <main class="layout-main" id="main">
+        {{#author}}
+            <header class="archive-header archive-header-author">
+                {{#if profile_image}}<img class="archive-avatar" src="{{img_url profile_image size="s"}}" alt="" width="88" height="88">{{/if}}
+                <div>
+                    <p class="archive-kicker">{{t "Posts by"}}</p>
+                    <h1 class="archive-title">{{name}}</h1>
+                    {{#if bio}}<p class="archive-description">{{bio}}</p>{{/if}}
+                    <p class="archive-links">
+                        {{#if location}}<span>{{location}}</span>{{/if}}
+                        {{#if website}}<a href="{{website}}" rel="me">{{readable_url website}}</a>{{/if}}
+                        {{#if twitter}}<a href="{{social_url type="twitter"}}" rel="me">X</a>{{/if}}
+                        {{#if facebook}}<a href="{{social_url type="facebook"}}" rel="me">Facebook</a>{{/if}}
+                        {{#if bluesky}}<a href="{{social_url type="bluesky"}}" rel="me">Bluesky</a>{{/if}}
+                        {{#if mastodon}}<a href="{{social_url type="mastodon"}}" rel="me">Mastodon</a>{{/if}}
+                        {{#if instagram}}<a href="{{social_url type="instagram"}}" rel="me">Instagram</a>{{/if}}
+                        {{#if linkedin}}<a href="{{social_url type="linkedin"}}" rel="me">LinkedIn</a>{{/if}}
+                    </p>
+                </div>
+            </header>
+        {{/author}}
+
+        <div class="feed">
+            {{#foreach posts}}{{> "entry"}}{{/foreach}}
+        </div>
+
+        {{pagination}}
+    </main>
+
+    {{> "sidebar"}}
+</div>

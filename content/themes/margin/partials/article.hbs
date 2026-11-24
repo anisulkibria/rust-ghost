@@ -1,0 +1,79 @@
+<article class="article entry {{post_class}}">
+    {{#is "post"}}{{#if @custom.show_dates_in_margin}}{{> "dateline"}}{{/if}}{{/is}}
+
+    <div class="entry-body">
+        <header class="article-header">
+            <h1 class="article-title">{{title}}</h1>
+            {{#if custom_excerpt}}<p class="article-standfirst">{{custom_excerpt}}</p>{{/if}}
+            {{#is "post"}}{{> "byline"}}{{/is}}
+        </header>
+
+        {{#if feature_image}}
+            <figure class="article-image">
+                <img
+                    srcset="{{img_url feature_image size="m"}} 720w, {{img_url feature_image size="l"}} 1080w, {{img_url feature_image size="xl"}} 1600w, {{img_url feature_image size="xxl"}} 2400w"
+                    sizes="(max-width: 760px) 100vw, 900px"
+                    src="{{img_url feature_image size="xl"}}"
+                    alt="{{#if feature_image_alt}}{{feature_image_alt}}{{else}}{{title}}{{/if}}">
+                {{#if feature_image_caption}}<figcaption>{{feature_image_caption}}</figcaption>{{/if}}
+            </figure>
+        {{/if}}
+
+        <div class="content">
+            {{content}}
+        </div>
+
+        {{#is "post"}}
+            <footer class="article-footer">
+                {{#if tags}}
+                    <p class="article-tags"><span>{{t "Filed under"}}</span> {{tags separator=", "}}</p>
+                {{/if}}
+
+                {{#if @custom.show_author_bio}}
+                    {{#foreach authors}}
+                        {{#if bio}}
+                            <section class="author-card">
+                                {{#if profile_image}}<img class="author-card-image" src="{{img_url profile_image size="xs"}}" alt="" width="64" height="64" loading="lazy">{{/if}}
+                                <div>
+                                    <h2 class="author-card-name"><a href="{{url}}">{{name}}</a></h2>
+                                    <p>{{bio}}</p>
+                                </div>
+                            </section>
+                        {{/if}}
+                    {{/foreach}}
+                {{/if}}
+
+                {{#if @custom.show_previous_and_next}}
+                    <nav class="post-nav" aria-label="{{t "More posts"}}">
+                        {{#prev_post}}<a class="post-nav-prev" href="{{url}}"><span>{{t "Previous post"}}</span> {{title}}</a>{{/prev_post}}
+                        {{#next_post}}<a class="post-nav-next" href="{{url}}"><span>{{t "Next post"}}</span> {{title}}</a>{{/next_post}}
+                    </nav>
+                {{/if}}
+            </footer>
+
+            {{#if comments}}
+                <section class="comments" id="comments">
+                    <h2 class="section-title">{{t "Comments"}}</h2>
+                    {{comments title="" count=false mode="auto"}}
+                </section>
+            {{/if}}
+
+            {{#if @custom.show_related_posts}}
+                {{#if primary_tag}}
+                    {{#get "posts" filter="tags:{{primary_tag.slug}}+id:-{{id}}" limit="3" fields="title,url,published_at" as |related|}}
+                        {{#if related}}
+                            <section class="related">
+                                <h2 class="section-title">{{t "More in"}} {{primary_tag.name}}</h2>
+                                <ul class="widget-list">
+                                    {{#foreach related}}
+                                        <li><a href="{{url}}">{{title}}</a> <time datetime="{{date format="YYYY-MM-DD"}}">{{date format="D MMM YYYY"}}</time></li>
+                                    {{/foreach}}
+                                </ul>
+                            </section>
+                        {{/if}}
+                    {{/get}}
+                {{/if}}
+            {{/if}}
+        {{/is}}
+    </div>
+</article>

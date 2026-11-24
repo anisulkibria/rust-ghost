@@ -762,7 +762,7 @@ pub(crate) async fn settings_page(State(state): State<AppState>, headers: Header
         .iter()
         .enumerate()
         .map(|(i, c)| {
-            let shown = if c.is_empty() { "#ff1a75".to_string() } else { c.clone() };
+            let shown = if c.is_empty() { "#1f4e79".to_string() } else { c.clone() };
             format!(
                 r#"<label class="vb-swatch"><input type="color" name="palette_{i}" value="{shown}" data-vb-swatch><span class="vb-swatch-name">{name}</span><span class="vb-swatch-hex" data-vb-hex>{label}</span>{accent}</label>"#,
                 shown = esc(&shown[..7.min(shown.len())]),
@@ -1014,7 +1014,7 @@ async fn boot_common(state: &AppState, canvas_uuid: Option<String>) -> serde_jso
         "jsUrl": format!("{}?v={}", vuuut_core::url::base("/public/vuuut-builder.js"), crate::asset_hash(rules::RUNTIME)),
         "vars": s.css_vars(),
         "settings": {
-            "palette": s.palette.iter().enumerate().map(|(i, c)| serde_json::json!({"key": format!("c{}", i + 1), "name": rules::PALETTE_NAMES[i], "value": if c.is_empty() { "var(--ghost-accent-color, #ff1a75)".to_string() } else { c.clone() }})).collect::<Vec<_>>(),
+            "palette": s.palette.iter().enumerate().map(|(i, c)| serde_json::json!({"key": format!("c{}", i + 1), "name": rules::PALETTE_NAMES[i], "value": if c.is_empty() { "var(--ghost-accent-color, #1f4e79)".to_string() } else { c.clone() }})).collect::<Vec<_>>(),
             "animations": s.animations,
             "width": s.width,
         },

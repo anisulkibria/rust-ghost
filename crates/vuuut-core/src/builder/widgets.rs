@@ -460,7 +460,7 @@ pub(super) fn html(r: &mut R, kind: &str, id: &str, m: &Value, sel: &str, w: &Va
             }
             let title = match s(m, "title") { "" => String::new(), t => format!(r#"<p class="vb-audio-title">{}</p>"#, text(t)) };
             if url.starts_with("https://soundcloud.com/") {
-                format!(r#"{title}<iframe class="vb-audio-embed" height="166" src="https://w.soundcloud.com/player/?url={}&amp;color=%23ff1a75" title="SoundCloud" loading="lazy" allow="autoplay"></iframe>"#, percent(url))
+                format!(r#"{title}<iframe class="vb-audio-embed" height="166" src="https://w.soundcloud.com/player/?url={}&amp;color=%231f4e79" title="SoundCloud" loading="lazy" allow="autoplay"></iframe>"#, percent(url))
             } else if let Some(rest) = url.strip_prefix("https://open.spotify.com/") {
                 let path: String = rest.chars().take_while(|c| c.is_ascii_alphanumeric() || *c == '/').collect();
                 format!(r#"{title}<iframe class="vb-audio-embed" height="152" src="https://open.spotify.com/embed/{path}" title="Spotify" loading="lazy" allow="autoplay; clipboard-write; encrypted-media; fullscreen; picture-in-picture"></iframe>"#)

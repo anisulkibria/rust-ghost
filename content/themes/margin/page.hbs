@@ -1,0 +1,15 @@
+{{!< default}}
+
+{{#post}}
+<div class="layout wrap{{#unless @custom.show_sidebar_on_posts}} is-solo{{/unless}}">
+    <main class="layout-main" id="main">
+        {{#match @page.show_title_and_feature_image}}
+            {{> "article"}}
+        {{else}}
+            <article class="article entry {{post_class}}"><div class="entry-body"><div class="content">{{content}}</div></div></article>
+        {{/match}}
+    </main>
+
+    {{#if @custom.show_sidebar_on_posts}}{{> "sidebar"}}{{/if}}
+</div>
+{{/post}}

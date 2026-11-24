@@ -5,7 +5,7 @@
  * always visible: an ad has to be recognisable as one.
  */
 .vad {
-  --vad-accent: var(--ghost-accent-color, #FF1A75);
+  --vad-accent: var(--ghost-accent-color, #1f4e79);
   --vad-line: rgba(0, 0, 0, .1);
   --vad-muted: rgba(0, 0, 0, .55);
   --vad-surface: rgba(0, 0, 0, .025);
@@ -56,5 +56,5 @@ html.dark-mode .vad, body.dark-mode .vad { --vad-line: rgba(255, 255, 255, .14);
 .vad-close { all: unset; position: absolute; top: 6px; right: 8px; width: 28px; height: 28px; border-radius: 50%;
   display: grid; place-items: center; cursor: pointer; font: 400 20px/1 system-ui, sans-serif; color: var(--vad-muted, #666); }
 .vad-close:hover { background: rgba(0, 0, 0, .06); }
-.vad-close:focus-visible { outline: 2px solid var(--ghost-accent-color, #FF1A75); }
+.vad-close:focus-visible { outline: 2px solid var(--ghost-accent-color, #1f4e79); }
 @media print { .vad, .vad-sticky { display: none !important; } }

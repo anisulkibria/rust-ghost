@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html lang="{{@site.locale}}" data-scheme="{{#match @custom.color_scheme "Light"}}light{{else match @custom.color_scheme "Dark"}}dark{{else}}auto{{/match}}">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    {{!-- A reader's own light/dark choice, applied before anything paints. --}}
+    <script>try{var s=localStorage.getItem('vuuut-scheme');if(s==='light'||s==='dark')document.documentElement.setAttribute('data-scheme',s)}catch(e){}</script>
+    <title>{{meta_title page=(t " (Page %)")}}</title>
+
+    <link rel="preload" as="font" type="font/woff2" href="{{asset "fonts/literata-roman.woff2"}}" crossorigin>
+    <link rel="preload" as="font" type="font/woff2" href="{{asset "fonts/instrument-sans.woff2"}}" crossorigin>
+    <style>
+        @font-face { font-family: "Literata"; font-style: normal; font-weight: 200 900; font-display: swap; src: url("{{asset "fonts/literata-roman.woff2"}}") format("woff2"); }
+        @font-face { font-family: "Literata"; font-style: italic; font-weight: 200 900; font-display: swap; src: url("{{asset "fonts/literata-italic.woff2"}}") format("woff2"); }
+        @font-face { font-family: "Instrument Sans"; font-style: normal; font-weight: 400 700; font-display: swap; src: url("{{asset "fonts/instrument-sans.woff2"}}") format("woff2"); }
+        :root { --accent-ink: {{contrast_text_color @site.accent_color}}; }
+    </style>
+    <link rel="stylesheet" href="{{asset "css/screen.css"}}">
+
+    {{ghost_head}}
+</head>
+<body class="{{body_class}} is-head-{{#match @custom.heading_font "Sans-serif"}}sans{{else}}serif{{/match}} is-body-{{#match @custom.body_font "Sans-serif"}}sans{{else}}serif{{/match}} sidebar-{{#match @custom.sidebar "Left"}}left{{else match @custom.sidebar "Off"}}off{{else}}right{{/match}}{{#if @custom.show_dates_in_margin}} has-dateline{{/if}}">
+
+<a class="skip-link" href="#main">{{t "Skip to content"}}</a>
+
+<div class="site">
+    {{> "masthead"}}
+
+    {{{body}}}
+
+    {{> "footer"}}
+</div>
+
+<script src="{{asset "js/margin.js"}}" defer></script>
+{{ghost_foot}}
+</body>
+</html>

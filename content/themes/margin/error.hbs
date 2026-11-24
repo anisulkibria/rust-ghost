@@ -1,0 +1,15 @@
+{{!< default}}
+
+<div class="layout wrap is-solo">
+    <main class="layout-main error" id="main">
+        <p class="error-code">{{statusCode}}</p>
+        <h1 class="archive-title">{{message}}</h1>
+        <p class="archive-description">{{t "Something went wrong loading this page. Reload to try again, or go back to the homepage."}}</p>
+        <p class="error-actions"><a class="button" href="{{@site.url}}">{{t "Go to the homepage"}}</a></p>
+        {{#if errorDetails}}
+            <ul class="error-details">
+                {{#foreach errorDetails}}<li><strong>{{{rule}}}</strong> {{#foreach failures}}<code>{{ref}}</code> {{message}}{{/foreach}}</li>{{/foreach}}
+            </ul>
+        {{/if}}
+    </main>
+</div>

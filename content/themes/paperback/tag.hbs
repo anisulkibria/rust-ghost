@@ -1,0 +1,32 @@
+{{!< default}}
+
+<main class="site-main" id="main">
+    {{#tag}}
+        <header class="cover list-cover wrap" style="{{> "band" color=accent_color}}">
+            <div class="cover-band cover-top">
+                <a class="cover-section" href="{{@site.url}}">{{@site.title}}</a>
+                <span>{{plural ../pagination.total empty=(t "No posts") singular=(t "1 post") plural=(t "% posts")}}</span>
+            </div>
+            <div class="cover-panel{{#if feature_image}} has-plate{{/if}}">
+                {{#if feature_image}}
+                    <figure class="cover-plate">
+                        <img src="{{img_url feature_image size="l"}}" alt="">
+                    </figure>
+                {{/if}}
+                <div class="cover-text">
+                    <h1 class="cover-title">{{name}}</h1>
+                    {{#if description}}<p class="cover-dek">{{description}}</p>{{/if}}
+                </div>
+            </div>
+            <div class="cover-band cover-bottom">
+                {{#is "paged"}}<span>{{t "Page {page} of {pages}" page=../pagination.page pages=../pagination.pages}}</span>{{/is}}
+            </div>
+        </header>
+    {{/tag}}
+
+    <div class="shelf wrap">
+        {{#foreach posts}}{{> "card"}}{{/foreach}}
+    </div>
+
+    {{pagination}}
+</main>
