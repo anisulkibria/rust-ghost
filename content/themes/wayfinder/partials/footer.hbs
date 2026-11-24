@@ -1,0 +1,41 @@
+{{#if @site.members_enabled}}
+    {{#unless @member}}
+        {{#unless @site.members_invite_only}}
+            {{> "signup"}}
+        {{/unless}}
+    {{/unless}}
+{{/if}}
+
+<footer class="site-footer">
+    <div class="site-footer-inner wrap">
+        <div class="site-footer-about">
+            <a class="site-footer-title" href="{{@site.url}}">{{@site.title}}</a>
+            {{#if @site.description}}<p>{{@site.description}}</p>{{/if}}
+            <div class="site-footer-social">{{social_accounts}}</div>
+        </div>
+
+        {{#if @custom.places}}
+            {{#get "tags" limit="60" order="name asc" filter="visibility:public" as |all|}}
+                <nav class="site-footer-col" aria-labelledby="footer-places">
+                    <h2 class="site-footer-heading" id="footer-places">{{t "Places"}}</h2>
+                    <ul class="nav">{{#foreach all}}{{#match @custom.places "~" slug}}<li><a href="{{url}}">{{name}}</a></li>{{/match}}{{/foreach}}</ul>
+                </nav>
+            {{/get}}
+        {{/if}}
+
+        <nav class="site-footer-col" aria-labelledby="footer-more">
+            <h2 class="site-footer-heading" id="footer-more">{{@site.title}}</h2>
+            {{#if @site.secondary_navigation}}{{navigation type="secondary"}}{{/if}}
+            <ul class="nav">
+                {{#if @custom.add_place_url}}<li><a href="{{@custom.add_place_url}}">{{t "Add a place"}}</a></li>{{/if}}
+                {{#if @site.recommendations_enabled}}<li><a href="#/portal/recommendations" data-portal="recommendations">{{t "Recommendations"}}</a></li>{{/if}}
+                <li><a href="{{@site.url}}/rss/">{{t "RSS feed"}}</a></li>
+            </ul>
+        </nav>
+    </div>
+
+    <div class="site-footer-base wrap">
+        <p>&copy; {{date format="YYYY"}} {{@site.title}}</p>
+        <p><a href="https://vuuut.com" target="_blank" rel="noopener">{{t "Published with Vuuut"}}</a></p>
+    </div>
+</footer>

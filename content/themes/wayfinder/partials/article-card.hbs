@@ -1,0 +1,18 @@
+{{!-- A guide or article: anything not tagged #listing. --}}
+<article class="acard {{post_class}}">
+    {{#if feature_image}}
+        <a class="acard-image" href="{{url}}" tabindex="-1" aria-hidden="true">
+            <img
+                srcset="{{img_url feature_image size="s"}} 400w, {{img_url feature_image size="m"}} 760w"
+                sizes="(max-width: 640px) 100vw, 400px"
+                src="{{img_url feature_image size="m"}}"
+                alt=""
+                loading="lazy">
+        </a>
+    {{/if}}
+    <div class="acard-text">
+        {{#if primary_tag}}<p class="acard-topic"><a href="{{primary_tag.url}}">{{primary_tag.name}}</a></p>{{/if}}
+        <h3 class="acard-title"><a href="{{url}}">{{title}}</a></h3>
+        <p class="acard-meta">{{#if authors}}{{authors separator=" & " autolink="false"}}, {{/if}}<time datetime="{{date format="YYYY-MM-DD"}}">{{date format="D MMM YYYY"}}</time></p>
+    </div>
+</article>

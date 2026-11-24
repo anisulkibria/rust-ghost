@@ -1,0 +1,30 @@
+{{!< default}}
+
+<main class="site-main" id="main">
+    {{#tag}}
+        <header class="tag-header{{#if feature_image}} has-image{{/if}}">
+            {{#if feature_image}}<img class="tag-header-image" src="{{img_url feature_image size="xl"}}" alt="">{{/if}}
+            <div class="tag-header-inner wrap">
+                <h1 class="list-title">{{name}}</h1>
+                {{#if description}}<p class="list-dek">{{description}}</p>{{/if}}
+                <p class="list-meta">
+                    <span class="w-places">{{plural ../pagination.total empty=(t "Nothing here yet") singular=(t "1 place") plural=(t "% places")}}</span><span class="w-posts">{{plural ../pagination.total empty=(t "Nothing here yet") singular=(t "1 post") plural=(t "% posts")}}</span>{{#is "paged"}}, {{t "page {page} of {pages}" page=../pagination.page pages=../pagination.pages}}{{/is}}
+                </p>
+                {{!-- Narrow down: wayfinder.js points these at the All places page with both filters set. --}}
+                {{#if @custom.places}}
+                    {{#get "tags" limit="60" order="name asc" filter="visibility:public" as |all|}}
+                        <nav class="narrow" aria-label="{{t "Narrow down"}}" data-narrow="{{../slug}}">
+                            {{#foreach all}}{{#match @custom.places "~" slug}}<a class="chip" href="{{url}}" data-slug="{{slug}}">{{t "in"}} {{name}}</a>{{/match}}{{/foreach}}
+                        </nav>
+                    {{/get}}
+                {{/if}}
+            </div>
+        </header>
+    {{/tag}}
+
+    <div class="grid wrap">
+        {{#foreach posts}}{{> "card"}}{{/foreach}}
+    </div>
+
+    {{pagination}}
+</main>

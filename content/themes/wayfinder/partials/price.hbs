@@ -1,0 +1,5 @@
+{{!-- Price level from an internal tag: #price-1 (inexpensive) to #price-4. The unused signs stay faint. --}}
+{{#has tag="#price-1"}}<p class="price" title="{{t "Inexpensive"}}"><span class="visually-hidden">{{t "Price"}}: {{t "Inexpensive"}}</span><span aria-hidden="true"><b>$</b>$$$</span></p>{{/has}}
+{{#has tag="#price-2"}}<p class="price" title="{{t "Moderate"}}"><span class="visually-hidden">{{t "Price"}}: {{t "Moderate"}}</span><span aria-hidden="true"><b>$$</b>$$</span></p>{{/has}}
+{{#has tag="#price-3"}}<p class="price" title="{{t "Pricey"}}"><span class="visually-hidden">{{t "Price"}}: {{t "Pricey"}}</span><span aria-hidden="true"><b>$$$</b>$</span></p>{{/has}}
+{{#has tag="#price-4"}}<p class="price" title="{{t "Very expensive"}}"><span class="visually-hidden">{{t "Price"}}: {{t "Very expensive"}}</span><span aria-hidden="true"><b>$$$$</b></span></p>{{/has}}

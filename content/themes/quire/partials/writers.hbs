@@ -1,0 +1,17 @@
+{{!-- Everyone who has published here. Staff with no posts are skipped. --}}
+{{#get "authors" limit="16" include="count.posts" order="count.posts desc" as |writers|}}
+    {{#if writers}}
+        <section class="writers" aria-labelledby="writers-heading">
+            <div class="wrap">
+                <header class="section-head">
+                    <h2 class="section-title" id="writers-heading">{{t "Who writes here"}}</h2>
+                </header>
+                <ul class="writer-list" role="list">
+                    {{#foreach writers}}
+                        {{!-- Skip staff with no posts when the engine supplies counts. --}}{{#if count}}{{#if count.posts}}{{> "writer"}}{{/if}}{{else}}{{> "writer"}}{{/if}}
+                    {{/foreach}}
+                </ul>
+            </div>
+        </section>
+    {{/if}}
+{{/get}}

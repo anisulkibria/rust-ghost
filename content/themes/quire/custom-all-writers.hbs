@@ -1,0 +1,23 @@
+{{!< default}}
+{{!-- Page template "All writers": everyone who has published, most prolific first. --}}
+
+{{#post}}
+<main class="site-main" id="main">
+    <header class="archive-header wrap">
+        <div class="archive-text">
+            <h1 class="archive-title">{{title}}</h1>
+            {{#if custom_excerpt}}<p class="archive-dek">{{custom_excerpt}}</p>{{/if}}
+        </div>
+    </header>
+
+    {{#if html}}<div class="content gh-content directory-intro">{{content}}</div>{{/if}}
+
+    {{#get "authors" limit="60" include="count.posts" order="count.posts desc" as |writers|}}
+        <ul class="writer-list writer-list-full wrap" role="list">
+            {{#foreach writers}}
+                {{!-- Skip staff with no posts when the engine supplies counts. --}}{{#if count}}{{#if count.posts}}{{> "writer"}}{{/if}}{{else}}{{> "writer"}}{{/if}}
+            {{/foreach}}
+        </ul>
+    {{/get}}
+</main>
+{{/post}}

@@ -1,0 +1,31 @@
+<footer class="article-footer wrap-text">
+    <div class="article-tools">
+        {{#if tags}}
+            <ul class="article-tags" aria-label="{{t "Topics"}}">
+                {{#foreach tags}}<li><a href="{{url}}">{{name}}</a></li>{{/foreach}}
+            </ul>
+        {{/if}}
+        <button class="share-button" type="button" data-copy-url="{{url absolute="true"}}">
+            {{> "icons/link"}}
+            <span class="when-idle">{{t "Copy link"}}</span>
+            <span class="when-done" role="status">{{t "Link copied"}}</span>
+        </button>
+    </div>
+
+    {{#if @custom.show_author_card}}
+        <div class="author-cards">
+            {{#foreach authors}}
+                <section class="author-card">
+                    {{#if profile_image}}
+                        <a class="author-card-image" href="{{url}}" tabindex="-1" aria-hidden="true"><img src="{{img_url profile_image size="s"}}" alt="" width="80" height="80" loading="lazy"></a>
+                    {{/if}}
+                    <div class="author-card-text">
+                        <h2 class="author-card-name"><a href="{{url}}">{{name}}</a></h2>
+                        {{#if bio}}<p>{{bio}}</p>{{/if}}
+                        <a class="author-card-more" href="{{url}}">{{t "More by"}} {{name}}</a>
+                    </div>
+                </section>
+            {{/foreach}}
+        </div>
+    {{/if}}
+</footer>

@@ -1,0 +1,134 @@
+{{!< default}}
+
+<main class="site-main" id="main">
+    {{#is "paged"}}
+        <header class="list-header wrap">
+            <h1 class="list-title"><span class="w-places">{{t "Everything on the guide"}}</span><span class="w-posts">{{t "All posts"}}</span></h1>
+            <p class="list-meta">{{t "Page {page} of {pages}" page=pagination.page pages=pagination.pages}}</p>
+        </header>
+        <div class="grid wrap">
+            {{#foreach posts}}{{> "card"}}{{/foreach}}
+        </div>
+        {{pagination}}
+    {{else}}
+        <section class="hero" aria-labelledby="hero-title">
+            <div class="hero-inner wrap">
+                <div class="hero-search">
+                    <h1 class="visually-hidden" id="hero-title">{{@site.title}}</h1>
+                    {{> "finder"}}
+                    {{#if @site.description}}<p class="hero-text">{{@site.description}}</p>{{/if}}
+                </div>
+
+                {{!-- The picture: a featured listing, else any featured post, else the newest post with an image. CSS shows only the first. --}}
+                {{#get "posts" filter="tag:hash-listing+featured:true" limit="1" include="tags"}}
+                    {{#foreach posts}}
+                        {{#if feature_image}}
+                            <a class="postcard" href="{{url}}">
+                                <img src="{{img_url feature_image size="l"}}" alt="" fetchpriority="high">
+                                <span class="postcard-label">
+                                    <span class="postcard-title">{{title}}</span>
+                                    {{#if primary_tag}}<span class="postcard-where">{{primary_tag.name}}{{#has tag="#listing"}}{{#foreach tags from="2" to="2"}} {{t "in"}} {{name}}{{/foreach}}{{/has}}</span>{{/if}}
+                                </span>
+                            </a>
+                        {{/if}}
+                    {{/foreach}}
+                {{/get}}
+                {{#get "posts" filter="featured:true" limit="3" include="tags"}}
+                    {{#foreach posts}}
+                        {{#if feature_image}}
+                            <a class="postcard" href="{{url}}">
+                                <img src="{{img_url feature_image size="l"}}" alt="" fetchpriority="high">
+                                <span class="postcard-label">
+                                    <span class="postcard-title">{{title}}</span>
+                                    {{#if primary_tag}}<span class="postcard-where">{{primary_tag.name}}{{#has tag="#listing"}}{{#foreach tags from="2" to="2"}} {{t "in"}} {{name}}{{/foreach}}{{/has}}</span>{{/if}}
+                                </span>
+                            </a>
+                        {{/if}}
+                    {{/foreach}}
+                {{/get}}
+                {{#get "posts" limit="6" include="tags"}}
+                    {{#foreach posts}}
+                        {{#if feature_image}}
+                            <a class="postcard" href="{{url}}">
+                                <img src="{{img_url feature_image size="l"}}" alt="" fetchpriority="high">
+                                <span class="postcard-label">
+                                    <span class="postcard-title">{{title}}</span>
+                                    {{#if primary_tag}}<span class="postcard-where">{{primary_tag.name}}{{#has tag="#listing"}}{{#foreach tags from="2" to="2"}} {{t "in"}} {{name}}{{/foreach}}{{/has}}</span>{{/if}}
+                                </span>
+                            </a>
+                        {{/if}}
+                    {{/foreach}}
+                {{/get}}
+            </div>
+        </section>
+
+        {{> "kinds"}}
+
+        {{#if @custom.show_featured}}
+            {{#get "posts" filter="tag:hash-listing+featured:true" limit="6" include="tags" as |picks|}}
+                {{#if picks}}
+                    <section class="band" aria-labelledby="featured-heading">
+                        <header class="section-head wrap">
+                            <h2 class="section-title" id="featured-heading">{{t "Worth the trip"}}</h2>
+                            <a class="section-link" href="{{#if @custom.directory_page}}{{@custom.directory_page}}{{else}}/places/{{/if}}">{{t "See every place"}}</a>
+                        </header>
+                        <div class="grid wrap">
+                            {{#foreach picks}}{{> "listing-card"}}{{/foreach}}
+                        </div>
+                    </section>
+                {{/if}}
+            {{/get}}
+        {{/if}}
+
+        {{#if @custom.show_places}}{{> "places"}}{{/if}}
+
+        {{#get "posts" filter="tag:hash-listing" limit="8" include="tags" as |latest|}}
+            {{#if latest}}
+                <section class="band" aria-labelledby="new-heading">
+                    <header class="section-head wrap">
+                        <h2 class="section-title" id="new-heading">{{t "New on the guide"}}</h2>
+                    </header>
+                    <div class="grid grid-four wrap">
+                        {{#foreach latest}}{{> "listing-card"}}{{/foreach}}
+                    </div>
+                </section>
+            {{/if}}
+        {{/get}}
+
+        {{#if @custom.show_guides}}
+            {{!-- Posts without #listing. This engine cannot negate a tag filter, so listings are skipped in the loop and CSS shows the first three. --}}
+            {{#get "posts" limit="15" include="tags,authors" as |recent|}}
+                <section class="band guides" aria-labelledby="guides-heading">
+                    <header class="section-head wrap">
+                        <h2 class="section-title" id="guides-heading">{{t "Guides and tips"}}</h2>
+                    </header>
+                    <div class="grid grid-three wrap guides-grid">
+                        {{#foreach recent}}{{#has tag="#listing"}}{{else}}{{> "article-card"}}{{/has}}{{/foreach}}
+                    </div>
+                </section>
+            {{/get}}
+        {{/if}}
+
+        {{!-- Until posts are tagged #listing the site is a blog: show every post,
+             page by page. CSS hides this once any listing appears. --}}
+        <section class="band everything" aria-labelledby="everything-heading">
+            <header class="section-head wrap">
+                <h2 class="section-title" id="everything-heading">{{t "Latest posts"}}</h2>
+            </header>
+            <div class="grid wrap">
+                {{#foreach posts}}{{> "card"}}{{/foreach}}
+            </div>
+            {{pagination}}
+        </section>
+
+        {{#if @custom.add_place_url}}
+            <section class="invite wrap" aria-labelledby="invite-heading">
+                <div class="invite-inner">
+                    <h2 class="invite-heading" id="invite-heading">{{t "Run a place people should know about?"}}</h2>
+                    <p>{{t "Tell us about it. We'll visit, and if it belongs here, we'll add it to the guide."}}</p>
+                    <a class="button button-big" href="{{@custom.add_place_url}}">{{> "icons/plus"}}{{t "Add a place"}}</a>
+                </div>
+            </section>
+        {{/if}}
+    {{/is}}
+</main>

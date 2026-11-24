@@ -1,0 +1,89 @@
+{
+    "name": "wire",
+    "description": "A news theme organised by time. The day's stories run down a live timeline beside the lead, and beside every article.",
+    "version": "1.0.0",
+    "engines": {
+        "ghost": ">=5.0.0"
+    },
+    "license": "MIT",
+    "author": {
+        "name": "Vuuut",
+        "email": "hello@vuuut.com",
+        "url": "https://vuuut.com"
+    },
+    "gpm": {
+        "type": "theme",
+        "categories": [
+            "News",
+            "Magazine"
+        ]
+    },
+    "keywords": [
+        "ghost-theme",
+        "vuuut-theme",
+        "news",
+        "magazine",
+        "timeline"
+    ],
+    "config": {
+        "posts_per_page": 16,
+        "image_sizes": {
+            "xs": { "width": 160 },
+            "s": { "width": 400 },
+            "m": { "width": 760 },
+            "l": { "width": 1200 },
+            "xl": { "width": 1800 },
+            "xxl": { "width": 2400 }
+        },
+        "card_assets": true,
+        "custom": {
+            "color_scheme": {
+                "type": "select",
+                "options": ["Light", "Dark", "Follow the reader's device"],
+                "default": "Light",
+                "description": "Where every reader starts. Each can switch with the light/dark button."
+            },
+            "timeline_title": {
+                "type": "text",
+                "description": "Heading of the homepage timeline. Defaults to \"The day so far\"."
+            },
+            "signup_heading": {
+                "type": "text",
+                "description": "Heading of the signup block. Defaults to \"The morning briefing\"."
+            },
+            "signup_text": {
+                "type": "text",
+                "description": "One line under the signup heading. Defaults to the site description."
+            },
+            "show_editors_choice": {
+                "type": "boolean",
+                "default": true,
+                "description": "Shows your featured posts under the lead story.",
+                "group": "homepage"
+            },
+            "show_desks": {
+                "type": "boolean",
+                "default": true,
+                "description": "Gives each of your four biggest tags its own block of headlines.",
+                "group": "homepage"
+            },
+            "show_post_timeline": {
+                "type": "boolean",
+                "default": true,
+                "description": "Shows the latest stories as a timeline beside each post on wide screens.",
+                "group": "post"
+            },
+            "show_author_card": {
+                "type": "boolean",
+                "default": true,
+                "group": "post"
+            },
+            "show_related_posts": {
+                "type": "boolean",
+                "default": true,
+                "description": "Ends each post with three more from the same tag.",
+                "group": "post"
+            }
+        }
+    }
+}

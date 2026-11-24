@@ -1,0 +1,42 @@
+{{!< default}}
+
+<main class="site-main" id="main">
+    {{#tag}}
+        <header class="archive-header wrap{{#if feature_image}} has-image{{/if}}">
+            <div class="archive-text">
+                <p class="archive-kind">{{t "Topic"}}</p>
+                <h1 class="archive-title">{{name}}</h1>
+                {{#if description}}<p class="archive-dek">{{description}}</p>{{/if}}
+                <p class="archive-meta">
+                    {{plural ../pagination.total empty=(t "No stories yet") singular=(t "1 story") plural=(t "% stories")}}{{#is "paged"}}, {{t "page {page} of {pages}" page=../pagination.page pages=../pagination.pages}}{{/is}}
+                </p>
+            </div>
+            {{#if feature_image}}
+                <figure class="archive-image">
+                    <img src="{{img_url feature_image size="l"}}" alt="">
+                </figure>
+            {{/if}}
+        </header>
+    {{/tag}}
+
+    <div class="grid wrap">
+        {{#foreach posts}}{{> "card"}}{{/foreach}}
+    </div>
+
+    {{pagination}}
+
+    {{#tag}}
+        {{#get "tags" limit="12" include="count.posts" order="count.posts desc" filter="visibility:public+slug:-{{slug}}" as |others|}}
+            {{#if others}}
+                <nav class="other-topics wrap" aria-label="{{t "Other topics"}}">
+                    <p class="topics-sentence topics-sentence-small">
+                        <span class="topics-intro">{{t "Also on"}}</span>
+                        {{#foreach others}}
+                            {{#if count.posts}}<span class="topic" data-and="{{t "and"}}"><a class="topic-link" href="{{url}}"><span class="topic-name">{{name}}</span><sup class="topic-count" aria-hidden="true">{{count.posts}}</sup><span class="visually-hidden">, {{plural count.posts empty=(t "No stories yet") singular=(t "1 story") plural=(t "% stories")}}</span></a></span>{{/if}}
+                        {{/foreach}}
+                    </p>
+                </nav>
+            {{/if}}
+        {{/get}}
+    {{/tag}}
+</main>

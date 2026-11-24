@@ -1,0 +1,21 @@
+{{#if @custom.show_signup}}
+    {{#if @site.members_enabled}}
+        {{#unless @member}}
+            {{#unless @site.members_invite_only}}{{> "signup"}}{{/unless}}
+        {{/unless}}
+    {{/if}}
+{{/if}}
+
+<footer class="site-footer">
+    <div class="site-footer-inner">
+        <p class="site-footer-name"><a href="{{@site.url}}">{{@site.title}}</a></p>
+        <nav class="site-footer-nav" aria-label="{{t "Footer"}}">
+            {{#if @site.secondary_navigation}}{{navigation type="secondary"}}{{/if}}
+            <ul class="nav">
+                {{#if @custom.support_url}}<li><a href="{{@custom.support_url}}">{{t "Contact support"}}</a></li>{{/if}}
+                <li><a href="{{@site.url}}/rss/">{{t "RSS feed"}}</a></li>
+            </ul>
+        </nav>
+        <p class="site-footer-base">&copy; {{date format="YYYY"}} {{@site.title}}. <a href="https://vuuut.com" target="_blank" rel="noopener">{{t "Published with Vuuut"}}</a></p>
+    </div>
+</footer>

@@ -1,0 +1,76 @@
+{{!< default}}
+
+{{#post}}
+<main class="site-main doc-layout" id="main">
+    <aside class="doc-side" aria-label="{{t "Contents"}}">
+        <button class="contents-toggle" type="button" aria-expanded="false" aria-controls="doc-tree" data-contents-toggle>
+            {{> "icons/contents"}}<span>{{t "Contents"}}</span>
+        </button>
+        <div class="doc-tree" id="doc-tree">{{> "tree"}}</div>
+    </aside>
+
+    <article class="doc {{post_class}}">
+        <nav class="crumbs" aria-label="{{t "Breadcrumb"}}">
+            <ol role="list">
+                <li><a href="{{@site.url}}">{{@site.title}}</a></li>
+                {{#if primary_tag}}<li><a href="{{primary_tag.url}}"><span class="num" data-num-for="{{primary_tag.url}}"></span>{{primary_tag.name}}</a></li>{{/if}}
+                <li aria-current="page"><span class="num" data-num-for="{{url}}"></span>{{title}}</li>
+            </ol>
+        </nav>
+
+        <header class="doc-header">
+            <p class="doc-num" data-num-for="{{url}}" aria-hidden="true"></p>
+            <h1 class="doc-title">{{title}}</h1>
+            {{#if custom_excerpt}}<p class="doc-dek">{{custom_excerpt}}</p>{{/if}}
+            <p class="doc-meta">
+                {{t "Updated"}} <time datetime="{{date updated_at format="YYYY-MM-DD"}}">{{date updated_at format="D MMMM YYYY"}}</time>,
+                {{reading_time minute=(t "1 min read") minutes=(t "% min read")}}
+            </p>
+        </header>
+
+        <div class="content gh-content" data-doc-content data-label-anchor="{{t "Link to this section"}}">
+            {{content}}
+        </div>
+
+        {{#if @custom.show_feedback}}
+            <section class="feedback" data-feedback aria-labelledby="feedback-heading">
+                <h2 class="feedback-heading" id="feedback-heading">{{t "Was this page helpful?"}}</h2>
+                <div class="feedback-buttons">
+                    <button class="button button-quiet" type="button" data-answer="yes">{{> "icons/thumb"}}{{t "Yes"}}</button>
+                    <button class="button button-quiet feedback-no" type="button" data-answer="no">{{> "icons/thumb"}}{{t "No"}}</button>
+                </div>
+                <p class="feedback-thanks" data-thanks="yes" hidden role="status">{{t "Thanks. Glad it helped."}}</p>
+                <p class="feedback-thanks" data-thanks="no" hidden role="status">
+                    {{t "Thanks for telling us."}}
+                    {{#if @custom.support_url}}<a href="{{@custom.support_url}}">{{t "Tell us what was missing"}}</a>{{/if}}
+                </p>
+            </section>
+        {{/if}}
+
+        <nav class="pager-docs" aria-label="{{t "Previous and next"}}">
+            {{#prev_post in="primary_tag"}}
+                <a class="pager-doc pager-prev" href="{{url}}" rel="prev">
+                    <span class="pager-label">{{t "Previous"}}</span>
+                    <span class="pager-title"><span class="num" data-num-for="{{url}}"></span>{{title}}</span>
+                </a>
+            {{/prev_post}}
+            {{#next_post in="primary_tag"}}
+                <a class="pager-doc pager-next" href="{{url}}" rel="next">
+                    <span class="pager-label">{{t "Next"}}</span>
+                    <span class="pager-title"><span class="num" data-num-for="{{url}}"></span>{{title}}</span>
+                </a>
+            {{/next_post}}
+        </nav>
+
+        {{#if comments}}
+            <section class="comments" id="comments" aria-label="{{t "Comments"}}">{{comments}}</section>
+        {{/if}}
+    </article>
+
+    <aside class="doc-toc" aria-labelledby="toc-heading" data-toc hidden>
+        <h2 class="toc-heading" id="toc-heading">{{t "On this page"}}</h2>
+        <ol class="toc-list" role="list"></ol>
+        <a class="toc-top" href="#main">{{t "Back to top"}}</a>
+    </aside>
+</main>
+{{/post}}

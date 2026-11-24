@@ -248,6 +248,37 @@ pub(crate) async fn migration_export_content(State(state): State<AppState>, head
         .into_response()
 }
 
+/// `GET /ghost/backups/export/ghost/` — the content export reshaped for stock
+/// Ghost's importer (see `vuuut_db::ghost_compat`): only the columns and
+/// settings Ghost has, with Ghost's required values filled in.
+pub(crate) async fn migration_export_for_ghost(State(state): State<AppState>, headers: HeaderMap) -> Response {
+    if let Err(r) = require_role(&state, &headers, Role::Administrator).await {
+        return r;
+    }
+    let export = match vuuut_db::transfer::export(&state.db).await {
+        Ok(value) => value,
+        Err(error) => {
+            tracing::error!("Ghost export failed: {}", error.message());
+            return (StatusCode::INTERNAL_SERVER_ERROR, "The export failed").into_response();
+        }
+    };
+    let body = serde_json::to_string_pretty(&vuuut_db::ghost_compat::for_ghost(&export)).unwrap_or_default();
+    let slug = vuuut_core::slug::safe_string(&state.settings.site_name());
+    let prefix = if slug.is_empty() { "site".to_string() } else { slug };
+    (
+        StatusCode::OK,
+        [
+            (header::CONTENT_TYPE, "application/json; charset=utf-8".to_string()),
+            (
+                header::CONTENT_DISPOSITION,
+                format!("attachment; filename=\"{prefix}.ghost.{}.json\"", export_date_stamp()),
+            ),
+        ],
+        body,
+    )
+        .into_response()
+}
+
 /// Post analytics from native page views, newsletter clicks and attributed
 /// membership/subscription events. These CSV fields share the report sources.
 pub(crate) const POST_ANALYTICS_COLUMNS: &[&str] = &[

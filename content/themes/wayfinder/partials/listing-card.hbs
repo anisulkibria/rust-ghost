@@ -1,0 +1,28 @@
+{{!--
+    A place. Category is the primary tag, place is the second tag, price comes
+    from an internal #price-1 … #price-4 tag. post_class carries every tag as
+    a class, which the All places page filters on.
+--}}
+<article class="lcard {{post_class}}" data-listing>
+    <a class="lcard-image" href="{{url}}" tabindex="-1" aria-hidden="true">
+        {{#if feature_image}}
+            <img
+                srcset="{{img_url feature_image size="s"}} 400w, {{img_url feature_image size="m"}} 760w"
+                sizes="(max-width: 640px) 100vw, 400px"
+                src="{{img_url feature_image size="m"}}"
+                alt=""
+                loading="lazy">
+        {{else}}
+            <span class="lcard-noimage">{{> "icons/pin"}}</span>
+        {{/if}}
+        {{#if featured}}<span class="lcard-badge">{{t "Featured"}}</span>{{/if}}
+    </a>
+    <div class="lcard-text">
+        <p class="lcard-where">
+            {{#if primary_tag}}{{primary_tag.name}}{{/if}}{{#foreach tags from="2" to="2"}} {{t "in"}} {{name}}{{/foreach}}
+        </p>
+        <h3 class="lcard-title"><a href="{{url}}">{{title}}</a></h3>
+        {{#if custom_excerpt}}<p class="lcard-tagline">{{custom_excerpt}}</p>{{/if}}
+        {{> "price"}}
+    </div>
+</article>

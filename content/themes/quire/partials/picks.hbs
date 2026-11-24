@@ -1,0 +1,28 @@
+{{!-- Featured posts as a reading list: big title, small picture, who wrote it. --}}
+{{#get "posts" filter="featured:true" limit="4" include="tags,authors" as |picks|}}
+    {{#if picks}}
+        <section class="picks" aria-labelledby="picks-heading">
+            <div class="picks-inner wrap">
+                <header class="section-head">
+                    <h2 class="section-title" id="picks-heading">{{t "Editors' picks"}}</h2>
+                </header>
+                <ul class="pick-list" role="list">
+                    {{#foreach picks}}
+                        <li class="pick">
+                            <div class="pick-text">
+                                {{#if primary_tag}}<p class="card-topic"><a href="{{primary_tag.url}}">{{primary_tag.name}}</a></p>{{/if}}
+                                <h3 class="pick-title"><a href="{{url}}">{{title}}</a></h3>
+                                <p class="card-meta"><span class="card-authors">{{authors separator=" & " autolink="false"}}</span> <span class="card-when">{{reading_time minute=(t "1 min read") minutes=(t "% min read")}}</span></p>
+                            </div>
+                            {{#if feature_image}}
+                                <a class="pick-image" href="{{url}}" tabindex="-1" aria-hidden="true">
+                                    <img src="{{img_url feature_image size="s"}}" alt="" loading="lazy">
+                                </a>
+                            {{/if}}
+                        </li>
+                    {{/foreach}}
+                </ul>
+            </div>
+        </section>
+    {{/if}}
+{{/get}}

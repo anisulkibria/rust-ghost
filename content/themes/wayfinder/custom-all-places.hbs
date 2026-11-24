@@ -1,0 +1,64 @@
+{{!< default}}
+{{!--
+    Page template "All places": every listing, filtered in the browser by
+    category, place and price. Reads ?what=&where=&price= from the address,
+    so the homepage search and shared links land on the right results.
+--}}
+
+{{#post}}
+<main class="site-main" id="main">
+    <header class="list-header wrap">
+        <h1 class="list-title">{{title}}</h1>
+        {{#if custom_excerpt}}<p class="list-meta">{{custom_excerpt}}</p>{{/if}}
+    </header>
+
+    <form class="filters wrap" data-filters aria-label="{{t "Filter places"}}">
+        <div class="filter">
+            <label for="filter-what">{{t "Category"}}</label>
+            <select id="filter-what" name="what">
+                <option value="">{{t "All categories"}}</option>
+                {{#get "tags" limit="60" include="count.posts" order="name asc" filter="visibility:public" as |all|}}
+                    {{#foreach all}}{{#if count.posts}}{{#match @custom.places "~" slug}}{{else}}<option value="{{slug}}">{{name}}</option>{{/match}}{{/if}}{{/foreach}}
+                {{/get}}
+            </select>
+        </div>
+        {{#if @custom.places}}
+            <div class="filter">
+                <label for="filter-where">{{t "Place"}}</label>
+                <select id="filter-where" name="where">
+                    <option value="">{{t "Everywhere"}}</option>
+                    {{#get "tags" limit="60" include="count.posts" order="name asc" filter="visibility:public" as |all|}}
+                        {{#foreach all}}{{#match @custom.places "~" slug}}<option value="{{slug}}">{{name}}</option>{{/match}}{{/foreach}}
+                    {{/get}}
+                </select>
+            </div>
+        {{/if}}
+        <fieldset class="filter filter-price">
+            <legend>{{t "Price"}}</legend>
+            <div class="price-toggles">
+                <label><input type="checkbox" name="price" value="1"><span title="{{t "Inexpensive"}}">$</span></label>
+                <label><input type="checkbox" name="price" value="2"><span title="{{t "Moderate"}}">$$</span></label>
+                <label><input type="checkbox" name="price" value="3"><span title="{{t "Pricey"}}">$$$</span></label>
+                <label><input type="checkbox" name="price" value="4"><span title="{{t "Very expensive"}}">$$$$</span></label>
+            </div>
+        </fieldset>
+        <button class="button button-quiet filter-clear" type="reset">{{t "Clear filters"}}</button>
+    </form>
+
+    <p class="results-count wrap" data-count role="status" aria-live="polite"
+        data-one="{{t "1 place"}}" data-many="{{t "% places"}}" data-none="{{t "No places match"}}"></p>
+
+    {{#get "posts" filter="tag:hash-listing" limit="100" include="tags" as |listings|}}
+        <div class="grid wrap" data-results>
+            {{#foreach listings}}{{> "listing-card"}}{{/foreach}}
+        </div>
+    {{/get}}
+
+    <div class="empty wrap" data-empty hidden>
+        <h2 class="empty-title">{{t "No places match these filters"}}</h2>
+        <p>{{t "Try another category or place, or clear the filters to see everything."}}</p>
+    </div>
+
+    {{#if html}}<div class="content gh-content directory-note">{{content}}</div>{{/if}}
+</main>
+{{/post}}

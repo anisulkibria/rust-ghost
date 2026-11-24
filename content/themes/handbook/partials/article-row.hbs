@@ -1,0 +1,17 @@
+{{!-- One article in a list. Pass updated=true to show when it last changed. --}}
+<li class="article-row">
+    <a class="article-row-link" href="{{url}}">
+        <span class="num" data-num-for="{{url}}"></span>
+        <span class="article-row-text">
+            <span class="article-row-title">{{title}}</span>
+            {{#if excerpt}}<span class="article-row-excerpt">{{excerpt words="24"}}</span>{{/if}}
+        </span>
+        <span class="article-row-meta">
+            {{#if updated}}
+                {{#if primary_tag}}{{primary_tag.name}}, {{/if}}{{t "updated"}} <time datetime="{{date updated_at format="YYYY-MM-DD"}}">{{date updated_at format="D MMM YYYY"}}</time>
+            {{else}}
+                {{reading_time minute=(t "1 min read") minutes=(t "% min read")}}
+            {{/if}}
+        </span>
+    </a>
+</li>

@@ -1,0 +1,90 @@
+{
+    "name": "quire",
+    "description": "A theme for publications with many writers and many topics. The homepage opens with every topic you cover, set as one sentence.",
+    "version": "1.0.0",
+    "engines": {
+        "ghost": ">=5.0.0"
+    },
+    "license": "MIT",
+    "author": {
+        "name": "Vuuut",
+        "email": "hello@vuuut.com",
+        "url": "https://vuuut.com"
+    },
+    "gpm": {
+        "type": "theme",
+        "categories": [
+            "Community",
+            "Blog"
+        ]
+    },
+    "keywords": [
+        "ghost-theme",
+        "vuuut-theme",
+        "community",
+        "multi-author",
+        "blog",
+        "topics"
+    ],
+    "config": {
+        "posts_per_page": 13,
+        "image_sizes": {
+            "xs": { "width": 160 },
+            "s": { "width": 400 },
+            "m": { "width": 760 },
+            "l": { "width": 1200 },
+            "xl": { "width": 1800 },
+            "xxl": { "width": 2400 }
+        },
+        "card_assets": true,
+        "custom": {
+            "color_scheme": {
+                "type": "select",
+                "options": ["Light", "Dark", "Follow the reader's device"],
+                "default": "Light",
+                "description": "Where every reader starts. Each can switch with the light/dark button."
+            },
+            "topics_intro": {
+                "type": "text",
+                "description": "Words before the list of topics on the homepage. Defaults to \"Stories on\"."
+            },
+            "signup_heading": {
+                "type": "text",
+                "description": "Heading of the signup block. Defaults to \"Get new stories by email\"."
+            },
+            "signup_text": {
+                "type": "text",
+                "description": "One line under the signup heading. Defaults to the site description."
+            },
+            "show_topics": {
+                "type": "boolean",
+                "default": true,
+                "description": "Opens the homepage with your topics, biggest first, as one sentence.",
+                "group": "homepage"
+            },
+            "show_picks": {
+                "type": "boolean",
+                "default": true,
+                "description": "Lists your featured posts under the latest stories.",
+                "group": "homepage"
+            },
+            "show_writers": {
+                "type": "boolean",
+                "default": true,
+                "description": "Shows everyone who has published, with a link to their stories.",
+                "group": "homepage"
+            },
+            "show_author_card": {
+                "type": "boolean",
+                "default": true,
+                "group": "post"
+            },
+            "show_related_posts": {
+                "type": "boolean",
+                "default": true,
+                "description": "Ends each post with three more from the same topic.",
+                "group": "post"
+            }
+        }
+    }
+}

@@ -1,0 +1,40 @@
+{{!< default}}
+
+<main class="site-main" id="main">
+    {{#tag}}
+        <header class="desk-header wrap">
+            <h1 class="desk-title">{{name}}</h1>
+            {{#if description}}<p class="desk-dek">{{description}}</p>{{/if}}
+            <p class="desk-meta">
+                {{plural ../pagination.total empty=(t "No stories yet") singular=(t "1 story") plural=(t "% stories")}}{{#is "paged"}}, {{t "page {page} of {pages}" page=../pagination.page pages=../pagination.pages}}{{/is}}
+            </p>
+        </header>
+    {{/tag}}
+
+    {{#is "paged"}}
+        <div class="grid wrap">
+            {{#foreach posts}}{{> "card"}}{{/foreach}}
+        </div>
+    {{else}}
+        <section class="front front-desk wrap" aria-label="{{t "Latest"}}">
+            <div class="front-lead">
+                {{#foreach posts limit="1"}}{{> "card" size="lead"}}{{/foreach}}
+            </div>
+            {{#match posts.length ">" 1}}
+                <aside class="timeline" aria-labelledby="timeline-heading">
+                    <h2 class="timeline-heading" id="timeline-heading"><span class="live-dot" aria-hidden="true"></span>{{t "Latest"}}</h2>
+                    <ol class="tl" role="list" data-timeline>
+                        {{#foreach posts from="2" to="6"}}{{> "timeline-item"}}{{/foreach}}
+                    </ol>
+                </aside>
+            {{/match}}
+        </section>
+        {{#match posts.length ">" 6}}
+            <div class="grid wrap grid-after">
+                {{#foreach posts from="7"}}{{> "card"}}{{/foreach}}
+            </div>
+        {{/match}}
+    {{/is}}
+
+    {{pagination}}
+</main>

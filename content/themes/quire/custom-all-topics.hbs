@@ -1,0 +1,37 @@
+{{!< default}}
+{{!-- Page template "All topics": every public topic with its newest three stories. --}}
+
+{{#post}}
+<main class="site-main" id="main">
+    <header class="archive-header wrap">
+        <div class="archive-text">
+            <h1 class="archive-title">{{title}}</h1>
+            {{#if custom_excerpt}}<p class="archive-dek">{{custom_excerpt}}</p>{{/if}}
+        </div>
+    </header>
+
+    {{#if html}}<div class="content gh-content directory-intro">{{content}}</div>{{/if}}
+
+    {{#get "tags" limit="60" include="count.posts" order="name asc" filter="visibility:public" as |topics|}}
+        <ul class="directory wrap" role="list">
+            {{#foreach topics}}
+                {{#if count.posts}}
+                    <li class="directory-item">
+                        <div class="directory-head">
+                            <h2 class="directory-name"><a href="{{url}}">{{name}}</a><sup class="topic-count" aria-hidden="true">{{count.posts}}</sup><span class="visually-hidden">, {{plural count.posts empty=(t "No stories yet") singular=(t "1 story") plural=(t "% stories")}}</span></h2>
+                            {{#if description}}<p class="directory-dek">{{description}}</p>{{/if}}
+                        </div>
+                        {{#get "posts" filter="tags:{{slug}}" limit="3" include="authors"}}
+                            <ul class="directory-posts" role="list">
+                                {{#foreach posts}}
+                                    <li><a href="{{url}}">{{title}}</a> <span class="directory-by">{{authors separator=" & " autolink="false"}}</span></li>
+                                {{/foreach}}
+                            </ul>
+                        {{/get}}
+                    </li>
+                {{/if}}
+            {{/foreach}}
+        </ul>
+    {{/get}}
+</main>
+{{/post}}

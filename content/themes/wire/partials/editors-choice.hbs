@@ -1,0 +1,30 @@
+{{!--
+    Featured posts other than the lead: one large story and three rows beside
+    it. When fewer than four posts are featured, the rows are topped up with
+    the latest unfeatured stories; CSS shows the first three rows.
+--}}
+{{#get "posts" filter="featured:true+id:-{{lead}}" limit="4" include="tags,authors" as |picks|}}
+    {{#if picks}}
+        <section class="choice" aria-labelledby="choice-heading">
+            <div class="wrap">
+                <header class="section-head">
+                    <h2 class="section-title" id="choice-heading">{{t "Editor's choice"}}</h2>
+                </header>
+                <div class="choice-grid">
+                    <div class="choice-main">
+                        {{#foreach picks limit="1"}}{{> "card"}}{{/foreach}}
+                    </div>
+                    <div class="choice-side">
+                        {{#foreach picks from="2"}}{{> "card" size="row"}}{{/foreach}}
+                        {{#match picks.length "<" 4}}
+                            {{!-- A filter can't read lead inside a nested get, so skip it here. --}}
+                            {{#get "posts" filter="featured:false" limit="4" include="tags,authors" as |more|}}
+                                {{#foreach more}}{{#match id "!=" ../lead}}{{> "card" size="row"}}{{/match}}{{/foreach}}
+                            {{/get}}
+                        {{/match}}
+                    </div>
+                </div>
+            </div>
+        </section>
+    {{/if}}
+{{/get}}

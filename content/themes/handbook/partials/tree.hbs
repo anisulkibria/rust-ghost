@@ -1,0 +1,23 @@
+{{!--
+    The contents tree: every section with its articles, oldest first.
+    handbook.js puts the sections in the order of the Sections setting and
+    numbers them (2) and their articles (2.3); the same numbers then appear
+    on cards, in breadcrumbs and in previous/next links.
+    This engine cannot filter tags by a list, so all tags are fetched and the
+    Sections setting picks which are sections.
+--}}
+<nav class="tree" aria-label="{{t "Contents"}}" data-tree>
+    {{#get "tags" limit="60" include="count.posts" order="name asc" filter="visibility:public" as |all|}}
+        <ol class="tree-sections" role="list">
+            {{#foreach all}}
+                {{#if count.posts}}
+                    {{#if @custom.sections}}
+                        {{#match @custom.sections "~" slug}}{{> "tree-section"}}{{/match}}
+                    {{else}}
+                        {{> "tree-section"}}
+                    {{/if}}
+                {{/if}}
+            {{/foreach}}
+        </ol>
+    {{/get}}
+</nav>

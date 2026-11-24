@@ -1,0 +1,15 @@
+<li class="tree-section" data-section="{{slug}}">
+    <details open>
+        <summary class="tree-heading">
+            <span class="tree-chevron" aria-hidden="true">{{> "icons/chevron"}}</span>
+            <a href="{{url}}"><span class="num" data-num></span>{{name}}</a>
+        </summary>
+        {{#get "posts" filter="primary_tag:{{slug}}" order="published_at asc" limit="60" as |articles|}}
+            <ol class="tree-articles" role="list">
+                {{#foreach articles}}
+                    <li><a href="{{url}}" data-article><span class="num" data-num></span><span class="tree-title">{{title}}</span></a></li>
+                {{/foreach}}
+            </ol>
+        {{/get}}
+    </details>
+</li>

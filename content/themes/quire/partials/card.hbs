@@ -1,0 +1,29 @@
+{{!-- A story in a grid. Pass size="wide" for the lead story. --}}
+<article class="card{{#if size}} card-{{size}}{{/if}} {{post_class}}">
+    {{#if feature_image}}
+        <a class="card-image" href="{{url}}" tabindex="-1" aria-hidden="true">
+            <img
+                srcset="{{img_url feature_image size="s"}} 400w, {{img_url feature_image size="m"}} 760w, {{img_url feature_image size="l"}} 1200w"
+                sizes="{{#match size "wide"}}(max-width: 900px) 100vw, 760px{{else}}(max-width: 640px) 100vw, 400px{{/match}}"
+                src="{{img_url feature_image size="m"}}"
+                alt=""
+                loading="lazy">
+        </a>
+    {{/if}}
+
+    <div class="card-text">
+        <p class="card-topic">
+            {{#if primary_tag}}<a href="{{primary_tag.url}}">{{primary_tag.name}}</a>{{/if}}
+            {{#match visibility "!=" "public"}}<span class="card-access" title="{{#match visibility "paid"}}{{t "For paid subscribers"}}{{else}}{{t "For members"}}{{/match}}">{{> "icons/lock"}}<span class="visually-hidden">{{#match visibility "paid"}}{{t "For paid subscribers"}}{{else}}{{t "For members"}}{{/match}}</span></span>{{/match}}
+        </p>
+        <h3 class="card-title"><a href="{{url}}">{{title}}</a></h3>
+        {{#if excerpt}}<p class="card-excerpt">{{excerpt words="30"}}</p>{{/if}}
+        <p class="card-meta">
+            {{#if authors}}
+                <span class="card-faces" aria-hidden="true">{{#foreach authors limit="3"}}{{#if profile_image}}<img src="{{img_url profile_image size="xs"}}" alt="" width="24" height="24" loading="lazy">{{/if}}{{/foreach}}</span>
+                <span class="card-authors">{{authors separator=" & " autolink="false"}}</span>
+            {{/if}}
+            <span class="card-when"><time datetime="{{date format="YYYY-MM-DD"}}">{{date format="D MMM YYYY"}}</time>, {{reading_time minute=(t "1 min read") minutes=(t "% min read")}}</span>
+        </p>
+    </div>
+</article>

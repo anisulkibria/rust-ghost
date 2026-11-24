@@ -1,0 +1,77 @@
+{
+    "name": "handbook",
+    "description": "A documentation and knowledge-base theme. Sections and articles are numbered like a manual, so every page has an address: see 2.3.",
+    "version": "1.0.0",
+    "engines": {
+        "ghost": ">=5.0.0"
+    },
+    "license": "MIT",
+    "author": {
+        "name": "Vuuut",
+        "email": "hello@vuuut.com",
+        "url": "https://vuuut.com"
+    },
+    "gpm": {
+        "type": "theme",
+        "categories": [
+            "Documentation",
+            "Business"
+        ]
+    },
+    "keywords": [
+        "ghost-theme",
+        "vuuut-theme",
+        "documentation",
+        "knowledge-base",
+        "help-center",
+        "docs"
+    ],
+    "config": {
+        "posts_per_page": 20,
+        "image_sizes": {
+            "xs": { "width": 160 },
+            "s": { "width": 400 },
+            "m": { "width": 760 },
+            "l": { "width": 1200 },
+            "xl": { "width": 1800 }
+        },
+        "card_assets": true,
+        "custom": {
+            "color_scheme": {
+                "type": "select",
+                "options": ["Light", "Dark", "Follow the reader's device"],
+                "default": "Follow the reader's device",
+                "description": "Where every reader starts. Each can switch with the light/dark button."
+            },
+            "sections": {
+                "type": "text",
+                "description": "Tag slugs of your sections, in order, separated by commas. Empty shows every tag."
+            },
+            "hero_heading": {
+                "type": "text",
+                "description": "Homepage heading. Defaults to \"How can we help?\"."
+            },
+            "support_url": {
+                "type": "text",
+                "description": "Where readers get help: a contact page or email link. Empty hides support links."
+            },
+            "show_recent": {
+                "type": "boolean",
+                "default": true,
+                "description": "Lists recently updated articles on the homepage.",
+                "group": "homepage"
+            },
+            "show_signup": {
+                "type": "boolean",
+                "default": false,
+                "description": "Shows an email signup for product updates above the footer."
+            },
+            "show_feedback": {
+                "type": "boolean",
+                "default": true,
+                "description": "Asks \"Was this page helpful?\" at the end of each article.",
+                "group": "post"
+            }
+        }
+    }
+}

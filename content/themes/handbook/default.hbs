@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html lang="{{@site.locale}}" data-scheme="{{#match @custom.color_scheme "Light"}}light{{else match @custom.color_scheme "Dark"}}dark{{else}}auto{{/match}}">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    {{!-- A reader's own light/dark choice, applied before anything paints. --}}
+    <script>try{var s=localStorage.getItem('vuuut-scheme');if(s==='light'||s==='dark')document.documentElement.setAttribute('data-scheme',s)}catch(e){}</script>
+    <title>{{meta_title page=(t " (Page %)")}}</title>
+
+    <link rel="preload" as="font" type="font/woff2" href="{{asset "fonts/plex-sans-roman.woff2"}}" crossorigin>
+    <style>
+        @font-face { font-family: "IBM Plex Sans"; font-style: normal; font-weight: 100 700; font-display: swap; src: url("{{asset "fonts/plex-sans-roman.woff2"}}") format("woff2"); }
+        @font-face { font-family: "IBM Plex Sans"; font-style: italic; font-weight: 100 700; font-display: swap; src: url("{{asset "fonts/plex-sans-italic.woff2"}}") format("woff2"); }
+        @font-face { font-family: "IBM Plex Mono"; font-style: normal; font-weight: 400; font-display: swap; src: url("{{asset "fonts/plex-mono-400.woff2"}}") format("woff2"); }
+        @font-face { font-family: "IBM Plex Mono"; font-style: normal; font-weight: 600; font-display: swap; src: url("{{asset "fonts/plex-mono-600.woff2"}}") format("woff2"); }
+    </style>
+    <link rel="stylesheet" href="{{asset "css/screen.css"}}">
+    {{#if @site.accent_color}}<style>:root { --accent: {{@site.accent_color}}; --accent-ink: {{contrast_text_color @site.accent_color}}; }</style>{{/if}}
+
+    {{ghost_head}}
+</head>
+<body class="{{body_class}}" data-sections="{{@custom.sections}}">
+
+<a class="skip-link" href="#main">{{t "Skip to content"}}</a>
+
+<div class="site">
+    {{> "header"}}
+
+    {{{body}}}
+
+    {{> "footer"}}
+</div>
+
+<script src="{{asset "js/handbook.js"}}" defer></script>
+{{ghost_foot}}
+</body>
+</html>

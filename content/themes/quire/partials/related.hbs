@@ -1,0 +1,27 @@
+{{#if primary_tag}}
+    {{#get "posts" filter="tags:{{primary_tag.slug}}+id:-{{id}}" limit="3" include="tags,authors" as |related|}}
+        {{#if related}}
+            <section class="related" aria-labelledby="related-heading">
+                <header class="section-head wrap">
+                    <h2 class="section-title" id="related-heading">{{t "More on"}} <a href="{{../primary_tag.url}}">{{../primary_tag.name}}</a></h2>
+                </header>
+                <div class="grid grid-three wrap">
+                    {{#foreach related}}{{> "card"}}{{/foreach}}
+                </div>
+            </section>
+        {{/if}}
+    {{/get}}
+{{else}}
+    {{#get "posts" filter="id:-{{id}}" limit="3" include="tags,authors" as |related|}}
+        {{#if related}}
+            <section class="related" aria-labelledby="related-heading">
+                <header class="section-head wrap">
+                    <h2 class="section-title" id="related-heading">{{t "Keep reading"}}</h2>
+                </header>
+                <div class="grid grid-three wrap">
+                    {{#foreach related}}{{> "card"}}{{/foreach}}
+                </div>
+            </section>
+        {{/if}}
+    {{/get}}
+{{/if}}

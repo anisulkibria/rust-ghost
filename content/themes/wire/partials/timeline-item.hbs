@@ -1,0 +1,10 @@
+{{!--
+    One stop on the timeline. The server writes an absolute time; wire.js
+    rewrites it as "12 min ago", "Yesterday, 21:40" and so on in the reader's
+    own time zone, and marks stories under three hours old as fresh.
+--}}
+<li class="tl-item">
+    <p class="tl-when">{{> "when"}}</p>
+    <h3 class="tl-title"><a href="{{url}}">{{title}}</a></h3>
+    {{#if primary_tag}}<p class="tl-topic"><a href="{{primary_tag.url}}">{{primary_tag.name}}</a></p>{{/if}}
+</li>

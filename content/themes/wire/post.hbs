@@ -1,0 +1,70 @@
+{{!< default}}
+
+{{#post}}
+<main class="site-main" id="main">
+    <article class="article {{post_class}}">
+        <header class="article-header wrap">
+            <p class="article-kicker">
+                {{#if primary_tag}}<a class="card-topic" href="{{primary_tag.url}}">{{primary_tag.name}}</a>{{/if}}
+                {{#match visibility "!=" "public"}}<span class="article-access">{{#match visibility "paid"}}{{t "For paid subscribers"}}{{else}}{{t "For members"}}{{/match}}</span>{{/match}}
+            </p>
+            <h1 class="article-title">{{title}}</h1>
+            {{#if custom_excerpt}}<p class="article-dek">{{custom_excerpt}}</p>{{/if}}
+
+            <div class="byline">
+                {{#if authors}}
+                    <span class="faces faces-l" aria-hidden="true">{{#foreach authors limit="3"}}{{#if profile_image}}<img src="{{img_url profile_image size="xs"}}" alt="" width="44" height="44">{{/if}}{{/foreach}}</span>
+                {{/if}}
+                <div class="byline-text">
+                    {{#if authors}}<p class="byline-names">{{t "By"}} {{authors separator=" & "}}</p>{{/if}}
+                    <p class="byline-when">
+                        <time datetime="{{date format="YYYY-MM-DD"}}">{{date format="D MMMM YYYY, HH:mm"}}</time>,
+                        {{reading_time minute=(t "1 min read") minutes=(t "% min read")}}
+                    </p>
+                </div>
+            </div>
+        </header>
+
+        {{#if feature_image}}
+            <figure class="article-image wrap">
+                <img
+                    srcset="{{img_url feature_image size="m"}} 760w, {{img_url feature_image size="l"}} 1200w, {{img_url feature_image size="xl"}} 1800w"
+                    sizes="(max-width: 1280px) 100vw, 1240px"
+                    src="{{img_url feature_image size="xl"}}"
+                    alt="{{#if feature_image_alt}}{{feature_image_alt}}{{else}}{{title}}{{/if}}">
+                {{#if feature_image_caption}}<figcaption>{{feature_image_caption}}</figcaption>{{/if}}
+            </figure>
+        {{/if}}
+
+        <div class="article-body wrap{{#if @custom.show_post_timeline}} has-rail{{/if}}">
+            <div class="article-main">
+                <div class="content gh-content">
+                    {{content}}
+                </div>
+                {{> "article-footer"}}
+            </div>
+
+            {{#if @custom.show_post_timeline}}
+                {{#get "posts" filter="id:-{{id}}" limit="6" include="tags" as |latest|}}
+                    {{#if latest}}
+                        <aside class="timeline timeline-rail" aria-labelledby="rail-heading">
+                            <h2 class="timeline-heading" id="rail-heading"><span class="live-dot" aria-hidden="true"></span>{{t "Latest"}}</h2>
+                            <ol class="tl" role="list" data-timeline>
+                                {{#foreach latest}}{{> "timeline-item"}}{{/foreach}}
+                            </ol>
+                        </aside>
+                    {{/if}}
+                {{/get}}
+            {{/if}}
+        </div>
+    </article>
+
+    {{#if comments}}
+        <section class="comments wrap-text" id="comments" aria-label="{{t "Comments"}}">
+            {{comments}}
+        </section>
+    {{/if}}
+
+    {{#if @custom.show_related_posts}}{{> "related"}}{{/if}}
+</main>
+{{/post}}

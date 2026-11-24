@@ -1,0 +1,61 @@
+{{!< default}}
+
+<main class="site-main" id="main">
+    {{#is "paged"}}
+        <div class="wrap narrow-page">
+            <h1 class="page-title">{{t "All articles"}}</h1>
+            <p class="page-meta">{{t "Page {page} of {pages}" page=pagination.page pages=pagination.pages}}</p>
+            <ol class="article-list" role="list">
+                {{#foreach posts}}{{> "article-row"}}{{/foreach}}
+            </ol>
+            {{pagination}}
+        </div>
+    {{else}}
+        <section class="hero">
+            <div class="wrap hero-inner">
+                <h1 class="hero-title">{{#if @custom.hero_heading}}{{@custom.hero_heading}}{{else}}{{t "How can we help?"}}{{/if}}</h1>
+                {{#if @site.description}}<p class="hero-text">{{@site.description}}</p>{{/if}}
+                <button class="search-field search-field-big" type="button" data-ghost-search>
+                    {{> "icons/search"}}
+                    <span class="search-field-text">{{t "Search articles"}}</span>
+                    <kbd class="search-key" aria-hidden="true">/</kbd>
+                </button>
+            </div>
+        </section>
+
+        <section class="sections wrap" aria-labelledby="sections-heading">
+            <h2 class="section-title" id="sections-heading">{{t "Browse by section"}}</h2>
+            {{#get "tags" limit="60" include="count.posts" order="name asc" filter="visibility:public" as |all|}}
+                <ol class="section-grid" role="list" data-ordered>
+                    {{#foreach all}}
+                        {{#if count.posts}}
+                            {{#if @custom.sections}}
+                                {{#match @custom.sections "~" slug}}{{> "section-card"}}{{/match}}
+                            {{else}}
+                                {{> "section-card"}}
+                            {{/if}}
+                        {{/if}}
+                    {{/foreach}}
+                </ol>
+            {{/get}}
+        </section>
+
+        {{#if @custom.show_recent}}
+            {{#get "posts" order="updated_at desc" limit="6" include="tags" as |recent|}}
+                {{#if recent}}
+                    <section class="recent wrap" aria-labelledby="recent-heading">
+                        <h2 class="section-title" id="recent-heading">{{t "Recently updated"}}</h2>
+                        <ol class="article-list" role="list">
+                            {{#foreach recent}}{{> "article-row" updated=true}}{{/foreach}}
+                        </ol>
+                    </section>
+                {{/if}}
+            {{/get}}
+        {{/if}}
+
+        {{> "support"}}
+
+        {{!-- The contents tree, unseen, so numbers on this page match the rest of the handbook. --}}
+        <div hidden>{{> "tree"}}</div>
+    {{/is}}
+</main>

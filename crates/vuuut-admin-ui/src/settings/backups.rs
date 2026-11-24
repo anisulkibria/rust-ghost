@@ -168,6 +168,9 @@ credentials, and importing it adds content rather than replacing the site.</p>
 <div class="row"><span class="ic tint-blue">{notes}</span>
 <div class="body"><span class="title">Content &amp; settings</span><span class="detail">{posts} posts and {pages} pages, with their tags · JSON</span></div>
 <div class="trailing"><a class="btn tonal small" href="/ghost/backups/export/content/">Download</a></div></div>
+<div class="row"><span class="ic tint-blue">{ghost_ic}</span>
+<div class="body"><span class="title">Export for Ghost</span><span class="detail">The same content and settings, trimmed to what Ghost {ghost_version} accepts — import it in Ghost under Settings → Import/Export · JSON</span></div>
+<div class="trailing"><a class="btn tonal small" href="/ghost/backups/export/ghost/">Download</a></div></div>
 <div class="row"><span class="ic tint-blue">{people}</span>
 <div class="body"><span class="title">Members</span><span class="detail">{members} members with labels, tiers and Stripe ids · CSV</span></div>
 <div class="trailing"><a class="btn tonal small" href="/ghost/members/export/">Download</a></div></div>
@@ -196,6 +199,8 @@ credentials, and importing it adds content rather than replacing the site.</p>
             components = components,
             download = svg("import"),
             notes = svg("notes"),
+            ghost_ic = svg("upload"),
+            ghost_version = esc(vuuut_db::ghost_compat::schema_version()),
             people = svg("person"),
             chart = svg("chart"),
             themes_ic = svg("themes"),

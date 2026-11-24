@@ -1,0 +1,17 @@
+{{#if pages}}
+{{#match pages ">" 1}}
+<nav class="pager wrap" aria-label="{{t "Pagination"}}">
+    {{#if prev}}
+        <a class="pager-link pager-newer" href="{{page_url prev}}" rel="prev">{{t "Newer stories"}}</a>
+    {{else}}
+        <span class="pager-link" aria-hidden="true"></span>
+    {{/if}}
+    <span class="pager-count">{{t "Page {page} of {pages}" page=page pages=pages}}</span>
+    {{#if next}}
+        <a class="pager-link pager-older" href="{{page_url next}}" rel="next">{{t "Older stories"}}</a>
+    {{else}}
+        <span class="pager-link" aria-hidden="true"></span>
+    {{/if}}
+</nav>
+{{/match}}
+{{/if}}

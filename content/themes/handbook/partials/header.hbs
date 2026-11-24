@@ -1,0 +1,39 @@
+<header class="site-header">
+    <div class="site-header-inner">
+        <a class="site-brand" href="{{@site.url}}">
+            {{#if @site.logo}}
+                <img class="site-logo" src="{{img_url @site.logo size="s"}}" alt="{{@site.title}}">
+            {{else}}
+                <span class="site-title">{{@site.title}}</span>
+            {{/if}}
+        </a>
+
+        <button class="search-field" type="button" data-ghost-search>
+            {{> "icons/search"}}
+            <span class="search-field-text">{{t "Search"}}</span>
+            <kbd class="search-key" aria-hidden="true">/</kbd>
+        </button>
+
+        <nav class="site-nav" id="site-nav" aria-label="{{t "Main"}}">
+            {{navigation}}
+            {{#if @custom.support_url}}<a class="site-nav-support" href="{{@custom.support_url}}">{{t "Contact support"}}</a>{{/if}}
+            {{#if @site.members_enabled}}
+                <div class="site-nav-members">
+                    {{#if @member}}
+                        <a href="#/portal/account" data-portal="account">{{t "Your account"}}</a>
+                    {{else}}
+                        <a href="#/portal/signin" data-portal="signin">{{t "Sign in"}}</a>
+                    {{/if}}
+                </div>
+            {{/if}}
+        </nav>
+
+        <div class="site-actions">
+            {{> "scheme-toggle"}}
+            <button class="icon-button menu-toggle" type="button" aria-label="{{t "Menu"}}" aria-expanded="false" aria-controls="site-nav">
+                <span class="menu-open">{{> "icons/menu"}}</span>
+                <span class="menu-close">{{> "icons/close"}}</span>
+            </button>
+        </div>
+    </div>
+</header>

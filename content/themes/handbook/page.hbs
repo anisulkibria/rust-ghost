@@ -1,0 +1,23 @@
+{{!< default}}
+
+{{#post}}
+<main class="site-main" id="main">
+    <article class="page-article {{post_class}}">
+        {{#if @page.show_title_and_feature_image}}
+            <header class="wrap narrow-page">
+                <h1 class="page-title">{{title}}</h1>
+                {{#if custom_excerpt}}<p class="doc-dek">{{custom_excerpt}}</p>{{/if}}
+                {{#if feature_image}}
+                    <figure class="page-image">
+                        <img src="{{img_url feature_image size="l"}}" alt="{{#if feature_image_alt}}{{feature_image_alt}}{{else}}{{title}}{{/if}}">
+                        {{#if feature_image_caption}}<figcaption>{{feature_image_caption}}</figcaption>{{/if}}
+                    </figure>
+                {{/if}}
+            </header>
+        {{/if}}
+        <div class="content gh-content page-content">
+            {{content}}
+        </div>
+    </article>
+</main>
+{{/post}}

@@ -1,0 +1,77 @@
+{{!--
+    A listing. The first bullet list of "Label: value" lines in the post
+    (Address, Phone, Website, Email, Hours or day names) is lifted into the
+    facts panel by wayfinder.js, which also works out whether the place is open
+    now in the site's time zone. Without JavaScript the list stays in the text.
+--}}
+<article class="listing {{post_class}}">
+    <header class="listing-header wrap">
+        <p class="listing-where">
+            {{#if primary_tag}}<a href="{{primary_tag.url}}">{{primary_tag.name}}</a>{{/if}}{{#foreach tags from="2" to="2"}} {{t "in"}} <a href="{{url}}">{{name}}</a>{{/foreach}}
+        </p>
+        <h1 class="listing-title">{{title}}</h1>
+        {{#if custom_excerpt}}<p class="listing-tagline">{{custom_excerpt}}</p>{{/if}}
+        <div class="listing-badges">
+            <p class="status" data-status hidden></p>
+            {{> "price"}}
+            {{#if featured}}<p class="badge">{{t "Featured"}}</p>{{/if}}
+        </div>
+    </header>
+
+    {{#if feature_image}}
+        <figure class="listing-image wrap">
+            <img
+                srcset="{{img_url feature_image size="m"}} 760w, {{img_url feature_image size="l"}} 1200w, {{img_url feature_image size="xl"}} 1800w"
+                sizes="(max-width: 1280px) 100vw, 1240px"
+                src="{{img_url feature_image size="xl"}}"
+                alt="{{#if feature_image_alt}}{{feature_image_alt}}{{else}}{{title}}{{/if}}">
+            {{#if feature_image_caption}}<figcaption>{{feature_image_caption}}</figcaption>{{/if}}
+        </figure>
+    {{/if}}
+
+    <div class="listing-body wrap">
+        <div class="listing-main">
+            <h2 class="listing-section">{{t "About this place"}}</h2>
+            <div class="content gh-content" data-listing-content>
+                {{content}}
+            </div>
+        </div>
+
+        {{!-- Icons the facts panel uses; wayfinder.js copies them in. --}}
+        <template data-icon="pin">{{> "icons/pin"}}</template>
+        <template data-icon="phone">{{> "icons/phone"}}</template>
+        <template data-icon="globe">{{> "icons/globe"}}</template>
+        <template data-icon="mail">{{> "icons/mail"}}</template>
+        <template data-icon="clock">{{> "icons/clock"}}</template>
+
+        <aside class="facts" aria-labelledby="facts-heading">
+            <h2 class="visually-hidden" id="facts-heading">{{t "Details"}}</h2>
+            <div class="facts-card" data-facts
+                data-label-directions="{{t "Get directions"}}"
+                data-label-open="{{t "Open now"}}"
+                data-label-closed="{{t "Closed now"}}"
+                data-label-closes="{{t "closes at"}}"
+                data-label-opens="{{t "opens at"}}"
+                data-label-tomorrow="{{t "tomorrow"}}"
+                data-label-allday="{{t "Open 24 hours"}}"
+                data-label-closedday="{{t "Closed"}}"
+                data-label-hours="{{t "Opening hours"}}"
+                data-label-today="{{t "Today"}}"></div>
+            <div class="facts-more">
+                {{> "share"}}
+                {{#if primary_tag}}
+                    <a class="facts-similar" href="{{primary_tag.url}}">{{t "More"}} {{primary_tag.name}}</a>
+                {{/if}}
+            </div>
+        </aside>
+    </div>
+</article>
+
+{{#if comments}}
+    <section class="comments wrap-text" id="comments" aria-label="{{t "Comments"}}">{{comments}}</section>
+{{/if}}
+
+{{#if @custom.show_related}}
+    {{!-- Nearby: other listings in the same place (the second tag). --}}
+    {{#foreach tags from="2" to="2"}}{{> "nearby" place=slug place_name=name here=../id}}{{/foreach}}
+{{/if}}

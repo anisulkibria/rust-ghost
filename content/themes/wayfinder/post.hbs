@@ -1,0 +1,44 @@
+{{!< default}}
+
+{{#post}}
+<main class="site-main" id="main">
+    {{#has tag="#listing"}}
+        {{> "listing"}}
+    {{else}}
+        <article class="article {{post_class}}">
+            <header class="article-header wrap-text">
+                {{#if primary_tag}}<p class="article-topic"><a href="{{primary_tag.url}}">{{primary_tag.name}}</a></p>{{/if}}
+                <h1 class="article-title">{{title}}</h1>
+                {{#if custom_excerpt}}<p class="article-dek">{{custom_excerpt}}</p>{{/if}}
+                <p class="article-meta">
+                    {{#if authors}}{{t "By"}} {{authors separator=" & "}}, {{/if}}<time datetime="{{date format="YYYY-MM-DD"}}">{{date format="D MMMM YYYY"}}</time>,
+                    {{reading_time minute=(t "1 min read") minutes=(t "% min read")}}
+                </p>
+            </header>
+
+            {{#if feature_image}}
+                <figure class="article-image wrap">
+                    <img
+                        srcset="{{img_url feature_image size="m"}} 760w, {{img_url feature_image size="l"}} 1200w, {{img_url feature_image size="xl"}} 1800w"
+                        sizes="(max-width: 1280px) 100vw, 1240px"
+                        src="{{img_url feature_image size="xl"}}"
+                        alt="{{#if feature_image_alt}}{{feature_image_alt}}{{else}}{{title}}{{/if}}">
+                    {{#if feature_image_caption}}<figcaption>{{feature_image_caption}}</figcaption>{{/if}}
+                </figure>
+            {{/if}}
+
+            <div class="content gh-content">
+                {{content}}
+            </div>
+
+            <footer class="article-footer wrap-text">
+                {{> "share"}}
+            </footer>
+        </article>
+
+        {{#if comments}}
+            <section class="comments wrap-text" id="comments" aria-label="{{t "Comments"}}">{{comments}}</section>
+        {{/if}}
+    {{/has}}
+</main>
+{{/post}}

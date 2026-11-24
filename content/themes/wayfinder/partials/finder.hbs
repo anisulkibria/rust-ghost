@@ -1,0 +1,34 @@
+{{!--
+    The sentence search: "Find [restaurants] in [New York]".
+    Without JavaScript the form opens the All places page with ?what=&where=.
+    With it, one choice goes straight to that tag's page, two choices go to
+    the All places page already filtered.
+--}}
+{{!-- This engine cannot filter tags by a list of slugs, so every public tag is fetched and the Places setting sorts them: a tag whose slug appears in it is a place, anything else is a category. --}}
+<form class="finder" action="{{#if @custom.directory_page}}{{@custom.directory_page}}{{else}}/places/{{/if}}" method="get" data-finder role="search" aria-label="{{t "Find a place"}}">
+    <p class="finder-sentence">
+        <span class="finder-word">{{t "Find"}}</span>
+        <span class="finder-pick">
+            <label class="visually-hidden" for="finder-what">{{t "What are you looking for?"}}</label>
+            <select id="finder-what" name="what" data-size>
+                <option value="">{{t "anything"}}</option>
+                {{#get "tags" limit="60" include="count.posts" order="name asc" filter="visibility:public" as |all|}}
+                    {{#foreach all}}{{#if count.posts}}{{#match @custom.places "~" slug}}{{else}}<option value="{{slug}}" data-url="{{url}}">{{name}}</option>{{/match}}{{/if}}{{/foreach}}
+                {{/get}}
+            </select>
+        </span>
+        {{#if @custom.places}}
+            <span class="finder-word">{{t "in"}}</span>
+            <span class="finder-pick">
+                <label class="visually-hidden" for="finder-where">{{t "Where?"}}</label>
+                <select id="finder-where" name="where" data-size>
+                    <option value="">{{t "anywhere"}}</option>
+                    {{#get "tags" limit="60" include="count.posts" order="name asc" filter="visibility:public" as |all|}}
+                        {{#foreach all}}{{#match @custom.places "~" slug}}<option value="{{slug}}" data-url="{{url}}">{{name}}</option>{{/match}}{{/foreach}}
+                    {{/get}}
+                </select>
+            </span>
+        {{/if}}
+    </p>
+    <button class="button button-big finder-go" type="submit">{{> "icons/search"}}<span class="w-places">{{t "Show places"}}</span><span class="w-posts">{{t "Show posts"}}</span></button>
+</form>

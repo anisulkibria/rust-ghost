@@ -1,0 +1,18 @@
+{{!< default}}
+
+<main class="site-main" id="main">
+    <section class="hero">
+        <div class="wrap hero-inner">
+            <p class="page-meta">{{t "Error"}} {{statusCode}}</p>
+            <h1 class="hero-title">{{t "This page isn't in the handbook"}}</h1>
+            <p class="hero-text">{{t "It may have moved or been renamed. Search for what you need, or browse the sections below."}}</p>
+            <button class="search-field search-field-big" type="button" data-ghost-search>
+                {{> "icons/search"}}
+                <span class="search-field-text">{{t "Search articles"}}</span>
+                <kbd class="search-key" aria-hidden="true">/</kbd>
+            </button>
+        </div>
+    </section>
+    <div class="wrap narrow-page">{{> "tree"}}</div>
+    {{> "support"}}
+</main>

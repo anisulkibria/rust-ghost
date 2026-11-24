@@ -1,0 +1,30 @@
+{{!-- Categories: every public tag with posts that is not a place, biggest first. --}}
+{{!-- This engine cannot filter tags by a list of slugs, so every public tag is fetched and the Places setting sorts them: a tag whose slug appears in it is a place, anything else is a category. --}}
+{{#get "tags" limit="60" include="count.posts" order="count.posts desc" filter="visibility:public" as |all|}}
+    <nav class="kinds" aria-labelledby="kinds-heading">
+        <div class="wrap">
+            <h2 class="visually-hidden" id="kinds-heading">{{t "Categories"}}</h2>
+            <ul class="kinds-list" role="list">
+                {{#foreach all}}
+                    {{#if count.posts}}
+                        {{#match @custom.places "~" slug}}{{else}}
+                            <li>
+                                <a class="kind" href="{{url}}" data-slug="{{slug}}">
+                                    {{#if feature_image}}
+                                        <img class="kind-image" src="{{img_url feature_image size="xs"}}" alt="" width="48" height="48" loading="lazy">
+                                    {{else}}
+                                        <span class="kind-image kind-initial" aria-hidden="true">{{name}}</span>
+                                    {{/if}}
+                                    <span class="kind-text">
+                                        <span class="kind-name">{{name}}</span>
+                                        <span class="kind-count"><span class="w-places">{{plural count.posts empty=(t "No places yet") singular=(t "1 place") plural=(t "% places")}}</span><span class="w-posts">{{plural count.posts empty=(t "No posts yet") singular=(t "1 post") plural=(t "% posts")}}</span></span>
+                                    </span>
+                                </a>
+                            </li>
+                        {{/match}}
+                    {{/if}}
+                {{/foreach}}
+            </ul>
+        </div>
+    </nav>
+{{/get}}

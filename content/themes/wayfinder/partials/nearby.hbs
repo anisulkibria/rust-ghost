@@ -1,0 +1,13 @@
+{{!-- Listings sharing a place tag, without the one being read (here). --}}
+{{#get "posts" filter="tag:hash-listing+tags:{{place}}" limit="5" include="tags" as |nearby|}}
+    {{#match nearby.length ">" 1}}
+        <section class="band" aria-labelledby="nearby-heading">
+            <header class="section-head wrap">
+                <h2 class="section-title" id="nearby-heading">{{t "More places in"}} {{place_name}}</h2>
+            </header>
+            <div class="grid grid-four wrap">
+                {{#foreach nearby}}{{#match id "!=" ../here}}{{> "listing-card"}}{{/match}}{{/foreach}}
+            </div>
+        </section>
+    {{/match}}
+{{/get}}

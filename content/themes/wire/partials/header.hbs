@@ -1,0 +1,62 @@
+<header class="site-header">
+    <div class="masthead wrap">
+        <a class="site-brand" href="{{@site.url}}">
+            {{#if @site.logo}}
+                <img class="site-logo" src="{{img_url @site.logo size="s"}}" alt="{{@site.title}}">
+            {{else}}
+                <span class="site-title">{{@site.title}}</span>
+            {{/if}}
+        </a>
+
+        <nav class="site-nav" id="site-nav" aria-label="{{t "Main"}}">
+            {{navigation}}
+            {{#if @site.members_enabled}}
+                <div class="site-nav-members">
+                    {{#if @member}}
+                        <a href="#/portal/account" data-portal="account">{{t "Your account"}}</a>
+                    {{else}}
+                        <a href="#/portal/signin" data-portal="signin">{{t "Sign in"}}</a>
+                        {{#unless @site.members_invite_only}}
+                            <a class="button" href="#/portal/signup" data-portal="signup">{{t "Subscribe"}}</a>
+                        {{/unless}}
+                    {{/if}}
+                </div>
+            {{/if}}
+        </nav>
+
+        <div class="site-actions">
+            <button class="icon-button" type="button" data-ghost-search aria-label="{{t "Search"}}">{{> "icons/search"}}</button>
+            {{> "scheme-toggle"}}
+            {{#if @site.members_enabled}}
+                {{#if @member}}
+                    <a class="action-link" href="#/portal/account" data-portal="account">{{t "Your account"}}</a>
+                {{else}}
+                    <a class="action-link" href="#/portal/signin" data-portal="signin">{{t "Sign in"}}</a>
+                    {{#unless @site.members_invite_only}}
+                        <a class="button action-button" href="#/portal/signup" data-portal="signup">{{t "Subscribe"}}</a>
+                    {{/unless}}
+                {{/if}}
+            {{/if}}
+            <button class="icon-button menu-toggle" type="button" aria-label="{{t "Menu"}}" aria-expanded="false" aria-controls="site-nav">
+                <span class="menu-open">{{> "icons/menu"}}</span>
+                <span class="menu-close">{{> "icons/close"}}</span>
+            </button>
+        </div>
+    </div>
+
+    {{!-- Today's date (rewritten in the reader's own time zone) and the biggest tags. --}}
+    <div class="dateline">
+        <div class="dateline-inner wrap">
+            <p class="dateline-date"><time data-today>{{date format="dddd D MMMM YYYY"}}</time></p>
+            {{#get "tags" limit="8" include="count.posts" order="count.posts desc" filter="visibility:public" as |desks|}}
+                {{#if desks}}
+                    <nav class="dateline-topics" aria-label="{{t "Topics"}}">
+                        <ul role="list">
+                            {{#foreach desks}}<li><a href="{{url}}">{{name}}</a></li>{{/foreach}}
+                        </ul>
+                    </nav>
+                {{/if}}
+            {{/get}}
+        </div>
+    </div>
+</header>

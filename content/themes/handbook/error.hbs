@@ -1,0 +1,19 @@
+{{!< default}}
+
+<main class="site-main" id="main">
+    <div class="wrap narrow-page error-page">
+        <p class="page-meta">{{t "Error"}} {{statusCode}}</p>
+        <h1 class="page-title">{{#if message}}{{message}}{{else}}{{t "Something went wrong"}}{{/if}}</h1>
+        <p class="doc-dek">{{t "Reload the page in a moment. If it keeps happening, go back to the front page."}}</p>
+        <p class="error-actions"><a class="button" href="{{@site.url}}">{{t "Go to the front page"}}</a></p>
+        {{#if errorDetails}}
+            <section class="error-stack" aria-label="{{t "Theme errors"}}">
+                <ul>
+                    {{#foreach errorDetails}}
+                        <li><strong>{{{rule}}}</strong>{{#foreach failures}}<br>{{ref}}: {{message}}{{/foreach}}</li>
+                    {{/foreach}}
+                </ul>
+            </section>
+        {{/if}}
+    </div>
+</main>

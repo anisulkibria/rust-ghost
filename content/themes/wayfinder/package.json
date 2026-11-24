@@ -1,0 +1,94 @@
+{
+    "name": "wayfinder",
+    "description": "A city guide and directory of local places. Readers search in one sentence: find restaurants in New York.",
+    "version": "1.0.0",
+    "engines": {
+        "ghost": ">=5.0.0"
+    },
+    "license": "MIT",
+    "author": {
+        "name": "Vuuut",
+        "email": "hello@vuuut.com",
+        "url": "https://vuuut.com"
+    },
+    "gpm": {
+        "type": "theme",
+        "categories": [
+            "Directory",
+            "Business"
+        ]
+    },
+    "keywords": [
+        "ghost-theme",
+        "vuuut-theme",
+        "directory",
+        "listings",
+        "city-guide",
+        "local"
+    ],
+    "config": {
+        "posts_per_page": 12,
+        "image_sizes": {
+            "xs": { "width": 160 },
+            "s": { "width": 400 },
+            "m": { "width": 760 },
+            "l": { "width": 1200 },
+            "xl": { "width": 1800 },
+            "xxl": { "width": 2400 }
+        },
+        "card_assets": true,
+        "custom": {
+            "color_scheme": {
+                "type": "select",
+                "options": ["Light", "Dark", "Follow the reader's device"],
+                "default": "Light",
+                "description": "Where every reader starts. Each can switch with the light/dark button."
+            },
+            "places": {
+                "type": "text",
+                "description": "Slugs of your place tags, separated by commas. Example: new-york,miami"
+            },
+            "directory_page": {
+                "type": "text",
+                "default": "/places/",
+                "description": "Address of the page that uses the All places template."
+            },
+            "add_place_url": {
+                "type": "text",
+                "description": "Link for the \"Add a place\" button. Leave empty to hide it."
+            },
+            "signup_heading": {
+                "type": "text",
+                "description": "Heading of the signup block. Defaults to \"New places, once a week\"."
+            },
+            "signup_text": {
+                "type": "text",
+                "description": "One line under the signup heading. Defaults to the site description."
+            },
+            "show_featured": {
+                "type": "boolean",
+                "default": true,
+                "description": "Shows featured listings under the search.",
+                "group": "homepage"
+            },
+            "show_places": {
+                "type": "boolean",
+                "default": true,
+                "description": "Shows a tile for each place tag set above.",
+                "group": "homepage"
+            },
+            "show_guides": {
+                "type": "boolean",
+                "default": true,
+                "description": "Shows your latest posts that are not listings.",
+                "group": "homepage"
+            },
+            "show_related": {
+                "type": "boolean",
+                "default": true,
+                "description": "Ends each listing with more places nearby.",
+                "group": "post"
+            }
+        }
+    }
+}

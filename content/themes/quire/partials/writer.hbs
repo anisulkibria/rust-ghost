@@ -1,0 +1,11 @@
+<li class="writer">
+    <a class="writer-link" href="{{url}}">
+        {{#if profile_image}}
+            <img class="writer-face" src="{{img_url profile_image size="s"}}" alt="" width="88" height="88" loading="lazy">
+        {{else}}
+            <span class="writer-face writer-initial" aria-hidden="true">{{name}}</span>
+        {{/if}}
+        <span class="writer-name">{{name}}</span>
+        {{#if count}}<span class="writer-count">{{plural count.posts empty=(t "No stories yet") singular=(t "1 story") plural=(t "% stories")}}</span>{{/if}}
+    </a>
+</li>

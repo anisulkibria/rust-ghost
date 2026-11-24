@@ -1,0 +1,15 @@
+{{!< default}}
+
+<main class="site-main" id="main">
+    <section class="error-page wrap">
+        <p class="archive-kind">{{t "Error"}} {{statusCode}}</p>
+        <h1 class="archive-title">{{t "This page isn't here"}}</h1>
+        <p class="archive-dek">{{t "The link may be old, or the story may have moved. Search the site or pick a topic below."}}</p>
+        <p class="error-actions">
+            <a class="button" href="{{@site.url}}">{{t "Go to the front page"}}</a>
+            <button class="button button-quiet" type="button" data-ghost-search>{{t "Search"}}</button>
+        </p>
+    </section>
+
+    {{> "topics"}}
+</main>

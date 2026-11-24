@@ -1,0 +1,34 @@
+{{!< default}}
+
+<main class="site-main doc-layout" id="main">
+    <aside class="doc-side" aria-label="{{t "Contents"}}">
+        <button class="contents-toggle" type="button" aria-expanded="false" aria-controls="doc-tree" data-contents-toggle>
+            {{> "icons/contents"}}<span>{{t "Contents"}}</span>
+        </button>
+        <div class="doc-tree" id="doc-tree">{{> "tree"}}</div>
+    </aside>
+
+    {{#tag}}
+        <div class="doc doc-section">
+            <nav class="crumbs" aria-label="{{t "Breadcrumb"}}">
+                <ol role="list">
+                    <li><a href="{{@site.url}}">{{@site.title}}</a></li>
+                    <li aria-current="page"><span class="num" data-num-for="{{url}}"></span>{{name}}</li>
+                </ol>
+            </nav>
+            <header class="doc-header">
+                <p class="doc-num" data-num-for="{{url}}" aria-hidden="true"></p>
+                <h1 class="doc-title">{{name}}</h1>
+                {{#if description}}<p class="doc-dek">{{description}}</p>{{/if}}
+                <p class="doc-meta">{{plural ../pagination.total empty=(t "No articles yet") singular=(t "1 article") plural=(t "% articles")}}</p>
+            </header>
+
+            {{!-- In reading order (oldest first), not newest first. --}}
+            {{#get "posts" filter="primary_tag:{{slug}}" order="published_at asc" limit="100" as |articles|}}
+                <ol class="article-list" role="list">
+                    {{#foreach articles}}{{> "article-row"}}{{/foreach}}
+                </ol>
+            {{/get}}
+        </div>
+    {{/tag}}
+</main>

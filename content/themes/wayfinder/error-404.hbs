@@ -1,0 +1,14 @@
+{{!< default}}
+
+<main class="site-main" id="main">
+    <section class="hero hero-error" aria-labelledby="error-title">
+        <div class="hero-inner wrap">
+            <div class="hero-search">
+                <p class="list-meta">{{t "Error"}} {{statusCode}}</p>
+                <h1 class="list-title" id="error-title">{{t "This page isn't on the map"}}</h1>
+                <p class="hero-text">{{t "The link may be old, or the place may have closed. Search the guide instead:"}}</p>
+                {{> "finder"}}
+            </div>
+        </div>
+    </section>
+</main>

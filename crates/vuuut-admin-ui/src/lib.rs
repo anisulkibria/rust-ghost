@@ -723,6 +723,7 @@ pub fn admin_ui_router(state: AppState) -> Router<AppState> {
         .route("/backups/upload/", post(backups_upload).layer(axum::extract::DefaultBodyLimit::max(MAX_BACKUP_BYTES)))
         .route("/backups/export/", get(migration_export_all))
         .route("/backups/export/content/", get(migration_export_content))
+        .route("/backups/export/ghost/", get(migration_export_for_ghost))
         .route("/backups/export/analytics/", get(migration_export_analytics))
         .route("/backups/export/themes/", get(migration_export_themes))
         .route("/settings/migration/export/", get(migration_export_all))

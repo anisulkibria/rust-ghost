@@ -1,0 +1,21 @@
+<section class="signup" aria-labelledby="signup-heading">
+    <div class="signup-inner wrap">
+        <div class="signup-copy">
+            <h2 class="signup-heading" id="signup-heading">{{#if @custom.signup_heading}}{{@custom.signup_heading}}{{else}}{{t "Get new stories by email"}}{{/if}}</h2>
+            <p class="signup-text">{{#if @custom.signup_text}}{{@custom.signup_text}}{{else if @site.description}}{{@site.description}}{{else}}{{t "One email when something new is published. Unsubscribe anytime."}}{{/if}}</p>
+        </div>
+        <form class="signup-form" data-members-form="subscribe">
+            <label class="signup-label" for="signup-email">{{t "Email address"}}</label>
+            <div class="signup-row">
+                <input id="signup-email" class="signup-input" type="email" name="email" autocomplete="email" placeholder="{{t "you@example.com"}}" required data-members-email>
+                <button class="button signup-button" type="submit">
+                    <span class="when-idle">{{t "Subscribe"}}</span>
+                    <span class="when-loading">{{t "Sending…"}}</span>
+                    <span class="when-success">{{t "Check your inbox"}}</span>
+                </button>
+            </div>
+            <p class="signup-success" role="status">{{t "We sent you a link. Open it to confirm your subscription."}}</p>
+            <p class="signup-error" data-members-error role="alert"></p>
+        </form>
+    </div>
+</section>

@@ -1,0 +1,11 @@
+{{#if @custom.support_url}}
+    <section class="support wrap" aria-labelledby="support-heading">
+        <div class="support-inner">
+            <div>
+                <h2 class="support-heading" id="support-heading">{{t "Didn't find your answer?"}}</h2>
+                <p>{{t "Tell us what you were trying to do. A person reads every message."}}</p>
+            </div>
+            <a class="button" href="{{@custom.support_url}}">{{t "Contact support"}}</a>
+        </div>
+    </section>
+{{/if}}

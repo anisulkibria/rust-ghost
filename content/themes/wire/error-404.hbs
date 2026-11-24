@@ -1,0 +1,26 @@
+{{!< default}}
+
+<main class="site-main" id="main">
+    <section class="desk-header error-page wrap">
+        <p class="desk-meta">{{t "Error"}} {{statusCode}}</p>
+        <h1 class="desk-title">{{t "This page isn't here"}}</h1>
+        <p class="desk-dek">{{t "The link may be old, or the story may have moved. Search the site or start from the latest news."}}</p>
+        <p class="error-actions">
+            <a class="button" href="{{@site.url}}">{{t "Go to the latest news"}}</a>
+            <button class="button button-quiet" type="button" data-ghost-search>{{t "Search"}}</button>
+        </p>
+    </section>
+
+    {{#get "posts" limit="4" include="tags,authors" as |recent|}}
+        {{#if recent}}
+            <section class="related" aria-labelledby="recent-heading">
+                <header class="section-head wrap">
+                    <h2 class="section-title" id="recent-heading">{{t "Latest"}}</h2>
+                </header>
+                <div class="grid wrap">
+                    {{#foreach recent}}{{> "card"}}{{/foreach}}
+                </div>
+            </section>
+        {{/if}}
+    {{/get}}
+</main>

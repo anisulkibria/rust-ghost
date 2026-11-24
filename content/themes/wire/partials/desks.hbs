@@ -1,0 +1,27 @@
+{{!-- The four biggest tags, each with a lead story and three headlines. --}}
+{{#get "tags" limit="4" include="count.posts" order="count.posts desc" filter="visibility:public" as |desks|}}
+    {{#if desks}}
+        <section class="desks" aria-label="{{t "Topics"}}">
+            <div class="desk-grid wrap">
+                {{#foreach desks}}
+                    {{#if count.posts}}
+                        <section class="desk" aria-labelledby="desk-{{slug}}">
+                            <header class="desk-head">
+                                <h2 class="desk-name" id="desk-{{slug}}"><a href="{{url}}">{{name}}</a></h2>
+                                <a class="desk-all" href="{{url}}">{{plural count.posts empty=(t "No stories") singular=(t "1 story") plural=(t "All % stories")}}</a>
+                            </header>
+                            {{#get "posts" filter="tags:{{slug}}" limit="4" include="tags,authors" as |stories|}}
+                                {{#foreach stories limit="1"}}{{> "card" size="row"}}{{/foreach}}
+                                {{#match stories.length ">" 1}}
+                                    <ul class="desk-lines" role="list">
+                                        {{#foreach stories from="2"}}<li>{{> "card" size="line"}}</li>{{/foreach}}
+                                    </ul>
+                                {{/match}}
+                            {{/get}}
+                        </section>
+                    {{/if}}
+                {{/foreach}}
+            </div>
+        </section>
+    {{/if}}
+{{/get}}

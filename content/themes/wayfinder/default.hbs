@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html lang="{{@site.locale}}" data-scheme="{{#match @custom.color_scheme "Light"}}light{{else match @custom.color_scheme "Dark"}}dark{{else}}auto{{/match}}">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    {{!-- A reader's own light/dark choice, applied before anything paints. --}}
+    <script>try{var s=localStorage.getItem('vuuut-scheme');if(s==='light'||s==='dark')document.documentElement.setAttribute('data-scheme',s)}catch(e){}</script>
+    <title>{{meta_title page=(t " (Page %)")}}</title>
+
+    <link rel="preload" as="font" type="font/woff2" href="{{asset "fonts/overpass-roman.woff2"}}" crossorigin>
+    <style>
+        @font-face { font-family: "Overpass"; font-style: normal; font-weight: 100 900; font-display: swap; src: url("{{asset "fonts/overpass-roman.woff2"}}") format("woff2"); }
+        @font-face { font-family: "Overpass"; font-style: italic; font-weight: 100 900; font-display: swap; src: url("{{asset "fonts/overpass-italic.woff2"}}") format("woff2"); }
+    </style>
+    <link rel="stylesheet" href="{{asset "css/screen.css"}}">
+    {{#if @site.accent_color}}<style>:root { --accent: {{@site.accent_color}}; --accent-ink: {{contrast_text_color @site.accent_color}}; }</style>{{/if}}
+
+    {{ghost_head}}
+</head>
+<body class="{{body_class}}" data-directory="{{#if @custom.directory_page}}{{@custom.directory_page}}{{else}}/places/{{/if}}" data-places="{{@custom.places}}" data-timezone="{{@site.timezone}}">
+
+<a class="skip-link" href="#main">{{t "Skip to content"}}</a>
+
+<div class="site">
+    {{> "header"}}
+
+    {{{body}}}
+
+    {{> "footer"}}
+</div>
+
+{{!-- The categories listings use (their primary tags), so menus can leave out blog-only tags. --}}
+<script type="text/plain" data-listing-kinds>{{#get "posts" filter="tag:hash-listing" limit="100" include="tags"}}{{#foreach posts}}{{primary_tag.slug}} {{/foreach}}{{/get}}</script>
+<script src="{{asset "js/wayfinder.js"}}" defer></script>
+{{ghost_foot}}
+</body>
+</html>
