@@ -1,0 +1,8 @@
+<div class="pl-contact">
+<div class="pl-wrap pl-contact-in">
+{{#if @custom.contact_email}}<a class="pl-contact-item" href="mailto:{{@custom.contact_email}}">{{> "icon" name="chat" size="22"}}<span><b>Customer service</b><small>Write to us, a person answers</small></span></a>{{/if}}
+{{#if @custom.phone}}<a class="pl-contact-item" href="tel:{{@custom.phone}}">{{> "icon" name="phone" size="22"}}<span><b>Call us</b><small>{{@custom.phone}}</small></span></a>{{/if}}
+{{#if @custom.contact_email}}<a class="pl-contact-item" href="mailto:{{@custom.contact_email}}">{{> "icon" name="mail" size="22"}}<span><b>Get in touch</b><small>{{@custom.contact_email}}</small></span></a>{{/if}}
+{{#if @custom.address}}<p class="pl-contact-item">{{> "icon" name="pin" size="22"}}<span><b>Showroom</b><small>{{@custom.address}}</small></span></p>{{/if}}
+</div>
+</div>

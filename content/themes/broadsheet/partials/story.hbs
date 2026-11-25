@@ -1,0 +1,27 @@
+{{!-- One story in any layout: top (picture above), left / right (thumb
+     beside), overlay (words on the picture), text (no picture).
+     Options: size (s|m|l|xl headline), excerpt, read, nobyline, num. --}}
+<article class="np-story np-{{#if layout}}{{layout}}{{else}}top{{/if}}{{#if size}} np-h-{{size}}{{/if}} {{post_class}}">
+{{#match layout "overlay"}}
+<a class="np-overlay-link" href="{{url}}">
+{{#if feature_image}}<img src="{{img_url feature_image size="xl"}}" alt="" loading="lazy">{{/if}}
+{{#has tag="#video"}}<span class="np-play">{{> "icon" name="play" size="22"}}</span>{{/has}}
+<span class="np-overlay-copy">
+<span class="np-kicker np-kicker-light">{{#if primary_tag}}{{primary_tag.name}}{{/if}}</span>
+<span class="np-headline">{{title}}</span>
+{{#if excerpt}}<span class="np-dek-sm">{{excerpt words="34"}}</span>{{/if}}
+<span class="np-byline np-byline-light"><span class="np-by">By {{#foreach authors limit="2"}}<b>{{name}}</b>{{#unless @last}}, {{/unless}}{{/foreach}}</span><time datetime="{{date format="YYYY-MM-DD"}}">{{date format="MMM D, YYYY"}}</time><span>{{reading_time minute="1 min read" minutes="% min read"}}</span></span>
+</span>
+</a>
+{{#if feature_image_caption}}<p class="np-caption">{{feature_image_caption}}</p>{{/if}}
+{{else}}
+{{#if num}}<span class="np-num">{{num}}</span>{{/if}}
+{{#match layout "text"}}{{else}}{{#if feature_image}}{{> "media"}}{{else}}{{#match layout "top"}}{{> "media"}}{{/match}}{{/if}}{{/match}}
+<div class="np-story-copy">
+{{> "kicker"}}
+<h3 class="np-headline"><a href="{{url}}">{{title}}</a></h3>
+{{#if excerpt}}<p class="np-excerpt">{{excerpt words="26"}}</p>{{/if}}
+{{#unless nometa}}{{> "byline"}}{{/unless}}
+</div>
+{{/match}}
+</article>

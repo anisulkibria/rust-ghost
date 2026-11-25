@@ -1,0 +1,6 @@
+{{!< default}}
+<main id="main" class="mg-wrap mg-listing">
+<header class="mg-head mg-center"><p class="mg-kicker">Page {{pagination.page}} of {{pagination.pages}}</p><h1 class="mg-h1">The <em>archive</em></h1></header>
+<div class="mg-post-grid">{{#foreach posts}}{{> "post-card"}}{{/foreach}}</div>
+{{> "pager"}}
+</main>

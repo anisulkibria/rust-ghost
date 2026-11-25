@@ -1,0 +1,23 @@
+{{!< default}}
+{{!-- Every published collection. Data: shop, collections (feature_image, product_count). --}}
+<main id="main" class="pl-shop">
+<header class="pl-wrap pl-pagehead">
+<nav class="pl-crumbs" aria-label="Breadcrumb"><a href="{{@site.url}}">Home</a><span>/</span><span>Collections</span></nav>
+<div class="pl-pagehead-row"><h1 class="pl-display">Shop by <em>category</em></h1></div>
+</header>
+<section class="pl-wrap pl-section-tight">
+{{#if collections}}
+<div class="pl-colls">
+{{#foreach collections}}
+<a class="pl-coll" href="{{url}}">
+<span class="pl-coll-art">{{#if feature_image}}<img src="{{feature_image}}" alt="" loading="lazy">{{else}}{{> "art" kind=title}}{{/if}}</span>
+<span class="pl-coll-copy"><b>{{title}}</b><small>{{plural product_count empty="Coming soon" singular="% piece" plural="% pieces"}}</small></span>
+<span class="pl-round" aria-hidden="true">{{> "icon" name="arrow" size="18"}}</span>
+</a>
+{{/foreach}}
+</div>
+{{else}}
+<div class="pl-empty" role="status"><span class="pl-empty-art">{{> "art" kind="storage"}}</span><p class="pl-display">No collections yet.</p><a class="pl-btn pl-btn-ink" href="{{shop.url}}">Shop everything</a></div>
+{{/if}}
+</section>
+</main>

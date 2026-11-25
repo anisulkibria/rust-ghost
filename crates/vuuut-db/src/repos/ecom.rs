@@ -1810,6 +1810,13 @@ pub fn card_json(p: &Product, vs: &[Variant], s: &rules::Settings, url: &str) ->
     }
     let plain: Vec<&String> = tags.iter().filter(|t| !t.contains(':')).collect();
     let images = p.image_list();
+    // the values of a "Color"/"Colour" option, for swatches on a card
+    let colors: Vec<String> = p
+        .option_list()
+        .into_iter()
+        .find(|o| matches!(o.name.trim().to_ascii_lowercase().as_str(), "color" | "colour" | "finish"))
+        .map(|o| o.values)
+        .unwrap_or_default();
     json!({
         "id": p.id,
         "title": p.title,
@@ -1837,6 +1844,12 @@ pub fn card_json(p: &Product, vs: &[Variant], s: &rules::Settings, url: &str) ->
         "demo_url": if p.demo_url.is_empty() { demo_link(&p.description_html) } else { Some(p.demo_url.clone()) },
         "purchase_url": if p.purchase_url.is_empty() { Value::Null } else { json!(p.purchase_url) },
         "published_at": p.published_at,
+        "save_percent": if compare > min && compare > 0 { json!(((compare - min) * 100 + compare / 2) / compare) } else { Value::Null },
+        "colors": colors,
+        "variant_count": vs.len(),
+        // one variant to add straight from a card: only when there is
+        // nothing to choose and it can be bought
+        "quick_add": if vs.len() == 1 && vs[0].available(1) { json!(vs[0].id) } else { Value::Null },
     })
 }
 

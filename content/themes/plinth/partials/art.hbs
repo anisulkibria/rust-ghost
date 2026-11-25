@@ -1,0 +1,60 @@
+{{!-- A drawn piece of furniture, for anything without a photo. Called with
+     `kind` (a `shape:` tag, a product type or a collection title). It
+     matches on fragments so "Chairs", "Lounge chair" and "chair" all draw a
+     chair: chair, sofa, table/desk, lamp/light, stool, bench,
+     storage/shelf/cabinet/sideboard, bed; anything else is a vase. --}}
+<svg class="pl-draw" viewBox="0 0 200 200" aria-hidden="true" focusable="false">
+<ellipse class="pl-draw-shadow" cx="100" cy="178" rx="70" ry="7"/>
+{{#match kind "~" "Sale"}}
+<circle cx="100" cy="100" r="64" fill="var(--red)"/><text x="100" y="112" text-anchor="middle" font-size="34" font-weight="700" fill="#fff" font-family="var(--f-display)">Sale</text>
+{{else match kind "~" "ofa"}}
+<g class="pl-draw-ink"><rect x="30" y="92" width="140" height="44" rx="16"/><rect x="22" y="104" width="26" height="46" rx="12"/><rect x="152" y="104" width="26" height="46" rx="12"/><rect x="40" y="62" width="120" height="44" rx="18"/></g>
+<g class="pl-draw-wood"><rect x="34" y="150" width="6" height="22" rx="3"/><rect x="160" y="150" width="6" height="22" rx="3"/></g>
+<rect class="pl-draw-soft" x="48" y="118" width="104" height="18" rx="8"/>
+{{else match kind "~" "ouch"}}
+<g class="pl-draw-ink"><rect x="30" y="92" width="140" height="44" rx="16"/><rect x="22" y="104" width="26" height="46" rx="12"/><rect x="152" y="104" width="26" height="46" rx="12"/><rect x="40" y="62" width="120" height="44" rx="18"/></g>
+<g class="pl-draw-wood"><rect x="34" y="150" width="6" height="22" rx="3"/><rect x="160" y="150" width="6" height="22" rx="3"/></g>
+{{else match kind "~" "rmchair"}}
+<g class="pl-draw-ink"><path d="M52 70c0-22 96-22 96 0v46H52z"/><rect x="38" y="96" width="24" height="56" rx="12"/><rect x="138" y="96" width="24" height="56" rx="12"/><rect x="56" y="112" width="88" height="30" rx="12"/></g>
+<g class="pl-draw-wood"><rect x="48" y="150" width="6" height="24" rx="3"/><rect x="146" y="150" width="6" height="24" rx="3"/></g>
+{{else match kind "~" "ounge"}}
+<g class="pl-draw-ink"><path d="M52 70c0-22 96-22 96 0v46H52z"/><rect x="38" y="96" width="24" height="56" rx="12"/><rect x="138" y="96" width="24" height="56" rx="12"/><rect x="56" y="112" width="88" height="30" rx="12"/></g>
+<g class="pl-draw-wood"><rect x="48" y="150" width="6" height="24" rx="3"/><rect x="146" y="150" width="6" height="24" rx="3"/></g>
+{{else match kind "~" "tool"}}
+<g class="pl-draw-wood"><path d="M70 92 58 174h8l14-82zM130 92l12 82h-8l-14-82zM96 96h8v78h-8z"/><rect x="66" y="140" width="68" height="5" rx="2"/></g>
+<ellipse class="pl-draw-ink" cx="100" cy="88" rx="40" ry="10"/><rect class="pl-draw-ink" x="60" y="80" width="80" height="10" rx="5"/>
+{{else match kind "~" "ench"}}
+<g class="pl-draw-wood"><rect x="22" y="104" width="156" height="14" rx="5"/><rect x="36" y="118" width="8" height="56" rx="3"/><rect x="156" y="118" width="8" height="56" rx="3"/><rect x="40" y="150" width="120" height="5" rx="2"/></g>
+<rect class="pl-draw-soft" x="30" y="94" width="140" height="12" rx="6"/>
+{{else match kind "~" "hair"}}
+<g class="pl-draw-wood"><rect x="62" y="40" width="7" height="134" rx="3"/><rect x="131" y="40" width="7" height="134" rx="3"/><rect x="64" y="46" width="72" height="9" rx="4"/><rect x="64" y="66" width="72" height="5" rx="2"/><rect x="64" y="148" width="72" height="4" rx="2"/></g>
+<rect class="pl-draw-ink" x="54" y="104" width="92" height="16" rx="6"/>
+{{else match kind "~" "amp"}}
+<path class="pl-draw-ink" d="M58 82c0-30 84-30 84 0z"/><g class="pl-draw-wood"><rect x="97" y="80" width="6" height="90" rx="3"/><ellipse cx="100" cy="172" rx="26" ry="6"/></g><circle cx="100" cy="88" r="7" fill="#FFE9A8"/>
+{{else match kind "~" "ight"}}
+<path class="pl-draw-ink" d="M58 82c0-30 84-30 84 0z"/><g class="pl-draw-wood"><rect x="97" y="80" width="6" height="90" rx="3"/><ellipse cx="100" cy="172" rx="26" ry="6"/></g><circle cx="100" cy="88" r="7" fill="#FFE9A8"/>
+{{else match kind "~" "able"}}
+<g class="pl-draw-wood"><rect x="24" y="86" width="152" height="12" rx="5"/><path d="M42 98h8l-6 76h-8zM150 98h8l6 76h-8z"/></g>
+<g class="pl-draw-ink"><rect x="76" y="58" width="16" height="28" rx="6"/><circle cx="118" cy="74" r="12"/></g>
+{{else match kind "~" "ining"}}
+<g class="pl-draw-wood"><rect x="24" y="86" width="152" height="12" rx="5"/><path d="M42 98h8l-6 76h-8zM150 98h8l6 76h-8z"/></g>
+<g class="pl-draw-ink"><rect x="76" y="58" width="16" height="28" rx="6"/><circle cx="118" cy="74" r="12"/></g>
+{{else match kind "~" "esk"}}
+<g class="pl-draw-wood"><rect x="24" y="86" width="152" height="12" rx="5"/><path d="M42 98h8l-6 76h-8zM150 98h8l6 76h-8z"/></g>
+<rect class="pl-draw-ink" x="110" y="98" width="40" height="30" rx="4"/>
+{{else match kind "~" "Bed"}}
+{{> "art-bed"}}
+{{else match kind "~" "bed"}}
+{{> "art-bed"}}
+{{else match kind "~" "torage"}}
+{{> "art-cabinet"}}
+{{else match kind "~" "helf"}}
+{{> "art-cabinet"}}
+{{else match kind "~" "abinet"}}
+{{> "art-cabinet"}}
+{{else match kind "~" "ideboard"}}
+{{> "art-cabinet"}}
+{{else}}
+<path class="pl-draw-ink" d="M84 60h32v14c18 8 26 26 22 50-4 26-18 46-38 46s-34-20-38-46c-4-24 4-42 22-50z"/><path class="pl-draw-wood" d="M100 60c-6-18 2-34 16-40-2 14-8 26-16 40zM100 60c4-16-4-28-14-32 0 12 6 22 14 32z"/>
+{{/match}}
+</svg>

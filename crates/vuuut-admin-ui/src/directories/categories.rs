@@ -69,11 +69,13 @@ fn fields(c: Option<&repo::Category>, tints: &str) -> String {
 <div class="wf-two"><label class="field"><input name="slug" value="{s}" maxlength="80" placeholder=" "><span>Address (blank: from the name)</span></label>
 <label class="field fixed"><select name="tint">{tints}</select><span>Colour</span>{caret}</label></div>
 <label class="field"><input name="description" value="{d}" maxlength="300" placeholder=" "><span>Description, shown on its page</span></label>
+<label class="field"><input name="image" value="{img}" maxlength="500" placeholder=" "><span>Image address — the category's tile on the site</span></label>
 <label class="field" style="max-width:160px"><input type="number" name="sort_order" value="{o}" min="0" max="999" placeholder=" "><span>Order</span></label>"#,
         n = esc(c.map(|c| c.name.as_str()).unwrap_or("")),
         s = esc(c.map(|c| c.slug.as_str()).unwrap_or("")),
         d = esc(c.map(|c| c.description.as_str()).unwrap_or("")),
         o = c.map(|c| c.sort_order).unwrap_or(0),
+        img = esc(c.map(|c| c.image.as_str()).unwrap_or("")),
         caret = SELECT_CARET,
     )
 }
@@ -86,6 +88,7 @@ pub(crate) struct CategoryForm {
     tint: String,
     description: String,
     sort_order: String,
+    image: String,
 }
 
 async fn save(state: &AppState, id: Option<&str>, f: &CategoryForm) -> Response {
@@ -102,7 +105,10 @@ async fn save(state: &AppState, id: Option<&str>, f: &CategoryForm) -> Response 
     }
     let tint = if TINTS.contains(&f.tint.as_str()) { f.tint.as_str() } else { "blue" };
     let sort = f.sort_order.trim().parse::<i64>().unwrap_or(0).clamp(0, 999);
-    match repo::save_category(&state.db, id, &name, &slug, &rules::clean(&f.description, 300), tint, sort).await {
+    let Some(image) = rules::safe_image(&f.image) else {
+        return flash_to(CATS, "error", "The image must be an http(s) address or an uploaded image.");
+    };
+    match repo::save_category_with_image(&state.db, id, &name, &slug, &rules::clean(&f.description, 300), tint, sort, Some(&image)).await {
         Ok(_) => flash_to(CATS, "ok", &format!("{name} saved.")),
         Err(e) => {
             tracing::error!("directory: saving a category failed: {}", e.message());

@@ -436,8 +436,25 @@ async fn product_editor(state: &AppState, actor: &Actor, p: Option<repo::Product
         ),
         None => String::new(),
     };
+    // How the product reads in the store's lists, drawn by ecom-editor.js
+    // from the form as it is typed. Empty until the script paints it.
+    let preview = card(
+        "Store preview",
+        "store",
+        "pink",
+        &format!(
+            r#"<div class="ec-pv" id="ec-preview" data-currency="{cur}" aria-live="polite">
+<div class="ec-pv-art"><img alt="" hidden><span class="ec-pv-ph">{ph}<small>Add an image</small></span><span class="ec-pv-badge" hidden></span><span class="ec-pv-state" hidden></span></div>
+<div class="ec-pv-body"><small class="ec-pv-type"></small><b class="ec-pv-title"></b><span class="ec-pv-price"><s></s> <span></span></span><span class="ec-pv-sw"></span></div>
+</div>
+<p class="muted ec-hint">As it appears in the store's lists. The theme decides the final look.</p>"#,
+            cur = esc(&s.currency),
+            ph = svg("image"),
+        ),
+        "ec-preview-card",
+    );
     let side = format!(
-        r#"{status}{org}{sales}{actions}"#,
+        r#"{status}{preview}{org}{sales}{actions}"#,
         status = card("Status", "eye", "green", &format!(r#"<label class="field fixed"><select name="status">{status_opts}</select><span>Status</span>{SELECT_CARET}</label>
 <p class="muted ec-hint">Only active products are in the store. Drafts are saved but hidden; archived ones are kept for your records.</p>{feat}"#, feat = check("featured", "Feature on the store's home", p.as_ref().is_some_and(|p| p.featured != 0), "")), "ec-status"),
         org = card("Product organization", "folder", "blue", &format!(

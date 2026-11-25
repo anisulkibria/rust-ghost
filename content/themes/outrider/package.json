@@ -1,0 +1,62 @@
+{
+    "name": "outrider",
+    "description": "A theme for studios and digital agencies. Case studies, services, testimonials and the team come from the editor through internal tags; the homepage stretches its type as you scroll.",
+    "version": "1.0.0",
+    "engines": { "ghost": ">=5.0.0" },
+    "license": "MIT",
+    "author": { "name": "Vuuut", "email": "themes@vuuut.com", "url": "https://vuuut.com" },
+    "keywords": ["vuuut", "vuuut-theme", "ghost-theme", "agency", "portfolio", "studio"],
+    "config": {
+        "posts_per_page": 9,
+        "image_sizes": {
+            "s": { "width": 400 }, "m": { "width": 800 }, "l": { "width": 1200 }, "xl": { "width": 1800 }, "xxl": { "width": 2400 }
+        },
+        "card_assets": true,
+        "custom": {
+            "hero_title": {
+                "type": "text",
+                "default": "We build brands that move.",
+                "group": "homepage",
+                "description": "The big homepage line. The last word is set in the accent colour."
+            },
+            "hero_text": {
+                "type": "text",
+                "default": "An independent studio for strategy, identity and digital product. Small team, senior people, work that ships.",
+                "group": "homepage"
+            },
+            "cta_label": {
+                "type": "text",
+                "default": "Start a project",
+                "description": "The button in the header and the homepage."
+            },
+            "contact_email": {
+                "type": "text",
+                "default": "hello@example.com",
+                "description": "Where Start a project and the closing call to action write to."
+            },
+            "clients": {
+                "type": "text",
+                "default": "Northwind|Lumen|Halcyon|Parcel & Co|Fieldnote|Orbital|Kinfolk Labs|Meridian",
+                "group": "homepage",
+                "description": "Client names for the logo band, separated by |."
+            },
+            "stats": {
+                "type": "text",
+                "default": "12:Years running|240:Projects shipped|38:Awards won|96%:Clients who come back",
+                "group": "homepage",
+                "description": "Number:label pairs, separated by |."
+            },
+            "process": {
+                "type": "text",
+                "default": "Discover:We listen, research and find the real problem.|Define:Strategy, scope and a plan everyone signs.|Design:Identity and product, prototyped and tested early.|Deliver:Built, launched and measured with you.",
+                "group": "homepage",
+                "description": "Step:description pairs, separated by |."
+            },
+            "location": {
+                "type": "text",
+                "default": "Lisbon & remote",
+                "description": "Shown in the footer and the closing section."
+            }
+        }
+    }
+}

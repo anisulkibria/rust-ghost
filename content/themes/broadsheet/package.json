@@ -1,0 +1,114 @@
+{
+    "name": "broadsheet",
+    "description": "Broadsheet, a newspaper theme: breaking ticker, masthead, a three-column front page, section blocks for every desk, opinion, video, an archive and a membership band.",
+    "version": "1.0.0",
+    "engines": {
+        "ghost": ">=5.0.0"
+    },
+    "license": "MIT",
+    "author": {
+        "name": "Vuuut",
+        "email": "themes@vuuut.com",
+        "url": "https://vuuut.com"
+    },
+    "keywords": [
+        "vuuut",
+        "vuuut-theme",
+        "ghost-theme",
+        "newspaper",
+        "magazine",
+        "news"
+    ],
+    "config": {
+        "posts_per_page": 18,
+        "image_sizes": {
+            "xs": {
+                "width": 160
+            },
+            "s": {
+                "width": 400
+            },
+            "m": {
+                "width": 800
+            },
+            "l": {
+                "width": 1200
+            },
+            "xl": {
+                "width": 2000
+            }
+        },
+        "card_assets": true,
+        "custom": {
+            "masthead": {
+                "type": "text",
+                "default": "",
+                "description": "The masthead line. Empty uses the site title."
+            },
+            "ticker_label": {
+                "type": "text",
+                "default": "Breaking",
+                "description": "The label on the black bar. The bar shows featured stories."
+            },
+            "timezone_label": {
+                "type": "text",
+                "default": "ET",
+                "description": "Shown after the clock in the black bar."
+            },
+            "editor_note": {
+                "type": "text",
+                "default": "Our reporters in Frankfurt, Lagos and Seoul filed three stories this morning that, read together, describe the same machine from three angles.",
+                "group": "homepage",
+                "description": "The italic note on the front page. Empty hides it."
+            },
+            "editor_note_by": {
+                "type": "text",
+                "default": "Marta Reyes",
+                "group": "homepage"
+            },
+            "sponsor_name": {
+                "type": "text",
+                "default": "",
+                "group": "homepage",
+                "description": "Sponsor box: the sponsor's name. Empty hides the box."
+            },
+            "sponsor_text": {
+                "type": "text",
+                "default": "fuels this newsroom. Readers get:",
+                "group": "homepage"
+            },
+            "sponsor_perks": {
+                "type": "text",
+                "default": "15% off the subscription bag|Free shipping over $30|A house blend, roasted monthly",
+                "group": "homepage",
+                "description": "Perks separated by |."
+            },
+            "sponsor_button": {
+                "type": "text",
+                "default": "Shop the blend",
+                "group": "homepage"
+            },
+            "sponsor_url": {
+                "type": "text",
+                "default": "#",
+                "group": "homepage"
+            },
+            "membership_kicker": {
+                "type": "text",
+                "default": "Independent since 2003",
+                "group": "homepage"
+            },
+            "membership_title": {
+                "type": "text",
+                "default": "Independent reporting, *paid for by the people* who read it.",
+                "group": "homepage",
+                "description": "Words between * * are set in gold italic."
+            },
+            "membership_text": {
+                "type": "text",
+                "default": "No ads against your attention. No venture money on the cap table. Become a subscriber and read every story, every newsletter, every morning — for the price of a paperback a month.",
+                "group": "homepage"
+            }
+        }
+    }
+}

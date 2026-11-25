@@ -334,6 +334,8 @@ impl Settings {
 pub const MAX_TITLE: usize = 120;
 pub const MAX_SUMMARY: usize = 240;
 pub const MAX_DESCRIPTION: usize = 5_000;
+/// The editor's description: the HTML is what is shown, so it gets room.
+pub const MAX_RICH: usize = 200_000;
 pub const MAX_URL: usize = 500;
 pub const MAX_SHORT: usize = 120;
 pub const MAX_KEYWORDS: usize = 200;
@@ -449,6 +451,336 @@ pub struct ListingInput {
     pub featured: bool,
     pub submitter_name: String,
     pub submitter_email: String,
+    /// The editor's Lexical and the HTML rendered from it. Set by the admin
+    /// (which owns the renderer); a public submission leaves both empty and
+    /// its plain `description` is shown as paragraphs.
+    pub description_lexical: String,
+    pub description_html: String,
+    pub details: Details,
+}
+
+/// Everything a full directory entry has beyond the basics: what Google
+/// Business Profile, Yelp and the city guides ask for.
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct Details {
+    pub logo: String,
+    /// More images; the listing's `image` is the main one.
+    pub gallery: Vec<String>,
+    pub region: String,
+    pub postal_code: String,
+    pub country: String,
+    pub latitude: String,
+    pub longitude: String,
+    pub booking_url: String,
+    pub video_url: String,
+    pub hours: Hours,
+    pub hours_note: String,
+    /// 0 = not set, 1 … 4 = $ … $$$$.
+    pub price_level: i64,
+    pub amenities: Vec<String>,
+    pub payments: Vec<String>,
+    /// `(network key, profile address)`, in [`SOCIALS`] order.
+    pub socials: Vec<(String, String)>,
+    pub established: String,
+    pub seo_title: String,
+    pub seo_description: String,
+}
+
+// ---------------------------------------------------------------------------
+// the lists a listing chooses from
+// ---------------------------------------------------------------------------
+
+/// `(key, label)`: the features the big directories filter on.
+pub const AMENITIES: &[(&str, &str)] = &[
+    ("wifi", "Free Wi-Fi"),
+    ("parking", "Parking"),
+    ("wheelchair", "Wheelchair accessible"),
+    ("outdoor", "Outdoor seating"),
+    ("reservations", "Takes reservations"),
+    ("delivery", "Delivery"),
+    ("takeout", "Takeout"),
+    ("pets", "Pet friendly"),
+    ("kids", "Good for kids"),
+    ("groups", "Good for groups"),
+    ("vegetarian", "Vegetarian options"),
+    ("vegan", "Vegan options"),
+    ("bar", "Full bar"),
+    ("ac", "Air conditioning"),
+    ("live-music", "Live music"),
+    ("late", "Open late"),
+    ("breakfast", "Breakfast"),
+    ("pool", "Pool"),
+    ("gym", "Gym"),
+    ("ev", "EV charging"),
+    ("lgbtq", "LGBTQ+ friendly"),
+    ("women-owned", "Women-owned"),
+];
+
+/// `(key, label)`.
+pub const PAYMENTS: &[(&str, &str)] = &[
+    ("cash", "Cash"),
+    ("credit", "Credit cards"),
+    ("debit", "Debit cards"),
+    ("contactless", "Contactless"),
+    ("apple-pay", "Apple Pay"),
+    ("google-pay", "Google Pay"),
+    ("bank", "Bank transfer"),
+    ("crypto", "Crypto"),
+];
+
+/// `(key, label, the address it must start with)`.
+pub const SOCIALS: &[(&str, &str, &str)] = &[
+    ("facebook", "Facebook", "https://"),
+    ("instagram", "Instagram", "https://"),
+    ("x", "X", "https://"),
+    ("tiktok", "TikTok", "https://"),
+    ("youtube", "YouTube", "https://"),
+    ("linkedin", "LinkedIn", "https://"),
+    ("tripadvisor", "Tripadvisor", "https://"),
+    ("yelp", "Yelp", "https://"),
+];
+
+pub const PRICE_LEVELS: [(i64, &str, &str); 4] = [(1, "$", "Inexpensive"), (2, "$$", "Moderate"), (3, "$$$", "Pricey"), (4, "$$$$", "Very expensive")];
+
+pub fn label_of<'a>(list: &'a [(&str, &str)], key: &str) -> Option<&'a str> {
+    list.iter().find(|(k, _)| *k == key).map(|(_, l)| *l)
+}
+
+/// A comma list kept only where it names something on `list`, in `list`'s order.
+pub fn pick_keys(list: &[(&str, &str)], chosen: &[&str]) -> Vec<String> {
+    list.iter().filter(|(k, _)| chosen.contains(k)).map(|(k, _)| k.to_string()).collect()
+}
+
+pub fn split_keys(stored: &str) -> Vec<String> {
+    stored.split(',').map(str::trim).filter(|s| !s.is_empty()).map(str::to_string).collect()
+}
+
+// ---------------------------------------------------------------------------
+// opening hours
+// ---------------------------------------------------------------------------
+
+/// `(key, long name, short name)`, Monday first.
+pub const DAYS_OF_WEEK: [(&str, &str, &str); 7] = [
+    ("mon", "Monday", "Mon"),
+    ("tue", "Tuesday", "Tue"),
+    ("wed", "Wednesday", "Wed"),
+    ("thu", "Thursday", "Thu"),
+    ("fri", "Friday", "Fri"),
+    ("sat", "Saturday", "Sat"),
+    ("sun", "Sunday", "Sun"),
+];
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Day {
+    /// Nothing said about this day.
+    Unknown,
+    Closed,
+    AllDay,
+    /// `(open, close)` as minutes after midnight; a close at or before the
+    /// open runs past midnight.
+    Open(Vec<(u16, u16)>),
+}
+
+/// A week of opening hours, Monday first.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Hours(pub [Day; 7]);
+
+impl Default for Hours {
+    fn default() -> Self {
+        Hours(std::array::from_fn(|_| Day::Unknown))
+    }
+}
+
+/// `"09:00"`, `"9:30"`, `"21:15"` → minutes.
+pub fn parse_clock(raw: &str) -> Option<u16> {
+    let (h, m) = raw.trim().split_once(':').unwrap_or((raw.trim(), "0"));
+    let h: u16 = h.trim().parse().ok()?;
+    let m: u16 = m.trim().parse().ok()?;
+    (h <= 24 && m < 60 && (h < 24 || m == 0)).then_some(h * 60 + m)
+}
+
+fn hhmm(m: u16) -> String {
+    format!("{:02}:{:02}", m / 60, m % 60)
+}
+
+/// `9:00 am`, `12:30 pm`, `midnight` — the way the site shows a time.
+pub fn clock_label(m: u16) -> String {
+    let m = m % (24 * 60);
+    let (h, min) = (m / 60, m % 60);
+    let (h12, mer) = match h {
+        0 => (12, "am"),
+        1..=11 => (h, "am"),
+        12 => (12, "pm"),
+        _ => (h - 12, "pm"),
+    };
+    if min == 0 { format!("{h12} {mer}") } else { format!("{h12}:{min:02} {mer}") }
+}
+
+impl Day {
+    /// The stored form: `closed`, `24h`, `09:00-17:00,18:00-22:00`, or empty.
+    pub fn key(&self) -> String {
+        match self {
+            Day::Unknown => String::new(),
+            Day::Closed => "closed".into(),
+            Day::AllDay => "24h".into(),
+            Day::Open(r) => r.iter().map(|(a, b)| format!("{}-{}", hhmm(*a), hhmm(*b))).collect::<Vec<_>>().join(","),
+        }
+    }
+
+    pub fn parse(raw: &str) -> Day {
+        let v = raw.trim().to_ascii_lowercase();
+        match v.as_str() {
+            "" => Day::Unknown,
+            "closed" => Day::Closed,
+            "24h" | "open 24 hours" => Day::AllDay,
+            _ => {
+                let ranges: Vec<(u16, u16)> = v
+                    .split(',')
+                    .filter_map(|r| {
+                        let (a, b) = r.split_once('-')?;
+                        Some((parse_clock(a)?, parse_clock(b)?))
+                    })
+                    .take(3)
+                    .collect();
+                if ranges.is_empty() { Day::Unknown } else { Day::Open(ranges) }
+            }
+        }
+    }
+
+    /// `09:00–17:00, 18:00–22:00`, `Closed`, `Open 24 hours` — the plain
+    /// form themes parse for "Open now".
+    pub fn plain(&self) -> String {
+        match self {
+            Day::Open(r) => r.iter().map(|(a, b)| format!("{}–{}", hhmm(*a), hhmm(*b % (24 * 60)))).collect::<Vec<_>>().join(", "),
+            other => other.label(),
+        }
+    }
+
+    /// `9 am – 5 pm`, `Closed`, `Open 24 hours`.
+    pub fn label(&self) -> String {
+        match self {
+            Day::Unknown => String::new(),
+            Day::Closed => "Closed".into(),
+            Day::AllDay => "Open 24 hours".into(),
+            Day::Open(r) => r.iter().map(|(a, b)| format!("{} – {}", clock_label(*a), clock_label(*b))).collect::<Vec<_>>().join(", "),
+        }
+    }
+}
+
+impl Hours {
+    pub fn is_empty(&self) -> bool {
+        self.0.iter().all(|d| *d == Day::Unknown)
+    }
+
+    /// From the stored JSON object; anything unreadable is "not said".
+    pub fn from_json(raw: &str) -> Hours {
+        let v: serde_json::Value = serde_json::from_str(raw).unwrap_or_default();
+        let mut h = Hours::default();
+        for (i, (k, _, _)) in DAYS_OF_WEEK.iter().enumerate() {
+            if let Some(s) = v.get(k).and_then(|x| x.as_str()) {
+                h.0[i] = Day::parse(s);
+            }
+        }
+        h
+    }
+
+    pub fn to_json(&self) -> String {
+        if self.is_empty() {
+            return String::new();
+        }
+        let mut m = serde_json::Map::new();
+        for (i, (k, _, _)) in DAYS_OF_WEEK.iter().enumerate() {
+            let key = self.0[i].key();
+            if !key.is_empty() {
+                m.insert(k.to_string(), serde_json::Value::String(key));
+            }
+        }
+        serde_json::Value::Object(m).to_string()
+    }
+
+    /// From the editor: `hours_<day>` = `open` | `closed` | `24h` | ``, and
+    /// for an open day `hours_<day>_open` / `hours_<day>_close` (plus an
+    /// optional second shift `_open2` / `_close2`).
+    pub fn from_form(get: impl Fn(&str) -> String) -> Hours {
+        let mut h = Hours::default();
+        for (i, (k, _, _)) in DAYS_OF_WEEK.iter().enumerate() {
+            h.0[i] = match get(&format!("hours_{k}")).trim() {
+                "closed" => Day::Closed,
+                "24h" => Day::AllDay,
+                "open" => {
+                    let shift = |a: &str, b: &str| Some((parse_clock(&get(&format!("hours_{k}_{a}")))?, parse_clock(&get(&format!("hours_{k}_{b}")))?));
+                    let r: Vec<(u16, u16)> = [shift("open", "close"), shift("open2", "close2")].into_iter().flatten().collect();
+                    if r.is_empty() { Day::Unknown } else { Day::Open(r) }
+                }
+                _ => Day::Unknown,
+            };
+        }
+        h
+    }
+}
+
+impl Details {
+    /// `staff` reads everything; a visitor's form has no such fields, and
+    /// anything sent anyway is still rebuilt, never trusted.
+    pub fn from_form(form: &HashMap<String, String>, all: &[(String, String)]) -> Result<Details, String> {
+        let get = |k: &str| form.get(k).cloned().unwrap_or_default();
+        let many = |k: &str| all.iter().filter(|(x, _)| x == k).map(|(_, v)| v.as_str()).collect::<Vec<_>>();
+        let url = |k: &str, what: &str| safe_url(&get(k)).ok_or(format!("The {what} must be an http(s) address."));
+        let coord = |k: &str, max: f64, what: &str| -> Result<String, String> {
+            let v = clean(&get(k), 24);
+            if v.is_empty() {
+                return Ok(v);
+            }
+            match v.parse::<f64>() {
+                Ok(n) if n.is_finite() && n.abs() <= max => Ok(format!("{}", (n * 1e6).round() / 1e6)),
+                _ => Err(format!("The {what} must be a number between -{max} and {max}.")),
+            }
+        };
+        let mut socials = Vec::new();
+        for (key, label, _) in SOCIALS {
+            let v = safe_url(&get(&format!("social_{key}"))).ok_or(format!("The {label} link must be an http(s) address."))?;
+            if !v.is_empty() {
+                socials.push((key.to_string(), v));
+            }
+        }
+        let established = clean(&get("established"), 4);
+        if !established.is_empty() && !(established.len() == 4 && established.chars().all(|c| c.is_ascii_digit())) {
+            return Err("The year established must be a year, like 1998.".into());
+        }
+        let logo = safe_image(&get("logo")).ok_or("The logo must be an image address.")?;
+        let gallery = many("gallery").into_iter().filter_map(safe_image).filter(|u| !u.is_empty()).take(24).collect();
+        Ok(Details {
+            logo,
+            gallery,
+            region: clean(&get("region"), 80),
+            postal_code: clean(&get("postal_code"), 20),
+            country: clean(&get("country"), 80),
+            latitude: coord("latitude", 90.0, "latitude")?,
+            longitude: coord("longitude", 180.0, "longitude")?,
+            booking_url: url("booking_url", "booking link")?,
+            video_url: url("video_url", "video link")?,
+            hours: Hours::from_form(get),
+            hours_note: clean(&get_owned(form, "hours_note"), 160),
+            price_level: get_owned(form, "price_level").trim().parse::<i64>().ok().filter(|n| (0..=4).contains(n)).unwrap_or(0),
+            amenities: pick_keys(AMENITIES, &many("amenity")),
+            payments: pick_keys(PAYMENTS, &many("payment")),
+            socials,
+            established,
+            seo_title: clean(&get_owned(form, "seo_title"), 70),
+            seo_description: clean(&get_owned(form, "seo_description"), 320),
+        })
+    }
+}
+
+fn get_owned(form: &HashMap<String, String>, k: &str) -> String {
+    form.get(k).cloned().unwrap_or_default()
+}
+
+/// `https://www.example.com/menu` → `example.com`.
+pub fn host_of(url: &str) -> String {
+    let rest = url.split_once("://").map(|(_, r)| r).unwrap_or(url);
+    let host = rest.split(['/', '?', '#']).next().unwrap_or("");
+    host.trim_start_matches("www.").to_string()
 }
 
 impl ListingInput {
@@ -511,6 +843,9 @@ impl ListingInput {
             featured: staff && get("featured") == "1",
             submitter_name: clean(get("submitter_name"), 80),
             submitter_email,
+            description_lexical: String::new(),
+            description_html: String::new(),
+            details: Details::default(),
         })
     }
 }
@@ -606,6 +941,46 @@ mod tests {
         assert_eq!(format_price(2500, "EUR", PriceType::Negotiable).as_deref(), Some("€25 ONO"));
         assert_eq!(format_price(100, "CHF", PriceType::Fixed).as_deref(), Some("1 CHF"));
         assert_eq!(format_price(0, "USD", PriceType::None), None);
+    }
+
+    #[test]
+    fn opening_hours_round_trip_and_read_the_editor() {
+        let stored = r#"{"mon":"closed","tue":"12:00-15:00,18:00-22:30","fri":"17:00-01:00","sun":"24h","sat":"nonsense"}"#;
+        let h = Hours::from_json(stored);
+        assert_eq!(h.0[0], Day::Closed);
+        assert_eq!(h.0[1], Day::Open(vec![(720, 900), (1080, 1350)]));
+        assert_eq!(h.0[5], Day::Unknown, "unreadable is not said");
+        assert_eq!(h.0[1].label(), "12 pm – 3 pm, 6 pm – 10:30 pm");
+        assert_eq!(h.0[4].plain(), "17:00–01:00", "past midnight");
+        assert_eq!(h.0[6].label(), "Open 24 hours");
+        assert_eq!(Hours::from_json(&h.to_json()), h);
+        assert_eq!(Hours::default().to_json(), "");
+
+        let form = form(&[("hours_mon", "open"), ("hours_mon_open", "09:00"), ("hours_mon_close", "17:30"),
+            ("hours_tue", "open"), ("hours_tue_open", "25:00"), ("hours_tue_close", "17:00"), ("hours_wed", "closed"), ("hours_thu", "24h")]);
+        let h = Hours::from_form(|k| form.get(k).cloned().unwrap_or_default());
+        assert_eq!(h.0[0], Day::Open(vec![(540, 1050)]));
+        assert_eq!(h.0[1], Day::Unknown, "an impossible time is dropped, not stored");
+        assert_eq!((h.0[2].clone(), h.0[3].clone()), (Day::Closed, Day::AllDay));
+    }
+
+    #[test]
+    fn details_keep_only_known_choices_and_safe_links() {
+        let pairs: Vec<(String, String)> = [("amenity", "wifi"), ("amenity", "<script>"), ("amenity", "parking"), ("payment", "cash"),
+            ("gallery", "javascript:alert(1)"), ("gallery", "/content/images/a.jpg")]
+            .iter().map(|(a, b)| (a.to_string(), b.to_string())).collect();
+        let f = form(&[("latitude", "40.71283"), ("longitude", "-74.006"), ("price_level", "9"), ("social_instagram", "https://instagram.com/x")]);
+        let d = Details::from_form(&f, &pairs).unwrap();
+        assert_eq!(d.amenities, ["wifi", "parking"]);
+        assert_eq!(d.payments, ["cash"]);
+        assert_eq!(d.gallery, ["/content/images/a.jpg"]);
+        assert_eq!(d.price_level, 0, "out of range is not set");
+        assert_eq!(d.socials, [("instagram".to_string(), "https://instagram.com/x".to_string())]);
+        assert!(Details::from_form(&form(&[("latitude", "123")]), &[]).unwrap_err().contains("latitude"));
+        assert!(Details::from_form(&form(&[("social_x", "javascript:x")]), &[]).unwrap_err().contains("X"));
+        assert!(Details::from_form(&form(&[("established", "19x8")]), &[]).unwrap_err().contains("year"));
+        assert!(Details::from_form(&form(&[("booking_url", "ftp://x")]), &[]).unwrap_err().contains("booking"));
+        assert_eq!(host_of("https://www.Example.com/menu?x"), "Example.com");
     }
 
     #[test]

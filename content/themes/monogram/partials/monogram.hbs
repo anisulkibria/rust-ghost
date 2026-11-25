@@ -1,0 +1,2 @@
+{{!-- The first letters of the first two words of the name, as a seal. --}}
+<span class="mg-seal{{#if size}} mg-seal-{{size}}{{/if}}" aria-hidden="true">{{#foreach (split @custom.name separator=" ") limit="2"}}<span class="mg-initial">{{this}}</span>{{/foreach}}</span>

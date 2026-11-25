@@ -322,6 +322,47 @@ async fn a_listing_goes_from_draft_to_the_public_directory_and_visitors_are_mode
     let clicks: i64 = sqlx::query_scalar("SELECT contact_clicks FROM directory_listings WHERE id = ?").bind(&cafe).fetch_one(&f.state.db).await.unwrap();
     assert_eq!(clicks, 1);
 
+    // A full listing from the editor: the description written in Koenig,
+    // photos, the address in parts, the map, opening hours, price range,
+    // amenities, payments and profiles — and the status chosen in the form.
+    let lexical = vuuut_core::dummies::document(vec![
+        vuuut_core::dummies::paragraph("Roasted on site every morning."),
+        vuuut_core::dummies::list(&["Flat white", "Cardamom bun"]),
+    ]);
+    let r = post(&f.state, &format!("/directories/listings/{cafe}/"), &cookie, &[
+        ("kind", "directory"), ("title", "Corner <Café>"), ("slug", &slug), ("category_id", &cat), ("summary", "Good coffee"),
+        ("description_lexical", &lexical), ("website", "https://corner.example/"), ("email", "hi@corner.example"),
+        ("phone", "+1 555 010 2030"), ("location", "Springfield"), ("address", "1 Main St"), ("region", "IL"),
+        ("postal_code", "62701"), ("country", "United States"), ("latitude", "39.7817"), ("longitude", "-89.6501"),
+        ("hours_mon", "open"), ("hours_mon_open", "07:00"), ("hours_mon_close", "18:00"), ("hours_sun", "closed"),
+        ("price_level", "2"), ("amenity", "wifi"), ("amenity", "made-up"), ("payment", "cash"),
+        ("image", "https://img.example/front.jpg"), ("image", "https://img.example/inside.jpg"),
+        ("social_instagram", "https://instagram.com/corner"), ("booking_url", "https://book.example/corner"),
+        ("status", "published"),
+    ]).await;
+    assert!(!r.location.contains("error="), "{}", r.location);
+    let stored = vuuut_db::repos::directory::find(&f.state.db, &cafe).await.unwrap().unwrap();
+    assert_eq!(stored.status, "published");
+    assert_eq!((stored.image.as_str(), stored.gallery.as_str()), ("https://img.example/front.jpg", "https://img.example/inside.jpg"));
+    assert_eq!(stored.amenities, "wifi", "only choices on the list are kept");
+    assert!(stored.description.contains("Roasted on site"), "plain text kept for search and cards");
+    let one = site(&f.state, "GET", &format!("/directory/{}/", urlencode(&slug)), None).await;
+    for needle in ["Roasted on site every morning.", "Cardamom bun", "7 am – 6 pm", "Closed", "Free Wi-Fi", "Cash", "$$",
+        "https://img.example/inside.jpg", "https://instagram.com/corner", "https://book.example/corner",
+        "1 Main St, Springfield, IL 62701, United States", "openingHoursSpecification", r#""priceRange":"$$""#, "GeoCoordinates"] {
+        assert!(one.body.contains(needle), "{needle} missing: {}", one.body);
+    }
+    assert!(site(&f.state, "GET", "/directory/?q=roasted", None).await.body.contains("Corner &lt;Café&gt;"));
+    assert!(site(&f.state, "GET", "/directory/?price=2", None).await.body.contains("Corner &lt;Café&gt;"));
+    assert!(!site(&f.state, "GET", "/directory/?price=4", None).await.body.contains("Corner &lt;Café&gt;"));
+    assert!(site(&f.state, "GET", "/directory/?what=food-drink&where=springfield", None).await.body.contains("Corner &lt;Café&gt;"));
+    // Saving without a status field leaves it live.
+    post(&f.state, &format!("/directories/listings/{cafe}/"), &cookie, &[("kind", "directory"), ("title", "Corner <Café>"), ("slug", &slug), ("category_id", &cat), ("summary", "Good coffee"), ("website", "https://corner.example/")]).await;
+    assert_eq!(vuuut_db::repos::directory::find(&f.state.db, &cafe).await.unwrap().unwrap().status, "published");
+    // The editor opens it in Koenig with every field filled in.
+    let editor = get(&f.state, &format!("/directories/listings/{cafe}/"), &cookie).await.body;
+    assert!(editor.contains("koenig-mount") && editor.contains("directory-editor.js"), "{editor}");
+
     // Search and category pages.
     assert!(site(&f.state, "GET", "/directory/?q=coffee", None).await.body.contains("Corner &lt;Café&gt;"));
     assert!(!site(&f.state, "GET", "/directory/?q=bicycle", None).await.body.contains("Corner &lt;Café&gt;"));

@@ -1,0 +1,47 @@
+{{!< default}}
+{{!-- A journal note, or a case study when the post carries #work: then
+     the header turns into a project sheet (client, discipline, year) and
+     the next case study closes the page. --}}
+{{#post}}
+<div class="or-progress" aria-hidden="true"><span data-or-progress></span></div>
+<main id="main" class="or-article{{#has tag="#work"}} is-case{{/has}}">
+<header class="or-wrap or-article-head">
+<p class="or-label">{{#has tag="#work"}}Case study{{else}}{{#if primary_tag}}<a class="or-ul" href="{{primary_tag.url}}">{{primary_tag.name}}</a>{{else}}Journal{{/if}}{{/has}} · <time datetime="{{date format="YYYY-MM-DD"}}">{{date format="D MMM YYYY"}}</time></p>
+<h1 class="or-article-title" data-or-stretch>{{title}}</h1>
+{{#if custom_excerpt}}<p class="or-article-dek">{{custom_excerpt}}</p>{{/if}}
+{{#has tag="#work"}}
+<dl class="or-sheet">
+<div><dt>Client</dt><dd>{{#foreach tags limit="1"}}{{#match visibility "public"}}{{name}}{{else}}{{@site.title}}{{/match}}{{/foreach}}</dd></div>
+<div><dt>Discipline</dt><dd>{{#foreach tags}}{{#match visibility "public"}}<span>{{name}}</span>{{/match}}{{/foreach}}</dd></div>
+<div><dt>Year</dt><dd>{{date format="YYYY"}}</dd></div>
+<div><dt>Team</dt><dd>{{authors separator=", "}}</dd></div>
+</dl>
+{{else}}
+<p class="or-article-by">{{#foreach authors limit="1"}}<a class="or-avatar" href="{{url}}">{{#if profile_image}}<img src="{{img_url profile_image size="s"}}" alt="">{{else}}<span>{{name}}</span>{{/if}}</a>{{/foreach}}<span>By {{authors separator=", "}} · {{reading_time}}</span></p>
+{{/has}}
+</header>
+{{#if feature_image}}
+<figure class="or-article-img" data-or-parallax><img src="{{img_url feature_image size="xl"}}" srcset="{{img_url feature_image size="l"}} 1200w, {{img_url feature_image size="xl"}} 1800w, {{img_url feature_image size="xxl"}} 2400w" sizes="100vw" alt="{{#if feature_image_alt}}{{feature_image_alt}}{{else}}{{title}}{{/if}}">{{#if feature_image_caption}}<figcaption>{{feature_image_caption}}</figcaption>{{/if}}</figure>
+{{/if}}
+<article class="or-prose gh-content">{{content}}</article>
+<footer class="or-wrap or-article-foot">
+<div class="or-share"><span class="or-label">Share</span>
+<a class="or-ul" href="https://x.com/intent/tweet?url={{encode (url absolute="true")}}&amp;text={{encode title}}" target="_blank" rel="noopener">X</a>
+<a class="or-ul" href="https://www.linkedin.com/sharing/share-offsite/?url={{encode (url absolute="true")}}" target="_blank" rel="noopener">LinkedIn</a>
+<button class="or-ul" type="button" data-or-copy="{{url absolute="true"}}">Copy link</button>
+</div>
+</footer>
+{{comments}}
+</main>
+{{#has tag="#work"}}
+{{#get "posts" filter="tag:hash-work+id:-{{id}}" limit="1" include="tags" as |next|}}
+{{#foreach next}}
+<a class="or-next" href="{{url}}" data-or-view>
+<span class="or-label">Next case study</span>
+<span class="or-next-title" data-or-stretch>{{title}}</span>
+{{#if feature_image}}<img src="{{img_url feature_image size="l"}}" alt="" loading="lazy">{{/if}}
+</a>
+{{/foreach}}
+{{/get}}
+{{/has}}
+{{/post}}

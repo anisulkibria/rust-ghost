@@ -1,0 +1,5 @@
+{{!< default}}
+<main id="main" class="ms-main ms-wrap">
+{{#tag}}<header class="ms-page-head">{{#if feature_image}}<img class="ms-page-pic" src="{{img_url feature_image size="xs"}}" alt="">{{/if}}<h1 class="ms-page-title">{{name}}</h1><p class="ms-page-desc">{{#if description}}{{description}}{{else}}{{plural ../pagination.total empty="No posts" singular="% post" plural="% posts"}}{{/if}}</p></header>{{/tag}}
+{{> "feed"}}
+</main>

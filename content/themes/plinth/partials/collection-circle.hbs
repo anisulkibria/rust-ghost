@@ -1,0 +1,6 @@
+{{!-- A collection as a round category tile: title, url, feature_image, product_count. --}}
+<a class="pl-circle" href="{{url}}">
+<span class="pl-circle-art">{{#if feature_image}}<img src="{{feature_image}}" alt="" loading="lazy">{{else}}{{> "art" kind=title}}{{/if}}</span>
+<span class="pl-circle-name">{{title}}</span>
+{{#if count}}<span class="pl-circle-count">{{plural product_count empty="Coming soon" singular="% piece" plural="% pieces"}}</span>{{/if}}
+</a>

@@ -1,0 +1,25 @@
+{{!-- A photo tile for each town in Vuuut's directory; the tag-based tiles when it has none. --}}
+{{#get "listing_places" limit="8" as |towns|}}
+    {{#if towns}}
+        <section class="band" aria-labelledby="places-heading">
+            <header class="section-head wrap">
+                <h2 class="section-title" id="places-heading">{{t "Where to go"}}</h2>
+            </header>
+            <ul class="place-grid wrap" role="list">
+                {{#foreach towns}}
+                    <li>
+                        <a class="place" href="{{url}}">
+                            {{#if feature_image}}<img src="{{feature_image}}" alt="" loading="lazy">{{/if}}
+                            <span class="place-label">
+                                <span class="place-name">{{name}}</span>
+                                <span class="place-count">{{plural count empty=(t "No places yet") singular=(t "1 place") plural=(t "% places")}}</span>
+                            </span>
+                        </a>
+                    </li>
+                {{/foreach}}
+            </ul>
+        </section>
+    {{else}}
+        {{> "places"}}
+    {{/if}}
+{{/get}}

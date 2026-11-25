@@ -1,0 +1,24 @@
+{{!< default}}
+{{!-- The journal's front page: give any page the slug `journal`. The
+     store homepage owns `/`, so the post list needs an address of its own;
+     older stories continue at /page/2/ (index.hbs). --}}
+{{#post}}
+<main id="main" class="pl-journal">
+<header class="pl-wrap pl-jhead">
+<p class="pl-kicker">{{#if custom_excerpt}}{{custom_excerpt}}{{else}}Rooms, makers and notes{{/if}}</p>
+<h1 class="pl-jtitle">{{title}}</h1>
+{{> "journal-topics"}}
+</header>
+{{#get "posts" limit="13" include="tags,authors" as |stories pages|}}
+<section class="pl-wrap pl-section-tight">
+{{#foreach stories limit="1"}}{{> "post-card" lead=true}}{{/foreach}}
+<div class="pl-post-grid">{{#foreach stories from="2"}}{{> "post-card"}}{{/foreach}}</div>
+{{#match pages.pages ">" 1}}<p class="pl-center pl-more-wrap"><a class="pl-btn pl-btn-line" href="{{@site.url}}/page/2/">Older stories {{> "icon" name="arrow" size="16"}}</a></p>{{/match}}
+</section>
+{{else}}
+<div class="pl-wrap pl-empty"><span class="pl-empty-art">{{> "art" kind="lamp"}}</span><p class="pl-display">The first story is on its way.</p></div>
+{{/get}}
+{{#if content}}<div class="pl-prose gh-content pl-journal-note">{{content}}</div>{{/if}}
+{{> "journal-news"}}
+</main>
+{{/post}}

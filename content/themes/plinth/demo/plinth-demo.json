@@ -1,0 +1,274 @@
+{
+ "db": [
+  {
+   "meta": {
+    "exported_on": 1795000000000,
+    "version": "6.0.0"
+   },
+   "data": {
+    "users": [
+     {
+      "id": "e612bb049c9af9828c79a973",
+      "name": "Hanna Berg",
+      "slug": "hanna-berg",
+      "email": "hanna.berg@example.com",
+      "profile_image": "https://randomuser.me/api/portraits/women/57.jpg",
+      "cover_image": null,
+      "bio": "Editor of the journal and our head of product.",
+      "website": null,
+      "location": "Portland",
+      "status": "active",
+      "visibility": "public",
+      "created_at": "2026-11-25T09:00:00.000Z",
+      "updated_at": "2026-11-25T09:00:00.000Z"
+     }
+    ],
+    "tags": [
+     {
+      "id": "41e1da9750761172d3ee2dc1",
+      "name": "Spaces",
+      "slug": "spaces",
+      "description": null,
+      "feature_image": null,
+      "visibility": "public",
+      "created_at": "2026-11-25T09:00:00.000Z",
+      "updated_at": "2026-11-25T09:00:00.000Z"
+     },
+     {
+      "id": "62077d91de18d216841e0020",
+      "name": "Makers",
+      "slug": "makers",
+      "description": null,
+      "feature_image": null,
+      "visibility": "public",
+      "created_at": "2026-11-25T09:00:00.000Z",
+      "updated_at": "2026-11-25T09:00:00.000Z"
+     },
+     {
+      "id": "6cb3244ae3be2a854e0b35de",
+      "name": "Guides",
+      "slug": "guides",
+      "description": null,
+      "feature_image": null,
+      "visibility": "public",
+      "created_at": "2026-11-25T09:00:00.000Z",
+      "updated_at": "2026-11-25T09:00:00.000Z"
+     }
+    ],
+    "posts": [
+     {
+      "id": "8801d58660ed4e2298f565ca",
+      "uuid": "a53e148f-1240-4209-a429-678c04f29f3b",
+      "title": "A small living room that feels twice its size",
+      "slug": "a-small-living-room-that-feels-twice-its-size",
+      "type": "post",
+      "lexical": "{\"root\": {\"children\": [{\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"Three moves that make a 12 m\\u00b2 room feel generous.\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"paragraph\", \"version\": 1}, {\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"We visited homes, workshops and showrooms to find out what makes a room work.\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"paragraph\", \"version\": 1}, {\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"What we learned\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"extended-heading\", \"version\": 1, \"tag\": \"h2\"}, {\"children\": [{\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"Start with how you use the room\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"listitem\", \"version\": 1, \"value\": 1}, {\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"Buy fewer, better pieces\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"listitem\", \"version\": 1, \"value\": 2}, {\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"Leave space for the things you love\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"listitem\", \"version\": 1, \"value\": 3}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"list\", \"version\": 1, \"listType\": \"bullet\", \"start\": 1, \"tag\": \"ul\"}, {\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"A room is finished when nothing in it is waiting to be replaced.\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"extended-quote\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"root\", \"version\": 1}}",
+      "mobiledoc": null,
+      "html": "<p>Three moves that make a 12 m² room feel generous.</p><p>We visited homes, workshops and showrooms to find out what makes a room work.</p><h2 id=\"what-we-learned\">What we learned</h2><ul><li>Start with how you use the room</li><li>Buy fewer, better pieces</li><li>Leave space for the things you love</li></ul><blockquote>A room is finished when nothing in it is waiting to be replaced.</blockquote>",
+      "plaintext": "Three moves that make a 12 m² room feel generous.\n\nWe visited homes, workshops and showrooms to find out what makes a room work.\n\nWhat we learned\n\nStart with how you use the room\nBuy fewer, better pieces\nLeave space for the things you love\n\nA room is finished when nothing in it is waiting to be replaced.",
+      "feature_image": "https://picsum.photos/seed/home-a-small-living-room-that-feels-twice-its-size/1600/1000",
+      "featured": 1,
+      "status": "published",
+      "visibility": "public",
+      "custom_excerpt": "Three moves that make a 12 m² room feel generous.",
+      "locale": null,
+      "email_recipient_filter": "all",
+      "reading_time": 1,
+      "created_at": "2026-11-23T21:52:00.000Z",
+      "updated_at": "2026-11-23T21:52:00.000Z",
+      "published_at": "2026-11-23T21:52:00.000Z"
+     },
+     {
+      "id": "31c2cde1f5748991cf9f8c6a",
+      "uuid": "02b949a5-6019-4bec-a41e-2c58e80a85ee",
+      "title": "Inside the workshop where our chairs are made",
+      "slug": "inside-the-workshop-where-our-chairs-are-made",
+      "type": "post",
+      "lexical": "{\"root\": {\"children\": [{\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"Four people, one barn, and a lot of ash.\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"paragraph\", \"version\": 1}, {\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"We visited homes, workshops and showrooms to find out what makes a room work.\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"paragraph\", \"version\": 1}, {\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"What we learned\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"extended-heading\", \"version\": 1, \"tag\": \"h2\"}, {\"children\": [{\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"Start with how you use the room\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"listitem\", \"version\": 1, \"value\": 1}, {\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"Buy fewer, better pieces\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"listitem\", \"version\": 1, \"value\": 2}, {\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"Leave space for the things you love\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"listitem\", \"version\": 1, \"value\": 3}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"list\", \"version\": 1, \"listType\": \"bullet\", \"start\": 1, \"tag\": \"ul\"}, {\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"A room is finished when nothing in it is waiting to be replaced.\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"extended-quote\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"root\", \"version\": 1}}",
+      "mobiledoc": null,
+      "html": "<p>Four people, one barn, and a lot of ash.</p><p>We visited homes, workshops and showrooms to find out what makes a room work.</p><h2 id=\"what-we-learned\">What we learned</h2><ul><li>Start with how you use the room</li><li>Buy fewer, better pieces</li><li>Leave space for the things you love</li></ul><blockquote>A room is finished when nothing in it is waiting to be replaced.</blockquote>",
+      "plaintext": "Four people, one barn, and a lot of ash.\n\nWe visited homes, workshops and showrooms to find out what makes a room work.\n\nWhat we learned\n\nStart with how you use the room\nBuy fewer, better pieces\nLeave space for the things you love\n\nA room is finished when nothing in it is waiting to be replaced.",
+      "feature_image": "https://picsum.photos/seed/home-inside-the-workshop-where-our-chairs-are-made/1600/1000",
+      "featured": 1,
+      "status": "published",
+      "visibility": "public",
+      "custom_excerpt": "Four people, one barn, and a lot of ash.",
+      "locale": null,
+      "email_recipient_filter": "all",
+      "reading_time": 1,
+      "created_at": "2026-11-15T20:45:00.000Z",
+      "updated_at": "2026-11-15T20:45:00.000Z",
+      "published_at": "2026-11-15T20:45:00.000Z"
+     },
+     {
+      "id": "cdef66115f5a1cb44e9579ac",
+      "uuid": "2112aec6-3bc3-4797-a4cd-825af5911d6c",
+      "title": "How to choose a dining table that lasts",
+      "slug": "how-to-choose-a-dining-table-that-lasts",
+      "type": "post",
+      "lexical": "{\"root\": {\"children\": [{\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"Wood, finish, legs and the question of extending.\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"paragraph\", \"version\": 1}, {\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"We visited homes, workshops and showrooms to find out what makes a room work.\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"paragraph\", \"version\": 1}, {\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"What we learned\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"extended-heading\", \"version\": 1, \"tag\": \"h2\"}, {\"children\": [{\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"Start with how you use the room\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"listitem\", \"version\": 1, \"value\": 1}, {\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"Buy fewer, better pieces\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"listitem\", \"version\": 1, \"value\": 2}, {\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"Leave space for the things you love\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"listitem\", \"version\": 1, \"value\": 3}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"list\", \"version\": 1, \"listType\": \"bullet\", \"start\": 1, \"tag\": \"ul\"}, {\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"A room is finished when nothing in it is waiting to be replaced.\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"extended-quote\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"root\", \"version\": 1}}",
+      "mobiledoc": null,
+      "html": "<p>Wood, finish, legs and the question of extending.</p><p>We visited homes, workshops and showrooms to find out what makes a room work.</p><h2 id=\"what-we-learned\">What we learned</h2><ul><li>Start with how you use the room</li><li>Buy fewer, better pieces</li><li>Leave space for the things you love</li></ul><blockquote>A room is finished when nothing in it is waiting to be replaced.</blockquote>",
+      "plaintext": "Wood, finish, legs and the question of extending.\n\nWe visited homes, workshops and showrooms to find out what makes a room work.\n\nWhat we learned\n\nStart with how you use the room\nBuy fewer, better pieces\nLeave space for the things you love\n\nA room is finished when nothing in it is waiting to be replaced.",
+      "feature_image": "https://picsum.photos/seed/home-how-to-choose-a-dining-table-that-lasts/1600/1000",
+      "featured": 0,
+      "status": "published",
+      "visibility": "public",
+      "custom_excerpt": "Wood, finish, legs and the question of extending.",
+      "locale": null,
+      "email_recipient_filter": "all",
+      "reading_time": 1,
+      "created_at": "2026-11-07T19:38:00.000Z",
+      "updated_at": "2026-11-07T19:38:00.000Z",
+      "published_at": "2026-11-07T19:38:00.000Z"
+     },
+     {
+      "id": "8dbb3398de4759c6a11cc3da",
+      "uuid": "5f0246f0-e389-4f25-ac18-be2d5c88cdd1",
+      "title": "Lighting a room in three layers",
+      "slug": "lighting-a-room-in-three-layers",
+      "type": "post",
+      "lexical": "{\"root\": {\"children\": [{\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"Ambient, task and accent, explained with one lamp each.\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"paragraph\", \"version\": 1}, {\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"We visited homes, workshops and showrooms to find out what makes a room work.\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"paragraph\", \"version\": 1}, {\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"What we learned\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"extended-heading\", \"version\": 1, \"tag\": \"h2\"}, {\"children\": [{\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"Start with how you use the room\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"listitem\", \"version\": 1, \"value\": 1}, {\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"Buy fewer, better pieces\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"listitem\", \"version\": 1, \"value\": 2}, {\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"Leave space for the things you love\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"listitem\", \"version\": 1, \"value\": 3}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"list\", \"version\": 1, \"listType\": \"bullet\", \"start\": 1, \"tag\": \"ul\"}, {\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"A room is finished when nothing in it is waiting to be replaced.\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"extended-quote\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"root\", \"version\": 1}}",
+      "mobiledoc": null,
+      "html": "<p>Ambient, task and accent, explained with one lamp each.</p><p>We visited homes, workshops and showrooms to find out what makes a room work.</p><h2 id=\"what-we-learned\">What we learned</h2><ul><li>Start with how you use the room</li><li>Buy fewer, better pieces</li><li>Leave space for the things you love</li></ul><blockquote>A room is finished when nothing in it is waiting to be replaced.</blockquote>",
+      "plaintext": "Ambient, task and accent, explained with one lamp each.\n\nWe visited homes, workshops and showrooms to find out what makes a room work.\n\nWhat we learned\n\nStart with how you use the room\nBuy fewer, better pieces\nLeave space for the things you love\n\nA room is finished when nothing in it is waiting to be replaced.",
+      "feature_image": "https://picsum.photos/seed/home-lighting-a-room-in-three-layers/1600/1000",
+      "featured": 0,
+      "status": "published",
+      "visibility": "public",
+      "custom_excerpt": "Ambient, task and accent, explained with one lamp each.",
+      "locale": null,
+      "email_recipient_filter": "all",
+      "reading_time": 1,
+      "created_at": "2026-10-29T18:31:00.000Z",
+      "updated_at": "2026-10-29T18:31:00.000Z",
+      "published_at": "2026-10-29T18:31:00.000Z"
+     },
+     {
+      "id": "52b8bc9c661ccf99249a43e3",
+      "uuid": "aef77421-f9bc-48ef-a207-e46e05be9ec1",
+      "title": "The quiet return of solid wood",
+      "slug": "the-quiet-return-of-solid-wood",
+      "type": "post",
+      "lexical": "{\"root\": {\"children\": [{\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"Why veneer is losing ground, and what that costs.\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"paragraph\", \"version\": 1}, {\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"We visited homes, workshops and showrooms to find out what makes a room work.\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"paragraph\", \"version\": 1}, {\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"What we learned\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"extended-heading\", \"version\": 1, \"tag\": \"h2\"}, {\"children\": [{\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"Start with how you use the room\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"listitem\", \"version\": 1, \"value\": 1}, {\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"Buy fewer, better pieces\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"listitem\", \"version\": 1, \"value\": 2}, {\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"Leave space for the things you love\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"listitem\", \"version\": 1, \"value\": 3}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"list\", \"version\": 1, \"listType\": \"bullet\", \"start\": 1, \"tag\": \"ul\"}, {\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"A room is finished when nothing in it is waiting to be replaced.\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"extended-quote\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"root\", \"version\": 1}}",
+      "mobiledoc": null,
+      "html": "<p>Why veneer is losing ground, and what that costs.</p><p>We visited homes, workshops and showrooms to find out what makes a room work.</p><h2 id=\"what-we-learned\">What we learned</h2><ul><li>Start with how you use the room</li><li>Buy fewer, better pieces</li><li>Leave space for the things you love</li></ul><blockquote>A room is finished when nothing in it is waiting to be replaced.</blockquote>",
+      "plaintext": "Why veneer is losing ground, and what that costs.\n\nWe visited homes, workshops and showrooms to find out what makes a room work.\n\nWhat we learned\n\nStart with how you use the room\nBuy fewer, better pieces\nLeave space for the things you love\n\nA room is finished when nothing in it is waiting to be replaced.",
+      "feature_image": "https://picsum.photos/seed/home-the-quiet-return-of-solid-wood/1600/1000",
+      "featured": 0,
+      "status": "published",
+      "visibility": "public",
+      "custom_excerpt": "Why veneer is losing ground, and what that costs.",
+      "locale": null,
+      "email_recipient_filter": "all",
+      "reading_time": 1,
+      "created_at": "2026-10-21T17:24:00.000Z",
+      "updated_at": "2026-10-21T17:24:00.000Z",
+      "published_at": "2026-10-21T17:24:00.000Z"
+     },
+     {
+      "id": "4a693f8aa65a530b55a14bc3",
+      "uuid": "7f8d2d5c-620d-48e5-a6e8-b3fd97073536",
+      "title": "A reading corner in an afternoon",
+      "slug": "a-reading-corner-in-an-afternoon",
+      "type": "post",
+      "lexical": "{\"root\": {\"children\": [{\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"One chair, one lamp, one shelf.\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"paragraph\", \"version\": 1}, {\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"We visited homes, workshops and showrooms to find out what makes a room work.\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"paragraph\", \"version\": 1}, {\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"What we learned\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"extended-heading\", \"version\": 1, \"tag\": \"h2\"}, {\"children\": [{\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"Start with how you use the room\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"listitem\", \"version\": 1, \"value\": 1}, {\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"Buy fewer, better pieces\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"listitem\", \"version\": 1, \"value\": 2}, {\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"Leave space for the things you love\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"listitem\", \"version\": 1, \"value\": 3}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"list\", \"version\": 1, \"listType\": \"bullet\", \"start\": 1, \"tag\": \"ul\"}, {\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"A room is finished when nothing in it is waiting to be replaced.\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"extended-quote\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"root\", \"version\": 1}}",
+      "mobiledoc": null,
+      "html": "<p>One chair, one lamp, one shelf.</p><p>We visited homes, workshops and showrooms to find out what makes a room work.</p><h2 id=\"what-we-learned\">What we learned</h2><ul><li>Start with how you use the room</li><li>Buy fewer, better pieces</li><li>Leave space for the things you love</li></ul><blockquote>A room is finished when nothing in it is waiting to be replaced.</blockquote>",
+      "plaintext": "One chair, one lamp, one shelf.\n\nWe visited homes, workshops and showrooms to find out what makes a room work.\n\nWhat we learned\n\nStart with how you use the room\nBuy fewer, better pieces\nLeave space for the things you love\n\nA room is finished when nothing in it is waiting to be replaced.",
+      "feature_image": "https://picsum.photos/seed/home-a-reading-corner-in-an-afternoon/1600/1000",
+      "featured": 0,
+      "status": "published",
+      "visibility": "public",
+      "custom_excerpt": "One chair, one lamp, one shelf.",
+      "locale": null,
+      "email_recipient_filter": "all",
+      "reading_time": 1,
+      "created_at": "2026-10-13T16:17:00.000Z",
+      "updated_at": "2026-10-13T16:17:00.000Z",
+      "published_at": "2026-10-13T16:17:00.000Z"
+     }
+    ],
+    "posts_tags": [
+     {
+      "id": "4ce21cd2041a2648dcfc5d49",
+      "post_id": "8801d58660ed4e2298f565ca",
+      "tag_id": "41e1da9750761172d3ee2dc1",
+      "sort_order": 0
+     },
+     {
+      "id": "e7c697b32b376589af2e2b8c",
+      "post_id": "31c2cde1f5748991cf9f8c6a",
+      "tag_id": "62077d91de18d216841e0020",
+      "sort_order": 0
+     },
+     {
+      "id": "318ab475e2b16e2536272572",
+      "post_id": "cdef66115f5a1cb44e9579ac",
+      "tag_id": "6cb3244ae3be2a854e0b35de",
+      "sort_order": 0
+     },
+     {
+      "id": "dfd80c2288dd5a6c04bb555e",
+      "post_id": "8dbb3398de4759c6a11cc3da",
+      "tag_id": "6cb3244ae3be2a854e0b35de",
+      "sort_order": 0
+     },
+     {
+      "id": "64a6162c2b7f507dec98fa4a",
+      "post_id": "52b8bc9c661ccf99249a43e3",
+      "tag_id": "62077d91de18d216841e0020",
+      "sort_order": 0
+     },
+     {
+      "id": "842dc3d0f15f140186f2e48f",
+      "post_id": "4a693f8aa65a530b55a14bc3",
+      "tag_id": "41e1da9750761172d3ee2dc1",
+      "sort_order": 0
+     }
+    ],
+    "posts_authors": [
+     {
+      "id": "0ac5668c1a4d1644e4673656",
+      "post_id": "8801d58660ed4e2298f565ca",
+      "author_id": "e612bb049c9af9828c79a973",
+      "sort_order": 0
+     },
+     {
+      "id": "cd319bcbf73b735e91e7332c",
+      "post_id": "31c2cde1f5748991cf9f8c6a",
+      "author_id": "e612bb049c9af9828c79a973",
+      "sort_order": 0
+     },
+     {
+      "id": "099f3c0ed6d5dce8cd929a2d",
+      "post_id": "cdef66115f5a1cb44e9579ac",
+      "author_id": "e612bb049c9af9828c79a973",
+      "sort_order": 0
+     },
+     {
+      "id": "db3ef9095b4d713d6d8dd239",
+      "post_id": "8dbb3398de4759c6a11cc3da",
+      "author_id": "e612bb049c9af9828c79a973",
+      "sort_order": 0
+     },
+     {
+      "id": "08e111c2778b49f8c6c159f8",
+      "post_id": "52b8bc9c661ccf99249a43e3",
+      "author_id": "e612bb049c9af9828c79a973",
+      "sort_order": 0
+     },
+     {
+      "id": "303cc8659819c7ca1360a792",
+      "post_id": "4a693f8aa65a530b55a14bc3",
+      "author_id": "e612bb049c9af9828c79a973",
+      "sort_order": 0
+     }
+    ],
+    "posts_meta": [],
+    "settings": [],
+    "products": []
+   }
+  }
+ ]
+}

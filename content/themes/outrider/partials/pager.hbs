@@ -1,0 +1,7 @@
+{{#match pagination.pages ">" 1}}
+<nav class="or-pager" aria-label="Pages">
+{{#if pagination.prev}}<a class="or-btn or-btn-line" href="{{page_url pagination.prev}}">← Newer</a>{{else}}<span></span>{{/if}}
+<span class="or-label">{{pagination.page}} / {{pagination.pages}}</span>
+{{#if pagination.next}}<a class="or-btn or-btn-line" href="{{page_url pagination.next}}">Older →</a>{{else}}<span></span>{{/if}}
+</nav>
+{{/match}}

@@ -1,0 +1,8 @@
+{{!< default}}
+<main id="main" class="np-listing">
+<header class="np-wrap np-list-head"><p class="np-label">The archive</p><h1 class="np-list-title">From the Archive</h1></header>
+<section class="np-wrap">
+<div class="np-grid-4 np-list-grid">{{#foreach posts}}{{> "story" layout="top" size="m" excerpt=true}}{{/foreach}}</div>
+{{> "pager"}}
+</section>
+</main>

@@ -1,0 +1,17 @@
+{{!-- One story. `lead` = the big first card on the journal's front. --}}
+<article class="pl-post-card{{#if lead}} is-lead{{/if}} {{post_class}}">
+<a class="pl-post-art" href="{{url}}" tabindex="-1" aria-hidden="true">
+{{#if feature_image}}<img src="{{img_url feature_image size="l"}}" srcset="{{img_url feature_image size="m"}} 640w, {{img_url feature_image size="l"}} 960w, {{img_url feature_image size="xl"}} 1440w" sizes="{{#if lead}}(max-width: 860px) 100vw, 60vw{{else}}(max-width: 860px) 100vw, 33vw{{/if}}" alt="" loading="lazy">
+{{else}}<span class="pl-hero-room pl-room-soft"><span class="pl-hero-window"></span><span class="pl-hero-floor"></span><span class="pl-hero-piece">{{> "art" kind=(concat primary_tag.name " " title)}}</span></span>{{/if}}
+{{#if featured}}<span class="pl-badge pl-badge-soft pl-post-flag">Featured</span>{{/if}}
+</a>
+<div class="pl-post-body">
+<p class="pl-post-kicker">{{#if primary_tag}}<a href="{{primary_tag.url}}">{{primary_tag.name}}</a><span aria-hidden="true">·</span>{{/if}}<time datetime="{{date format="YYYY-MM-DD"}}">{{date format="D MMM YYYY"}}</time></p>
+<h2 class="pl-post-title"><a href="{{url}}">{{title}}</a></h2>
+<p class="pl-post-excerpt">{{#if lead}}{{excerpt words="40"}}{{else}}{{excerpt words="22"}}{{/if}}</p>
+<p class="pl-byline">
+{{#primary_author}}<a class="pl-avatar" href="{{url}}">{{#if profile_image}}<img src="{{img_url profile_image size="s"}}" alt="">{{else}}<span>{{name}}</span>{{/if}}</a><a href="{{url}}">{{name}}</a>{{/primary_author}}
+<span aria-hidden="true">·</span><span>{{reading_time}}</span>
+</p>
+</div>
+</article>

@@ -1,0 +1,120 @@
+{
+    "name": "plinth",
+    "description": "A free storefront theme for furniture and home goods. Collections become the homepage's rooms and categories, products fill its carousels, and anything without a photo is drawn.",
+    "demo": "https://vuuut.com/themes/plinth",
+    "version": "1.0.0",
+    "engines": {
+        "ghost": ">=5.0.0"
+    },
+    "license": "MIT",
+    "scripts": {
+        "zip": "mkdir -p dist && rm -f dist/$npm_package_name.zip && zip -rq dist/$npm_package_name.zip . -x 'dist/*' 'node_modules/*' '.*' '*/.*' '*.zip' && echo \"dist/$npm_package_name.zip\""
+    },
+    "author": {
+        "name": "Vuuut",
+        "email": "themes@vuuut.com",
+        "url": "https://vuuut.com"
+    },
+    "keywords": [
+        "vuuut",
+        "vuuut-theme",
+        "ghost-theme",
+        "shop",
+        "ecommerce",
+        "furniture"
+    ],
+    "config": {
+        "posts_per_page": 9,
+        "image_sizes": {
+            "s": { "width": 320 },
+            "m": { "width": 640 },
+            "l": { "width": 960 },
+            "xl": { "width": 1440 },
+            "xxl": { "width": 2000 }
+        },
+        "card_assets": true,
+        "custom": {
+            "announcement": {
+                "type": "text",
+                "default": "Free delivery on orders over $200",
+                "description": "The line in the bar above the header. Clear it to hide the bar."
+            },
+            "sale_url": {
+                "type": "text",
+                "default": "",
+                "description": "Where the red Sale circle and the On sale link go, e.g. a Sale collection. Empty: the whole store."
+            },
+            "promo_title": {
+                "type": "text",
+                "default": "Soft forms, slow living",
+                "group": "homepage",
+                "description": "The card beside New arrivals."
+            },
+            "sale_ends": {
+                "type": "text",
+                "default": "",
+                "group": "homepage",
+                "description": "Flash sale end, as 2026-12-31 or 2026-12-31T18:00. Empty hides the countdown band."
+            },
+            "sale_text": {
+                "type": "text",
+                "default": "Flash sale now on. Up to 40% off selected pieces.",
+                "group": "homepage"
+            },
+            "deal_title": {
+                "type": "text",
+                "default": "Pieces under $200",
+                "group": "homepage",
+                "description": "Heading of the lowest-priced block."
+            },
+            "about_title": {
+                "type": "text",
+                "default": "The makers behind the studio",
+                "group": "homepage"
+            },
+            "about_text": {
+                "type": "text",
+                "default": "We work with a handful of small workshops, choose every material ourselves and keep each design in production for years, not seasons.",
+                "group": "homepage"
+            },
+            "quote": {
+                "type": "text",
+                "default": "",
+                "group": "homepage",
+                "description": "A customer's words, shown on the yellow band. Empty hides the band."
+            },
+            "quote_name": {
+                "type": "text",
+                "default": "",
+                "group": "homepage"
+            },
+            "values": {
+                "type": "text",
+                "default": "Built to last|Honest pricing|Careful delivery|Easy returns",
+                "group": "homepage",
+                "description": "Four short promises, separated by |."
+            },
+            "gram_handle": {
+                "type": "text",
+                "default": "",
+                "group": "homepage",
+                "description": "Your Instagram name without @. Empty hides the gallery band."
+            },
+            "phone": {
+                "type": "text",
+                "default": "",
+                "description": "Shown in the footer's contact strip."
+            },
+            "contact_email": {
+                "type": "text",
+                "default": "",
+                "description": "Shown in the footer's contact strip."
+            },
+            "address": {
+                "type": "text",
+                "default": "",
+                "description": "Your showroom, shown in the footer's contact strip."
+            }
+        }
+    }
+}

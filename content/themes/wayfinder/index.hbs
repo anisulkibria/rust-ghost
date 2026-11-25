@@ -15,11 +15,24 @@
             <div class="hero-inner wrap">
                 <div class="hero-search">
                     <h1 class="visually-hidden" id="hero-title">{{@site.title}}</h1>
-                    {{> "finder"}}
+                    {{> "dir-finder"}}
                     {{#if @site.description}}<p class="hero-text">{{@site.description}}</p>{{/if}}
                 </div>
 
-                {{!-- The picture: a featured listing, else any featured post, else the newest post with an image. CSS shows only the first. --}}
+                {{!-- The picture: a featured place from the directory, else a featured #listing post, else any featured post, else the newest post with an image. CSS shows only the first. --}}
+                {{#get "listings" filter="featured:true" limit="1" as |picks|}}
+                    {{#foreach picks}}
+                        {{#if feature_image}}
+                            <a class="postcard" href="{{url}}">
+                                <img src="{{feature_image}}" alt="" fetchpriority="high">
+                                <span class="postcard-label">
+                                    <span class="postcard-title">{{title}}</span>
+                                    {{#if category}}<span class="postcard-where">{{category.name}}{{#if location}} {{t "in"}} {{location}}{{/if}}</span>{{/if}}
+                                </span>
+                            </a>
+                        {{/if}}
+                    {{/foreach}}
+                {{/get}}
                 {{#get "posts" filter="tag:hash-listing+featured:true" limit="1" include="tags"}}
                     {{#foreach posts}}
                         {{#if feature_image}}
@@ -62,9 +75,22 @@
             </div>
         </section>
 
-        {{> "kinds"}}
+        {{> "dir-kinds"}}
 
         {{#if @custom.show_featured}}
+            {{#get "listings" filter="featured:true" limit="6" as |dpicks|}}
+                {{#if dpicks}}
+                    <section class="band" aria-labelledby="dfeatured-heading">
+                        <header class="section-head wrap">
+                            <h2 class="section-title" id="dfeatured-heading">{{t "Worth the trip"}}</h2>
+                            {{#foreach dpicks limit="1"}}<a class="section-link" href="{{directory_url}}">{{t "See every place"}}</a>{{/foreach}}
+                        </header>
+                        <div class="grid wrap">
+                            {{#foreach dpicks}}{{> "dir-card"}}{{/foreach}}
+                        </div>
+                    </section>
+                {{/if}}
+            {{/get}}
             {{#get "posts" filter="tag:hash-listing+featured:true" limit="6" include="tags" as |picks|}}
                 {{#if picks}}
                     <section class="band" aria-labelledby="featured-heading">
@@ -80,7 +106,21 @@
             {{/get}}
         {{/if}}
 
-        {{#if @custom.show_places}}{{> "places"}}{{/if}}
+        {{#if @custom.show_places}}{{> "dir-places"}}{{/if}}
+
+        {{#get "listings" order="newest" limit="8" as |dlatest|}}
+            {{#if dlatest}}
+                <section class="band" aria-labelledby="dnew-heading">
+                    <header class="section-head wrap">
+                        <h2 class="section-title" id="dnew-heading">{{t "New on the guide"}}</h2>
+                        {{#get "listing_categories" limit="1" as |one|}}{{#foreach one}}<a class="section-link" href="{{directory_url}}">{{t "See every place"}}</a>{{/foreach}}{{/get}}
+                    </header>
+                    <div class="grid grid-four wrap">
+                        {{#foreach dlatest}}{{> "dir-card"}}{{/foreach}}
+                    </div>
+                </section>
+            {{/if}}
+        {{/get}}
 
         {{#get "posts" filter="tag:hash-listing" limit="8" include="tags" as |latest|}}
             {{#if latest}}

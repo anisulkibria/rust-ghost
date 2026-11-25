@@ -1,0 +1,14 @@
+{{!-- 1 2 … 16  NEXT ›   — first, previous, current, next, last. --}}
+{{#match pagination.pages ">" 1}}
+<nav class="np-pager" aria-label="Pages">
+<div class="np-pg-row">
+{{#if pagination.prev}}<a class="np-pg np-pg-word" href="{{page_url pagination.prev}}" rel="prev">‹ Prev</a>{{/if}}
+{{#match pagination.page "!=" 1}}<a class="np-pg" href="{{page_url 1}}">1</a>{{/match}}
+{{#match pagination.page ">" 3}}<span class="np-pg-gap" aria-hidden="true">…</span>{{/match}}
+{{#if pagination.prev}}{{#match pagination.prev "!=" 1}}<a class="np-pg" href="{{page_url pagination.prev}}">{{pagination.prev}}</a>{{/match}}{{/if}}
+<span class="np-pg is-on" aria-current="page">{{pagination.page}}</span>
+{{#if pagination.next}}{{#match pagination.next "!=" pagination.pages}}<a class="np-pg" href="{{page_url pagination.next}}">{{pagination.next}}</a><span class="np-pg-gap" aria-hidden="true">…</span>{{/match}}<a class="np-pg" href="{{page_url pagination.pages}}">{{pagination.pages}}</a><a class="np-pg np-pg-word" href="{{page_url pagination.next}}" rel="next">Next ›</a>{{/if}}
+</div>
+<p class="np-pg-note" data-np-showing data-page="{{pagination.page}}" data-limit="{{pagination.limit}}" data-total="{{pagination.total}}">Page {{pagination.page}} of {{pagination.pages}}</p>
+</nav>
+{{/match}}

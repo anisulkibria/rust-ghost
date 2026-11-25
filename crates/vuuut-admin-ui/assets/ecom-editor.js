@@ -18,7 +18,7 @@
   function text(s) { var d = document.createElement('div'); d.textContent = s == null ? '' : String(s); return d.innerHTML; }
 
   ready(function () {
-    var form = $('ec-product') || $('ec-collection') || $('ec-customer');
+    var form = $('ec-product') || $('dr-listing') || $('ec-collection') || $('ec-customer');
     var dirty = false;
     var state = $('ec-save-state');
     function markDirty() {
@@ -37,6 +37,7 @@
     media(markDirty);
     variants(markDirty);
     seo();
+    preview();
     margin();
     rules();
     orderLines();
@@ -315,6 +316,74 @@
     handle.addEventListener('input', function () { auto = !handle.value; paint(); });
     if (st) { st.addEventListener('input', paint); }
     if (sd) { sd.addEventListener('input', paint); }
+    paint();
+  }
+
+  /* ------------------------------------------------------ store preview */
+  // The product as a store list shows it: first image, type, title, the
+  // lowest price (with compare-at and a percentage off), colour swatches
+  // and whether it is on sale at all. Read from the form on every change.
+  function preview() {
+    var box = $('ec-preview'), form = $('ec-product');
+    if (!box || !form) { return; }
+    var img = box.querySelector('.ec-pv-art img'), ph = box.querySelector('.ec-pv-ph');
+    var badge = box.querySelector('.ec-pv-badge'), stateTag = box.querySelector('.ec-pv-state');
+    var was = box.querySelector('.ec-pv-price s'), now = box.querySelector('.ec-pv-price span');
+    var fmt;
+    try { fmt = new Intl.NumberFormat(undefined, {style: 'currency', currency: box.dataset.currency || 'USD'}); } catch (e) { fmt = {format: function (n) { return n.toFixed(2); }}; }
+    function num(v) { var n = parseFloat(String(v || '').replace(/[^0-9.]/g, '')); return isNaN(n) ? null : n; }
+    function val(name) { var el = form.querySelector('[name=' + name + ']'); return el ? el.value : ''; }
+    function prices() {
+      // variants win when there are any; otherwise the single price
+      var rows = form.querySelectorAll('[name=v_price]');
+      var list = rows.length
+        ? Array.prototype.map.call(rows, function (r) { var tr = r.closest('tr'); return {p: num(r.value), c: num(tr.querySelector('[name=v_compare]').value), q: num(tr.querySelector('[name=v_qty]').value)}; })
+        : [{p: num(val('price')), c: num(val('compare_at')), q: num(val('qty'))}];
+      return list.filter(function (x) { return x.p !== null; });
+    }
+    function colours() {
+      var out = [];
+      form.querySelectorAll('.ec-option:not([hidden])').forEach(function (row) {
+        var name = (row.querySelector('[name^=opt_name_]') || {}).value || '';
+        if (/^(colou?r|finish)$/i.test(name.trim())) {
+          out = row.querySelector('[name^=opt_values_]').value.split(',').map(function (v) { return v.trim(); }).filter(Boolean);
+        }
+      });
+      return out.slice(0, 6);
+    }
+    function paint() {
+      var first = document.querySelector('#ec-media input[name=image]');
+      if (first && first.value) { img.src = first.value; img.hidden = false; ph.hidden = true; } else { img.hidden = true; ph.hidden = false; }
+      box.querySelector('.ec-pv-type').textContent = val('product_type');
+      box.querySelector('.ec-pv-title').textContent = ($('ec-title') || {}).value || 'Product title';
+      var list = prices();
+      var low = list.reduce(function (a, b) { return !a || b.p < a.p ? b : a; }, null);
+      var high = list.reduce(function (m, b) { return Math.max(m, b.p); }, 0);
+      if (!low) { now.textContent = '—'; was.textContent = ''; badge.hidden = true; }
+      else {
+        now.textContent = low.p === 0 ? 'Free' : (high > low.p ? 'From ' : '') + fmt.format(low.p);
+        var off = low.c && low.c > low.p ? Math.round((low.c - low.p) * 100 / low.c) : 0;
+        was.textContent = off ? fmt.format(low.c) : '';
+        now.classList.toggle('is-sale', !!off);
+        badge.hidden = !off; badge.textContent = '−' + off + '%';
+      }
+      var tracked = (form.querySelector('[name=track_inventory]') || {}).checked;
+      var soldOut = tracked && list.length && list.every(function (x) { return !x.q || x.q <= 0; }) && !(form.querySelector('[name=allow_backorder]') || {}).checked;
+      var status = val('status');
+      var tag = status && status !== 'active' ? (status === 'draft' ? 'Draft · hidden' : 'Archived · hidden') : (soldOut ? 'Sold out' : '');
+      stateTag.hidden = !tag; stateTag.textContent = tag;
+      box.classList.toggle('is-hidden', !!status && status !== 'active');
+      box.querySelector('.ec-pv-sw').innerHTML = colours().map(function (c) {
+        return '<i title="' + text(c) + '" style="background-color:' + text(c.toLowerCase().replace(/[^a-z]/g, '')) + '"></i>';
+      }).join('');
+    }
+    var t;
+    function soon() { clearTimeout(t); t = setTimeout(paint, 120); }
+    form.addEventListener('input', soon);
+    form.addEventListener('change', soon);
+    form.addEventListener('click', soon);
+    var media = $('ec-media');
+    if (media && window.MutationObserver) { new MutationObserver(soon).observe(media, {childList: true, subtree: true}); }
     paint();
   }
 

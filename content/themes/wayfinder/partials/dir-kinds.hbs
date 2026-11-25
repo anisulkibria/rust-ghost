@@ -1,0 +1,29 @@
+{{!-- Categories from Vuuut's directory, biggest first; the tag-based chips when the directory has none. --}}
+{{#get "listing_categories" limit="60" as |cats|}}
+    {{#if cats}}
+        <nav class="kinds" aria-labelledby="kinds-heading">
+            <div class="wrap">
+                <h2 class="visually-hidden" id="kinds-heading">{{t "Categories"}}</h2>
+                <ul class="kinds-list" role="list">
+                    {{#foreach cats}}{{#if count}}
+                        <li>
+                            <a class="kind" href="{{url}}" data-slug="{{slug}}">
+                                {{#if feature_image}}
+                                    <img class="kind-image" src="{{feature_image}}" alt="" width="48" height="48" loading="lazy">
+                                {{else}}
+                                    <span class="kind-image kind-initial" aria-hidden="true">{{name}}</span>
+                                {{/if}}
+                                <span class="kind-text">
+                                    <span class="kind-name">{{name}}</span>
+                                    <span class="kind-count">{{plural count empty=(t "No places yet") singular=(t "1 place") plural=(t "% places")}}</span>
+                                </span>
+                            </a>
+                        </li>
+                    {{/if}}{{/foreach}}
+                </ul>
+            </div>
+        </nav>
+    {{else}}
+        {{> "kinds"}}
+    {{/if}}
+{{/get}}

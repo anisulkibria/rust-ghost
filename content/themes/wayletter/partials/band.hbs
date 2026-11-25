@@ -1,0 +1,13 @@
+{{#if @custom.band_title}}{{#if @site.members_enabled}}{{#unless @member}}
+<section class="ms-band">
+<div class="ms-wrap ms-band-in">
+<div><h2 class="ms-band-title" data-ms-accent>{{@custom.band_title}}</h2><p>{{@custom.band_text}}</p></div>
+<form class="ms-inline-form ms-inline-dark" data-members-form="subscribe">
+<label class="ms-sr" for="ms-band-email">Your email address</label>
+<input id="ms-band-email" data-members-email type="email" placeholder="you@example.com" required autocomplete="email">
+<button class="ms-btn-pill" type="submit">Subscribe</button>
+<p class="ms-form-ok">Check your inbox to confirm. ✓</p><p class="ms-form-err">Something went wrong. Try again.</p>
+</form>
+</div>
+</section>
+{{/unless}}{{/if}}{{/if}}

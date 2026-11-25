@@ -1,0 +1,11 @@
+{{!-- The dated list, with Load more fetching the next page in place. --}}
+<section class="ms-feed" aria-labelledby="ms-feed-h">
+<header class="ms-feed-head">
+<h2 class="ms-section-title" id="ms-feed-h">{{#if title}}{{title}}{{else}}Latest issues{{/if}}</h2>
+{{#unless notopics}}{{#get "tags" limit="6" filter="visibility:public" order="count.posts desc" include="count.posts" as |topics|}}<nav class="ms-topics" aria-label="Topics">{{#foreach topics}}<a href="{{url}}">{{name}}</a>{{/foreach}}</nav>{{/get}}{{/unless}}
+</header>
+<div class="ms-feed-list" data-ms-feed>{{#foreach posts}}{{> "feed-item"}}{{/foreach}}</div>
+{{#if pagination.next}}
+<div class="ms-load"><a class="ms-btn-line" href="{{page_url pagination.next}}" data-ms-load>Load more <span aria-hidden="true">↓</span></a></div>
+{{/if}}
+</section>

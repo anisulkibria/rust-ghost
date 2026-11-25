@@ -14,7 +14,7 @@ use super::*;
 /// editor (and a word count that never counts) until its cache expired.
 macro_rules! koenig_version {
     () => {
-        "1.8.42"
+        "1.8.44"
     };
 }
 pub(crate) const KOENIG_VERSION: &str = koenig_version!();
@@ -90,6 +90,8 @@ pub(crate) async fn admin_asset(Path((version, file)): Path<(String, String)>) -
         "builder-editor.css" => BUILDER_EDITOR_CSS,
         // Tools → E-commerce: the product editor (Koenig mount, media, variants).
         "ecom-editor.js" => ECOM_EDITOR_JS,
+        // Tools → Directory: the listing editor's hours, logo and kind.
+        "directory-editor.js" => include_str!("../assets/directory-editor.js"),
         "social-compose.js" => include_str!("../assets/social-compose.js"),
         // Country outlines for the Locations choropleth: Natural Earth
         // v5.1.2 (public domain), projected and simplified to the size this

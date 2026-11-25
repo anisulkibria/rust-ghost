@@ -1,0 +1,7 @@
+<footer class="mg-footer">
+<div class="mg-wrap mg-footer-in">
+<a class="mg-brand" href="{{@site.url}}">{{> "monogram"}}<span>{{@custom.name}}</span></a>
+<p>© {{date format="YYYY"}} {{@site.title}}. Made with care, on <a href="https://vuuut.com" rel="noopener">Vuuut</a>.</p>
+<nav class="mg-footer-nav" aria-label="Footer">{{#foreach @site.secondary_navigation}}<a href="{{url absolute="true"}}">{{label}}</a>{{/foreach}}<a href="{{@site.url}}/rss/">RSS</a></nav>
+</div>
+</footer>

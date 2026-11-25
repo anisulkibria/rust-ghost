@@ -36,7 +36,7 @@ async fn main() {
             }
             return;
         }
-        cli::Command::Doctor | cli::Command::SeedDemo | cli::Command::Start => {}
+        cli::Command::Doctor | cli::Command::SeedDemo | cli::Command::SeedDirectory | cli::Command::ImportContent(_) | cli::Command::Start => {}
     }
 
     tracing_subscriber::fmt()
@@ -136,6 +136,62 @@ async fn main() {
             }
             Err(e) => {
                 tracing::error!("demo seeding failed: {}", e.message());
+                std::process::exit(1);
+            }
+        }
+        return;
+    }
+
+    // `vuuut import-content demo.json [--with-settings]`: load a Ghost export
+    // (a theme's demo content) through Universal import's own path, then
+    // exit. Site settings in the file (menus, title) are skipped unless
+    // --with-settings is given, so a demo never rewrites a site's menus.
+    if let cli::Command::ImportContent(args) = &command {
+        let Some(path) = args.get("file") else {
+            eprintln!("usage: vuuut import-content <export.json> [--with-settings]");
+            std::process::exit(2);
+        };
+        let raw = std::fs::read_to_string(path).unwrap_or_else(|e| {
+            eprintln!("cannot read {path}: {e}");
+            std::process::exit(1)
+        });
+        let parsed: serde_json::Value = serde_json::from_str(&raw).unwrap_or_else(|e| {
+            eprintln!("{path} is not JSON: {e}");
+            std::process::exit(1)
+        });
+        let mut data = parsed.pointer("/db/0/data").cloned().unwrap_or(parsed);
+        if !args.flag("with-settings") {
+            if let Some(m) = data.as_object_mut() {
+                m.remove("settings");
+            }
+        }
+        let owner = match vuuut_db::repos::users::find_owner(&db).await {
+            Ok(Some(u)) => u.id,
+            _ => {
+                eprintln!("this site has no owner yet; finish setup first");
+                std::process::exit(1);
+            }
+        };
+        let posts = data["posts"].as_array().map(|p| p.len()).unwrap_or(0);
+        let prepared = vuuut_api::publishing::prepare_content_import(&data);
+        match vuuut_db::transfer::import(&db, &prepared, &owner).await {
+            Ok(()) => tracing::info!("imported {posts} posts and pages from {path}; restart the server to see them"),
+            Err(e) => {
+                tracing::error!("import failed: {}", e.message());
+                std::process::exit(1);
+            }
+        }
+        return;
+    }
+
+    // `vuuut seed-directory`: the directory demo as one dummy batch (Tools →
+    // Dummy content removes it), then exit.
+    if matches!(command, cli::Command::SeedDirectory) {
+        let settings = vuuut_db::SettingsCache::load(&db).await.expect("settings");
+        match vuuut_admin_ui::dummies::seed_directory_demo(&db, &settings).await {
+            Ok(made) => tracing::info!("directory demo seeded: {made}"),
+            Err(e) => {
+                tracing::error!("directory seeding failed: {}", e.message());
                 std::process::exit(1);
             }
         }

@@ -1,0 +1,15 @@
+{{!< default}}
+<main id="main" class="np-listing">
+{{#tag}}
+<header class="np-wrap np-list-head">
+<p class="np-label">Section</p>
+<h1 class="np-list-title">{{name}}</h1>
+{{#if description}}<p class="np-dek">{{description}}</p>{{/if}}
+</header>
+{{/tag}}
+<section class="np-wrap">
+{{#if posts}}<div class="np-split np-list-lead"><div>{{#foreach posts limit="1"}}{{> "story" layout="overlay" excerpt=true}}{{/foreach}}</div><div class="np-list np-list-rule">{{#foreach posts from="2" to="5"}}{{> "story" layout="right" size="s" excerpt=true nometa=true}}{{/foreach}}</div></div>{{/if}}
+<div class="np-grid-4 np-list-grid">{{#foreach posts from="6"}}{{> "story" layout="top" size="m" excerpt=true}}{{/foreach}}</div>
+{{> "pager"}}
+</section>
+</main>

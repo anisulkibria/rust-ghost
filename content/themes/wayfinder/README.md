@@ -8,6 +8,28 @@ address, phone, website and opening hours in a panel, with a live
 Ghost has no custom fields, so Wayfinder reads its directory from things you
 can set in the normal editor.
 
+## With Vuuut's directory (recommended)
+
+On Vuuut, Wayfinder draws **Tools → Directory & Classified Listings**
+first. Each place there is a real listing with its own editor: the
+description in the post editor, photos and a logo, the address in parts and
+a map pin, phone, email, website and a booking link, opening hours per day,
+a price range ($ – $$$$), amenities, payment methods and social profiles.
+
+| Where | What Wayfinder shows |
+|---|---|
+| Homepage | The sentence search over directory categories and towns, category tiles, "Worth the trip" (featured places), "Where to go" (one tile per town), "New on the guide" |
+| `/directory/` | `directory/directory.hbs`: every place, filtered by category, town, price and words |
+| `/directory/category/…/` | The same template for one category |
+| `/directory/<place>/` | `directory/listing.hbs`: the listing layout with the facts panel, "Open now", photos, amenities, map and nearby places |
+
+Without directory listings, everything below still works from posts.
+`vuuut seed-directory` (or Tools → Dummy content → Directory categories
+and listings) adds a demo guide of 24 places in four cities.
+
+Theme data: `{{#get "listings"}}`, `{{#get "listing_categories"}}` and
+`{{#get "listing_places"}}`; see `partials/dir-*.hbs` for the fields.
+
 ## Before you add listings
 
 Until at least one post is tagged `#listing`, Wayfinder behaves as a blog:

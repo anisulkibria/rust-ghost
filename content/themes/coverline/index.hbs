@@ -1,0 +1,5 @@
+{{!< default}}
+<main id="main" class="cv-main">
+<header class="cv-wrap cv-page-head"><h1 class="cv-page-title">{{@custom.latest_label}}</h1>{{#if pagination.pages}}<p class="cv-page-desc">Page {{pagination.page}} of {{pagination.pages}}</p>{{/if}}</header>
+<section class="cv-wrap cv-block"><div class="cv-grid">{{#foreach posts}}{{> "story" pic=true showex=true}}{{/foreach}}</div>{{> "pager"}}</section>
+</main>

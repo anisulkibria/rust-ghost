@@ -18,6 +18,10 @@ pub enum Command {
     Doctor,
     Systemd(Args),
     SeedDemo,
+    SeedDirectory,
+    /// `import-content FILE [--keep-settings]`: a Ghost export (a theme's
+    /// demo/*.json) through the same importer as Universal import.
+    ImportContent(Args),
     Help,
     Version,
 }
@@ -26,10 +30,10 @@ pub enum Command {
 pub struct Args(HashMap<String, String>);
 
 impl Args {
-    fn get(&self, key: &str) -> Option<&str> {
+    pub fn get(&self, key: &str) -> Option<&str> {
         self.0.get(key).map(String::as_str)
     }
-    fn flag(&self, key: &str) -> bool {
+    pub fn flag(&self, key: &str) -> bool {
         matches!(self.0.get(key).map(String::as_str), Some("true"))
     }
 }
@@ -72,6 +76,14 @@ pub fn parse() -> Command {
         "doctor" | "check" => Command::Doctor,
         "systemd" | "service" => Command::Systemd(args),
         "seed-demo" => Command::SeedDemo,
+        "seed-directory" => Command::SeedDirectory,
+        "import-content" => {
+            let mut a = args;
+            if let Some(file) = rest.iter().find(|r| !r.starts_with("--")) {
+                a.0.insert("file".into(), file.clone());
+            }
+            Command::ImportContent(a)
+        }
         "start" | "serve" | "run" => Command::Start,
         "version" | "--version" | "-V" => Command::Version,
         _ => Command::Help,
@@ -91,6 +103,8 @@ COMMANDS
     doctor           Check this machine can serve the configured site
     systemd          Print a systemd unit for running Vuuut as a service
     seed-demo        Fill the site with demo content, then exit
+    seed-directory   Add the directory demo (places, categories, photos), then exit
+    import-content FILE  Import a Ghost export (e.g. a theme's demo/*.json); --with-settings also loads its menus
     version          Print the version
 
 SETUP OPTIONS (all optional; omitted values are asked for interactively)

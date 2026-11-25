@@ -1,0 +1,24 @@
+<header class="ms-head" id="ms-head">
+<div class="ms-wrap ms-head-in">
+<a class="ms-logo" href="{{@site.url}}">{{#if @site.logo}}<img src="{{@site.logo}}" alt="{{@site.title}}">{{else}}{{@site.title}}{{/if}}</a>
+<nav class="ms-nav" aria-label="Main">
+<ul class="ms-nav-list" data-ms-nav>{{navigation}}</ul>
+<div class="ms-more" data-ms-more hidden>
+<button class="ms-more-btn" type="button" aria-expanded="false" aria-label="More links" data-ms-more-btn>{{> "icon" name="more" size="20"}}</button>
+<ul class="ms-more-menu" data-ms-more-menu hidden></ul>
+</div>
+</nav>
+<div class="ms-head-actions">
+<button class="ms-icon-btn" type="button" data-ghost-search aria-label="Search">{{> "icon" name="search" size="19"}}</button>
+{{#if @site.members_enabled}}
+{{#if @member}}<a class="ms-head-link" href="#/portal/account">Account</a>{{else}}<a class="ms-head-link" href="#/portal/signin">Sign in</a><a class="ms-btn-pill" href="#/portal/signup">Subscribe</a>{{/if}}
+{{/if}}
+<button class="ms-icon-btn ms-burger" type="button" aria-label="Menu" aria-expanded="false" data-ms-burger>{{> "icon" name="menu" size="20"}}</button>
+</div>
+</div>
+</header>
+<div class="ms-drawer" data-ms-drawer hidden>
+<button class="ms-icon-btn ms-drawer-close" type="button" aria-label="Close" data-ms-drawer-close>{{> "icon" name="close" size="22"}}</button>
+<ul>{{#foreach @site.navigation}}<li><a href="{{url absolute="true"}}">{{label}}</a></li>{{/foreach}}</ul>
+{{#if @site.members_enabled}}{{#unless @member}}<div class="ms-drawer-actions"><a class="ms-btn-pill" href="#/portal/signup">Subscribe</a><a class="ms-btn-line" href="#/portal/signin">Sign in</a></div>{{/unless}}{{/if}}
+</div>

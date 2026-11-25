@@ -1,0 +1,633 @@
+{
+ "db": [
+  {
+   "meta": {
+    "exported_on": 1795000000000,
+    "version": "6.0.0"
+   },
+   "data": {
+    "users": [
+     {
+      "id": "080bec36f8b0373f2c250095",
+      "name": "Jamie Larson",
+      "slug": "jamie-larson",
+      "email": "jamie.larson@example.com",
+      "profile_image": "https://randomuser.me/api/portraits/men/36.jpg",
+      "cover_image": null,
+      "bio": "Writes the weekly letter on technology, work and business.",
+      "website": null,
+      "location": "Copenhagen",
+      "status": "active",
+      "visibility": "public",
+      "created_at": "2026-11-25T09:00:00.000Z",
+      "updated_at": "2026-11-25T09:00:00.000Z"
+     }
+    ],
+    "tags": [
+     {
+      "id": "28c8bd516625953c09c695ac",
+      "name": "Technology",
+      "slug": "technology",
+      "description": null,
+      "feature_image": null,
+      "visibility": "public",
+      "created_at": "2026-11-25T09:00:00.000Z",
+      "updated_at": "2026-11-25T09:00:00.000Z"
+     },
+     {
+      "id": "08e093b8818b340a656973d6",
+      "name": "Business",
+      "slug": "business",
+      "description": null,
+      "feature_image": null,
+      "visibility": "public",
+      "created_at": "2026-11-25T09:00:00.000Z",
+      "updated_at": "2026-11-25T09:00:00.000Z"
+     },
+     {
+      "id": "090e4eb8695c7106798ecb79",
+      "name": "Work",
+      "slug": "work",
+      "description": null,
+      "feature_image": null,
+      "visibility": "public",
+      "created_at": "2026-11-25T09:00:00.000Z",
+      "updated_at": "2026-11-25T09:00:00.000Z"
+     },
+     {
+      "id": "2aca3435319fa155d648c8cb",
+      "name": "Design",
+      "slug": "design",
+      "description": null,
+      "feature_image": null,
+      "visibility": "public",
+      "created_at": "2026-11-25T09:00:00.000Z",
+      "updated_at": "2026-11-25T09:00:00.000Z"
+     }
+    ],
+    "posts": [
+     {
+      "id": "52b861d461dc1a4ba53a69cd",
+      "uuid": "87c69f9d-e200-48b4-a73d-aaddcfe83d22",
+      "title": "AI product management: Research, requirements and scope",
+      "slug": "ai-product-management-research-requirements-and-scope",
+      "type": "post",
+      "lexical": "{\"root\": {\"children\": [{\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"Planning an AI feature starts with the problem, not the model. Most teams already know what to do; the hard part is deciding what to stop doing.\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"paragraph\", \"version\": 1}, {\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"The numbers are less dramatic than the headlines, and more useful. Here is what changed, what did not, and what I would do differently next time.\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"paragraph\", \"version\": 1}, {\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"What I learned\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"extended-heading\", \"version\": 1, \"tag\": \"h2\"}, {\"children\": [{\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"Start smaller than feels comfortable\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"listitem\", \"version\": 1, \"value\": 1}, {\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"Write the decision down\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"listitem\", \"version\": 1, \"value\": 2}, {\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"Measure one thing, honestly\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"listitem\", \"version\": 1, \"value\": 3}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"list\", \"version\": 1, \"listType\": \"bullet\", \"start\": 1, \"tag\": \"ul\"}, {\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"Simplicity is not the absence of work. It is work, finished.\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"extended-quote\", \"version\": 1}, {\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"Further reading\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"extended-heading\", \"version\": 1, \"tag\": \"h2\"}, {\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"Reply to this email with your own experience; I read every answer and share the best ones next week.\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"paragraph\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"root\", \"version\": 1}}",
+      "mobiledoc": null,
+      "html": "<p>Planning an AI feature starts with the problem, not the model. Most teams already know what to do; the hard part is deciding what to stop doing.</p><p>The numbers are less dramatic than the headlines, and more useful. Here is what changed, what did not, and what I would do differently next time.</p><h2 id=\"what-i-learned\">What I learned</h2><ul><li>Start smaller than feels comfortable</li><li>Write the decision down</li><li>Measure one thing, honestly</li></ul><blockquote>Simplicity is not the absence of work. It is work, finished.</blockquote><h2 id=\"further-reading\">Further reading</h2><p>Reply to this email with your own experience; I read every answer and share the best ones next week.</p>",
+      "plaintext": "Planning an AI feature starts with the problem, not the model. Most teams already know what to do; the hard part is deciding what to stop doing.\n\nThe numbers are less dramatic than the headlines, and more useful. Here is what changed, what did not, and what I would do differently next time.\n\nWhat I learned\n\nStart smaller than feels comfortable\nWrite the decision down\nMeasure one thing, honestly\n\nSimplicity is not the absence of work. It is work, finished.\n\nFurther reading\n\nReply to this email with your own experience; I read every answer and share the best ones next week.",
+      "feature_image": "https://picsum.photos/seed/ai-product-management-research-requirements-and-scope/1600/800",
+      "featured": 0,
+      "status": "published",
+      "visibility": "public",
+      "custom_excerpt": "Planning an AI feature starts with the problem, not the model.",
+      "locale": null,
+      "email_recipient_filter": "all",
+      "reading_time": 1,
+      "created_at": "2026-11-25T21:52:00.000Z",
+      "updated_at": "2026-11-25T21:52:00.000Z",
+      "published_at": "2026-11-25T21:52:00.000Z"
+     },
+     {
+      "id": "0a431069ef6ea21ca325ed0b",
+      "uuid": "db1ab315-d6aa-4c62-aa60-aaa36c83cd9c",
+      "title": "Retailers going digital payment only don’t save money",
+      "slug": "retailers-going-digital-payment-only-dont-save-money",
+      "type": "post",
+      "lexical": "{\"root\": {\"children\": [{\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"Card-only stores promised savings. The ledgers tell a different story. Here is what changed, what did not, and what I would do differently next time.\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"paragraph\", \"version\": 1}, {\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"If you only read one section, read the last one. Most teams already know what to do; the hard part is deciding what to stop doing.\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"paragraph\", \"version\": 1}, {\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"What I learned\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"extended-heading\", \"version\": 1, \"tag\": \"h2\"}, {\"children\": [{\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"Start smaller than feels comfortable\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"listitem\", \"version\": 1, \"value\": 1}, {\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"Write the decision down\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"listitem\", \"version\": 1, \"value\": 2}, {\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"Measure one thing, honestly\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"listitem\", \"version\": 1, \"value\": 3}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"list\", \"version\": 1, \"listType\": \"bullet\", \"start\": 1, \"tag\": \"ul\"}, {\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"Simplicity is not the absence of work. It is work, finished.\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"extended-quote\", \"version\": 1}, {\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"Further reading\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"extended-heading\", \"version\": 1, \"tag\": \"h2\"}, {\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"Reply to this email with your own experience; I read every answer and share the best ones next week.\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"paragraph\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"root\", \"version\": 1}}",
+      "mobiledoc": null,
+      "html": "<p>Card-only stores promised savings. The ledgers tell a different story. Here is what changed, what did not, and what I would do differently next time.</p><p>If you only read one section, read the last one. Most teams already know what to do; the hard part is deciding what to stop doing.</p><h2 id=\"what-i-learned\">What I learned</h2><ul><li>Start smaller than feels comfortable</li><li>Write the decision down</li><li>Measure one thing, honestly</li></ul><blockquote>Simplicity is not the absence of work. It is work, finished.</blockquote><h2 id=\"further-reading\">Further reading</h2><p>Reply to this email with your own experience; I read every answer and share the best ones next week.</p>",
+      "plaintext": "Card-only stores promised savings. The ledgers tell a different story. Here is what changed, what did not, and what I would do differently next time.\n\nIf you only read one section, read the last one. Most teams already know what to do; the hard part is deciding what to stop doing.\n\nWhat I learned\n\nStart smaller than feels comfortable\nWrite the decision down\nMeasure one thing, honestly\n\nSimplicity is not the absence of work. It is work, finished.\n\nFurther reading\n\nReply to this email with your own experience; I read every answer and share the best ones next week.",
+      "feature_image": "https://picsum.photos/seed/retailers-going-digital-payment-only-dont-save-money/1600/800",
+      "featured": 1,
+      "status": "published",
+      "visibility": "public",
+      "custom_excerpt": "Card-only stores promised savings. The ledgers tell a different story.",
+      "locale": null,
+      "email_recipient_filter": "all",
+      "reading_time": 1,
+      "created_at": "2026-11-23T20:45:00.000Z",
+      "updated_at": "2026-11-23T20:45:00.000Z",
+      "published_at": "2026-11-23T20:45:00.000Z"
+     },
+     {
+      "id": "c90578e7a34c29de8ebc1f08",
+      "uuid": "033f4355-5001-4fb4-a0f8-9e34cd58de8a",
+      "title": "How to Ergonomically Optimize Your Workspace",
+      "slug": "how-to-ergonomically-optimize-your-workspace",
+      "type": "post",
+      "lexical": "{\"root\": {\"children\": [{\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"Small changes to your desk add up to fewer aches by Friday. The numbers are less dramatic than the headlines, and more useful.\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"paragraph\", \"version\": 1}, {\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"Here is what changed, what did not, and what I would do differently next time. If you only read one section, read the last one.\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"paragraph\", \"version\": 1}, {\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"What I learned\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"extended-heading\", \"version\": 1, \"tag\": \"h2\"}, {\"children\": [{\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"Start smaller than feels comfortable\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"listitem\", \"version\": 1, \"value\": 1}, {\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"Write the decision down\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"listitem\", \"version\": 1, \"value\": 2}, {\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"Measure one thing, honestly\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"listitem\", \"version\": 1, \"value\": 3}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"list\", \"version\": 1, \"listType\": \"bullet\", \"start\": 1, \"tag\": \"ul\"}, {\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"Simplicity is not the absence of work. It is work, finished.\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"extended-quote\", \"version\": 1}, {\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"Further reading\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"extended-heading\", \"version\": 1, \"tag\": \"h2\"}, {\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"Reply to this email with your own experience; I read every answer and share the best ones next week.\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"paragraph\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"root\", \"version\": 1}}",
+      "mobiledoc": null,
+      "html": "<p>Small changes to your desk add up to fewer aches by Friday. The numbers are less dramatic than the headlines, and more useful.</p><p>Here is what changed, what did not, and what I would do differently next time. If you only read one section, read the last one.</p><h2 id=\"what-i-learned\">What I learned</h2><ul><li>Start smaller than feels comfortable</li><li>Write the decision down</li><li>Measure one thing, honestly</li></ul><blockquote>Simplicity is not the absence of work. It is work, finished.</blockquote><h2 id=\"further-reading\">Further reading</h2><p>Reply to this email with your own experience; I read every answer and share the best ones next week.</p>",
+      "plaintext": "Small changes to your desk add up to fewer aches by Friday. The numbers are less dramatic than the headlines, and more useful.\n\nHere is what changed, what did not, and what I would do differently next time. If you only read one section, read the last one.\n\nWhat I learned\n\nStart smaller than feels comfortable\nWrite the decision down\nMeasure one thing, honestly\n\nSimplicity is not the absence of work. It is work, finished.\n\nFurther reading\n\nReply to this email with your own experience; I read every answer and share the best ones next week.",
+      "feature_image": "https://picsum.photos/seed/how-to-ergonomically-optimize-your-workspace/1600/800",
+      "featured": 0,
+      "status": "published",
+      "visibility": "public",
+      "custom_excerpt": "Small changes to your desk add up to fewer aches by Friday.",
+      "locale": null,
+      "email_recipient_filter": "all",
+      "reading_time": 1,
+      "created_at": "2026-11-20T19:38:00.000Z",
+      "updated_at": "2026-11-20T19:38:00.000Z",
+      "published_at": "2026-11-20T19:38:00.000Z"
+     },
+     {
+      "id": "ab227190918d8ff634322c7d",
+      "uuid": "6916b015-eecb-4a0e-a517-f4dcc4fe8f2a",
+      "title": "When tech brands get illustration right",
+      "slug": "when-tech-brands-get-illustration-right",
+      "type": "post",
+      "lexical": "{\"root\": {\"children\": [{\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"Why the best product illustrations feel human, and how to brief for them. The numbers are less dramatic than the headlines, and more useful.\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"paragraph\", \"version\": 1}, {\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"Here is what changed, what did not, and what I would do differently next time. If you only read one section, read the last one.\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"paragraph\", \"version\": 1}, {\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"What I learned\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"extended-heading\", \"version\": 1, \"tag\": \"h2\"}, {\"children\": [{\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"Start smaller than feels comfortable\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"listitem\", \"version\": 1, \"value\": 1}, {\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"Write the decision down\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"listitem\", \"version\": 1, \"value\": 2}, {\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"Measure one thing, honestly\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"listitem\", \"version\": 1, \"value\": 3}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"list\", \"version\": 1, \"listType\": \"bullet\", \"start\": 1, \"tag\": \"ul\"}, {\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"Simplicity is not the absence of work. It is work, finished.\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"extended-quote\", \"version\": 1}, {\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"Further reading\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"extended-heading\", \"version\": 1, \"tag\": \"h2\"}, {\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"Reply to this email with your own experience; I read every answer and share the best ones next week.\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"paragraph\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"root\", \"version\": 1}}",
+      "mobiledoc": null,
+      "html": "<p>Why the best product illustrations feel human, and how to brief for them. The numbers are less dramatic than the headlines, and more useful.</p><p>Here is what changed, what did not, and what I would do differently next time. If you only read one section, read the last one.</p><h2 id=\"what-i-learned\">What I learned</h2><ul><li>Start smaller than feels comfortable</li><li>Write the decision down</li><li>Measure one thing, honestly</li></ul><blockquote>Simplicity is not the absence of work. It is work, finished.</blockquote><h2 id=\"further-reading\">Further reading</h2><p>Reply to this email with your own experience; I read every answer and share the best ones next week.</p>",
+      "plaintext": "Why the best product illustrations feel human, and how to brief for them. The numbers are less dramatic than the headlines, and more useful.\n\nHere is what changed, what did not, and what I would do differently next time. If you only read one section, read the last one.\n\nWhat I learned\n\nStart smaller than feels comfortable\nWrite the decision down\nMeasure one thing, honestly\n\nSimplicity is not the absence of work. It is work, finished.\n\nFurther reading\n\nReply to this email with your own experience; I read every answer and share the best ones next week.",
+      "feature_image": "https://picsum.photos/seed/when-tech-brands-get-illustration-right/1600/800",
+      "featured": 1,
+      "status": "published",
+      "visibility": "public",
+      "custom_excerpt": "Why the best product illustrations feel human, and how to brief for them.",
+      "locale": null,
+      "email_recipient_filter": "all",
+      "reading_time": 1,
+      "created_at": "2026-11-16T18:31:00.000Z",
+      "updated_at": "2026-11-16T18:31:00.000Z",
+      "published_at": "2026-11-16T18:31:00.000Z"
+     },
+     {
+      "id": "d138be84feffbf468e7967a1",
+      "uuid": "1a2c8c35-23fd-4630-acb2-ee9ff05e289b",
+      "title": "Tips for planning a successful business conference",
+      "slug": "tips-for-planning-a-successful-business-conference",
+      "type": "post",
+      "lexical": "{\"root\": {\"children\": [{\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"A checklist from organising twelve events, including the ones that went wrong. If you only read one section, read the last one.\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"paragraph\", \"version\": 1}, {\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"Most teams already know what to do; the hard part is deciding what to stop doing. The numbers are less dramatic than the headlines, and more useful.\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"paragraph\", \"version\": 1}, {\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"What I learned\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"extended-heading\", \"version\": 1, \"tag\": \"h2\"}, {\"children\": [{\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"Start smaller than feels comfortable\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"listitem\", \"version\": 1, \"value\": 1}, {\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"Write the decision down\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"listitem\", \"version\": 1, \"value\": 2}, {\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"Measure one thing, honestly\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"listitem\", \"version\": 1, \"value\": 3}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"list\", \"version\": 1, \"listType\": \"bullet\", \"start\": 1, \"tag\": \"ul\"}, {\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"Simplicity is not the absence of work. It is work, finished.\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"extended-quote\", \"version\": 1}, {\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"Further reading\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"extended-heading\", \"version\": 1, \"tag\": \"h2\"}, {\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"Reply to this email with your own experience; I read every answer and share the best ones next week.\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"paragraph\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"root\", \"version\": 1}}",
+      "mobiledoc": null,
+      "html": "<p>A checklist from organising twelve events, including the ones that went wrong. If you only read one section, read the last one.</p><p>Most teams already know what to do; the hard part is deciding what to stop doing. The numbers are less dramatic than the headlines, and more useful.</p><h2 id=\"what-i-learned\">What I learned</h2><ul><li>Start smaller than feels comfortable</li><li>Write the decision down</li><li>Measure one thing, honestly</li></ul><blockquote>Simplicity is not the absence of work. It is work, finished.</blockquote><h2 id=\"further-reading\">Further reading</h2><p>Reply to this email with your own experience; I read every answer and share the best ones next week.</p>",
+      "plaintext": "A checklist from organising twelve events, including the ones that went wrong. If you only read one section, read the last one.\n\nMost teams already know what to do; the hard part is deciding what to stop doing. The numbers are less dramatic than the headlines, and more useful.\n\nWhat I learned\n\nStart smaller than feels comfortable\nWrite the decision down\nMeasure one thing, honestly\n\nSimplicity is not the absence of work. It is work, finished.\n\nFurther reading\n\nReply to this email with your own experience; I read every answer and share the best ones next week.",
+      "feature_image": "https://picsum.photos/seed/tips-for-planning-a-successful-business-conference/1600/800",
+      "featured": 1,
+      "status": "published",
+      "visibility": "public",
+      "custom_excerpt": "A checklist from organising twelve events, including the ones that went wrong.",
+      "locale": null,
+      "email_recipient_filter": "all",
+      "reading_time": 1,
+      "created_at": "2026-11-14T17:24:00.000Z",
+      "updated_at": "2026-11-14T17:24:00.000Z",
+      "published_at": "2026-11-14T17:24:00.000Z"
+     },
+     {
+      "id": "fc11cfb1c6209e6e2c80b46c",
+      "uuid": "e94df4d2-bb43-4207-af93-5fc7608cb30d",
+      "title": "A gaming company’s office embraces an anti-tech atmosphere",
+      "slug": "a-gaming-companys-office-embraces-an-anti-tech-atmosphere",
+      "type": "post",
+      "lexical": "{\"root\": {\"children\": [{\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"Plants, paper and a ban on screens in the kitchen. Here is what changed, what did not, and what I would do differently next time.\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"paragraph\", \"version\": 1}, {\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"If you only read one section, read the last one. Most teams already know what to do; the hard part is deciding what to stop doing.\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"paragraph\", \"version\": 1}, {\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"What I learned\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"extended-heading\", \"version\": 1, \"tag\": \"h2\"}, {\"children\": [{\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"Start smaller than feels comfortable\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"listitem\", \"version\": 1, \"value\": 1}, {\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"Write the decision down\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"listitem\", \"version\": 1, \"value\": 2}, {\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"Measure one thing, honestly\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"listitem\", \"version\": 1, \"value\": 3}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"list\", \"version\": 1, \"listType\": \"bullet\", \"start\": 1, \"tag\": \"ul\"}, {\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"Simplicity is not the absence of work. It is work, finished.\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"extended-quote\", \"version\": 1}, {\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"Further reading\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"extended-heading\", \"version\": 1, \"tag\": \"h2\"}, {\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"Reply to this email with your own experience; I read every answer and share the best ones next week.\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"paragraph\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"root\", \"version\": 1}}",
+      "mobiledoc": null,
+      "html": "<p>Plants, paper and a ban on screens in the kitchen. Here is what changed, what did not, and what I would do differently next time.</p><p>If you only read one section, read the last one. Most teams already know what to do; the hard part is deciding what to stop doing.</p><h2 id=\"what-i-learned\">What I learned</h2><ul><li>Start smaller than feels comfortable</li><li>Write the decision down</li><li>Measure one thing, honestly</li></ul><blockquote>Simplicity is not the absence of work. It is work, finished.</blockquote><h2 id=\"further-reading\">Further reading</h2><p>Reply to this email with your own experience; I read every answer and share the best ones next week.</p>",
+      "plaintext": "Plants, paper and a ban on screens in the kitchen. Here is what changed, what did not, and what I would do differently next time.\n\nIf you only read one section, read the last one. Most teams already know what to do; the hard part is deciding what to stop doing.\n\nWhat I learned\n\nStart smaller than feels comfortable\nWrite the decision down\nMeasure one thing, honestly\n\nSimplicity is not the absence of work. It is work, finished.\n\nFurther reading\n\nReply to this email with your own experience; I read every answer and share the best ones next week.",
+      "feature_image": "https://picsum.photos/seed/a-gaming-companys-office-embraces-an-anti-tech-atmosphere/1600/800",
+      "featured": 1,
+      "status": "published",
+      "visibility": "public",
+      "custom_excerpt": "Plants, paper and a ban on screens in the kitchen.",
+      "locale": null,
+      "email_recipient_filter": "all",
+      "reading_time": 1,
+      "created_at": "2026-11-11T16:17:00.000Z",
+      "updated_at": "2026-11-11T16:17:00.000Z",
+      "published_at": "2026-11-11T16:17:00.000Z"
+     },
+     {
+      "id": "203aa3f0177ac2e27ec41be4",
+      "uuid": "d386e47f-3868-410e-ade2-bbe60a8d4bb6",
+      "title": "The quiet comeback of the weekly email",
+      "slug": "the-quiet-comeback-of-the-weekly-email",
+      "type": "post",
+      "lexical": "{\"root\": {\"children\": [{\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"Feeds come and go. The inbox keeps quietly winning. Here is what changed, what did not, and what I would do differently next time.\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"paragraph\", \"version\": 1}, {\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"If you only read one section, read the last one. Most teams already know what to do; the hard part is deciding what to stop doing.\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"paragraph\", \"version\": 1}, {\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"What I learned\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"extended-heading\", \"version\": 1, \"tag\": \"h2\"}, {\"children\": [{\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"Start smaller than feels comfortable\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"listitem\", \"version\": 1, \"value\": 1}, {\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"Write the decision down\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"listitem\", \"version\": 1, \"value\": 2}, {\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"Measure one thing, honestly\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"listitem\", \"version\": 1, \"value\": 3}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"list\", \"version\": 1, \"listType\": \"bullet\", \"start\": 1, \"tag\": \"ul\"}, {\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"Simplicity is not the absence of work. It is work, finished.\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"extended-quote\", \"version\": 1}, {\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"Further reading\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"extended-heading\", \"version\": 1, \"tag\": \"h2\"}, {\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"Reply to this email with your own experience; I read every answer and share the best ones next week.\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"paragraph\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"root\", \"version\": 1}}",
+      "mobiledoc": null,
+      "html": "<p>Feeds come and go. The inbox keeps quietly winning. Here is what changed, what did not, and what I would do differently next time.</p><p>If you only read one section, read the last one. Most teams already know what to do; the hard part is deciding what to stop doing.</p><h2 id=\"what-i-learned\">What I learned</h2><ul><li>Start smaller than feels comfortable</li><li>Write the decision down</li><li>Measure one thing, honestly</li></ul><blockquote>Simplicity is not the absence of work. It is work, finished.</blockquote><h2 id=\"further-reading\">Further reading</h2><p>Reply to this email with your own experience; I read every answer and share the best ones next week.</p>",
+      "plaintext": "Feeds come and go. The inbox keeps quietly winning. Here is what changed, what did not, and what I would do differently next time.\n\nIf you only read one section, read the last one. Most teams already know what to do; the hard part is deciding what to stop doing.\n\nWhat I learned\n\nStart smaller than feels comfortable\nWrite the decision down\nMeasure one thing, honestly\n\nSimplicity is not the absence of work. It is work, finished.\n\nFurther reading\n\nReply to this email with your own experience; I read every answer and share the best ones next week.",
+      "feature_image": "https://picsum.photos/seed/the-quiet-comeback-of-the-weekly-email/1600/800",
+      "featured": 1,
+      "status": "published",
+      "visibility": "public",
+      "custom_excerpt": "Feeds come and go. The inbox keeps quietly winning.",
+      "locale": null,
+      "email_recipient_filter": "all",
+      "reading_time": 1,
+      "created_at": "2026-11-07T15:10:00.000Z",
+      "updated_at": "2026-11-07T15:10:00.000Z",
+      "published_at": "2026-11-07T15:10:00.000Z"
+     },
+     {
+      "id": "e99c7c07e5be0922b4b79a10",
+      "uuid": "2ac8801c-c526-4e7d-aa4d-06f6d37a40d2",
+      "title": "Remote meetings that people actually want to attend",
+      "slug": "remote-meetings-that-people-actually-want-to-attend",
+      "type": "post",
+      "lexical": "{\"root\": {\"children\": [{\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"Shorter, written-first and with a clear owner. The numbers are less dramatic than the headlines, and more useful.\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"paragraph\", \"version\": 1}, {\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"Here is what changed, what did not, and what I would do differently next time. If you only read one section, read the last one.\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"paragraph\", \"version\": 1}, {\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"What I learned\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"extended-heading\", \"version\": 1, \"tag\": \"h2\"}, {\"children\": [{\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"Start smaller than feels comfortable\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"listitem\", \"version\": 1, \"value\": 1}, {\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"Write the decision down\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"listitem\", \"version\": 1, \"value\": 2}, {\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"Measure one thing, honestly\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"listitem\", \"version\": 1, \"value\": 3}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"list\", \"version\": 1, \"listType\": \"bullet\", \"start\": 1, \"tag\": \"ul\"}, {\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"Simplicity is not the absence of work. It is work, finished.\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"extended-quote\", \"version\": 1}, {\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"Further reading\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"extended-heading\", \"version\": 1, \"tag\": \"h2\"}, {\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"Reply to this email with your own experience; I read every answer and share the best ones next week.\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"paragraph\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"root\", \"version\": 1}}",
+      "mobiledoc": null,
+      "html": "<p>Shorter, written-first and with a clear owner. The numbers are less dramatic than the headlines, and more useful.</p><p>Here is what changed, what did not, and what I would do differently next time. If you only read one section, read the last one.</p><h2 id=\"what-i-learned\">What I learned</h2><ul><li>Start smaller than feels comfortable</li><li>Write the decision down</li><li>Measure one thing, honestly</li></ul><blockquote>Simplicity is not the absence of work. It is work, finished.</blockquote><h2 id=\"further-reading\">Further reading</h2><p>Reply to this email with your own experience; I read every answer and share the best ones next week.</p>",
+      "plaintext": "Shorter, written-first and with a clear owner. The numbers are less dramatic than the headlines, and more useful.\n\nHere is what changed, what did not, and what I would do differently next time. If you only read one section, read the last one.\n\nWhat I learned\n\nStart smaller than feels comfortable\nWrite the decision down\nMeasure one thing, honestly\n\nSimplicity is not the absence of work. It is work, finished.\n\nFurther reading\n\nReply to this email with your own experience; I read every answer and share the best ones next week.",
+      "feature_image": "https://picsum.photos/seed/remote-meetings-that-people-actually-want-to-attend/1600/800",
+      "featured": 0,
+      "status": "published",
+      "visibility": "public",
+      "custom_excerpt": "Shorter, written-first and with a clear owner.",
+      "locale": null,
+      "email_recipient_filter": "all",
+      "reading_time": 1,
+      "created_at": "2026-11-04T14:03:00.000Z",
+      "updated_at": "2026-11-04T14:03:00.000Z",
+      "published_at": "2026-11-04T14:03:00.000Z"
+     },
+     {
+      "id": "6c6d659bdfc44ae92da1dc04",
+      "uuid": "85baaca2-852e-492e-a594-c5f3f73f04b1",
+      "title": "Designing a calm notification strategy",
+      "slug": "designing-a-calm-notification-strategy",
+      "type": "post",
+      "lexical": "{\"root\": {\"children\": [{\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"Every ping is a withdrawal from your users\\u2019 attention. The numbers are less dramatic than the headlines, and more useful.\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"paragraph\", \"version\": 1}, {\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"Here is what changed, what did not, and what I would do differently next time. If you only read one section, read the last one.\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"paragraph\", \"version\": 1}, {\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"What I learned\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"extended-heading\", \"version\": 1, \"tag\": \"h2\"}, {\"children\": [{\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"Start smaller than feels comfortable\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"listitem\", \"version\": 1, \"value\": 1}, {\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"Write the decision down\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"listitem\", \"version\": 1, \"value\": 2}, {\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"Measure one thing, honestly\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"listitem\", \"version\": 1, \"value\": 3}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"list\", \"version\": 1, \"listType\": \"bullet\", \"start\": 1, \"tag\": \"ul\"}, {\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"Simplicity is not the absence of work. It is work, finished.\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"extended-quote\", \"version\": 1}, {\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"Further reading\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"extended-heading\", \"version\": 1, \"tag\": \"h2\"}, {\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"Reply to this email with your own experience; I read every answer and share the best ones next week.\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"paragraph\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"root\", \"version\": 1}}",
+      "mobiledoc": null,
+      "html": "<p>Every ping is a withdrawal from your users’ attention. The numbers are less dramatic than the headlines, and more useful.</p><p>Here is what changed, what did not, and what I would do differently next time. If you only read one section, read the last one.</p><h2 id=\"what-i-learned\">What I learned</h2><ul><li>Start smaller than feels comfortable</li><li>Write the decision down</li><li>Measure one thing, honestly</li></ul><blockquote>Simplicity is not the absence of work. It is work, finished.</blockquote><h2 id=\"further-reading\">Further reading</h2><p>Reply to this email with your own experience; I read every answer and share the best ones next week.</p>",
+      "plaintext": "Every ping is a withdrawal from your users’ attention. The numbers are less dramatic than the headlines, and more useful.\n\nHere is what changed, what did not, and what I would do differently next time. If you only read one section, read the last one.\n\nWhat I learned\n\nStart smaller than feels comfortable\nWrite the decision down\nMeasure one thing, honestly\n\nSimplicity is not the absence of work. It is work, finished.\n\nFurther reading\n\nReply to this email with your own experience; I read every answer and share the best ones next week.",
+      "feature_image": "https://picsum.photos/seed/designing-a-calm-notification-strategy/1600/800",
+      "featured": 0,
+      "status": "published",
+      "visibility": "members",
+      "custom_excerpt": "Every ping is a withdrawal from your users’ attention.",
+      "locale": null,
+      "email_recipient_filter": "all",
+      "reading_time": 1,
+      "created_at": "2026-10-30T13:56:00.000Z",
+      "updated_at": "2026-10-30T13:56:00.000Z",
+      "published_at": "2026-10-30T13:56:00.000Z"
+     },
+     {
+      "id": "9c0ec565783ba2951d52829a",
+      "uuid": "768eec18-6003-45ae-a24a-6fd75315718c",
+      "title": "What small companies get right about hiring",
+      "slug": "what-small-companies-get-right-about-hiring",
+      "type": "post",
+      "lexical": "{\"root\": {\"children\": [{\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"They hire for the job in front of them, not the org chart they imagine. Most teams already know what to do; the hard part is deciding what to stop doing.\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"paragraph\", \"version\": 1}, {\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"The numbers are less dramatic than the headlines, and more useful. Here is what changed, what did not, and what I would do differently next time.\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"paragraph\", \"version\": 1}, {\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"What I learned\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"extended-heading\", \"version\": 1, \"tag\": \"h2\"}, {\"children\": [{\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"Start smaller than feels comfortable\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"listitem\", \"version\": 1, \"value\": 1}, {\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"Write the decision down\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"listitem\", \"version\": 1, \"value\": 2}, {\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"Measure one thing, honestly\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"listitem\", \"version\": 1, \"value\": 3}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"list\", \"version\": 1, \"listType\": \"bullet\", \"start\": 1, \"tag\": \"ul\"}, {\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"Simplicity is not the absence of work. It is work, finished.\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"extended-quote\", \"version\": 1}, {\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"Further reading\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"extended-heading\", \"version\": 1, \"tag\": \"h2\"}, {\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"Reply to this email with your own experience; I read every answer and share the best ones next week.\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"paragraph\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"root\", \"version\": 1}}",
+      "mobiledoc": null,
+      "html": "<p>They hire for the job in front of them, not the org chart they imagine. Most teams already know what to do; the hard part is deciding what to stop doing.</p><p>The numbers are less dramatic than the headlines, and more useful. Here is what changed, what did not, and what I would do differently next time.</p><h2 id=\"what-i-learned\">What I learned</h2><ul><li>Start smaller than feels comfortable</li><li>Write the decision down</li><li>Measure one thing, honestly</li></ul><blockquote>Simplicity is not the absence of work. It is work, finished.</blockquote><h2 id=\"further-reading\">Further reading</h2><p>Reply to this email with your own experience; I read every answer and share the best ones next week.</p>",
+      "plaintext": "They hire for the job in front of them, not the org chart they imagine. Most teams already know what to do; the hard part is deciding what to stop doing.\n\nThe numbers are less dramatic than the headlines, and more useful. Here is what changed, what did not, and what I would do differently next time.\n\nWhat I learned\n\nStart smaller than feels comfortable\nWrite the decision down\nMeasure one thing, honestly\n\nSimplicity is not the absence of work. It is work, finished.\n\nFurther reading\n\nReply to this email with your own experience; I read every answer and share the best ones next week.",
+      "feature_image": "https://picsum.photos/seed/what-small-companies-get-right-about-hiring/1600/800",
+      "featured": 0,
+      "status": "published",
+      "visibility": "public",
+      "custom_excerpt": "They hire for the job in front of them, not the org chart they imagine.",
+      "locale": null,
+      "email_recipient_filter": "all",
+      "reading_time": 1,
+      "created_at": "2026-10-27T12:49:00.000Z",
+      "updated_at": "2026-10-27T12:49:00.000Z",
+      "published_at": "2026-10-27T12:49:00.000Z"
+     },
+     {
+      "id": "68699e7be66c71e63f350595",
+      "uuid": "4742cf4d-2251-4c56-a505-e3791610bc01",
+      "title": "The case for boring software",
+      "slug": "the-case-for-boring-software",
+      "type": "post",
+      "lexical": "{\"root\": {\"children\": [{\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"Predictable tools free your attention for the interesting problems. Most teams already know what to do; the hard part is deciding what to stop doing.\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"paragraph\", \"version\": 1}, {\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"The numbers are less dramatic than the headlines, and more useful. Here is what changed, what did not, and what I would do differently next time.\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"paragraph\", \"version\": 1}, {\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"What I learned\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"extended-heading\", \"version\": 1, \"tag\": \"h2\"}, {\"children\": [{\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"Start smaller than feels comfortable\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"listitem\", \"version\": 1, \"value\": 1}, {\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"Write the decision down\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"listitem\", \"version\": 1, \"value\": 2}, {\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"Measure one thing, honestly\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"listitem\", \"version\": 1, \"value\": 3}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"list\", \"version\": 1, \"listType\": \"bullet\", \"start\": 1, \"tag\": \"ul\"}, {\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"Simplicity is not the absence of work. It is work, finished.\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"extended-quote\", \"version\": 1}, {\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"Further reading\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"extended-heading\", \"version\": 1, \"tag\": \"h2\"}, {\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"Reply to this email with your own experience; I read every answer and share the best ones next week.\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"paragraph\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"root\", \"version\": 1}}",
+      "mobiledoc": null,
+      "html": "<p>Predictable tools free your attention for the interesting problems. Most teams already know what to do; the hard part is deciding what to stop doing.</p><p>The numbers are less dramatic than the headlines, and more useful. Here is what changed, what did not, and what I would do differently next time.</p><h2 id=\"what-i-learned\">What I learned</h2><ul><li>Start smaller than feels comfortable</li><li>Write the decision down</li><li>Measure one thing, honestly</li></ul><blockquote>Simplicity is not the absence of work. It is work, finished.</blockquote><h2 id=\"further-reading\">Further reading</h2><p>Reply to this email with your own experience; I read every answer and share the best ones next week.</p>",
+      "plaintext": "Predictable tools free your attention for the interesting problems. Most teams already know what to do; the hard part is deciding what to stop doing.\n\nThe numbers are less dramatic than the headlines, and more useful. Here is what changed, what did not, and what I would do differently next time.\n\nWhat I learned\n\nStart smaller than feels comfortable\nWrite the decision down\nMeasure one thing, honestly\n\nSimplicity is not the absence of work. It is work, finished.\n\nFurther reading\n\nReply to this email with your own experience; I read every answer and share the best ones next week.",
+      "feature_image": "https://picsum.photos/seed/the-case-for-boring-software/1600/800",
+      "featured": 1,
+      "status": "published",
+      "visibility": "public",
+      "custom_excerpt": "Predictable tools free your attention for the interesting problems.",
+      "locale": null,
+      "email_recipient_filter": "all",
+      "reading_time": 1,
+      "created_at": "2026-10-23T11:42:00.000Z",
+      "updated_at": "2026-10-23T11:42:00.000Z",
+      "published_at": "2026-10-23T11:42:00.000Z"
+     },
+     {
+      "id": "9593a4793918743e913bae50",
+      "uuid": "dda52726-bef0-40f5-a664-55a4c6da3a2a",
+      "title": "Pricing your first product without guessing",
+      "slug": "pricing-your-first-product-without-guessing",
+      "type": "post",
+      "lexical": "{\"root\": {\"children\": [{\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"Three experiments that tell you more than any survey. Most teams already know what to do; the hard part is deciding what to stop doing.\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"paragraph\", \"version\": 1}, {\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"The numbers are less dramatic than the headlines, and more useful. Here is what changed, what did not, and what I would do differently next time.\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"paragraph\", \"version\": 1}, {\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"What I learned\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"extended-heading\", \"version\": 1, \"tag\": \"h2\"}, {\"children\": [{\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"Start smaller than feels comfortable\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"listitem\", \"version\": 1, \"value\": 1}, {\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"Write the decision down\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"listitem\", \"version\": 1, \"value\": 2}, {\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"Measure one thing, honestly\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"listitem\", \"version\": 1, \"value\": 3}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"list\", \"version\": 1, \"listType\": \"bullet\", \"start\": 1, \"tag\": \"ul\"}, {\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"Simplicity is not the absence of work. It is work, finished.\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"extended-quote\", \"version\": 1}, {\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"Further reading\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"extended-heading\", \"version\": 1, \"tag\": \"h2\"}, {\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"Reply to this email with your own experience; I read every answer and share the best ones next week.\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"paragraph\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"root\", \"version\": 1}}",
+      "mobiledoc": null,
+      "html": "<p>Three experiments that tell you more than any survey. Most teams already know what to do; the hard part is deciding what to stop doing.</p><p>The numbers are less dramatic than the headlines, and more useful. Here is what changed, what did not, and what I would do differently next time.</p><h2 id=\"what-i-learned\">What I learned</h2><ul><li>Start smaller than feels comfortable</li><li>Write the decision down</li><li>Measure one thing, honestly</li></ul><blockquote>Simplicity is not the absence of work. It is work, finished.</blockquote><h2 id=\"further-reading\">Further reading</h2><p>Reply to this email with your own experience; I read every answer and share the best ones next week.</p>",
+      "plaintext": "Three experiments that tell you more than any survey. Most teams already know what to do; the hard part is deciding what to stop doing.\n\nThe numbers are less dramatic than the headlines, and more useful. Here is what changed, what did not, and what I would do differently next time.\n\nWhat I learned\n\nStart smaller than feels comfortable\nWrite the decision down\nMeasure one thing, honestly\n\nSimplicity is not the absence of work. It is work, finished.\n\nFurther reading\n\nReply to this email with your own experience; I read every answer and share the best ones next week.",
+      "feature_image": "https://picsum.photos/seed/pricing-your-first-product-without-guessing/1600/800",
+      "featured": 0,
+      "status": "published",
+      "visibility": "paid",
+      "custom_excerpt": "Three experiments that tell you more than any survey.",
+      "locale": null,
+      "email_recipient_filter": "all",
+      "reading_time": 1,
+      "created_at": "2026-10-19T10:35:00.000Z",
+      "updated_at": "2026-10-19T10:35:00.000Z",
+      "published_at": "2026-10-19T10:35:00.000Z"
+     },
+     {
+      "id": "c332fe6a7bf573001114ca02",
+      "uuid": "e492401b-6cc4-4380-a5c1-a41625702482",
+      "title": "How I take notes in meetings now",
+      "slug": "how-i-take-notes-in-meetings-now",
+      "type": "post",
+      "lexical": "{\"root\": {\"children\": [{\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"One page, three headings, and a rule about action items. Most teams already know what to do; the hard part is deciding what to stop doing.\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"paragraph\", \"version\": 1}, {\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"The numbers are less dramatic than the headlines, and more useful. Here is what changed, what did not, and what I would do differently next time.\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"paragraph\", \"version\": 1}, {\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"What I learned\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"extended-heading\", \"version\": 1, \"tag\": \"h2\"}, {\"children\": [{\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"Start smaller than feels comfortable\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"listitem\", \"version\": 1, \"value\": 1}, {\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"Write the decision down\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"listitem\", \"version\": 1, \"value\": 2}, {\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"Measure one thing, honestly\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"listitem\", \"version\": 1, \"value\": 3}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"list\", \"version\": 1, \"listType\": \"bullet\", \"start\": 1, \"tag\": \"ul\"}, {\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"Simplicity is not the absence of work. It is work, finished.\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"extended-quote\", \"version\": 1}, {\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"Further reading\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"extended-heading\", \"version\": 1, \"tag\": \"h2\"}, {\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"Reply to this email with your own experience; I read every answer and share the best ones next week.\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"paragraph\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"root\", \"version\": 1}}",
+      "mobiledoc": null,
+      "html": "<p>One page, three headings, and a rule about action items. Most teams already know what to do; the hard part is deciding what to stop doing.</p><p>The numbers are less dramatic than the headlines, and more useful. Here is what changed, what did not, and what I would do differently next time.</p><h2 id=\"what-i-learned\">What I learned</h2><ul><li>Start smaller than feels comfortable</li><li>Write the decision down</li><li>Measure one thing, honestly</li></ul><blockquote>Simplicity is not the absence of work. It is work, finished.</blockquote><h2 id=\"further-reading\">Further reading</h2><p>Reply to this email with your own experience; I read every answer and share the best ones next week.</p>",
+      "plaintext": "One page, three headings, and a rule about action items. Most teams already know what to do; the hard part is deciding what to stop doing.\n\nThe numbers are less dramatic than the headlines, and more useful. Here is what changed, what did not, and what I would do differently next time.\n\nWhat I learned\n\nStart smaller than feels comfortable\nWrite the decision down\nMeasure one thing, honestly\n\nSimplicity is not the absence of work. It is work, finished.\n\nFurther reading\n\nReply to this email with your own experience; I read every answer and share the best ones next week.",
+      "feature_image": "https://picsum.photos/seed/how-i-take-notes-in-meetings-now/1600/800",
+      "featured": 0,
+      "status": "published",
+      "visibility": "public",
+      "custom_excerpt": "One page, three headings, and a rule about action items.",
+      "locale": null,
+      "email_recipient_filter": "all",
+      "reading_time": 1,
+      "created_at": "2026-10-15T09:28:00.000Z",
+      "updated_at": "2026-10-15T09:28:00.000Z",
+      "published_at": "2026-10-15T09:28:00.000Z"
+     },
+     {
+      "id": "c2c46da6f24dace73aa4cb74",
+      "uuid": "3b35d4e8-e97a-4817-a5d8-afb7bf4fa6a1",
+      "title": "A short history of the open-plan office",
+      "slug": "a-short-history-of-the-open-plan-office",
+      "type": "post",
+      "lexical": "{\"root\": {\"children\": [{\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"From factory floors to hot desks, and where it is heading. Most teams already know what to do; the hard part is deciding what to stop doing.\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"paragraph\", \"version\": 1}, {\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"The numbers are less dramatic than the headlines, and more useful. Here is what changed, what did not, and what I would do differently next time.\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"paragraph\", \"version\": 1}, {\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"What I learned\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"extended-heading\", \"version\": 1, \"tag\": \"h2\"}, {\"children\": [{\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"Start smaller than feels comfortable\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"listitem\", \"version\": 1, \"value\": 1}, {\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"Write the decision down\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"listitem\", \"version\": 1, \"value\": 2}, {\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"Measure one thing, honestly\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"listitem\", \"version\": 1, \"value\": 3}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"list\", \"version\": 1, \"listType\": \"bullet\", \"start\": 1, \"tag\": \"ul\"}, {\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"Simplicity is not the absence of work. It is work, finished.\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"extended-quote\", \"version\": 1}, {\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"Further reading\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"extended-heading\", \"version\": 1, \"tag\": \"h2\"}, {\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"Reply to this email with your own experience; I read every answer and share the best ones next week.\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"paragraph\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"root\", \"version\": 1}}",
+      "mobiledoc": null,
+      "html": "<p>From factory floors to hot desks, and where it is heading. Most teams already know what to do; the hard part is deciding what to stop doing.</p><p>The numbers are less dramatic than the headlines, and more useful. Here is what changed, what did not, and what I would do differently next time.</p><h2 id=\"what-i-learned\">What I learned</h2><ul><li>Start smaller than feels comfortable</li><li>Write the decision down</li><li>Measure one thing, honestly</li></ul><blockquote>Simplicity is not the absence of work. It is work, finished.</blockquote><h2 id=\"further-reading\">Further reading</h2><p>Reply to this email with your own experience; I read every answer and share the best ones next week.</p>",
+      "plaintext": "From factory floors to hot desks, and where it is heading. Most teams already know what to do; the hard part is deciding what to stop doing.\n\nThe numbers are less dramatic than the headlines, and more useful. Here is what changed, what did not, and what I would do differently next time.\n\nWhat I learned\n\nStart smaller than feels comfortable\nWrite the decision down\nMeasure one thing, honestly\n\nSimplicity is not the absence of work. It is work, finished.\n\nFurther reading\n\nReply to this email with your own experience; I read every answer and share the best ones next week.",
+      "feature_image": "https://picsum.photos/seed/a-short-history-of-the-open-plan-office/1600/800",
+      "featured": 0,
+      "status": "published",
+      "visibility": "public",
+      "custom_excerpt": "From factory floors to hot desks, and where it is heading.",
+      "locale": null,
+      "email_recipient_filter": "all",
+      "reading_time": 1,
+      "created_at": "2026-10-11T08:21:00.000Z",
+      "updated_at": "2026-10-11T08:21:00.000Z",
+      "published_at": "2026-10-11T08:21:00.000Z"
+     },
+     {
+      "id": "62036ed6b494277f35215960",
+      "uuid": "bbd4ebba-fca0-4fba-a978-5b75862e4841",
+      "title": "Style guide",
+      "slug": "style-guide",
+      "type": "page",
+      "lexical": "{\"root\": {\"children\": [{\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"This page shows how text looks in this theme: paragraphs, headings, quotes and lists.\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"paragraph\", \"version\": 1}, {\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"A second-level heading\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"extended-heading\", \"version\": 1, \"tag\": \"h2\"}, {\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"Body text is set at seventeen pixels with generous line height for comfortable reading.\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"paragraph\", \"version\": 1}, {\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"A third-level heading\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"extended-heading\", \"version\": 1, \"tag\": \"h3\"}, {\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"A pull quote sits between paragraphs with an accent rule.\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"extended-quote\", \"version\": 1}, {\"children\": [{\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"A bulleted list item\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"listitem\", \"version\": 1, \"value\": 1}, {\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"Another item, a little longer to show wrapping across lines\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"listitem\", \"version\": 1, \"value\": 2}, {\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"A final item\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"listitem\", \"version\": 1, \"value\": 3}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"list\", \"version\": 1, \"listType\": \"bullet\", \"start\": 1, \"tag\": \"ul\"}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"root\", \"version\": 1}}",
+      "mobiledoc": null,
+      "html": "<p>This page shows how text looks in this theme: paragraphs, headings, quotes and lists.</p><h2 id=\"a-second-level-heading\">A second-level heading</h2><p>Body text is set at seventeen pixels with generous line height for comfortable reading.</p><h3 id=\"a-third-level-heading\">A third-level heading</h3><blockquote>A pull quote sits between paragraphs with an accent rule.</blockquote><ul><li>A bulleted list item</li><li>Another item, a little longer to show wrapping across lines</li><li>A final item</li></ul>",
+      "plaintext": "This page shows how text looks in this theme: paragraphs, headings, quotes and lists.\n\nA second-level heading\n\nBody text is set at seventeen pixels with generous line height for comfortable reading.\n\nA third-level heading\n\nA pull quote sits between paragraphs with an accent rule.\n\nA bulleted list item\nAnother item, a little longer to show wrapping across lines\nA final item",
+      "feature_image": null,
+      "featured": 0,
+      "status": "published",
+      "visibility": "public",
+      "custom_excerpt": "How every element looks in Wayletter.",
+      "locale": null,
+      "email_recipient_filter": "all",
+      "reading_time": 1,
+      "created_at": "2026-10-15T07:14:00.000Z",
+      "updated_at": "2026-10-15T07:14:00.000Z",
+      "published_at": "2026-10-15T07:14:00.000Z"
+     }
+    ],
+    "posts_tags": [
+     {
+      "id": "12fd2a16d52d295ac51ce372",
+      "post_id": "52b861d461dc1a4ba53a69cd",
+      "tag_id": "28c8bd516625953c09c695ac",
+      "sort_order": 0
+     },
+     {
+      "id": "3022352427463ea957c10afc",
+      "post_id": "0a431069ef6ea21ca325ed0b",
+      "tag_id": "08e093b8818b340a656973d6",
+      "sort_order": 0
+     },
+     {
+      "id": "4f4213f12f932ea30ae40668",
+      "post_id": "c90578e7a34c29de8ebc1f08",
+      "tag_id": "090e4eb8695c7106798ecb79",
+      "sort_order": 0
+     },
+     {
+      "id": "595bfad883945439ecb863c7",
+      "post_id": "ab227190918d8ff634322c7d",
+      "tag_id": "2aca3435319fa155d648c8cb",
+      "sort_order": 0
+     },
+     {
+      "id": "41f60171d56f38b9656d731f",
+      "post_id": "d138be84feffbf468e7967a1",
+      "tag_id": "08e093b8818b340a656973d6",
+      "sort_order": 0
+     },
+     {
+      "id": "6d71a83b9c45525e5c2d86b2",
+      "post_id": "fc11cfb1c6209e6e2c80b46c",
+      "tag_id": "2aca3435319fa155d648c8cb",
+      "sort_order": 0
+     },
+     {
+      "id": "cb2a1f29e5cefb9f875e58e0",
+      "post_id": "fc11cfb1c6209e6e2c80b46c",
+      "tag_id": "090e4eb8695c7106798ecb79",
+      "sort_order": 1
+     },
+     {
+      "id": "65424c6ab28a283660db20c3",
+      "post_id": "203aa3f0177ac2e27ec41be4",
+      "tag_id": "08e093b8818b340a656973d6",
+      "sort_order": 0
+     },
+     {
+      "id": "4d96ea2a09a3ab5575cd488e",
+      "post_id": "203aa3f0177ac2e27ec41be4",
+      "tag_id": "28c8bd516625953c09c695ac",
+      "sort_order": 1
+     },
+     {
+      "id": "7d87e189eb74c86b0da2bf86",
+      "post_id": "e99c7c07e5be0922b4b79a10",
+      "tag_id": "090e4eb8695c7106798ecb79",
+      "sort_order": 0
+     },
+     {
+      "id": "647459748b3b605a6f7c1975",
+      "post_id": "6c6d659bdfc44ae92da1dc04",
+      "tag_id": "2aca3435319fa155d648c8cb",
+      "sort_order": 0
+     },
+     {
+      "id": "bbffacad2fd799f44f9bc3f3",
+      "post_id": "6c6d659bdfc44ae92da1dc04",
+      "tag_id": "28c8bd516625953c09c695ac",
+      "sort_order": 1
+     },
+     {
+      "id": "6904af2028ebefc8b50fdb84",
+      "post_id": "9c0ec565783ba2951d52829a",
+      "tag_id": "08e093b8818b340a656973d6",
+      "sort_order": 0
+     },
+     {
+      "id": "4cff014a2a37d026c55e790f",
+      "post_id": "9c0ec565783ba2951d52829a",
+      "tag_id": "090e4eb8695c7106798ecb79",
+      "sort_order": 1
+     },
+     {
+      "id": "62a04f6f0f318c6d66484df9",
+      "post_id": "68699e7be66c71e63f350595",
+      "tag_id": "28c8bd516625953c09c695ac",
+      "sort_order": 0
+     },
+     {
+      "id": "9570c51c1f471f6f712f77e6",
+      "post_id": "9593a4793918743e913bae50",
+      "tag_id": "08e093b8818b340a656973d6",
+      "sort_order": 0
+     },
+     {
+      "id": "ca504de585b955fb5957c90f",
+      "post_id": "c332fe6a7bf573001114ca02",
+      "tag_id": "090e4eb8695c7106798ecb79",
+      "sort_order": 0
+     },
+     {
+      "id": "8b31243c5d031b720188f981",
+      "post_id": "c2c46da6f24dace73aa4cb74",
+      "tag_id": "2aca3435319fa155d648c8cb",
+      "sort_order": 0
+     },
+     {
+      "id": "69d24d25b672fc538e57dc1b",
+      "post_id": "c2c46da6f24dace73aa4cb74",
+      "tag_id": "090e4eb8695c7106798ecb79",
+      "sort_order": 1
+     }
+    ],
+    "posts_authors": [
+     {
+      "id": "54e3088a1404e41c8b591082",
+      "post_id": "52b861d461dc1a4ba53a69cd",
+      "author_id": "080bec36f8b0373f2c250095",
+      "sort_order": 0
+     },
+     {
+      "id": "8587a9031b7d51efb52261b1",
+      "post_id": "0a431069ef6ea21ca325ed0b",
+      "author_id": "080bec36f8b0373f2c250095",
+      "sort_order": 0
+     },
+     {
+      "id": "dc5886c317c03e5a341bbca3",
+      "post_id": "c90578e7a34c29de8ebc1f08",
+      "author_id": "080bec36f8b0373f2c250095",
+      "sort_order": 0
+     },
+     {
+      "id": "9499d8cc67fe891934a8a903",
+      "post_id": "ab227190918d8ff634322c7d",
+      "author_id": "080bec36f8b0373f2c250095",
+      "sort_order": 0
+     },
+     {
+      "id": "0281a7db8ff33baee3b923eb",
+      "post_id": "d138be84feffbf468e7967a1",
+      "author_id": "080bec36f8b0373f2c250095",
+      "sort_order": 0
+     },
+     {
+      "id": "5a9636dbce6032c568adeb05",
+      "post_id": "fc11cfb1c6209e6e2c80b46c",
+      "author_id": "080bec36f8b0373f2c250095",
+      "sort_order": 0
+     },
+     {
+      "id": "7c106a961f0c10344f09beac",
+      "post_id": "203aa3f0177ac2e27ec41be4",
+      "author_id": "080bec36f8b0373f2c250095",
+      "sort_order": 0
+     },
+     {
+      "id": "de73d780a5feecce3a328f5f",
+      "post_id": "e99c7c07e5be0922b4b79a10",
+      "author_id": "080bec36f8b0373f2c250095",
+      "sort_order": 0
+     },
+     {
+      "id": "dede36eb153c848519eb7cdb",
+      "post_id": "6c6d659bdfc44ae92da1dc04",
+      "author_id": "080bec36f8b0373f2c250095",
+      "sort_order": 0
+     },
+     {
+      "id": "75a9dedc952f67ad34479471",
+      "post_id": "9c0ec565783ba2951d52829a",
+      "author_id": "080bec36f8b0373f2c250095",
+      "sort_order": 0
+     },
+     {
+      "id": "746c95e2a3d98c94e6f92e53",
+      "post_id": "68699e7be66c71e63f350595",
+      "author_id": "080bec36f8b0373f2c250095",
+      "sort_order": 0
+     },
+     {
+      "id": "6050f908bae6bff005791ca9",
+      "post_id": "9593a4793918743e913bae50",
+      "author_id": "080bec36f8b0373f2c250095",
+      "sort_order": 0
+     },
+     {
+      "id": "64b032af23a14ffddacbf38f",
+      "post_id": "c332fe6a7bf573001114ca02",
+      "author_id": "080bec36f8b0373f2c250095",
+      "sort_order": 0
+     },
+     {
+      "id": "5ba01be4f57caae80dccb40d",
+      "post_id": "c2c46da6f24dace73aa4cb74",
+      "author_id": "080bec36f8b0373f2c250095",
+      "sort_order": 0
+     },
+     {
+      "id": "72ea0bfd53f0dd7fcc9869b5",
+      "post_id": "62036ed6b494277f35215960",
+      "author_id": "080bec36f8b0373f2c250095",
+      "sort_order": 0
+     }
+    ],
+    "posts_meta": [],
+    "settings": [
+     {
+      "id": "69955d21320c0d21241e8af1",
+      "group": "site",
+      "key": "navigation",
+      "value": "[{\"label\": \"Home\", \"url\": \"/\"}, {\"label\": \"About\", \"url\": \"/about/\"}, {\"label\": \"Style Guide\", \"url\": \"/style-guide/\"}, {\"label\": \"Author\", \"url\": \"/author/jamie-larson/\"}, {\"label\": \"Collection\", \"url\": \"/tag/business/\"}, {\"label\": \"With wide image\", \"url\": \"/when-tech-brands-get-illustration-right/\"}, {\"label\": \"With full image\", \"url\": \"/a-gaming-companys-office-embraces-an-anti-tech-atmosphere/\"}, {\"label\": \"Technology\", \"url\": \"/tag/technology/\"}, {\"label\": \"Work\", \"url\": \"/tag/work/\"}]",
+      "type": "array",
+      "created_at": "2026-11-25T09:00:00.000Z",
+      "updated_at": "2026-11-25T09:00:00.000Z"
+     },
+     {
+      "id": "859faa762851461b3f61b61f",
+      "group": "site",
+      "key": "secondary_navigation",
+      "value": "[{\"label\": \"Terms\", \"url\": \"/terms/\"}, {\"label\": \"Privacy\", \"url\": \"/privacy/\"}]",
+      "type": "array",
+      "created_at": "2026-11-25T09:00:00.000Z",
+      "updated_at": "2026-11-25T09:00:00.000Z"
+     }
+    ],
+    "products": []
+   }
+  }
+ ]
+}

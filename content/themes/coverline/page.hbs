@@ -1,0 +1,12 @@
+{{!< default}}
+{{#post}}
+<main id="main" class="cv-main">
+<article class="cv-article">
+{{#match @page.show_title_and_feature_image}}
+<header class="cv-wrap cv-article-head"><h1 class="cv-article-title">{{title}}</h1>{{#if custom_excerpt}}<p class="cv-article-excerpt">{{custom_excerpt}}</p>{{/if}}</header>
+{{#if feature_image}}<figure class="cv-wrap cv-article-img"><img src="{{img_url feature_image size="l"}}" alt="{{title}}"></figure>{{/if}}
+{{/match}}
+<div class="cv-content gh-content">{{content}}</div>
+</article>
+</main>
+{{/post}}

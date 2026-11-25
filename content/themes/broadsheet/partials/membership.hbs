@@ -1,0 +1,26 @@
+{{!-- The membership band: words from Design settings, prices from the site's tiers. --}}
+{{#if @site.members_enabled}}{{#unless @member.paid}}
+<section class="np-member" aria-labelledby="np-member-h">
+<div class="np-wrap np-member-in">
+<div class="np-member-copy">
+<div class="np-member-meta"><span>Membership · {{@site.title}}</span><span>{{@custom.membership_kicker}}</span></div>
+<h2 class="np-member-title" id="np-member-h" data-np-gold>{{@custom.membership_title}}</h2>
+<p>{{@custom.membership_text}}</p>
+</div>
+<div class="np-member-plans" data-np-plans>
+{{#get "tiers" limit="4" include="monthly_price,yearly_price,benefits" order="monthly_price asc" as |tiers|}}
+<p class="np-label np-gold">Choose your plan</p>
+<div class="np-plan-switch" role="group" aria-label="Billing"><button type="button" class="is-on" data-np-cycle="monthly">Monthly</button><button type="button" data-np-cycle="yearly">Yearly</button></div>
+<ul class="np-plans">
+{{#foreach tiers}}
+<li><label class="np-plan"><input type="radio" name="np-plan" value="{{id}}" data-type="{{type}}"><span class="np-plan-name">{{name}}</span>
+<span class="np-plan-price">{{#match type "free"}}Free{{else}}<span data-cycle="monthly"><b>{{price monthly_price currency=currency}}</b> / month</span><span data-cycle="yearly" hidden><b>{{price yearly_price currency=currency}}</b> / year</span>{{/match}}</span></label></li>
+{{/foreach}}
+</ul>
+{{/get}}
+<a class="np-btn np-btn-gold np-btn-wide" href="#/portal/signup" data-np-plan-go>Subscribe →</a>
+<a class="np-compare" href="#/portal/signup">Compare plans</a>
+</div>
+</div>
+</section>
+{{/unless}}{{/if}}

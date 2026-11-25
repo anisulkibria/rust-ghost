@@ -222,6 +222,14 @@ async fn theme_templates(state: &AppState, names: &[&str]) -> Vec<String> {
     names.iter().filter(|n| theme.has_template(n)).map(|n| n.to_string()).collect()
 }
 
+/// `shop` for a page outside the store: the same addresses, no cart count
+/// (that needs the visitor's cart, and these pages are cached for
+/// everyone). Nothing while the store is off.
+pub(crate) fn site_shop(state: &AppState) -> Option<Value> {
+    let s = settings(state);
+    s.enabled.then(|| shop_json(state, &s, 0))
+}
+
 /// `shop`: what every store template can use.
 fn shop_json(state: &AppState, s: &Settings, count: i64) -> Value {
     let site_title = state.settings.get_str("title").unwrap_or_default();

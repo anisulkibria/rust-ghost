@@ -1,0 +1,125 @@
+{{!< default}}
+{{!--
+    One place from Vuuut's directory, in the same layout as a #listing post.
+    The details go out as a "Label: value" list first in the content, which
+    wayfinder.js lifts into the facts panel and reads for "Open now".
+--}}
+<main class="site-main" id="main">
+{{#listing}}
+<article class="listing">
+    <header class="listing-header wrap">
+        <p class="listing-where">
+            {{#if category}}<a href="{{category.url}}">{{category.name}}</a>{{/if}}{{#if place}} {{t "in"}} <a href="{{place.url}}">{{place.name}}</a>{{/if}}
+        </p>
+        <div class="listing-titlebar">
+            {{#if logo}}<img class="listing-logo" src="{{logo}}" alt="">{{/if}}
+            <h1 class="listing-title">{{title}}</h1>
+        </div>
+        {{#if summary}}<p class="listing-tagline">{{summary}}</p>{{/if}}
+        <div class="listing-badges">
+            <p class="status" data-status hidden></p>
+            {{> "dir-price"}}
+            {{#if classified}}{{#if (lookup this "price")}}<p class="badge">{{lookup this "price"}}</p>{{/if}}{{/if}}
+            {{#if featured}}<p class="badge">{{t "Featured"}}</p>{{/if}}
+        </div>
+        <div class="listing-actions">
+            {{#if booking_url}}<a class="button" href="{{booking_url}}" target="_blank" rel="noopener nofollow">{{t "Book a table"}}</a>{{/if}}
+            {{#if website_url}}<a class="button button-quiet" href="{{website_url}}" target="_blank" rel="noopener nofollow">{{> "icons/globe"}}{{t "Website"}}</a>{{/if}}
+            {{#if directions_url}}<a class="button button-quiet" href="{{directions_url}}" target="_blank" rel="noopener">{{> "icons/pin"}}{{t "Directions"}}</a>{{/if}}
+            {{#if show_contact}}{{#if phone_url}}<a class="button button-quiet" href="{{phone_url}}">{{> "icons/phone"}}{{phone}}</a>{{/if}}{{/if}}
+        </div>
+    </header>
+
+    {{#if feature_image}}
+        <figure class="listing-image wrap">
+            <img src="{{feature_image}}" alt="{{title}}">
+        </figure>
+    {{/if}}
+
+    <div class="listing-body wrap">
+        <div class="listing-main">
+            <h2 class="listing-section">{{t "About this place"}}</h2>
+            <div class="content gh-content" data-listing-content>
+                <ul>
+                    {{#if full_address}}<li>Address: {{full_address}}</li>{{/if}}
+                    {{#if show_contact}}{{#if phone}}<li>Phone: {{phone}}</li>{{/if}}{{/if}}
+                    {{#if website}}<li>Website: <a href="{{website}}">{{website_host}}</a></li>{{/if}}
+                    {{#if show_contact}}{{#if email}}<li>Email: {{email}}</li>{{/if}}{{/if}}
+                    {{#foreach hours}}<li>{{day}}: {{plain}}</li>{{/foreach}}
+                    {{#if established}}<li>Since: {{established}}</li>{{/if}}
+                </ul>
+                {{{description}}}
+            </div>
+
+            {{#if gallery}}
+                <h2 class="listing-section">{{t "Photos"}}</h2>
+                <div class="listing-gallery">
+                    {{#foreach gallery}}<a href="{{this}}" target="_blank" rel="noopener"><img src="{{this}}" alt="" loading="lazy"></a>{{/foreach}}
+                </div>
+            {{/if}}
+
+            {{#if amenities}}
+                <h2 class="listing-section">{{t "Amenities"}}</h2>
+                <ul class="listing-chips" role="list">{{#foreach amenities}}<li>{{label}}</li>{{/foreach}}</ul>
+            {{/if}}
+
+            {{#if map_embed_url}}
+                <h2 class="listing-section">{{t "On the map"}}</h2>
+                <iframe class="listing-map" title="{{t "Map"}}" loading="lazy" src="{{map_embed_url}}"></iframe>
+            {{/if}}
+        </div>
+
+        <template data-icon="pin">{{> "icons/pin"}}</template>
+        <template data-icon="phone">{{> "icons/phone"}}</template>
+        <template data-icon="globe">{{> "icons/globe"}}</template>
+        <template data-icon="mail">{{> "icons/mail"}}</template>
+        <template data-icon="clock">{{> "icons/clock"}}</template>
+
+        <aside class="facts" aria-labelledby="facts-heading">
+            <h2 class="visually-hidden" id="facts-heading">{{t "Details"}}</h2>
+            <div class="facts-card" data-facts
+                data-label-directions="{{t "Get directions"}}"
+                data-label-open="{{t "Open now"}}"
+                data-label-closed="{{t "Closed now"}}"
+                data-label-closes="{{t "closes at"}}"
+                data-label-opens="{{t "opens at"}}"
+                data-label-tomorrow="{{t "tomorrow"}}"
+                data-label-allday="{{t "Open 24 hours"}}"
+                data-label-closedday="{{t "Closed"}}"
+                data-label-hours="{{t "Opening hours"}}"
+                data-label-today="{{t "Today"}}"></div>
+            {{#if hours_note}}<p class="facts-note">{{hours_note}}</p>{{/if}}
+            {{#if payments}}
+                <div class="facts-extra">
+                    <p class="facts-extra-title">{{t "Payment"}}</p>
+                    <p>{{#foreach payments}}{{label}}{{#unless @last}}, {{/unless}}{{/foreach}}</p>
+                </div>
+            {{/if}}
+            {{#if socials}}
+                <div class="facts-extra">
+                    <p class="facts-extra-title">{{t "Follow"}}</p>
+                    <p class="facts-socials">{{#foreach socials}}<a href="{{url}}" target="_blank" rel="noopener nofollow">{{label}}</a>{{/foreach}}</p>
+                </div>
+            {{/if}}
+            <div class="facts-more">
+                {{> "share"}}
+                {{#if category}}<a class="facts-similar" href="{{category.url}}">{{t "More"}} {{category.name}}</a>{{/if}}
+            </div>
+        </aside>
+    </div>
+</article>
+{{/listing}}
+
+{{#if nearby}}
+    <section class="band" aria-labelledby="nearby-heading">
+        <header class="section-head wrap">
+            <h2 class="section-title" id="nearby-heading">{{#if listing.place}}{{t "More places in"}} {{listing.place.name}}{{else}}{{t "More like this"}}{{/if}}</h2>
+        </header>
+        <div class="grid grid-four wrap">
+            {{#foreach nearby}}{{> "dir-card"}}{{/foreach}}
+        </div>
+    </section>
+{{/if}}
+
+<script type="application/ld+json">{{{listing.schema}}}</script>
+</main>

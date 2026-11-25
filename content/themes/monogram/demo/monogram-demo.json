@@ -1,0 +1,1044 @@
+{
+ "db": [
+  {
+   "meta": {
+    "exported_on": 1795000000000,
+    "version": "6.0.0"
+   },
+   "data": {
+    "users": [
+     {
+      "id": "d4f9fd3609629512f960c9fb",
+      "name": "Daniel Reyes",
+      "slug": "daniel-reyes",
+      "email": "daniel.reyes@example.com",
+      "profile_image": "https://randomuser.me/api/portraits/men/22.jpg",
+      "cover_image": null,
+      "bio": "Product designer in Lisbon. I design calm, useful products and the brands around them.",
+      "website": null,
+      "location": "Lisbon",
+      "status": "active",
+      "visibility": "public",
+      "created_at": "2026-11-25T09:00:00.000Z",
+      "updated_at": "2026-11-25T09:00:00.000Z"
+     }
+    ],
+    "tags": [
+     {
+      "id": "703131835e5ab5a1024b9189",
+      "name": "#service",
+      "slug": "hash-service",
+      "description": null,
+      "feature_image": null,
+      "visibility": "internal",
+      "created_at": "2026-11-25T09:00:00.000Z",
+      "updated_at": "2026-11-25T09:00:00.000Z"
+     },
+     {
+      "id": "c25e6686a5e685145ba15f61",
+      "name": "#project",
+      "slug": "hash-project",
+      "description": null,
+      "feature_image": null,
+      "visibility": "internal",
+      "created_at": "2026-11-25T09:00:00.000Z",
+      "updated_at": "2026-11-25T09:00:00.000Z"
+     },
+     {
+      "id": "635ab9be9010e332077672b6",
+      "name": "App design",
+      "slug": "app-design",
+      "description": null,
+      "feature_image": null,
+      "visibility": "public",
+      "created_at": "2026-11-25T09:00:00.000Z",
+      "updated_at": "2026-11-25T09:00:00.000Z"
+     },
+     {
+      "id": "fe46e8b886a6f7cc883b3b96",
+      "name": "Web design",
+      "slug": "web-design",
+      "description": null,
+      "feature_image": null,
+      "visibility": "public",
+      "created_at": "2026-11-25T09:00:00.000Z",
+      "updated_at": "2026-11-25T09:00:00.000Z"
+     },
+     {
+      "id": "4eea828a457283131e51aab8",
+      "name": "Branding",
+      "slug": "branding",
+      "description": null,
+      "feature_image": null,
+      "visibility": "public",
+      "created_at": "2026-11-25T09:00:00.000Z",
+      "updated_at": "2026-11-25T09:00:00.000Z"
+     },
+     {
+      "id": "0f06af4b526a1e1b1272ad59",
+      "name": "#experience",
+      "slug": "hash-experience",
+      "description": null,
+      "feature_image": null,
+      "visibility": "internal",
+      "created_at": "2026-11-25T09:00:00.000Z",
+      "updated_at": "2026-11-25T09:00:00.000Z"
+     },
+     {
+      "id": "f7d765024381f965bc070a3e",
+      "name": "#education",
+      "slug": "hash-education",
+      "description": null,
+      "feature_image": null,
+      "visibility": "internal",
+      "created_at": "2026-11-25T09:00:00.000Z",
+      "updated_at": "2026-11-25T09:00:00.000Z"
+     },
+     {
+      "id": "165a3585e1623bfd34f668bb",
+      "name": "#testimonial",
+      "slug": "hash-testimonial",
+      "description": null,
+      "feature_image": null,
+      "visibility": "internal",
+      "created_at": "2026-11-25T09:00:00.000Z",
+      "updated_at": "2026-11-25T09:00:00.000Z"
+     },
+     {
+      "id": "03dc522268bbec0e2a2a50cc",
+      "name": "Atlas Finance",
+      "slug": "atlas-finance",
+      "description": null,
+      "feature_image": null,
+      "visibility": "public",
+      "created_at": "2026-11-25T09:00:00.000Z",
+      "updated_at": "2026-11-25T09:00:00.000Z"
+     },
+     {
+      "id": "c530dce68f1c3555af40416d",
+      "name": "Moss & Stone",
+      "slug": "moss-and-stone",
+      "description": null,
+      "feature_image": null,
+      "visibility": "public",
+      "created_at": "2026-11-25T09:00:00.000Z",
+      "updated_at": "2026-11-25T09:00:00.000Z"
+     },
+     {
+      "id": "56b1a0b74f6f23665355ed96",
+      "name": "Fieldnote",
+      "slug": "fieldnote",
+      "description": null,
+      "feature_image": null,
+      "visibility": "public",
+      "created_at": "2026-11-25T09:00:00.000Z",
+      "updated_at": "2026-11-25T09:00:00.000Z"
+     },
+     {
+      "id": "e6d7d47e826cbfc2cbbc8a97",
+      "name": "Freelancing",
+      "slug": "freelancing",
+      "description": null,
+      "feature_image": null,
+      "visibility": "public",
+      "created_at": "2026-11-25T09:00:00.000Z",
+      "updated_at": "2026-11-25T09:00:00.000Z"
+     },
+     {
+      "id": "001b29f7ef04e39cdd111694",
+      "name": "Design",
+      "slug": "design",
+      "description": null,
+      "feature_image": null,
+      "visibility": "public",
+      "created_at": "2026-11-25T09:00:00.000Z",
+      "updated_at": "2026-11-25T09:00:00.000Z"
+     },
+     {
+      "id": "3e037a5c5664067c3cf15ef2",
+      "name": "Tools",
+      "slug": "tools",
+      "description": null,
+      "feature_image": null,
+      "visibility": "public",
+      "created_at": "2026-11-25T09:00:00.000Z",
+      "updated_at": "2026-11-25T09:00:00.000Z"
+     }
+    ],
+    "posts": [
+     {
+      "id": "ffd44d3c77ef8304900384cb",
+      "uuid": "457b630e-e736-4145-a0a3-18f996f9df39",
+      "title": "Product design",
+      "slug": "product-design",
+      "type": "post",
+      "lexical": "{\"root\": {\"children\": [{\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"From research to polished interface: apps and platforms people enjoy using.\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"paragraph\", \"version\": 1}, {\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"Projects start with a short call and a written proposal with a fixed price.\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"paragraph\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"root\", \"version\": 1}}",
+      "mobiledoc": null,
+      "html": "<p>From research to polished interface: apps and platforms people enjoy using.</p><p>Projects start with a short call and a written proposal with a fixed price.</p>",
+      "plaintext": "From research to polished interface: apps and platforms people enjoy using.\n\nProjects start with a short call and a written proposal with a fixed price.",
+      "feature_image": null,
+      "featured": 0,
+      "status": "published",
+      "visibility": "public",
+      "custom_excerpt": "From research to polished interface: apps and platforms people enjoy using.",
+      "locale": null,
+      "email_recipient_filter": "all",
+      "reading_time": 1,
+      "created_at": "2026-08-25T21:52:00.000Z",
+      "updated_at": "2026-08-25T21:52:00.000Z",
+      "published_at": "2026-08-25T21:52:00.000Z"
+     },
+     {
+      "id": "67aa72cbf27ef9c59074e0ed",
+      "uuid": "3599f320-4afa-4c00-a37e-0663fd63a005",
+      "title": "Brand identity",
+      "slug": "brand-identity",
+      "type": "post",
+      "lexical": "{\"root\": {\"children\": [{\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"Logos, type and colour systems with a reason behind every choice.\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"paragraph\", \"version\": 1}, {\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"Projects start with a short call and a written proposal with a fixed price.\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"paragraph\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"root\", \"version\": 1}}",
+      "mobiledoc": null,
+      "html": "<p>Logos, type and colour systems with a reason behind every choice.</p><p>Projects start with a short call and a written proposal with a fixed price.</p>",
+      "plaintext": "Logos, type and colour systems with a reason behind every choice.\n\nProjects start with a short call and a written proposal with a fixed price.",
+      "feature_image": null,
+      "featured": 0,
+      "status": "published",
+      "visibility": "public",
+      "custom_excerpt": "Logos, type and colour systems with a reason behind every choice.",
+      "locale": null,
+      "email_recipient_filter": "all",
+      "reading_time": 1,
+      "created_at": "2026-08-24T20:45:00.000Z",
+      "updated_at": "2026-08-24T20:45:00.000Z",
+      "published_at": "2026-08-24T20:45:00.000Z"
+     },
+     {
+      "id": "1ee51eab185e52ab8dec1bad",
+      "uuid": "8f58d1ec-c49a-46e0-a9e7-8b275cf21d76",
+      "title": "Design systems",
+      "slug": "design-systems",
+      "type": "post",
+      "lexical": "{\"root\": {\"children\": [{\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"Components and guidelines your team can actually maintain.\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"paragraph\", \"version\": 1}, {\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"Projects start with a short call and a written proposal with a fixed price.\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"paragraph\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"root\", \"version\": 1}}",
+      "mobiledoc": null,
+      "html": "<p>Components and guidelines your team can actually maintain.</p><p>Projects start with a short call and a written proposal with a fixed price.</p>",
+      "plaintext": "Components and guidelines your team can actually maintain.\n\nProjects start with a short call and a written proposal with a fixed price.",
+      "feature_image": null,
+      "featured": 0,
+      "status": "published",
+      "visibility": "public",
+      "custom_excerpt": "Components and guidelines your team can actually maintain.",
+      "locale": null,
+      "email_recipient_filter": "all",
+      "reading_time": 1,
+      "created_at": "2026-08-23T19:38:00.000Z",
+      "updated_at": "2026-08-23T19:38:00.000Z",
+      "published_at": "2026-08-23T19:38:00.000Z"
+     },
+     {
+      "id": "e385d730b707fbee755aff8d",
+      "uuid": "ef055b9d-3b77-485c-af3f-7f155fc994e8",
+      "title": "Web design",
+      "slug": "web-design",
+      "type": "post",
+      "lexical": "{\"root\": {\"children\": [{\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"Fast, accessible websites built in Webflow, Framer or code.\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"paragraph\", \"version\": 1}, {\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"Projects start with a short call and a written proposal with a fixed price.\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"paragraph\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"root\", \"version\": 1}}",
+      "mobiledoc": null,
+      "html": "<p>Fast, accessible websites built in Webflow, Framer or code.</p><p>Projects start with a short call and a written proposal with a fixed price.</p>",
+      "plaintext": "Fast, accessible websites built in Webflow, Framer or code.\n\nProjects start with a short call and a written proposal with a fixed price.",
+      "feature_image": null,
+      "featured": 0,
+      "status": "published",
+      "visibility": "public",
+      "custom_excerpt": "Fast, accessible websites built in Webflow, Framer or code.",
+      "locale": null,
+      "email_recipient_filter": "all",
+      "reading_time": 1,
+      "created_at": "2026-08-22T18:31:00.000Z",
+      "updated_at": "2026-08-22T18:31:00.000Z",
+      "published_at": "2026-08-22T18:31:00.000Z"
+     },
+     {
+      "id": "043fe3e8f1a88b4d8086763f",
+      "uuid": "cde8d419-0ea3-494a-a6b4-0679304229fe",
+      "title": "Prototyping",
+      "slug": "prototyping",
+      "type": "post",
+      "lexical": "{\"root\": {\"children\": [{\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"Clickable prototypes to test ideas before they cost money.\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"paragraph\", \"version\": 1}, {\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"Projects start with a short call and a written proposal with a fixed price.\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"paragraph\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"root\", \"version\": 1}}",
+      "mobiledoc": null,
+      "html": "<p>Clickable prototypes to test ideas before they cost money.</p><p>Projects start with a short call and a written proposal with a fixed price.</p>",
+      "plaintext": "Clickable prototypes to test ideas before they cost money.\n\nProjects start with a short call and a written proposal with a fixed price.",
+      "feature_image": null,
+      "featured": 0,
+      "status": "published",
+      "visibility": "public",
+      "custom_excerpt": "Clickable prototypes to test ideas before they cost money.",
+      "locale": null,
+      "email_recipient_filter": "all",
+      "reading_time": 1,
+      "created_at": "2026-08-21T17:24:00.000Z",
+      "updated_at": "2026-08-21T17:24:00.000Z",
+      "published_at": "2026-08-21T17:24:00.000Z"
+     },
+     {
+      "id": "030dfe9dd7a09278e92e808c",
+      "uuid": "cb877349-74bf-4c3a-acfd-b54d04e47b74",
+      "title": "Workshops",
+      "slug": "workshops",
+      "type": "post",
+      "lexical": "{\"root\": {\"children\": [{\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"Half-day sessions to align a team on what to build next.\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"paragraph\", \"version\": 1}, {\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"Projects start with a short call and a written proposal with a fixed price.\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"paragraph\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"root\", \"version\": 1}}",
+      "mobiledoc": null,
+      "html": "<p>Half-day sessions to align a team on what to build next.</p><p>Projects start with a short call and a written proposal with a fixed price.</p>",
+      "plaintext": "Half-day sessions to align a team on what to build next.\n\nProjects start with a short call and a written proposal with a fixed price.",
+      "feature_image": null,
+      "featured": 0,
+      "status": "published",
+      "visibility": "public",
+      "custom_excerpt": "Half-day sessions to align a team on what to build next.",
+      "locale": null,
+      "email_recipient_filter": "all",
+      "reading_time": 1,
+      "created_at": "2026-08-20T16:17:00.000Z",
+      "updated_at": "2026-08-20T16:17:00.000Z",
+      "published_at": "2026-08-20T16:17:00.000Z"
+     },
+     {
+      "id": "4fa7b7b9d67d0568b380f66c",
+      "uuid": "bd9506b3-94ad-4f51-a32b-af3d038ca52b",
+      "title": "Atlas Finance Dashboard",
+      "slug": "atlas-finance-dashboard",
+      "type": "post",
+      "lexical": "{\"root\": {\"children\": [{\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"Product design for a budgeting app used by 40,000 households.\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"paragraph\", \"version\": 1}, {\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"The challenge\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"extended-heading\", \"version\": 1, \"tag\": \"h2\"}, {\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"The client needed something that felt considered without feeling expensive, and they needed it in six weeks.\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"paragraph\", \"version\": 1}, {\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"The approach\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"extended-heading\", \"version\": 1, \"tag\": \"h2\"}, {\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"We started with three directions on paper, chose one in a single meeting, and spent the rest of the time on details.\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"paragraph\", \"version\": 1}, {\"children\": [{\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"Research and interviews\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"listitem\", \"version\": 1, \"value\": 1}, {\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"Identity and interface design\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"listitem\", \"version\": 1, \"value\": 2}, {\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"Hand-off with documented components\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"listitem\", \"version\": 1, \"value\": 3}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"list\", \"version\": 1, \"listType\": \"bullet\", \"start\": 1, \"tag\": \"ul\"}, {\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"The best design decisions are the ones you never have to explain.\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"extended-quote\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"root\", \"version\": 1}}",
+      "mobiledoc": null,
+      "html": "<p>Product design for a budgeting app used by 40,000 households.</p><h2 id=\"the-challenge\">The challenge</h2><p>The client needed something that felt considered without feeling expensive, and they needed it in six weeks.</p><h2 id=\"the-approach\">The approach</h2><p>We started with three directions on paper, chose one in a single meeting, and spent the rest of the time on details.</p><ul><li>Research and interviews</li><li>Identity and interface design</li><li>Hand-off with documented components</li></ul><blockquote>The best design decisions are the ones you never have to explain.</blockquote>",
+      "plaintext": "Product design for a budgeting app used by 40,000 households.\n\nThe challenge\n\nThe client needed something that felt considered without feeling expensive, and they needed it in six weeks.\n\nThe approach\n\nWe started with three directions on paper, chose one in a single meeting, and spent the rest of the time on details.\n\nResearch and interviews\nIdentity and interface design\nHand-off with documented components\n\nThe best design decisions are the ones you never have to explain.",
+      "feature_image": "https://picsum.photos/seed/atlas-finance-dashboard/1600/1000",
+      "featured": 0,
+      "status": "published",
+      "visibility": "public",
+      "custom_excerpt": "Product design for a budgeting app used by 40,000 households.",
+      "locale": null,
+      "email_recipient_filter": "all",
+      "reading_time": 1,
+      "created_at": "2026-11-20T15:10:00.000Z",
+      "updated_at": "2026-11-20T15:10:00.000Z",
+      "published_at": "2026-11-20T15:10:00.000Z"
+     },
+     {
+      "id": "b6e8af40cd9049e6aedec2c4",
+      "uuid": "f46f4f14-c5eb-4038-a364-6e9aead2f084",
+      "title": "Kinfolk Journal",
+      "slug": "kinfolk-journal",
+      "type": "post",
+      "lexical": "{\"root\": {\"children\": [{\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"Editorial website and CMS theme for an independent magazine.\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"paragraph\", \"version\": 1}, {\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"The challenge\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"extended-heading\", \"version\": 1, \"tag\": \"h2\"}, {\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"The client needed something that felt considered without feeling expensive, and they needed it in six weeks.\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"paragraph\", \"version\": 1}, {\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"The approach\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"extended-heading\", \"version\": 1, \"tag\": \"h2\"}, {\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"We started with three directions on paper, chose one in a single meeting, and spent the rest of the time on details.\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"paragraph\", \"version\": 1}, {\"children\": [{\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"Research and interviews\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"listitem\", \"version\": 1, \"value\": 1}, {\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"Identity and interface design\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"listitem\", \"version\": 1, \"value\": 2}, {\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"Hand-off with documented components\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"listitem\", \"version\": 1, \"value\": 3}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"list\", \"version\": 1, \"listType\": \"bullet\", \"start\": 1, \"tag\": \"ul\"}, {\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"The best design decisions are the ones you never have to explain.\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"extended-quote\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"root\", \"version\": 1}}",
+      "mobiledoc": null,
+      "html": "<p>Editorial website and CMS theme for an independent magazine.</p><h2 id=\"the-challenge\">The challenge</h2><p>The client needed something that felt considered without feeling expensive, and they needed it in six weeks.</p><h2 id=\"the-approach\">The approach</h2><p>We started with three directions on paper, chose one in a single meeting, and spent the rest of the time on details.</p><ul><li>Research and interviews</li><li>Identity and interface design</li><li>Hand-off with documented components</li></ul><blockquote>The best design decisions are the ones you never have to explain.</blockquote>",
+      "plaintext": "Editorial website and CMS theme for an independent magazine.\n\nThe challenge\n\nThe client needed something that felt considered without feeling expensive, and they needed it in six weeks.\n\nThe approach\n\nWe started with three directions on paper, chose one in a single meeting, and spent the rest of the time on details.\n\nResearch and interviews\nIdentity and interface design\nHand-off with documented components\n\nThe best design decisions are the ones you never have to explain.",
+      "feature_image": "https://picsum.photos/seed/kinfolk-journal/1600/1000",
+      "featured": 0,
+      "status": "published",
+      "visibility": "public",
+      "custom_excerpt": "Editorial website and CMS theme for an independent magazine.",
+      "locale": null,
+      "email_recipient_filter": "all",
+      "reading_time": 1,
+      "created_at": "2026-11-08T14:03:00.000Z",
+      "updated_at": "2026-11-08T14:03:00.000Z",
+      "published_at": "2026-11-08T14:03:00.000Z"
+     },
+     {
+      "id": "ac9bf3550fdc2c35e08cfc08",
+      "uuid": "d8a60c92-12af-4783-a247-bb8001753216",
+      "title": "Moss & Stone",
+      "slug": "moss-and-stone",
+      "type": "post",
+      "lexical": "{\"root\": {\"children\": [{\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"Identity for an architecture practice in Porto.\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"paragraph\", \"version\": 1}, {\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"The challenge\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"extended-heading\", \"version\": 1, \"tag\": \"h2\"}, {\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"The client needed something that felt considered without feeling expensive, and they needed it in six weeks.\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"paragraph\", \"version\": 1}, {\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"The approach\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"extended-heading\", \"version\": 1, \"tag\": \"h2\"}, {\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"We started with three directions on paper, chose one in a single meeting, and spent the rest of the time on details.\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"paragraph\", \"version\": 1}, {\"children\": [{\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"Research and interviews\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"listitem\", \"version\": 1, \"value\": 1}, {\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"Identity and interface design\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"listitem\", \"version\": 1, \"value\": 2}, {\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"Hand-off with documented components\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"listitem\", \"version\": 1, \"value\": 3}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"list\", \"version\": 1, \"listType\": \"bullet\", \"start\": 1, \"tag\": \"ul\"}, {\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"The best design decisions are the ones you never have to explain.\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"extended-quote\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"root\", \"version\": 1}}",
+      "mobiledoc": null,
+      "html": "<p>Identity for an architecture practice in Porto.</p><h2 id=\"the-challenge\">The challenge</h2><p>The client needed something that felt considered without feeling expensive, and they needed it in six weeks.</p><h2 id=\"the-approach\">The approach</h2><p>We started with three directions on paper, chose one in a single meeting, and spent the rest of the time on details.</p><ul><li>Research and interviews</li><li>Identity and interface design</li><li>Hand-off with documented components</li></ul><blockquote>The best design decisions are the ones you never have to explain.</blockquote>",
+      "plaintext": "Identity for an architecture practice in Porto.\n\nThe challenge\n\nThe client needed something that felt considered without feeling expensive, and they needed it in six weeks.\n\nThe approach\n\nWe started with three directions on paper, chose one in a single meeting, and spent the rest of the time on details.\n\nResearch and interviews\nIdentity and interface design\nHand-off with documented components\n\nThe best design decisions are the ones you never have to explain.",
+      "feature_image": "https://picsum.photos/seed/moss-and-stone/1600/1000",
+      "featured": 0,
+      "status": "published",
+      "visibility": "public",
+      "custom_excerpt": "Identity for an architecture practice in Porto.",
+      "locale": null,
+      "email_recipient_filter": "all",
+      "reading_time": 1,
+      "created_at": "2026-10-26T13:56:00.000Z",
+      "updated_at": "2026-10-26T13:56:00.000Z",
+      "published_at": "2026-10-26T13:56:00.000Z"
+     },
+     {
+      "id": "262b46e21edffc90caa06431",
+      "uuid": "d9f82074-a775-43a1-a0f9-9f253f9a5ebe",
+      "title": "Pulse Running Club",
+      "slug": "pulse-running-club",
+      "type": "post",
+      "lexical": "{\"root\": {\"children\": [{\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"Mobile app and community platform for a running club with 12 chapters.\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"paragraph\", \"version\": 1}, {\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"The challenge\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"extended-heading\", \"version\": 1, \"tag\": \"h2\"}, {\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"The client needed something that felt considered without feeling expensive, and they needed it in six weeks.\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"paragraph\", \"version\": 1}, {\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"The approach\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"extended-heading\", \"version\": 1, \"tag\": \"h2\"}, {\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"We started with three directions on paper, chose one in a single meeting, and spent the rest of the time on details.\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"paragraph\", \"version\": 1}, {\"children\": [{\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"Research and interviews\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"listitem\", \"version\": 1, \"value\": 1}, {\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"Identity and interface design\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"listitem\", \"version\": 1, \"value\": 2}, {\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"Hand-off with documented components\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"listitem\", \"version\": 1, \"value\": 3}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"list\", \"version\": 1, \"listType\": \"bullet\", \"start\": 1, \"tag\": \"ul\"}, {\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"The best design decisions are the ones you never have to explain.\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"extended-quote\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"root\", \"version\": 1}}",
+      "mobiledoc": null,
+      "html": "<p>Mobile app and community platform for a running club with 12 chapters.</p><h2 id=\"the-challenge\">The challenge</h2><p>The client needed something that felt considered without feeling expensive, and they needed it in six weeks.</p><h2 id=\"the-approach\">The approach</h2><p>We started with three directions on paper, chose one in a single meeting, and spent the rest of the time on details.</p><ul><li>Research and interviews</li><li>Identity and interface design</li><li>Hand-off with documented components</li></ul><blockquote>The best design decisions are the ones you never have to explain.</blockquote>",
+      "plaintext": "Mobile app and community platform for a running club with 12 chapters.\n\nThe challenge\n\nThe client needed something that felt considered without feeling expensive, and they needed it in six weeks.\n\nThe approach\n\nWe started with three directions on paper, chose one in a single meeting, and spent the rest of the time on details.\n\nResearch and interviews\nIdentity and interface design\nHand-off with documented components\n\nThe best design decisions are the ones you never have to explain.",
+      "feature_image": "https://picsum.photos/seed/pulse-running-club/1600/1000",
+      "featured": 0,
+      "status": "published",
+      "visibility": "public",
+      "custom_excerpt": "Mobile app and community platform for a running club with 12 chapters.",
+      "locale": null,
+      "email_recipient_filter": "all",
+      "reading_time": 1,
+      "created_at": "2026-10-14T12:49:00.000Z",
+      "updated_at": "2026-10-14T12:49:00.000Z",
+      "published_at": "2026-10-14T12:49:00.000Z"
+     },
+     {
+      "id": "20267fe20fc764b067140752",
+      "uuid": "0ea9de67-dea5-4c1c-ae13-a40b0dcc9217",
+      "title": "Tidewater Festival",
+      "slug": "tidewater-festival",
+      "type": "post",
+      "lexical": "{\"root\": {\"children\": [{\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"Posters, wayfinding and website for a coastal music festival.\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"paragraph\", \"version\": 1}, {\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"The challenge\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"extended-heading\", \"version\": 1, \"tag\": \"h2\"}, {\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"The client needed something that felt considered without feeling expensive, and they needed it in six weeks.\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"paragraph\", \"version\": 1}, {\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"The approach\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"extended-heading\", \"version\": 1, \"tag\": \"h2\"}, {\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"We started with three directions on paper, chose one in a single meeting, and spent the rest of the time on details.\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"paragraph\", \"version\": 1}, {\"children\": [{\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"Research and interviews\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"listitem\", \"version\": 1, \"value\": 1}, {\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"Identity and interface design\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"listitem\", \"version\": 1, \"value\": 2}, {\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"Hand-off with documented components\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"listitem\", \"version\": 1, \"value\": 3}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"list\", \"version\": 1, \"listType\": \"bullet\", \"start\": 1, \"tag\": \"ul\"}, {\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"The best design decisions are the ones you never have to explain.\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"extended-quote\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"root\", \"version\": 1}}",
+      "mobiledoc": null,
+      "html": "<p>Posters, wayfinding and website for a coastal music festival.</p><h2 id=\"the-challenge\">The challenge</h2><p>The client needed something that felt considered without feeling expensive, and they needed it in six weeks.</p><h2 id=\"the-approach\">The approach</h2><p>We started with three directions on paper, chose one in a single meeting, and spent the rest of the time on details.</p><ul><li>Research and interviews</li><li>Identity and interface design</li><li>Hand-off with documented components</li></ul><blockquote>The best design decisions are the ones you never have to explain.</blockquote>",
+      "plaintext": "Posters, wayfinding and website for a coastal music festival.\n\nThe challenge\n\nThe client needed something that felt considered without feeling expensive, and they needed it in six weeks.\n\nThe approach\n\nWe started with three directions on paper, chose one in a single meeting, and spent the rest of the time on details.\n\nResearch and interviews\nIdentity and interface design\nHand-off with documented components\n\nThe best design decisions are the ones you never have to explain.",
+      "feature_image": "https://picsum.photos/seed/tidewater-festival/1600/1000",
+      "featured": 0,
+      "status": "published",
+      "visibility": "public",
+      "custom_excerpt": "Posters, wayfinding and website for a coastal music festival.",
+      "locale": null,
+      "email_recipient_filter": "all",
+      "reading_time": 1,
+      "created_at": "2026-10-02T11:42:00.000Z",
+      "updated_at": "2026-10-02T11:42:00.000Z",
+      "published_at": "2026-10-02T11:42:00.000Z"
+     },
+     {
+      "id": "78c55ef47fa8d38a67653062",
+      "uuid": "081457df-5537-448c-a49e-0ff864e9c2f1",
+      "title": "Quiet Hours",
+      "slug": "quiet-hours",
+      "type": "post",
+      "lexical": "{\"root\": {\"children\": [{\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"Landing page and brand for a focus-timer app.\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"paragraph\", \"version\": 1}, {\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"The challenge\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"extended-heading\", \"version\": 1, \"tag\": \"h2\"}, {\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"The client needed something that felt considered without feeling expensive, and they needed it in six weeks.\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"paragraph\", \"version\": 1}, {\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"The approach\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"extended-heading\", \"version\": 1, \"tag\": \"h2\"}, {\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"We started with three directions on paper, chose one in a single meeting, and spent the rest of the time on details.\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"paragraph\", \"version\": 1}, {\"children\": [{\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"Research and interviews\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"listitem\", \"version\": 1, \"value\": 1}, {\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"Identity and interface design\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"listitem\", \"version\": 1, \"value\": 2}, {\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"Hand-off with documented components\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"listitem\", \"version\": 1, \"value\": 3}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"list\", \"version\": 1, \"listType\": \"bullet\", \"start\": 1, \"tag\": \"ul\"}, {\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"The best design decisions are the ones you never have to explain.\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"extended-quote\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"root\", \"version\": 1}}",
+      "mobiledoc": null,
+      "html": "<p>Landing page and brand for a focus-timer app.</p><h2 id=\"the-challenge\">The challenge</h2><p>The client needed something that felt considered without feeling expensive, and they needed it in six weeks.</p><h2 id=\"the-approach\">The approach</h2><p>We started with three directions on paper, chose one in a single meeting, and spent the rest of the time on details.</p><ul><li>Research and interviews</li><li>Identity and interface design</li><li>Hand-off with documented components</li></ul><blockquote>The best design decisions are the ones you never have to explain.</blockquote>",
+      "plaintext": "Landing page and brand for a focus-timer app.\n\nThe challenge\n\nThe client needed something that felt considered without feeling expensive, and they needed it in six weeks.\n\nThe approach\n\nWe started with three directions on paper, chose one in a single meeting, and spent the rest of the time on details.\n\nResearch and interviews\nIdentity and interface design\nHand-off with documented components\n\nThe best design decisions are the ones you never have to explain.",
+      "feature_image": "https://picsum.photos/seed/quiet-hours/1600/1000",
+      "featured": 0,
+      "status": "published",
+      "visibility": "public",
+      "custom_excerpt": "Landing page and brand for a focus-timer app.",
+      "locale": null,
+      "email_recipient_filter": "all",
+      "reading_time": 1,
+      "created_at": "2026-09-20T10:35:00.000Z",
+      "updated_at": "2026-09-20T10:35:00.000Z",
+      "published_at": "2026-09-20T10:35:00.000Z"
+     },
+     {
+      "id": "eae5d1ae668ce9d64739f962",
+      "uuid": "57941660-e846-4371-a127-856da6686d08",
+      "title": "Lead product designer",
+      "slug": "lead-product-designer",
+      "type": "post",
+      "lexical": "{\"root\": {\"children\": [{\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"Led design for the core product, hired and mentored a team of four, and set up the design system the company still runs on.\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"paragraph\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"root\", \"version\": 1}}",
+      "mobiledoc": null,
+      "html": "<p>Led design for the core product, hired and mentored a team of four, and set up the design system the company still runs on.</p>",
+      "plaintext": "Led design for the core product, hired and mentored a team of four, and set up the design system the company still runs on.",
+      "feature_image": null,
+      "featured": 0,
+      "status": "published",
+      "visibility": "public",
+      "custom_excerpt": "Fieldnote · 2023 — now",
+      "locale": null,
+      "email_recipient_filter": "all",
+      "reading_time": 1,
+      "created_at": "2026-07-25T09:28:00.000Z",
+      "updated_at": "2026-07-25T09:28:00.000Z",
+      "published_at": "2026-07-25T09:28:00.000Z"
+     },
+     {
+      "id": "41a9f5962283ec830ed371df",
+      "uuid": "11e26f0d-b100-4451-aeb9-30d95af76ff6",
+      "title": "Senior designer",
+      "slug": "senior-designer",
+      "type": "post",
+      "lexical": "{\"root\": {\"children\": [{\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"Led design for the core product, hired and mentored a team of four, and set up the design system the company still runs on.\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"paragraph\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"root\", \"version\": 1}}",
+      "mobiledoc": null,
+      "html": "<p>Led design for the core product, hired and mentored a team of four, and set up the design system the company still runs on.</p>",
+      "plaintext": "Led design for the core product, hired and mentored a team of four, and set up the design system the company still runs on.",
+      "feature_image": null,
+      "featured": 0,
+      "status": "published",
+      "visibility": "public",
+      "custom_excerpt": "Studio Halden · 2020 — 2023",
+      "locale": null,
+      "email_recipient_filter": "all",
+      "reading_time": 1,
+      "created_at": "2026-07-25T08:21:00.000Z",
+      "updated_at": "2026-07-25T08:21:00.000Z",
+      "published_at": "2026-07-25T08:21:00.000Z"
+     },
+     {
+      "id": "399296de6d5b52f388262051",
+      "uuid": "3bdc9ce4-6b77-411d-a742-1d61148e698d",
+      "title": "Designer",
+      "slug": "designer",
+      "type": "post",
+      "lexical": "{\"root\": {\"children\": [{\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"Led design for the core product, hired and mentored a team of four, and set up the design system the company still runs on.\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"paragraph\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"root\", \"version\": 1}}",
+      "mobiledoc": null,
+      "html": "<p>Led design for the core product, hired and mentored a team of four, and set up the design system the company still runs on.</p>",
+      "plaintext": "Led design for the core product, hired and mentored a team of four, and set up the design system the company still runs on.",
+      "feature_image": null,
+      "featured": 0,
+      "status": "published",
+      "visibility": "public",
+      "custom_excerpt": "Brightwave Agency · 2017 — 2020",
+      "locale": null,
+      "email_recipient_filter": "all",
+      "reading_time": 1,
+      "created_at": "2026-07-25T07:14:00.000Z",
+      "updated_at": "2026-07-25T07:14:00.000Z",
+      "published_at": "2026-07-25T07:14:00.000Z"
+     },
+     {
+      "id": "8d3b71264ed95bc9c0670a69",
+      "uuid": "327b29fe-28f2-4e2b-a03d-a989319cf778",
+      "title": "MA Interaction Design",
+      "slug": "ma-interaction-design",
+      "type": "post",
+      "lexical": "{\"root\": {\"children\": [{\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"Thesis on how interfaces teach people to trust them. Graduated with distinction.\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"paragraph\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"root\", \"version\": 1}}",
+      "mobiledoc": null,
+      "html": "<p>Thesis on how interfaces teach people to trust them. Graduated with distinction.</p>",
+      "plaintext": "Thesis on how interfaces teach people to trust them. Graduated with distinction.",
+      "feature_image": null,
+      "featured": 0,
+      "status": "published",
+      "visibility": "public",
+      "custom_excerpt": "Royal College of Art · 2015 — 2017",
+      "locale": null,
+      "email_recipient_filter": "all",
+      "reading_time": 1,
+      "created_at": "2026-07-15T06:07:00.000Z",
+      "updated_at": "2026-07-15T06:07:00.000Z",
+      "published_at": "2026-07-15T06:07:00.000Z"
+     },
+     {
+      "id": "0d458f4e0c99ccc38a70132f",
+      "uuid": "1d5519f2-29f0-4bf6-a091-96eb53bbeeaa",
+      "title": "BA Graphic Design",
+      "slug": "ba-graphic-design",
+      "type": "post",
+      "lexical": "{\"root\": {\"children\": [{\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"Thesis on how interfaces teach people to trust them. Graduated with distinction.\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"paragraph\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"root\", \"version\": 1}}",
+      "mobiledoc": null,
+      "html": "<p>Thesis on how interfaces teach people to trust them. Graduated with distinction.</p>",
+      "plaintext": "Thesis on how interfaces teach people to trust them. Graduated with distinction.",
+      "feature_image": null,
+      "featured": 0,
+      "status": "published",
+      "visibility": "public",
+      "custom_excerpt": "University of the Arts · 2012 — 2015",
+      "locale": null,
+      "email_recipient_filter": "all",
+      "reading_time": 1,
+      "created_at": "2026-07-15T05:00:00.000Z",
+      "updated_at": "2026-07-15T05:00:00.000Z",
+      "published_at": "2026-07-15T05:00:00.000Z"
+     },
+     {
+      "id": "97322d2e57486b6e810f39db",
+      "uuid": "6ea70598-108e-4548-a04b-5f0ae24e9683",
+      "title": "Maya Chen",
+      "slug": "maya-chen",
+      "type": "post",
+      "lexical": "{\"root\": {\"children\": [{\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"Daniel understood our product faster than anyone we have hired. The redesign paid for itself in a quarter.\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"paragraph\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"root\", \"version\": 1}}",
+      "mobiledoc": null,
+      "html": "<p>Daniel understood our product faster than anyone we have hired. The redesign paid for itself in a quarter.</p>",
+      "plaintext": "Daniel understood our product faster than anyone we have hired. The redesign paid for itself in a quarter.",
+      "feature_image": "https://randomuser.me/api/portraits/women/50.jpg",
+      "featured": 0,
+      "status": "published",
+      "visibility": "public",
+      "custom_excerpt": "Daniel understood our product faster than anyone we have hired. The redesign paid for itself in a quarter.",
+      "locale": null,
+      "email_recipient_filter": "all",
+      "reading_time": 1,
+      "created_at": "2026-07-05T04:53:00.000Z",
+      "updated_at": "2026-07-05T04:53:00.000Z",
+      "published_at": "2026-07-05T04:53:00.000Z"
+     },
+     {
+      "id": "96c38080fce1d989dc03cdef",
+      "uuid": "ca9426bf-82f6-402e-a20d-3ebba27c9bd1",
+      "title": "Ruben Costa",
+      "slug": "ruben-costa",
+      "type": "post",
+      "lexical": "{\"root\": {\"children\": [{\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"Calm, quick and opinionated in the best way. Our identity finally looks like us.\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"paragraph\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"root\", \"version\": 1}}",
+      "mobiledoc": null,
+      "html": "<p>Calm, quick and opinionated in the best way. Our identity finally looks like us.</p>",
+      "plaintext": "Calm, quick and opinionated in the best way. Our identity finally looks like us.",
+      "feature_image": "https://randomuser.me/api/portraits/men/41.jpg",
+      "featured": 0,
+      "status": "published",
+      "visibility": "public",
+      "custom_excerpt": "Calm, quick and opinionated in the best way. Our identity finally looks like us.",
+      "locale": null,
+      "email_recipient_filter": "all",
+      "reading_time": 1,
+      "created_at": "2026-07-05T03:46:00.000Z",
+      "updated_at": "2026-07-05T03:46:00.000Z",
+      "published_at": "2026-07-05T03:46:00.000Z"
+     },
+     {
+      "id": "7262660282ffab8813830877",
+      "uuid": "9d8276e7-bd1f-4e0a-a548-2d0369b95bd6",
+      "title": "Lena Fischer",
+      "slug": "lena-fischer",
+      "type": "post",
+      "lexical": "{\"root\": {\"children\": [{\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"The design system he set up is still the thing new hires thank us for.\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"paragraph\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"root\", \"version\": 1}}",
+      "mobiledoc": null,
+      "html": "<p>The design system he set up is still the thing new hires thank us for.</p>",
+      "plaintext": "The design system he set up is still the thing new hires thank us for.",
+      "feature_image": "https://randomuser.me/api/portraits/women/29.jpg",
+      "featured": 0,
+      "status": "published",
+      "visibility": "public",
+      "custom_excerpt": "The design system he set up is still the thing new hires thank us for.",
+      "locale": null,
+      "email_recipient_filter": "all",
+      "reading_time": 1,
+      "created_at": "2026-07-05T22:39:00.000Z",
+      "updated_at": "2026-07-05T22:39:00.000Z",
+      "published_at": "2026-07-05T22:39:00.000Z"
+     },
+     {
+      "id": "1c8cdb6fe2e784b783d3bfdb",
+      "uuid": "2469cf39-3e71-495b-a7ac-c28aa3bad8bb",
+      "title": "How I price design work",
+      "slug": "how-i-price-design-work",
+      "type": "post",
+      "lexical": "{\"root\": {\"children\": [{\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"Fixed prices, written proposals and the one question I always ask first.\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"paragraph\", \"version\": 1}, {\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"This is a short note from my own practice, not a rule for anyone else\\u2019s.\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"paragraph\", \"version\": 1}, {\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"The short version\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"extended-heading\", \"version\": 1, \"tag\": \"h2\"}, {\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"Be clear about scope, be generous with your time early, and write everything down.\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"paragraph\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"root\", \"version\": 1}}",
+      "mobiledoc": null,
+      "html": "<p>Fixed prices, written proposals and the one question I always ask first.</p><p>This is a short note from my own practice, not a rule for anyone else’s.</p><h2 id=\"the-short-version\">The short version</h2><p>Be clear about scope, be generous with your time early, and write everything down.</p>",
+      "plaintext": "Fixed prices, written proposals and the one question I always ask first.\n\nThis is a short note from my own practice, not a rule for anyone else’s.\n\nThe short version\n\nBe clear about scope, be generous with your time early, and write everything down.",
+      "feature_image": "https://picsum.photos/seed/note-how-i-price-design-work/1600/1000",
+      "featured": 0,
+      "status": "published",
+      "visibility": "public",
+      "custom_excerpt": "Fixed prices, written proposals and the one question I always ask first.",
+      "locale": null,
+      "email_recipient_filter": "all",
+      "reading_time": 1,
+      "created_at": "2026-11-24T21:32:00.000Z",
+      "updated_at": "2026-11-24T21:32:00.000Z",
+      "published_at": "2026-11-24T21:32:00.000Z"
+     },
+     {
+      "id": "d9a6e0fc72e295211c2eb003",
+      "uuid": "2736795a-24e3-492f-abfc-c763edea2e44",
+      "title": "Designing for calm",
+      "slug": "designing-for-calm",
+      "type": "post",
+      "lexical": "{\"root\": {\"children\": [{\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"Notes on building products that do not shout for attention.\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"paragraph\", \"version\": 1}, {\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"This is a short note from my own practice, not a rule for anyone else\\u2019s.\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"paragraph\", \"version\": 1}, {\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"The short version\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"extended-heading\", \"version\": 1, \"tag\": \"h2\"}, {\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"Be clear about scope, be generous with your time early, and write everything down.\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"paragraph\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"root\", \"version\": 1}}",
+      "mobiledoc": null,
+      "html": "<p>Notes on building products that do not shout for attention.</p><p>This is a short note from my own practice, not a rule for anyone else’s.</p><h2 id=\"the-short-version\">The short version</h2><p>Be clear about scope, be generous with your time early, and write everything down.</p>",
+      "plaintext": "Notes on building products that do not shout for attention.\n\nThis is a short note from my own practice, not a rule for anyone else’s.\n\nThe short version\n\nBe clear about scope, be generous with your time early, and write everything down.",
+      "feature_image": "https://picsum.photos/seed/note-designing-for-calm/1600/1000",
+      "featured": 0,
+      "status": "published",
+      "visibility": "public",
+      "custom_excerpt": "Notes on building products that do not shout for attention.",
+      "locale": null,
+      "email_recipient_filter": "all",
+      "reading_time": 1,
+      "created_at": "2026-11-14T20:25:00.000Z",
+      "updated_at": "2026-11-14T20:25:00.000Z",
+      "published_at": "2026-11-14T20:25:00.000Z"
+     },
+     {
+      "id": "eec8aa68c6ac3d562c78db70",
+      "uuid": "98f04cdc-5c33-4aa7-a8c6-188ed189753d",
+      "title": "My tools in 2026",
+      "slug": "my-tools-in-2026",
+      "type": "post",
+      "lexical": "{\"root\": {\"children\": [{\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"What I use every day, and what I have stopped using.\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"paragraph\", \"version\": 1}, {\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"This is a short note from my own practice, not a rule for anyone else\\u2019s.\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"paragraph\", \"version\": 1}, {\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"The short version\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"extended-heading\", \"version\": 1, \"tag\": \"h2\"}, {\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"Be clear about scope, be generous with your time early, and write everything down.\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"paragraph\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"root\", \"version\": 1}}",
+      "mobiledoc": null,
+      "html": "<p>What I use every day, and what I have stopped using.</p><p>This is a short note from my own practice, not a rule for anyone else’s.</p><h2 id=\"the-short-version\">The short version</h2><p>Be clear about scope, be generous with your time early, and write everything down.</p>",
+      "plaintext": "What I use every day, and what I have stopped using.\n\nThis is a short note from my own practice, not a rule for anyone else’s.\n\nThe short version\n\nBe clear about scope, be generous with your time early, and write everything down.",
+      "feature_image": "https://picsum.photos/seed/note-my-tools-in-2026/1600/1000",
+      "featured": 0,
+      "status": "published",
+      "visibility": "public",
+      "custom_excerpt": "What I use every day, and what I have stopped using.",
+      "locale": null,
+      "email_recipient_filter": "all",
+      "reading_time": 1,
+      "created_at": "2026-11-04T19:18:00.000Z",
+      "updated_at": "2026-11-04T19:18:00.000Z",
+      "published_at": "2026-11-04T19:18:00.000Z"
+     },
+     {
+      "id": "a73fafd605fa66804f0613b0",
+      "uuid": "5bf3f308-0e21-4952-afc4-dede970e6b14",
+      "title": "Journal",
+      "slug": "journal",
+      "type": "page",
+      "lexical": "{\"root\": {\"children\": [], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"root\", \"version\": 1}}",
+      "mobiledoc": null,
+      "html": "",
+      "plaintext": "",
+      "feature_image": null,
+      "featured": 0,
+      "status": "published",
+      "visibility": "public",
+      "custom_excerpt": "The notebook",
+      "locale": null,
+      "email_recipient_filter": "all",
+      "reading_time": 1,
+      "created_at": "2026-10-15T18:11:00.000Z",
+      "updated_at": "2026-10-15T18:11:00.000Z",
+      "published_at": "2026-10-15T18:11:00.000Z"
+     }
+    ],
+    "posts_tags": [
+     {
+      "id": "8922dda2a1e01e298eaf79c7",
+      "post_id": "ffd44d3c77ef8304900384cb",
+      "tag_id": "703131835e5ab5a1024b9189",
+      "sort_order": 0
+     },
+     {
+      "id": "0486c5e07591127662837f62",
+      "post_id": "67aa72cbf27ef9c59074e0ed",
+      "tag_id": "703131835e5ab5a1024b9189",
+      "sort_order": 0
+     },
+     {
+      "id": "d974e81df09beac7113bb40c",
+      "post_id": "1ee51eab185e52ab8dec1bad",
+      "tag_id": "703131835e5ab5a1024b9189",
+      "sort_order": 0
+     },
+     {
+      "id": "47b0330502e7348af3002419",
+      "post_id": "e385d730b707fbee755aff8d",
+      "tag_id": "703131835e5ab5a1024b9189",
+      "sort_order": 0
+     },
+     {
+      "id": "fdd2e3452cb6b0435060a18a",
+      "post_id": "043fe3e8f1a88b4d8086763f",
+      "tag_id": "703131835e5ab5a1024b9189",
+      "sort_order": 0
+     },
+     {
+      "id": "5521dff6c727b542d4468bc5",
+      "post_id": "030dfe9dd7a09278e92e808c",
+      "tag_id": "703131835e5ab5a1024b9189",
+      "sort_order": 0
+     },
+     {
+      "id": "f6827cf3091c1767875b52c6",
+      "post_id": "4fa7b7b9d67d0568b380f66c",
+      "tag_id": "c25e6686a5e685145ba15f61",
+      "sort_order": 0
+     },
+     {
+      "id": "c2e48f7c6dc561e62ef60d36",
+      "post_id": "4fa7b7b9d67d0568b380f66c",
+      "tag_id": "635ab9be9010e332077672b6",
+      "sort_order": 1
+     },
+     {
+      "id": "f093709b483b24f093ff27d9",
+      "post_id": "b6e8af40cd9049e6aedec2c4",
+      "tag_id": "c25e6686a5e685145ba15f61",
+      "sort_order": 0
+     },
+     {
+      "id": "bb7eefb2672afb6476c53685",
+      "post_id": "b6e8af40cd9049e6aedec2c4",
+      "tag_id": "fe46e8b886a6f7cc883b3b96",
+      "sort_order": 1
+     },
+     {
+      "id": "b948b5ac8a40d98888cb7dc1",
+      "post_id": "ac9bf3550fdc2c35e08cfc08",
+      "tag_id": "c25e6686a5e685145ba15f61",
+      "sort_order": 0
+     },
+     {
+      "id": "c598ef4f818ce517c86a4490",
+      "post_id": "ac9bf3550fdc2c35e08cfc08",
+      "tag_id": "4eea828a457283131e51aab8",
+      "sort_order": 1
+     },
+     {
+      "id": "7df0cb7bc5687748ad99e033",
+      "post_id": "262b46e21edffc90caa06431",
+      "tag_id": "c25e6686a5e685145ba15f61",
+      "sort_order": 0
+     },
+     {
+      "id": "eb9872fd4a1a0aff30797463",
+      "post_id": "262b46e21edffc90caa06431",
+      "tag_id": "635ab9be9010e332077672b6",
+      "sort_order": 1
+     },
+     {
+      "id": "9b636cff63ee66c5f5ed8dcd",
+      "post_id": "20267fe20fc764b067140752",
+      "tag_id": "c25e6686a5e685145ba15f61",
+      "sort_order": 0
+     },
+     {
+      "id": "19094f314c491ebfa1d1564e",
+      "post_id": "20267fe20fc764b067140752",
+      "tag_id": "4eea828a457283131e51aab8",
+      "sort_order": 1
+     },
+     {
+      "id": "7a2f0cf5b16367712023d4be",
+      "post_id": "78c55ef47fa8d38a67653062",
+      "tag_id": "c25e6686a5e685145ba15f61",
+      "sort_order": 0
+     },
+     {
+      "id": "6a7def2537dd97c3bb391c05",
+      "post_id": "78c55ef47fa8d38a67653062",
+      "tag_id": "fe46e8b886a6f7cc883b3b96",
+      "sort_order": 1
+     },
+     {
+      "id": "462e5a5be79efc7328f40905",
+      "post_id": "eae5d1ae668ce9d64739f962",
+      "tag_id": "0f06af4b526a1e1b1272ad59",
+      "sort_order": 0
+     },
+     {
+      "id": "90dc831e8223f6ece3e01c69",
+      "post_id": "41a9f5962283ec830ed371df",
+      "tag_id": "0f06af4b526a1e1b1272ad59",
+      "sort_order": 0
+     },
+     {
+      "id": "5109ed54ec14d299b76b27fe",
+      "post_id": "399296de6d5b52f388262051",
+      "tag_id": "0f06af4b526a1e1b1272ad59",
+      "sort_order": 0
+     },
+     {
+      "id": "64ef5f2d49cc99be7461cfe3",
+      "post_id": "8d3b71264ed95bc9c0670a69",
+      "tag_id": "f7d765024381f965bc070a3e",
+      "sort_order": 0
+     },
+     {
+      "id": "77dcd98ef776d5cd5c8ae4b0",
+      "post_id": "0d458f4e0c99ccc38a70132f",
+      "tag_id": "f7d765024381f965bc070a3e",
+      "sort_order": 0
+     },
+     {
+      "id": "aad9dae0a9c729f8042f55b5",
+      "post_id": "97322d2e57486b6e810f39db",
+      "tag_id": "165a3585e1623bfd34f668bb",
+      "sort_order": 0
+     },
+     {
+      "id": "488d8a0aa371ad8c16ec4cfa",
+      "post_id": "97322d2e57486b6e810f39db",
+      "tag_id": "03dc522268bbec0e2a2a50cc",
+      "sort_order": 1
+     },
+     {
+      "id": "79951569d26a386e1cbaebc9",
+      "post_id": "96c38080fce1d989dc03cdef",
+      "tag_id": "165a3585e1623bfd34f668bb",
+      "sort_order": 0
+     },
+     {
+      "id": "61203a40eaf09b9f4f7f8e19",
+      "post_id": "96c38080fce1d989dc03cdef",
+      "tag_id": "c530dce68f1c3555af40416d",
+      "sort_order": 1
+     },
+     {
+      "id": "2cc8a9dd1b2f69b9bcde3ac0",
+      "post_id": "7262660282ffab8813830877",
+      "tag_id": "165a3585e1623bfd34f668bb",
+      "sort_order": 0
+     },
+     {
+      "id": "2237e69980969df8bb4b01cb",
+      "post_id": "7262660282ffab8813830877",
+      "tag_id": "56b1a0b74f6f23665355ed96",
+      "sort_order": 1
+     },
+     {
+      "id": "a9c9aee7de18b355b219144b",
+      "post_id": "1c8cdb6fe2e784b783d3bfdb",
+      "tag_id": "e6d7d47e826cbfc2cbbc8a97",
+      "sort_order": 0
+     },
+     {
+      "id": "2ff5d2fc806a15d99d83215c",
+      "post_id": "d9a6e0fc72e295211c2eb003",
+      "tag_id": "001b29f7ef04e39cdd111694",
+      "sort_order": 0
+     },
+     {
+      "id": "27c5c49e7ff61c9fc46a038e",
+      "post_id": "eec8aa68c6ac3d562c78db70",
+      "tag_id": "3e037a5c5664067c3cf15ef2",
+      "sort_order": 0
+     }
+    ],
+    "posts_authors": [
+     {
+      "id": "44b5f7e6257d479e51b0c2d1",
+      "post_id": "ffd44d3c77ef8304900384cb",
+      "author_id": "d4f9fd3609629512f960c9fb",
+      "sort_order": 0
+     },
+     {
+      "id": "0e433874cd28620287dc62ad",
+      "post_id": "67aa72cbf27ef9c59074e0ed",
+      "author_id": "d4f9fd3609629512f960c9fb",
+      "sort_order": 0
+     },
+     {
+      "id": "d69a16f982d9e93c3678161b",
+      "post_id": "1ee51eab185e52ab8dec1bad",
+      "author_id": "d4f9fd3609629512f960c9fb",
+      "sort_order": 0
+     },
+     {
+      "id": "ac5499ae6f5071c7906c75ff",
+      "post_id": "e385d730b707fbee755aff8d",
+      "author_id": "d4f9fd3609629512f960c9fb",
+      "sort_order": 0
+     },
+     {
+      "id": "d9e3f64ac2fa419f32572db2",
+      "post_id": "043fe3e8f1a88b4d8086763f",
+      "author_id": "d4f9fd3609629512f960c9fb",
+      "sort_order": 0
+     },
+     {
+      "id": "032812991b5cff1549096578",
+      "post_id": "030dfe9dd7a09278e92e808c",
+      "author_id": "d4f9fd3609629512f960c9fb",
+      "sort_order": 0
+     },
+     {
+      "id": "1c3048bb1996bf25cecfd0ef",
+      "post_id": "4fa7b7b9d67d0568b380f66c",
+      "author_id": "d4f9fd3609629512f960c9fb",
+      "sort_order": 0
+     },
+     {
+      "id": "8e566af250ce7be5879ded60",
+      "post_id": "b6e8af40cd9049e6aedec2c4",
+      "author_id": "d4f9fd3609629512f960c9fb",
+      "sort_order": 0
+     },
+     {
+      "id": "257650652a236c14d2fbca87",
+      "post_id": "ac9bf3550fdc2c35e08cfc08",
+      "author_id": "d4f9fd3609629512f960c9fb",
+      "sort_order": 0
+     },
+     {
+      "id": "e038e7478d196580885f8ab6",
+      "post_id": "262b46e21edffc90caa06431",
+      "author_id": "d4f9fd3609629512f960c9fb",
+      "sort_order": 0
+     },
+     {
+      "id": "e23b2e2c19bbb574e4a4fb18",
+      "post_id": "20267fe20fc764b067140752",
+      "author_id": "d4f9fd3609629512f960c9fb",
+      "sort_order": 0
+     },
+     {
+      "id": "e978913b9ae6bb7129aa4e8a",
+      "post_id": "78c55ef47fa8d38a67653062",
+      "author_id": "d4f9fd3609629512f960c9fb",
+      "sort_order": 0
+     },
+     {
+      "id": "f1b404840d60339fdd7c56cf",
+      "post_id": "eae5d1ae668ce9d64739f962",
+      "author_id": "d4f9fd3609629512f960c9fb",
+      "sort_order": 0
+     },
+     {
+      "id": "c0e6c9f426973758fab92d54",
+      "post_id": "41a9f5962283ec830ed371df",
+      "author_id": "d4f9fd3609629512f960c9fb",
+      "sort_order": 0
+     },
+     {
+      "id": "63749362da9b55539c11c8da",
+      "post_id": "399296de6d5b52f388262051",
+      "author_id": "d4f9fd3609629512f960c9fb",
+      "sort_order": 0
+     },
+     {
+      "id": "02a5737edc38997de20194bb",
+      "post_id": "8d3b71264ed95bc9c0670a69",
+      "author_id": "d4f9fd3609629512f960c9fb",
+      "sort_order": 0
+     },
+     {
+      "id": "53a6158ace02d0a531172c80",
+      "post_id": "0d458f4e0c99ccc38a70132f",
+      "author_id": "d4f9fd3609629512f960c9fb",
+      "sort_order": 0
+     },
+     {
+      "id": "a1724fd4cece0a48f4ea6db4",
+      "post_id": "97322d2e57486b6e810f39db",
+      "author_id": "d4f9fd3609629512f960c9fb",
+      "sort_order": 0
+     },
+     {
+      "id": "c56d954821a71295ddc79119",
+      "post_id": "96c38080fce1d989dc03cdef",
+      "author_id": "d4f9fd3609629512f960c9fb",
+      "sort_order": 0
+     },
+     {
+      "id": "8ca669449262d835cdb31e78",
+      "post_id": "7262660282ffab8813830877",
+      "author_id": "d4f9fd3609629512f960c9fb",
+      "sort_order": 0
+     },
+     {
+      "id": "546cc8fc9b9aa36af6f3283a",
+      "post_id": "1c8cdb6fe2e784b783d3bfdb",
+      "author_id": "d4f9fd3609629512f960c9fb",
+      "sort_order": 0
+     },
+     {
+      "id": "5d552091a84ce48aa00975ef",
+      "post_id": "d9a6e0fc72e295211c2eb003",
+      "author_id": "d4f9fd3609629512f960c9fb",
+      "sort_order": 0
+     },
+     {
+      "id": "523f68291e8d9b501aaea676",
+      "post_id": "eec8aa68c6ac3d562c78db70",
+      "author_id": "d4f9fd3609629512f960c9fb",
+      "sort_order": 0
+     },
+     {
+      "id": "4b6b02eb4364d0fa39fb9fb7",
+      "post_id": "a73fafd605fa66804f0613b0",
+      "author_id": "d4f9fd3609629512f960c9fb",
+      "sort_order": 0
+     }
+    ],
+    "posts_meta": [],
+    "settings": [],
+    "products": []
+   }
+  }
+ ]
+}

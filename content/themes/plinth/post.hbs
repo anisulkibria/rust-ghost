@@ -1,0 +1,65 @@
+{{!< default}}
+{{!-- One story: progress bar, header, wide image, the content with the
+     editor's cards, share row, author box, more from the same topic and
+     pieces from the shop. --}}
+{{#post}}
+<div class="pl-progress" aria-hidden="true"><span data-pl-progress></span></div>
+<main id="main" class="pl-article">
+<header class="pl-wrap pl-article-head">
+<nav class="pl-crumbs" aria-label="Breadcrumb"><a href="{{@site.url}}">Home</a><span>/</span>{{#if primary_tag}}<a href="{{primary_tag.url}}">{{primary_tag.name}}</a>{{else}}<span>Journal</span>{{/if}}</nav>
+<h1 class="pl-article-title">{{title}}</h1>
+{{#if custom_excerpt}}<p class="pl-article-dek">{{custom_excerpt}}</p>{{/if}}
+<div class="pl-article-by">
+<span class="pl-avatars">{{#foreach authors limit="3"}}<a class="pl-avatar pl-avatar-lg" href="{{url}}">{{#if profile_image}}<img src="{{img_url profile_image size="s"}}" alt="{{name}}">{{else}}<span>{{name}}</span>{{/if}}</a>{{/foreach}}</span>
+<span class="pl-article-meta"><b>{{authors separator=", "}}</b><span><time datetime="{{date format="YYYY-MM-DD"}}">{{date format="D MMMM YYYY"}}</time> · {{reading_time}}</span></span>
+</div>
+</header>
+
+{{#if feature_image}}
+<figure class="pl-wrap pl-article-img">
+<img src="{{img_url feature_image size="xl"}}" srcset="{{img_url feature_image size="l"}} 960w, {{img_url feature_image size="xl"}} 1440w, {{img_url feature_image size="xxl"}} 2000w" sizes="(max-width: 1440px) 100vw, 1440px" alt="{{#if feature_image_alt}}{{feature_image_alt}}{{else}}{{title}}{{/if}}">
+{{#if feature_image_caption}}<figcaption>{{feature_image_caption}}</figcaption>{{/if}}
+</figure>
+{{/if}}
+
+<article class="pl-prose gh-content">{{content}}</article>
+
+<footer class="pl-article-foot">
+{{#if tags}}<p class="pl-article-tags">{{#foreach tags}}<a class="pl-chip" href="{{url}}">{{name}}</a>{{/foreach}}</p>{{/if}}
+<div class="pl-share" data-pl-share>
+<span>Share</span>
+<a class="pl-round" href="https://x.com/intent/tweet?url={{encode (url absolute="true")}}&amp;text={{encode title}}" target="_blank" rel="noopener" aria-label="Share on X">𝕏</a>
+<a class="pl-round" href="https://www.facebook.com/sharer/sharer.php?u={{encode (url absolute="true")}}" target="_blank" rel="noopener" aria-label="Share on Facebook">f</a>
+<a class="pl-round" href="https://pinterest.com/pin/create/button/?url={{encode (url absolute="true")}}&amp;description={{encode title}}" target="_blank" rel="noopener" aria-label="Pin it">P</a>
+<button class="pl-round" type="button" data-pl-copy="{{url absolute="true"}}" aria-label="Copy link">{{> "icon" name="link" size="16"}}</button>
+</div>
+{{#foreach authors limit="1"}}
+<aside class="pl-authorbox">
+<a class="pl-avatar pl-avatar-xl" href="{{url}}">{{#if profile_image}}<img src="{{img_url profile_image size="s"}}" alt="">{{else}}<span>{{name}}</span>{{/if}}</a>
+<div><p class="pl-kicker">Written by</p><h2><a href="{{url}}">{{name}}</a></h2>{{#if bio}}<p class="pl-muted">{{bio}}</p>{{/if}}<a class="pl-more" href="{{url}}">More from {{name}}</a></div>
+</aside>
+{{/foreach}}
+</footer>
+
+{{comments}}
+</main>
+
+{{#if primary_tag}}
+{{#get "posts" filter="tags:{{primary_tag.slug}}+id:-{{id}}" limit="3" include="tags,authors"}}
+{{#if posts}}
+<section class="pl-wrap pl-section" aria-labelledby="pl-more-h">
+<div class="pl-head"><div><p class="pl-kicker">Keep reading</p><h2 id="pl-more-h" class="pl-h2">More in {{@root.post.primary_tag.name}}</h2></div><a class="pl-more" href="{{@root.post.primary_tag.url}}">Every story</a></div>
+<div class="pl-post-grid">{{#foreach posts}}{{> "post-card"}}{{/foreach}}</div>
+</section>
+{{/if}}
+{{/get}}
+{{/if}}
+{{/post}}
+
+{{#get "products" filter="featured:true" limit="8" as |also|}}
+<section class="pl-wrap pl-section" aria-labelledby="pl-also-h">
+<div class="pl-head"><div><p class="pl-kicker">Shop the story</p><h2 id="pl-also-h" class="pl-h2">From the shop</h2></div><div class="pl-head-end"><a class="pl-more" href="{{@root.shop.url}}">Shop all</a>{{> "rail-buttons"}}</div></div>
+<div class="pl-rail" data-pl-rail>{{#foreach also}}{{> "product-card"}}{{/foreach}}</div>
+</section>
+{{/get}}
+{{> "journal-news"}}

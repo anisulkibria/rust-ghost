@@ -1,0 +1,5 @@
+<div class="np-shead">
+<h2 class="np-shead-title">{{#if url}}<a href="{{url}}">{{title}}</a>{{else}}{{title}}{{/if}}</h2>
+{{#if sub}}<p class="np-shead-sub">{{sub}}</p>{{/if}}
+<div class="np-shead-end">{{#if url}}<a class="np-more" href="{{url}}">More in {{title}} →</a>{{/if}}{{#if arrows}}<span class="np-arrows"><button type="button" class="np-arrow" data-np-prev aria-label="Previous">{{> "icon" name="left" size="16"}}</button><button type="button" class="np-arrow" data-np-next aria-label="Next">{{> "icon" name="right" size="16"}}</button></span>{{/if}}</div>
+</div>

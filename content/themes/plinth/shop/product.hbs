@@ -1,0 +1,114 @@
+{{!< default}}
+{{!-- One product. Data: shop, product (card fields + description, options,
+     variants, variant, variants_json, files, digital, get_free,
+     button_label, available, max_quantity, added, schema), collection,
+     related. The form keeps the store's hooks (.vs-buy, .vs-opt,
+     #vs-variant, #vs-add, #vs-stock, #vs-price-row, #vs-main-img) so the
+     store's script switches variant, price, stock and photo. --}}
+<main id="main" class="pl-product-page">
+<div class="pl-wrap">
+<nav class="pl-crumbs" aria-label="Breadcrumb"><a href="{{@site.url}}">Home</a><span>/</span><a href="{{shop.url}}">Shop</a>{{#if collection}}<span>/</span><a href="{{collection.url}}">{{collection.title}}</a>{{/if}}<span>/</span><span>{{product.title}}</span></nav>
+
+<div class="pl-product">
+<div class="pl-gallery">
+{{#if product.images}}
+{{#if product.images.[1]}}
+<div class="pl-thumbs" role="list">{{#foreach product.images}}<button type="button" role="listitem" class="vs-thumb pl-gthumb{{#if @first}} on{{/if}}" data-src="{{this}}" aria-label="Photo {{@number}}"><img src="{{this}}" alt="" loading="lazy"></button>{{/foreach}}</div>
+{{/if}}
+<div class="pl-gmain">
+<img id="vs-main-img" src="{{#if product.variant.feature_image}}{{product.variant.feature_image}}{{else}}{{product.feature_image}}{{/if}}" alt="{{product.title}}">
+{{#if product.save_percent}}<span class="pl-badge pl-gbadge">−{{product.save_percent}}%</span>{{/if}}
+</div>
+{{else}}
+<div class="pl-gmain pl-gmain-drawn">
+{{#if product.meta.shape}}{{> "art" kind=product.meta.shape}}{{else}}{{> "art" kind=(concat product.product_type " " product.title)}}{{/if}}
+{{#if product.save_percent}}<span class="pl-badge pl-gbadge">−{{product.save_percent}}%</span>{{/if}}
+</div>
+{{/if}}
+</div>
+
+<div class="pl-pinfo">
+<p class="pl-eyebrow">{{#if product.vendor}}{{product.vendor}}{{/if}}{{#if product.vendor}}{{#if product.product_type}} · {{/if}}{{/if}}{{product.product_type}}</p>
+<h1 class="pl-ptitle">{{product.title}}</h1>
+<div class="pl-pprice" id="vs-price-row"><span class="vs-price">{{#if product.free}}Free{{else}}{{lookup product.variant "price"}}{{/if}}</span>{{#if product.variant.compare_at}} <s class="vs-was">{{product.variant.compare_at}}</s> <span class="vs-tag pl-badge">Sale</span>{{/if}}</div>
+{{#if shop.tax_note}}<p class="pl-note">{{shop.tax_note}}</p>{{/if}}
+{{#if product.excerpt}}<p class="pl-plead">{{product.excerpt}}</p>{{/if}}
+
+<form class="vs-buy pl-buy" method="post" action="{{shop.add_url}}" data-variants="{{product.variants_json}}">
+{{#foreach product.options}}
+<fieldset class="vs-opt pl-opt{{#match name "~" "olo"}} is-color{{/match}}" data-index="{{index}}">
+<legend>{{name}}: <b data-chosen>{{chosen}}</b></legend>
+<div class="pl-opt-values">
+{{#foreach values}}<label class="vs-pill pl-pill"><input type="radio" name="{{input}}" value="{{value}}"{{#if selected}} checked{{/if}}><span><i class="pl-pill-sw" style="background-color:{{value}}"></i>{{value}}</span></label>{{/foreach}}
+</div>
+</fieldset>
+{{/foreach}}
+<label class="vs-variant-select pl-field"{{#unless product.has_variants}} hidden{{/unless}}><span>Option</span>
+<select name="variant_id" id="vs-variant">
+{{#foreach product.variants}}<option value="{{id}}"{{#if selected}} selected{{/if}}{{#unless available}} disabled{{/unless}}>{{this.title}} — {{lookup this "price"}}{{#unless available}} (sold out){{/unless}}</option>{{/foreach}}
+</select></label>
+<p class="vs-stock pl-stock" id="vs-stock">{{product.variant.stock_line}}</p>
+
+{{#if product.purchase_url}}
+<div class="pl-buy-row"><a class="pl-btn pl-btn-ink pl-btn-lg pl-grow" href="{{product.purchase_url}}" rel="noopener">{{#if product.free}}Get it free{{else}}Buy now{{/if}} ↗</a></div>
+{{else}}
+<div class="pl-buy-row">
+{{#if product.free}}
+<input type="hidden" name="qty" value="1">
+{{#if product.get_free}}<input type="hidden" name="back" value="checkout" data-keep>{{/if}}
+{{else}}
+<div class="pl-qty" data-pl-qty>
+<button type="button" data-step="-1" aria-label="One fewer">−</button>
+<label class="pl-sr" for="pl-qty-in">Quantity</label>
+<input id="pl-qty-in" type="number" name="qty" value="1" min="1" max="{{product.max_quantity}}" inputmode="numeric">
+<button type="button" data-step="1" aria-label="One more">+</button>
+</div>
+{{/if}}
+<button class="pl-btn pl-btn-ink pl-btn-lg pl-grow" id="vs-add" type="submit"{{#unless product.available}} disabled{{/unless}}>{{product.button_label}}</button>
+</div>
+{{/if}}
+{{#if product.demo_url}}<a class="pl-btn pl-btn-line pl-btn-lg pl-wide" href="{{product.demo_url}}" target="_blank" rel="noopener">See it live ↗</a>{{/if}}
+{{#if product.added}}<p class="pl-added" role="status">{{> "icon" name="bag" size="18"}} Added to your cart. <a href="{{shop.cart_url}}">View cart</a> · <a href="{{shop.checkout_url}}">Check out</a></p>{{/if}}
+</form>
+
+<ul class="pl-perks">
+{{#if product.digital}}
+<li>{{> "icon" name="spark" size="20"}}<span><b>Instant download</b><small>Files are yours as soon as you pay</small></span></li>
+{{else}}
+<li>{{> "icon" name="truck" size="20"}}<span><b>Delivered with care</b><small>{{#if @custom.announcement}}{{@custom.announcement}}{{else}}Tracked to your door{{/if}}</small></span></li>
+{{/if}}
+<li>{{> "icon" name="shield" size="20"}}<span><b>Secure checkout</b><small>Pay by card, Apple Pay or Google Pay</small></span></li>
+</ul>
+
+<div class="pl-acc">
+{{#if product.description}}
+<details open><summary>Details</summary><div class="pl-prose">{{{product.description}}}</div></details>
+{{/if}}
+{{#if product.digital}}
+<details><summary>In the download</summary>
+<ul class="pl-files">{{#foreach product.files}}<li><span>{{name}}</span><small>{{size}}</small></li>{{/foreach}}</ul>
+<p class="pl-muted">{{#if product.get_free}}Free: enter your email at checkout and the files are kept in your account.{{else}}After payment the files are added to your account, and an email brings you back to them.{{/if}}</p>
+</details>
+{{/if}}
+{{#if shop.policies}}
+<details><summary>Delivery, returns &amp; policies</summary><p class="pl-policies">{{#foreach shop.policies}}<a href="{{url}}">{{title}}</a>{{/foreach}}</p></details>
+{{/if}}
+{{#if @custom.contact_email}}
+<details><summary>Questions?</summary><p>Write to <a href="mailto:{{@custom.contact_email}}">{{@custom.contact_email}}</a>{{#if @custom.phone}} or call {{@custom.phone}}{{/if}}. A person answers.</p></details>
+{{/if}}
+</div>
+</div>
+</div>
+</div>
+
+{{#if related}}
+<section class="pl-wrap pl-section" aria-labelledby="pl-rel-h">
+<div class="pl-head"><div><h2 id="pl-rel-h" class="pl-h2">Pairs well with</h2></div><div class="pl-head-end">{{> "rail-buttons"}}</div></div>
+<div class="pl-rail" data-pl-rail>
+{{#foreach related}}{{> "product-card" add=@root.shop.add_url}}{{/foreach}}
+</div>
+</section>
+{{/if}}
+</main>
+<script type="application/ld+json">{{{product.schema}}}</script>
+<script src="{{shop.script_url}}" defer></script>

@@ -1,0 +1,20 @@
+{{!< default}}
+<main id="main" class="pl-journal">
+{{#tag}}
+<header class="pl-wrap pl-taghead"{{#if accent_color}} style="--tag: {{accent_color}}"{{/if}}>
+<div class="pl-taghead-copy">
+<nav class="pl-crumbs" aria-label="Breadcrumb"><a href="{{@site.url}}">Home</a><span>/</span><span>Topics</span></nav>
+<h1 class="pl-jtitle">{{name}}</h1>
+{{#if description}}<p class="pl-sub">{{description}}</p>{{/if}}
+<p class="pl-count">{{plural ../pagination.total empty="No stories yet" singular="% story" plural="% stories"}}</p>
+</div>
+<div class="pl-taghead-art">{{#if feature_image}}<img src="{{img_url feature_image size="l"}}" alt="">{{else}}<span class="pl-hero-room pl-room-warm" aria-hidden="true"><span class="pl-hero-window"></span><span class="pl-hero-floor"></span><span class="pl-hero-piece">{{> "art" kind=name}}</span></span>{{/if}}</div>
+</header>
+<div class="pl-wrap">{{> "journal-topics" current=slug}}</div>
+{{/tag}}
+<section class="pl-wrap pl-section-tight">
+<div class="pl-post-grid">{{#foreach posts}}{{> "post-card"}}{{/foreach}}</div>
+{{> "pager"}}
+</section>
+{{> "journal-news"}}
+</main>

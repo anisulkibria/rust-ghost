@@ -1,0 +1,31 @@
+{{!-- Called inside the lead story's context. --}}
+{{#get "tags" limit="8" filter="visibility:public" order="count.posts desc" include="count.posts" as |trend|}}
+<div class="cv-wrap cv-trend"><span class="cv-trend-label">Trending</span><nav aria-label="Trending topics">{{#foreach trend}}<a href="{{url}}">{{name}}</a>{{/foreach}}</nav></div>
+{{/get}}
+<section class="cv-wrap cv-cover" aria-label="Top stories">
+{{#get "posts" filter="id:-{{id}}" limit="6" include="tags,authors" as |side|}}
+<div class="cv-cover-side">
+<p class="cv-side-label">Top stories</p>
+{{#foreach side limit="2"}}{{> "story" pic=true kicker=true}}{{/foreach}}
+{{#foreach side from="3" to="3"}}{{> "story" kicker=true}}{{/foreach}}
+</div>
+{{/get}}
+<article class="cv-cover-lead {{post_class}}">
+{{#if feature_image}}<a class="cv-img cv-lead-img" href="{{url}}" tabindex="-1" aria-hidden="true"><img src="{{img_url feature_image size="l"}}" srcset="{{img_url feature_image size="m"}} 720w, {{img_url feature_image size="l"}} 1200w, {{img_url feature_image size="xl"}} 2000w" sizes="(max-width: 767px) 100vw, 720px" alt="{{title}}"></a>{{/if}}
+{{#if primary_tag}}<a class="cv-kicker cv-kicker-bar" href="{{primary_tag.url}}">{{primary_tag.name}}</a>{{/if}}
+<h1 class="cv-lead-title"><a href="{{url}}">{{title}}</a></h1>
+<p class="cv-lead-excerpt">{{excerpt words="40"}}</p>
+<div class="cv-lead-by">
+{{#primary_author}}{{#if profile_image}}<img class="cv-avatar" src="{{img_url profile_image size="xs"}}" alt="">{{/if}}{{/primary_author}}
+<span><b>{{authors separator=", " autolink="false"}}</b><small><time datetime="{{date format="YYYY-MM-DD"}}">{{date format="D MMMM YYYY"}}</time> · {{reading_time minute="1 min read" minutes="% min read"}}</small></span>
+<a class="cv-lead-more" href="{{url}}">Read story {{> "icon" name="arrow" size="15"}}</a>
+</div>
+</article>
+{{#get "posts" filter="id:-{{id}}" limit="6" include="tags,authors" as |side|}}
+<div class="cv-cover-side cv-cover-side-r">
+<p class="cv-side-label">Most recent</p>
+{{#foreach side from="4" to="5"}}{{> "story" pic=true kicker=true}}{{/foreach}}
+{{#foreach side from="6" to="6"}}{{> "story" kicker=true}}{{/foreach}}
+</div>
+{{/get}}
+</section>

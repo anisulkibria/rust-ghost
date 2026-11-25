@@ -27,7 +27,10 @@ impl GetHelper {
 ///
 /// Vuuut adds `products`: the online store's active products, so a theme can
 /// show its catalogue anywhere (see [`browse_products`]).
-const RESOURCES: &[&str] = &["posts", "pages", "tags", "authors", "tiers", "newsletters", "products"];
+///
+/// And the directory's `listings`, `listing_categories` and `listing_places`
+/// (see [`browse_directory`]).
+const RESOURCES: &[&str] = &["posts", "pages", "tags", "authors", "tiers", "newsletters", "products", "collections", "listings", "listing_categories", "listing_places"];
 
 /// Ghost's `optimization:maxLimit`. Since 6.x `limit="all"` is capped here too
 /// rather than fetching the whole table.
@@ -485,6 +488,8 @@ async fn run_get(
             Ok((Value::Array(items), pagination))
         }
         "products" => browse_products(deps, filter_expr.as_ref(), order, limit, page).await,
+        "collections" => browse_collections(deps, filter_expr.as_ref(), limit, page).await,
+        "listings" | "listing_categories" | "listing_places" => browse_directory(deps, resource, filter_expr.as_ref(), order, limit, page).await,
         _ => Ok((Value::Array(vec![]), vuuut_core::models::pagination_json(1, limit.max(1), 0))),
     }
 }
@@ -547,6 +552,7 @@ async fn browse_products(
             let url = vuuut_core::url::base(&paths.public_path(&format!("/shop/products/{}/", p.handle)));
             let mut j = repo::card_json(p, vs, &settings, &url);
             j["collections"] = json!(member_of.get(&p.id).cloned().unwrap_or_default());
+            j["add_url"] = json!(vuuut_core::url::base(&paths.public_path("/shop/cart/add/")));
             j
         })
         .collect();
@@ -566,6 +572,126 @@ async fn browse_products(
     Ok((Value::Array(items), vuuut_core::models::pagination_json(page, per_page, total)))
 }
 
+/// `{{#get "collections"}}`: the store's published collections in their
+/// admin order, each with `title`, `handle`/`slug`, `description`, `url`,
+/// `feature_image` (its own, else its first product's) and `product_count`.
+/// Nothing while the store is off. `filter` is NQL over those fields, e.g.
+/// `product_count:>0` or `slug:[chairs,lighting]`.
+async fn browse_collections(
+    deps: &HelperDeps,
+    filter: Option<&vuuut_nql::Expr>,
+    limit: i64,
+    page: i64,
+) -> vuuut_core::Result<(Value, Value)> {
+    use vuuut_core::ecom as rules;
+    use vuuut_db::repos::ecom as repo;
+
+    let per_page = if limit > 0 { limit } else { 15 };
+    let stored: std::collections::HashMap<String, String> =
+        vuuut_db::repos::settings::all(&deps.pool).await?.into_iter().map(|s| (s.key, s.value)).collect();
+    let settings = rules::Settings::read(|k| stored.get(k).cloned());
+    if !settings.enabled {
+        return Ok((Value::Array(vec![]), vuuut_core::models::pagination_json(1, per_page, 0)));
+    }
+    let paths = rules::Paths::from_settings(&settings);
+    let mut items = Vec::new();
+    for c in repo::collections(&deps.pool).await.into_iter().filter(|c| c.published != 0) {
+        let ids = repo::collection_product_ids(&deps.pool, &c, true).await;
+        let image = if c.image.is_empty() {
+            let first: Vec<String> = ids.iter().take(1).cloned().collect();
+            repo::products_by_ids(&deps.pool, &first).await.first().and_then(|p| p.first_image()).unwrap_or_default()
+        } else {
+            c.image.clone()
+        };
+        items.push(json!({
+            "id": c.id,
+            "title": c.title,
+            "handle": c.handle,
+            "slug": c.handle,
+            "description": c.description,
+            "feature_image": if image.is_empty() { Value::Null } else { json!(image) },
+            "product_count": ids.len(),
+            "url": vuuut_core::url::base(&paths.public_path(&format!("/shop/collections/{}/", c.handle))),
+        }));
+    }
+    if let Some(f) = filter {
+        items.retain(|i| vuuut_nql::evaluate(f, i));
+    }
+    let total = items.len() as i64;
+    let items: Vec<Value> = if limit < 0 {
+        items
+    } else {
+        items.into_iter().skip(((page.max(1) - 1) * per_page) as usize).take(per_page as usize).collect()
+    };
+    Ok((Value::Array(items), vuuut_core::models::pagination_json(page, per_page, total)))
+}
+
+/// The public directory for themes. Nothing while the directory is off.
+///
+/// * `listings` — visible listings, as `vuuut_db::repos::directory::listing_json`
+///   (`title`, `url`, `feature_image`, `summary`, `category.slug`, `place.slug`,
+///   `price_signs`, `hours`, …). `order`: `featured` (default: featured first,
+///   then newest), `newest`, `title asc`, `views desc`.
+/// * `listing_categories` — categories with `count` (visible listings),
+///   `url`, `feature_image`; empty ones too, so filter `count:>0` to hide them.
+/// * `listing_places` — the towns listings are in: `name`, `slug`, `count`,
+///   `url`, `feature_image` (a picture from one of its listings).
+///
+/// `filter` is NQL over those fields, e.g. `featured:true`,
+/// `category.slug:cafes`, `place.slug:lisbon`.
+async fn browse_directory(
+    deps: &HelperDeps,
+    resource: &str,
+    filter: Option<&vuuut_nql::Expr>,
+    order: Option<&str>,
+    limit: i64,
+    page: i64,
+) -> vuuut_core::Result<(Value, Value)> {
+    use vuuut_core::directory as rules;
+    use vuuut_db::repos::directory as repo;
+
+    let per_page = if limit > 0 { limit } else { 15 };
+    let stored: std::collections::HashMap<String, String> =
+        vuuut_db::repos::settings::all(&deps.pool).await?.into_iter().map(|s| (s.key, s.value)).collect();
+    let settings = rules::Settings::read(|k| stored.get(k).cloned());
+    if !settings.enabled {
+        return Ok((Value::Array(vec![]), vuuut_core::models::pagination_json(1, per_page, 0)));
+    }
+    let now = vuuut_core::dates::now_db();
+    let cats = repo::categories(&deps.pool).await?;
+    let mut items: Vec<Value> = match resource {
+        "listing_categories" => {
+            let counts: std::collections::HashMap<String, i64> = repo::category_counts(&deps.pool, &now).await.into_iter().collect();
+            cats.iter().map(|c| repo::category_json(&settings, c, counts.get(&c.id).copied().unwrap_or(0))).collect()
+        }
+        "listing_places" => repo::places(&deps.pool, &now)
+            .await
+            .iter()
+            .map(|(name, n, img)| repo::place_json(&settings, name, *n, Some(img)))
+            .collect(),
+        _ => {
+            let (rows, _) = repo::browse(&deps.pool, &repo::Browse { visible_at: Some(&now), limit: 500, ..Default::default() }).await?;
+            let mut rows = rows;
+            match order.unwrap_or("").trim().to_ascii_lowercase().as_str() {
+                "newest" | "published_at desc" => rows.sort_by(|a, b| b.published_at.cmp(&a.published_at)),
+                "title" | "title asc" => rows.sort_by(|a, b| a.title.to_lowercase().cmp(&b.title.to_lowercase())),
+                "views desc" | "popular" => rows.sort_by(|a, b| b.views.cmp(&a.views)),
+                _ => {}
+            }
+            rows.iter().map(|l| repo::listing_json(&settings, l, &cats)).collect()
+        }
+    };
+    if let Some(f) = filter {
+        items.retain(|i| vuuut_nql::evaluate(f, i));
+    }
+    let total = items.len() as i64;
+    let items: Vec<Value> = if limit < 0 {
+        items
+    } else {
+        items.into_iter().skip(((page.max(1) - 1) * per_page) as usize).take(per_page as usize).collect()
+    };
+    Ok((Value::Array(items), vuuut_core::models::pagination_json(page, per_page, total)))
+}
 
 // ---------------------------------------------------------------------------
 // prev_post / next_post

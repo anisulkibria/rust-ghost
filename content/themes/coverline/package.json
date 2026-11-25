@@ -1,0 +1,20 @@
+{
+    "name": "coverline",
+    "description": "A magazine theme: a three-column cover, a featured strip and a ruled grid of the latest stories, in the site's own accent colour.",
+    "version": "1.0.0",
+    "engines": { "ghost": ">=5.0.0" },
+    "license": "MIT",
+    "author": { "name": "Vuuut", "email": "themes@vuuut.com", "url": "https://vuuut.com" },
+    "keywords": ["vuuut", "vuuut-theme", "ghost-theme", "magazine", "news", "blog"],
+    "config": {
+        "posts_per_page": 12,
+        "image_sizes": { "xs": { "width": 160 }, "s": { "width": 400 }, "m": { "width": 720 }, "l": { "width": 1200 }, "xl": { "width": 2000 } },
+        "card_assets": true,
+        "custom": {
+            "show_featured": { "type": "boolean", "default": true, "group": "homepage", "description": "The Featured strip under the cover." },
+            "featured_label": { "type": "text", "default": "Featured", "group": "homepage" },
+            "latest_label": { "type": "text", "default": "Latest", "group": "homepage" },
+            "show_subscribe": { "type": "boolean", "default": true, "description": "The subscribe block above the footer." }
+        }
+    }
+}

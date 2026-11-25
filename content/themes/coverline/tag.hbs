@@ -1,0 +1,5 @@
+{{!< default}}
+<main id="main" class="cv-main">
+{{#tag}}<header class="cv-wrap cv-page-head">{{#if feature_image}}<img class="cv-page-pic" src="{{img_url feature_image size="s"}}" alt="">{{/if}}<h1 class="cv-page-title">{{name}}</h1><p class="cv-page-desc">{{#if description}}{{description}}{{else}}{{plural ../pagination.total empty="No posts" singular="% post" plural="% posts"}}{{/if}}</p></header>{{/tag}}
+<section class="cv-wrap cv-block"><div class="cv-grid">{{#foreach posts}}{{> "story" pic=true showex=true}}{{/foreach}}</div>{{> "pager"}}</section>
+</main>

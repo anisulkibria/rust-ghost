@@ -1,0 +1,2 @@
+{{!-- Overrides the {{navigation}} helper's markup. --}}
+{{#foreach navigation}}<a class="pl-nav-link{{#if current}} is-on{{/if}}" href="{{url absolute="true"}}"{{#if current}} aria-current="page"{{/if}}>{{label}}</a>{{/foreach}}

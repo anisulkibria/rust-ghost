@@ -1,0 +1,31 @@
+{{!< default}}
+{{#post}}
+<main id="main" class="ms-main">
+<article class="ms-article {{post_class}}">
+<header class="ms-wrap ms-article-head">
+{{#if primary_tag}}<a class="ms-article-tag" href="{{primary_tag.url}}">{{primary_tag.name}}</a>{{/if}}
+<h1 class="ms-article-title">{{title}}</h1>
+{{#if custom_excerpt}}<p class="ms-article-excerpt">{{custom_excerpt}}</p>{{/if}}
+<div class="ms-article-meta">
+{{#foreach authors limit="1"}}{{#if profile_image}}<a href="{{url}}"><img class="ms-avatar" src="{{img_url profile_image size="xs"}}" alt=""></a>{{/if}}{{/foreach}}
+<span><a href="{{primary_author.url}}">{{authors separator=", " autolink="false"}}</a><br><time datetime="{{date format="YYYY-MM-DD"}}">{{date format="DD MMM YYYY"}}</time> · {{reading_time minute="1 min read" minutes="% min read"}}</span>
+</div>
+</header>
+{{#if feature_image}}<figure class="ms-wrap ms-article-img"><img src="{{img_url feature_image size="l"}}" srcset="{{img_url feature_image size="m"}} 750w, {{img_url feature_image size="l"}} 1140w, {{img_url feature_image size="xl"}} 1920w" sizes="(max-width: 1200px) 100vw, 1140px" alt="{{#if feature_image_alt}}{{feature_image_alt}}{{else}}{{title}}{{/if}}">{{#if feature_image_caption}}<figcaption>{{feature_image_caption}}</figcaption>{{/if}}</figure>{{/if}}
+<div class="ms-content gh-content">{{content}}</div>
+<footer class="ms-article-foot">
+<div class="ms-share">
+<a href="https://x.com/intent/tweet?url={{encode (url absolute="true")}}&amp;text={{encode title}}" target="_blank" rel="noopener" aria-label="Share on X">{{> "icon" name="x" size="15"}}</a>
+<a href="https://www.facebook.com/sharer/sharer.php?u={{encode (url absolute="true")}}" target="_blank" rel="noopener" aria-label="Share on Facebook">{{> "icon" name="fb" size="16"}}</a>
+<button type="button" data-ms-copy="{{url absolute="true"}}" aria-label="Copy link">{{> "icon" name="link" size="15"}}</button>
+</div>
+{{#if tags}}<p class="ms-tags">{{#foreach tags}}{{#match visibility "public"}}<a href="{{url}}">#{{name}}</a>{{/match}}{{/foreach}}</p>{{/if}}
+</footer>
+</article>
+<div class="ms-wrap">{{> "subscribe"}}</div>
+<div class="ms-comments">{{comments}}</div>
+{{#get "posts" filter="id:-{{id}}" limit="5" include="tags"}}{{#if posts}}
+<section class="ms-wrap ms-related"><h2 class="ms-featured-title">You might also like</h2><div class="ms-feed-list">{{#foreach posts}}{{> "feed-item"}}{{/foreach}}</div></section>
+{{/if}}{{/get}}
+</main>
+{{/post}}

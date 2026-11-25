@@ -1,0 +1,7 @@
+{{!-- Overrides {{recommendations}}: the sites this publication recommends. --}}
+{{#if recommendations}}
+<aside class="np-recs">
+<div class="np-recs-head"><h2 class="np-label np-rail-title">Recommended</h2><a class="np-label" href="#/portal/recommendations" data-portal="recommendations">See all</a></div>
+<ul>{{#foreach recommendations limit="4"}}<li><a href="{{url}}" rel="noopener" target="_blank">{{#if favicon}}<img src="{{favicon}}" alt="" loading="lazy">{{else}}<span class="np-rec-init">{{title}}</span>{{/if}}<span><b>{{title}}</b><small>{{description}}</small></span></a></li>{{/foreach}}</ul>
+</aside>
+{{/if}}

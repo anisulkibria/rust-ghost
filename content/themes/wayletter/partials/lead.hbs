@@ -1,0 +1,10 @@
+<article class="ms-lead {{post_class}}">
+<a class="ms-lead-img" href="{{url}}" tabindex="-1" aria-hidden="true">{{#if feature_image}}<img src="{{img_url feature_image size="l"}}" srcset="{{img_url feature_image size="m"}} 750w, {{img_url feature_image size="l"}} 1140w" sizes="(max-width: 860px) 100vw, 60vw" alt="">{{else}}<span class="ms-card-blank">{{title}}</span>{{/if}}</a>
+<div class="ms-lead-copy">
+<p class="ms-card-meta"><span class="ms-lead-badge">{{> "icon" name="star" size="11"}} Editor’s pick</span>{{#if primary_tag}}<span>{{primary_tag.name}}</span>{{/if}}</p>
+<h3 class="ms-lead-title"><a href="{{url}}">{{title}}</a></h3>
+<p class="ms-lead-excerpt">{{excerpt words="38"}}</p>
+<div class="ms-lead-by">{{#primary_author}}{{#if profile_image}}<img class="ms-avatar" src="{{img_url profile_image size="xs"}}" alt="">{{/if}}<span><b>{{name}}</b>{{/primary_author}}<small><time datetime="{{date format="YYYY-MM-DD"}}">{{date format="D MMM YYYY"}}</time> · {{reading_time minute="1 min read" minutes="% min read"}}</small></span></div>
+<a class="ms-lead-more" href="{{url}}">Read the issue <span aria-hidden="true">→</span></a>
+</div>
+</article>

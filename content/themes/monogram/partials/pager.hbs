@@ -1,0 +1,7 @@
+{{#match pagination.pages ">" 1}}
+<nav class="mg-pager" aria-label="Pages">
+{{#if pagination.prev}}<a class="mg-btn" href="{{page_url pagination.prev}}">← Newer</a>{{else}}<span></span>{{/if}}
+<span class="mg-kicker">Page {{pagination.page}} of {{pagination.pages}}</span>
+{{#if pagination.next}}<a class="mg-btn" href="{{page_url pagination.next}}">Older →</a>{{else}}<span></span>{{/if}}
+</nav>
+{{/match}}

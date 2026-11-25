@@ -1,0 +1,39 @@
+{{!< default}}
+<main id="main" class="ms-main ms-home">
+<section class="ms-hero">
+<div class="ms-hero-glow" aria-hidden="true"></div>
+<div class="ms-wrap ms-hero-in">
+<div class="ms-hero-pic">
+<span class="ms-hero-ring" aria-hidden="true"></span>
+{{#if @custom.hero_image}}<img src="{{img_url @custom.hero_image size="s"}}" alt="">{{else}}<img src="{{asset "images/hero.svg"}}" alt="" width="84" height="84">{{/if}}
+</div>
+<h1 class="ms-hero-title" data-ms-accent>{{#if @custom.hero_title}}{{@custom.hero_title}}{{else}}{{@site.title}}{{/if}}</h1>
+{{#if @site.description}}<p class="ms-hero-text">{{@site.description}}</p>{{/if}}
+{{#if @site.members_enabled}}{{#unless @member}}
+<form class="ms-inline-form" data-members-form="subscribe">
+<label class="ms-sr" for="ms-hero-email">Your email address</label>
+<input id="ms-hero-email" data-members-email type="email" placeholder="you@example.com" required autocomplete="email">
+<button class="ms-btn-pill" type="submit">{{@custom.subscribe_label}}</button>
+<p class="ms-form-ok">Check your inbox to confirm. ✓</p><p class="ms-form-err">Something went wrong. Try again.</p>
+</form>
+<p class="ms-hero-proof"><span>Free</span><span>Weekly</span><span>Unsubscribe any time</span><span>Already a reader? <a href="#/portal/signin">Log in</a></span></p>
+{{/unless}}{{/if}}
+</div>
+</section>
+
+{{#if @custom.show_featured}}
+{{#get "posts" filter="featured:true" limit="4" include="tags,authors" as |featured|}}
+<section class="ms-wrap ms-featured" aria-labelledby="ms-featured-h">
+<header class="ms-featured-head">
+<h2 class="ms-section-title" id="ms-featured-h">{{@custom.featured_title}}</h2>
+
+</header>
+{{#foreach featured limit="1"}}{{> "lead"}}{{/foreach}}
+<div class="ms-featured-grid">{{#foreach featured from="2" to="4"}}{{> "card"}}{{/foreach}}</div>
+</section>
+{{/get}}
+{{/if}}
+
+<div class="ms-wrap">{{> "feed"}}</div>
+{{> "band"}}
+</main>

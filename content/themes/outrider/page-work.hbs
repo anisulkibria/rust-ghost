@@ -1,0 +1,13 @@
+{{!< default}}
+{{!-- Every case study: a page with the slug `work` lists the posts tagged #work. --}}
+{{#post}}
+<main id="main" class="or-wrap or-listing">
+<header class="or-list-head"><p class="or-label">{{#if custom_excerpt}}{{custom_excerpt}}{{else}}Selected projects{{/if}}</p><h1 class="or-list-title" data-or-stretch>{{title}}</h1></header>
+{{#get "posts" filter="tag:hash-work" limit="50" include="tags" as |work|}}
+<div class="or-work-grid">{{#foreach work}}{{> "work-card"}}{{/foreach}}</div>
+{{else}}
+<p class="or-hero-text">Tag a post <code>#work</code> and it appears here as a case study.</p>
+{{/get}}
+{{#if content}}<article class="or-prose gh-content">{{content}}</article>{{/if}}
+</main>
+{{/post}}

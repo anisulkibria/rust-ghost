@@ -1,0 +1,13 @@
+{{#if @site.members_enabled}}{{#unless @member}}
+<section class="ms-cta">
+<h2 class="ms-cta-title">Subscribe to {{@site.title}}</h2>
+<p>{{#if @site.description}}{{@site.description}}{{else}}Get the latest posts delivered right to your inbox.{{/if}}</p>
+<form class="ms-cta-form" data-members-form="subscribe">
+<label class="ms-sr" for="ms-cta-email">Your email address</label>
+<input id="ms-cta-email" data-members-email type="email" placeholder="Your email address" required autocomplete="email">
+<button class="ms-btn-pill" type="submit">Subscribe</button>
+<p class="ms-cta-ok">Great! Check your inbox and click the link to confirm.</p>
+<p class="ms-cta-err">Sorry, something went wrong. Please try again.</p>
+</form>
+</section>
+{{/unless}}{{/if}}

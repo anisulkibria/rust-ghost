@@ -1,0 +1,29 @@
+<footer class="np-footer">
+<div class="np-wrap np-footer-in">
+<div class="np-footer-brand">
+<a class="np-footer-name" href="{{@site.url}}">{{@site.title}}</a>
+{{#if @site.description}}<p>{{@site.description}}</p>{{/if}}
+<div class="np-footer-social">
+{{#if @site.twitter}}<a href="{{twitter_url @site.twitter}}" aria-label="X" rel="noopener">{{> "icon" name="x" size="16"}}</a>{{/if}}
+{{#if @site.facebook}}<a href="{{facebook_url @site.facebook}}" aria-label="Facebook" rel="noopener">{{> "icon" name="fb" size="16"}}</a>{{/if}}
+<a href="#/portal/signup" aria-label="Newsletter">{{> "icon" name="mail" size="16"}}</a>
+<a href="{{@site.url}}/rss/" aria-label="RSS">{{> "icon" name="rss" size="16"}}</a>
+</div>
+</div>
+{{!-- Secondary navigation becomes the columns: an item whose label starts
+     with # is a column heading (#News, #Arts…), the items after it are its
+     links. Without a secondary menu the columns list the busiest topics. --}}
+<nav class="np-footer-cols" aria-label="Footer">
+{{#if @site.secondary_navigation}}
+{{#foreach @site.secondary_navigation}}{{#match label "~^" "#"}}<h3 class="np-footer-h" data-np-colhead>{{label}}</h3>{{else}}<a href="{{url absolute="true"}}">{{label}}</a>{{/match}}{{/foreach}}
+{{else}}
+<h3 class="np-footer-h">Sections</h3>{{#foreach @site.navigation}}<a href="{{url absolute="true"}}">{{label}}</a>{{/foreach}}
+<h3 class="np-footer-h">Topics</h3>{{#get "tags" limit="16" filter="visibility:public" order="count.posts desc" include="count.posts"}}{{#foreach tags}}<a href="{{url}}">{{name}}</a>{{/foreach}}{{/get}}
+{{/if}}
+</nav>
+</div>
+<div class="np-footer-legal">
+<p class="np-footer-links"><a href="{{@site.url}}/rss/">RSS</a><a href="#/portal/signup">Newsletter</a><a href="#/portal/account">Account</a></p>
+<p>© {{date format="YYYY"}} {{@site.title}}. All rights reserved. Published with <a href="https://vuuut.com" rel="noopener">Vuuut</a> and Broadsheet.</p>
+</div>
+</footer>

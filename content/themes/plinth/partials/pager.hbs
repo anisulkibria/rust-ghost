@@ -1,0 +1,7 @@
+{{#if pagination.pages}}{{#match pagination.pages ">" 1}}
+<nav class="pl-pager" aria-label="Pages">
+{{#if pagination.prev}}<a class="pl-round" href="{{page_url pagination.prev}}" aria-label="Newer">{{> "icon" name="left" size="18"}}</a>{{else}}<span></span>{{/if}}
+<span>Page {{pagination.page}} of {{pagination.pages}}</span>
+{{#if pagination.next}}<a class="pl-round" href="{{page_url pagination.next}}" aria-label="Older">{{> "icon" name="right" size="18"}}</a>{{else}}<span></span>{{/if}}
+</nav>
+{{/match}}{{/if}}

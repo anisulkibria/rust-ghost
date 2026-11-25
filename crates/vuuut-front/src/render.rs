@@ -250,6 +250,15 @@ pub async fn render_template(
     let root = match &mut data {
         Value::Object(m) => {
             m.entry("recommendations").or_insert(recommendations);
+            // `shop`: the store's addresses on every page, not only the
+            // store's own, so a theme's header and homepage link to wherever
+            // the store lives (Settings → store addresses). Store pages
+            // already carry theirs, with the cart count.
+            if !m.contains_key("shop") {
+                if let Some(shop) = crate::shop::site_shop(state) {
+                    m.insert("shop".into(), shop);
+                }
+            }
             m.insert("site".into(), site);
             m.insert("config".into(), config);
             m.insert("member".into(), rctx.member.clone());

@@ -1,0 +1,24 @@
+{{!-- One line icon: name = search | bag | user | pin | arrow | left | right | plus | menu | close | phone | mail | chat | truck | spark | shield | leaf | heart | star --}}
+<svg class="pl-ic" width="{{#if size}}{{size}}{{else}}20{{/if}}" height="{{#if size}}{{size}}{{else}}20{{/if}}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
+{{#match name "search"}}<circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/>
+{{else match name "bag"}}<path d="M5 8h14l-1 12H6L5 8Z"/><path d="M9 8V7a3 3 0 0 1 6 0v1"/>
+{{else match name "user"}}<circle cx="12" cy="8" r="4"/><path d="M4 21c1.5-4 4.5-6 8-6s6.5 2 8 6"/>
+{{else match name "pin"}}<path d="M12 21s-7-6.2-7-11a7 7 0 0 1 14 0c0 4.8-7 11-7 11Z"/><circle cx="12" cy="10" r="2.5"/>
+{{else match name "arrow"}}<path d="M5 12h14M13 6l6 6-6 6"/>
+{{else match name "left"}}<path d="m15 6-6 6 6 6"/>
+{{else match name "right"}}<path d="m9 6 6 6-6 6"/>
+{{else match name "plus"}}<path d="M12 5v14M5 12h14"/>
+{{else match name "menu"}}<path d="M4 7h16M4 12h16M4 17h10"/>
+{{else match name "close"}}<path d="M6 6l12 12M18 6 6 18"/>
+{{else match name "phone"}}<path d="M5 4h4l2 5-2.5 1.5a11 11 0 0 0 5 5L15 13l5 2v4a2 2 0 0 1-2 2A16 16 0 0 1 3 6a2 2 0 0 1 2-2Z"/>
+{{else match name "mail"}}<rect x="3" y="5" width="18" height="14" rx="2"/><path d="m3 7 9 6 9-6"/>
+{{else match name "chat"}}<path d="M4 5h16v11H9l-5 4V5Z"/>
+{{else match name "truck"}}<path d="M3 6h11v10H3zM14 10h4l3 3v3h-7"/><circle cx="7" cy="18" r="2"/><circle cx="17" cy="18" r="2"/>
+{{else match name "spark"}}<path d="M12 3v4M12 17v4M3 12h4M17 12h4M6 6l2.5 2.5M15.5 15.5 18 18M6 18l2.5-2.5M15.5 8.5 18 6"/>
+{{else match name "shield"}}<path d="M12 3 5 6v6c0 4.5 3 7.5 7 9 4-1.5 7-4.5 7-9V6l-7-3Z"/><path d="m9 12 2 2 4-4"/>
+{{else match name "leaf"}}<path d="M5 19c0-9 6-14 15-14 0 9-5 15-14 15"/><path d="M5 19 13 11"/>
+{{else match name "heart"}}<path d="M12 20s-7-4.5-7-10a4 4 0 0 1 7-2.5A4 4 0 0 1 19 10c0 5.5-7 10-7 10Z"/>
+{{else match name "link"}}<path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1"/><path d="M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1"/>
+{{else match name "star"}}<path d="m12 4 2.4 5 5.6.6-4.2 3.8 1.2 5.6L12 16.3 7 19l1.2-5.6L4 9.6 9.6 9 12 4Z"/>
+{{/match}}
+</svg>

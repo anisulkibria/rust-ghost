@@ -3877,6 +3877,40 @@ a.dr-tile:hover { border-color: var(--outline); }
 .dr-cat-form { padding: 6px 4px 14px; }
 .dr-cat-actions { display: flex; justify-content: space-between; }
 .dr-control { min-width: 220px; display: flex; justify-content: flex-end; }
+/* The listing editor: the product editor's layout (`ec-`), plus hours,
+   price range, feature checklists, logo and map. */
+.dr-edit .dr-only-classified { display: none; }
+.dr-edit.is-classified .dr-only-classified,
+.dr-edit:has(input[name=kind][value=classified]:checked) .dr-only-classified { display: block; }
+.dr-edit .dr-kinds { grid-template-columns: 1fr; }
+.dr-week { display: grid; gap: 6px; }
+.dr-day { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; min-height: 40px; }
+.dr-day b { flex: 0 0 92px; font-size: 13.5px; font-weight: 600; }
+.dr-day > select { flex: 0 0 140px; }
+.dr-times { display: inline-flex; align-items: center; gap: 6px; }
+.dr-times input { width: 118px; }
+.dr-shift2 { margin-left: calc(92px + 140px + 16px); }
+@media (max-width: 720px) { .dr-shift2 { margin-left: 0; } }
+.dr-day:not([data-state=open]) .dr-times,
+.dr-day:not([data-state=open]) .dr-add-shift { visibility: hidden; }
+.dr-times[hidden], .dr-add-shift[hidden] { display: none !important; }
+@media (max-width: 720px) { .dr-day:not([data-state=open]) .dr-times, .dr-day:not([data-state=open]) .dr-add-shift { display: none; } }
+.dr-week-tools { display: flex; gap: 4px; flex-wrap: wrap; margin: 10px 0 6px; }
+.dr-levels { display: inline-flex; border: 1px solid var(--outline-variant); border-radius: 12px; overflow: hidden; margin-bottom: 6px; }
+.dr-levels label { cursor: pointer; }
+.dr-levels input { position: absolute; opacity: 0; pointer-events: none; }
+.dr-levels span { display: block; padding: 8px 16px; font-size: 14px; font-weight: 600; border-left: 1px solid var(--outline-variant); }
+.dr-levels label:first-child span { border-left: 0; font-weight: 500; }
+.dr-levels input:checked + span { background: var(--primary); color: var(--on-primary); }
+.dr-levels input:focus-visible + span { outline: 2px solid var(--primary); outline-offset: -2px; }
+.dr-checks { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 0 12px; margin-bottom: 8px; }
+.dr-checks .ec-check { margin: 4px 0; }
+.dr-logo { display: flex; align-items: center; gap: 12px; }
+.dr-logo-preview { width: 56px; height: 56px; border-radius: 14px; border: 1px dashed var(--outline-variant); display: grid; place-items: center; overflow: hidden; flex: none; color: var(--on-surface-variant); }
+.dr-logo-preview img { width: 100%; height: 100%; object-fit: contain; background: #fff; }
+.dr-logo-upload { cursor: pointer; flex: none; }
+.dr-map { width: 100%; height: 220px; border: 0; border-radius: 14px; margin-top: 6px; }
+
 @media (max-width: 639px) { .dr-control { min-width: 0; width: 100%; } }
 
 /* ==== Tools → Page Builder & Visual Editor (builder.rs) — `vb-` ==========
@@ -4179,6 +4213,27 @@ a.ec-tile:hover { border-color: var(--outline); }
 .ec-calc b { font-variant-numeric: tabular-nums; }
 .ec-only-variants { display: none; }
 .has-variants .ec-only-variants { display: block; }
+/* Store preview: the product card as a store list draws it */
+.ec-pv { display: grid; gap: 12px; transition: opacity var(--dur) var(--ease); }
+.ec-pv.is-hidden { opacity: .62; }
+.ec-pv-art { position: relative; aspect-ratio: 1; border-radius: 16px; overflow: hidden; background: color-mix(in srgb, var(--secondary-container) 55%, var(--sc-lowest)); display: grid; place-items: center; }
+.ec-pv-art img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+.ec-pv-ph { display: grid; justify-items: center; gap: 6px; color: var(--on-surface-variant); font-size: 12px; }
+.ec-pv-ph svg { width: 34px; height: 34px; fill: currentColor; opacity: .55; }
+.ec-pv-badge, .ec-pv-state { position: absolute; top: 10px; height: 24px; padding: 0 10px; border-radius: 999px; font-size: 12px; font-weight: 700; display: inline-flex; align-items: center; }
+.ec-pv-badge { left: 10px; background: #D8432B; color: #fff; }
+.ec-pv-state { right: 10px; background: var(--on-surface); color: var(--sc-lowest); }
+.ec-pv-badge[hidden], .ec-pv-state[hidden], .ec-pv-art img[hidden], .ec-pv-ph[hidden] { display: none; }
+.ec-pv-body { display: grid; gap: 2px; padding: 0 2px; }
+.ec-pv-type { font-size: 11px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; color: var(--on-surface-variant); min-height: 1em; }
+.ec-pv-title { font-size: 15px; line-height: 1.25; color: var(--on-surface); overflow-wrap: anywhere; }
+.ec-pv-price { font-size: 14px; font-variant-numeric: tabular-nums; }
+.ec-pv-price s { color: var(--on-surface-variant); }
+.ec-pv-price span { font-weight: 700; color: var(--on-surface); }
+.ec-pv-price span.is-sale { color: #D8432B; }
+.ec-pv-sw { display: flex; gap: 6px; margin-top: 4px; }
+.ec-pv-sw:empty { display: none; }
+.ec-pv-sw i { width: 14px; height: 14px; border-radius: 50%; background: #B98656; box-shadow: inset 0 0 0 1px rgba(0,0,0,.15); }
 .ec-kpis { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
 .ec-kpis div { display: flex; flex-direction: column; }
 .ec-kpis b { font-size: 20px; font-variant-numeric: tabular-nums; }

@@ -234,7 +234,7 @@ async fn full_demo_generates_every_kind_and_removes_only_its_own_content() {
     for kind in Kind::ALL {
         let expected = match kind {
             Kind::Pages => 4,      // The installation already has an About page.
-            Kind::Navigation => 5, // Links to the five demo pages, across both menus.
+            Kind::Navigation => 6, // The five demo pages across both menus, and Places.
             _ => i64::from(kind.full()),
         };
         assert_eq!(
@@ -254,6 +254,11 @@ async fn full_demo_generates_every_kind_and_removes_only_its_own_content() {
         .await
         .unwrap();
     assert_eq!(disabled, 40);
+    let live: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM directory_listings WHERE status = 'published' AND hours <> '' AND gallery <> ''")
+        .fetch_one(db)
+        .await
+        .unwrap();
+    assert_eq!(live, 24, "every demo place is live with hours and photos");
     assert!(get(&cookie).await.body.contains("Remove all dummy content"));
 
     let removal = submit(&f, &cookie, "remove", &[("batch", "all")]).await;
@@ -263,6 +268,8 @@ async fn full_demo_generates_every_kind_and_removes_only_its_own_content() {
         removal.flash()
     );
     assert!(vuuut_db::repos::dummies::totals(db).await.is_empty());
+    let places: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM directory_listings").fetch_one(db).await.unwrap();
+    assert_eq!(places, 0, "the demo's directory goes with it");
     let original_pages: i64 = sqlx::query_scalar(
         "SELECT COUNT(*) FROM posts WHERE slug = 'about' OR slug = 'coming-soon'",
     )

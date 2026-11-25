@@ -77,3 +77,26 @@ html.dark-mode .vd, body.dark-mode .vd { --vd-line: rgba(255, 255, 255, .14); --
 .vd-hp { position: absolute; left: -9999px; width: 1px; height: 1px; overflow: hidden; }
 .vd-error { padding: 12px 16px; border-radius: 12px; background: rgba(220, 38, 38, .1); color: #b91c1c; font-weight: 600; }
 .vd-done { font-size: 1.1em; padding: 16px 18px; border-radius: 16px; background: color-mix(in srgb, var(--vd-accent) 10%, transparent); }
+
+/* A full listing: tagline and logo, description beside a facts column. */
+.vd-one-head { flex-wrap: wrap; }
+.vd-logo { width: 56px; height: 56px; border-radius: 14px; object-fit: contain; background: #fff; border: 1px solid var(--vd-line); }
+.vd-tagline { margin: 0; font-size: 1.1em; color: var(--vd-muted); flex: 1 1 260px; }
+.vd-one-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(240px, 320px); gap: 28px; margin-top: 1.4em; align-items: start; }
+@media (max-width: 860px) { .vd-one-grid { grid-template-columns: 1fr; } }
+.vd-one-grid .vd-facts { margin-top: 0; }
+.vd-desc img { max-width: 100%; height: auto; border-radius: 14px; }
+.vd-gallery { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 8px; margin: 1.4em 0; }
+.vd-gallery img { width: 100%; aspect-ratio: 4 / 3; object-fit: cover; border-radius: 12px; display: block; }
+.vd-box { border: 1px solid var(--vd-line); border-radius: 16px; padding: 14px 18px; margin: 0 0 14px; }
+.vd-box h2 { font-size: 15px; margin: 0 0 8px; }
+.vd-hours { display: grid; grid-template-columns: max-content 1fr; gap: 4px 16px; margin: 0; font-size: 14px; }
+.vd-hours dt { font-weight: 600; }
+.vd-hours dd { margin: 0; }
+.vd-tags { list-style: none; display: flex; flex-wrap: wrap; gap: 6px; padding: 0; margin: 0; }
+.vd-tags li { font-size: 13px; padding: 3px 10px; border-radius: 999px; background: color-mix(in srgb, var(--vd-accent) 10%, transparent); }
+.vd-socials { display: flex; flex-wrap: wrap; gap: 6px 14px; margin: 0; font-size: 14px; }
+.vd-socials a { color: var(--vd-accent); font-weight: 600; text-decoration: none; }
+.vd-map { width: 100%; height: 220px; border: 0; border-radius: 16px; margin: 0 0 14px; }
+.vd-nearby { margin-top: 2.4em; }
+.vd-nearby h2 { font-size: 1.3em; }

@@ -1,0 +1,39 @@
+{{!< default}}
+{{!-- A page (About, Contact, FAQ, policies): a section-style header, then
+     the text beside a rail with the newsletter, the latest stories and the
+     site's other pages. No drop cap; questions (h2) are ruled entries. --}}
+{{#post}}
+<main id="main" class="np-static">
+{{#match @page.show_title_and_feature_image}}
+<header class="np-wrap np-list-head np-static-head">
+<p class="np-label">{{@site.title}}</p>
+<h1 class="np-list-title">{{title}}</h1>
+{{#if custom_excerpt}}<p class="np-dek">{{custom_excerpt}}</p>{{/if}}
+</header>
+{{#if feature_image}}<figure class="np-wrap np-static-img">{{> "media" ratio="wide"}}</figure>{{/if}}
+{{/match}}
+<div class="np-wrap np-static-body">
+<article class="np-prose np-prose-page gh-content">{{content}}</article>
+<aside class="np-static-rail">
+{{#if @site.members_enabled}}{{#unless @member}}
+<form class="np-box np-signup" data-members-form="subscribe">
+<p class="np-kicker"><span>Sign up</span></p>
+<h3 class="np-box-title">Stay informed</h3>
+<p>A daily briefing on the stories our editors are watching.</p>
+<label class="np-sr" for="np-page-email">Email</label>
+<input id="np-page-email" data-members-email type="email" placeholder="your@email.com" required>
+<button class="np-btn np-btn-ink" type="submit">Subscribe</button>
+<p class="np-form-ok">Check your inbox to confirm.</p><p class="np-form-err">Something went wrong. Try again.</p>
+</form>
+{{/unless}}{{/if}}
+{{#get "posts" limit="4" include="tags" as |latest|}}
+<div><h2 class="np-label np-rail-title">Latest</h2>
+<ol class="np-numbered">{{#foreach latest}}<li><span class="np-num">{{#match @number "<" 10}}0{{/match}}{{@number}}</span><div>{{> "kicker"}}<h3 class="np-headline np-h-s"><a href="{{url}}">{{title}}</a></h3></div></li>{{/foreach}}</ol></div>
+{{/get}}
+{{#get "pages" filter="id:-{{id}}" limit="8" fields="title,url" as |others|}}
+<nav class="np-static-pages" aria-label="More pages"><h2 class="np-label np-rail-title">More from {{@site.title}}</h2>{{#foreach others}}<a href="{{url}}">{{title}}<span aria-hidden="true">→</span></a>{{/foreach}}</nav>
+{{/get}}
+</aside>
+</div>
+</main>
+{{/post}}

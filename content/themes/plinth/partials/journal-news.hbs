@@ -1,0 +1,14 @@
+{{#if @site.members_enabled}}{{#unless @member}}
+<section class="pl-wrap pl-section">
+<div class="pl-newsband">
+<div><p class="pl-kicker">The journal, by email</p><h2 class="pl-display">New stories, <em>once a month</em></h2></div>
+<form class="pl-news-form" data-members-form="subscribe">
+<label class="pl-sr" for="pl-jn-email">Email</label>
+<input id="pl-jn-email" data-members-email type="email" required placeholder="Your email address">
+<button class="pl-btn pl-btn-ink" type="submit">Subscribe</button>
+<p class="pl-news-ok" role="status">Check your inbox to confirm.</p>
+<p class="pl-news-err" role="alert">That did not go through. Try again in a moment.</p>
+</form>
+</div>
+</section>
+{{/unless}}{{/if}}

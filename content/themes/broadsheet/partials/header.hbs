@@ -1,0 +1,45 @@
+{{!-- Breaking bar (featured stories), utility row, masthead, sections. --}}
+{{#get "posts" filter="featured:true" limit="8" as |breaking|}}
+<div class="np-ticker" role="region" aria-label="{{@custom.ticker_label}}">
+<span class="np-ticker-label"><span class="np-live" aria-hidden="true"></span>{{@custom.ticker_label}}</span>
+<div class="np-ticker-run"><div class="np-ticker-track" data-np-ticker>
+{{#foreach breaking}}<a href="{{url}}">{{title}}</a>{{/foreach}}
+{{#foreach breaking}}<a href="{{url}}" aria-hidden="true" tabindex="-1">{{title}}</a>{{/foreach}}
+</div></div>
+<button class="np-ticker-btn" type="button" data-np-ticker-pause aria-label="Pause the ticker">{{> "icon" name="pause" size="14"}}</button>
+<button class="np-ticker-btn" type="button" data-np-ticker-pin aria-label="Keep the ticker on screen">{{> "icon" name="pin" size="14"}}</button>
+<span class="np-clock" data-np-clock data-zone="{{@custom.timezone_label}}">&nbsp;</span>
+</div>
+{{/get}}
+<header class="np-top">
+<div class="np-wrap np-util">
+<div class="np-util-l">
+<button class="np-iconbtn" type="button" data-np-drawer aria-controls="np-drawer" aria-expanded="false">{{> "icon" name="menu"}}<span class="np-sr">Sections</span></button>
+<span class="np-date" data-np-date>{{date format="dddd, D MMMM YYYY"}}</span>
+</div>
+<div class="np-util-r">
+<button class="np-iconbtn" type="button" data-ghost-search aria-label="Search">{{> "icon" name="search"}}</button>
+<button class="np-iconbtn" type="button" data-np-saved aria-label="Saved stories">{{> "icon" name="bookmark"}}<span class="np-saved-count" hidden></span></button>
+<button class="np-iconbtn" type="button" data-np-theme aria-label="Dark mode">{{> "icon" name="moon"}}</button>
+{{#if @member}}<a class="np-util-link" href="#/portal/account">Account</a>{{else}}<a class="np-util-link" href="#/portal/signin">Sign in</a>{{/if}}
+{{#unless @member.paid}}<a class="np-subscribe" href="#/portal/signup">Subscribe</a>{{/unless}}
+</div>
+</div>
+<div class="np-wrap np-mast">
+<span class="np-mast-rule" aria-hidden="true"></span>
+<a class="np-mast-title" href="{{@site.url}}">{{#if @site.logo}}<img src="{{@site.logo}}" alt="{{@site.title}}">{{else}}{{#if @custom.masthead}}{{@custom.masthead}}{{else}}{{@site.title}}{{/if}}{{/if}}</a>
+<span class="np-mast-rule" aria-hidden="true"></span>
+{{#if @site.description}}<p class="np-mast-tag">{{@site.description}}</p>{{/if}}
+</div>
+<nav class="np-nav" aria-label="Sections"><div class="np-wrap np-nav-in">{{navigation}}</div></nav>
+</header>
+<div class="np-drawer" id="np-drawer" hidden>
+<div class="np-drawer-in">
+<button class="np-iconbtn np-drawer-close" type="button" data-np-drawer-close aria-label="Close">{{> "icon" name="close"}}</button>
+<p class="np-label">Sections</p>
+<nav class="np-drawer-nav">{{#foreach @site.navigation}}<a href="{{url absolute="true"}}">{{label}}</a>{{/foreach}}</nav>
+<p class="np-label">Topics</p>
+<nav class="np-drawer-tags">{{#get "tags" limit="30" filter="visibility:public" order="count.posts desc" include="count.posts"}}{{#foreach tags}}<a href="{{url}}">{{name}}</a>{{/foreach}}{{/get}}</nav>
+</div>
+</div>
+<div class="np-saved-panel" id="np-saved-panel" hidden><p class="np-label">Saved stories</p><ol data-np-saved-list></ol><p class="np-muted" data-np-saved-empty>Use Save on any story to keep it here.</p></div>

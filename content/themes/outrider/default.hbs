@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="{{@site.locale}}">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{meta_title}}</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Anybody:ital,wdth,wght@0,50..150,300..900;1,50..150,300..900&amp;family=Instrument+Sans:wght@400;500;600&amp;family=Martian+Mono:wght@400;500&amp;display=swap">
+<link rel="stylesheet" href="{{asset "css/screen.css"}}">
+{{ghost_head}}
+</head>
+<body class="{{body_class}}" id="top">
+<a class="or-skip" href="#main">Skip to content</a>
+<div class="or-cursor" aria-hidden="true"><span>View</span></div>
+{{> "header"}}
+{{{body}}}
+{{> "footer"}}
+<script src="{{asset "js/outrider.js"}}" defer></script>
+{{ghost_foot}}
+</body>
+</html>

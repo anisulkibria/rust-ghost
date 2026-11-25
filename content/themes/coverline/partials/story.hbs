@@ -1,0 +1,8 @@
+{{!-- One story. Options: pic (show the picture), showex (the excerpt), kicker, size (s|m|l). --}}
+<article class="cv-story{{#if size}} cv-{{size}}{{/if}} {{post_class}}">
+{{#if pic}}{{#if feature_image}}<a class="cv-img" href="{{url}}" tabindex="-1" aria-hidden="true"><img src="{{img_url feature_image size="m"}}" srcset="{{img_url feature_image size="s"}} 400w, {{img_url feature_image size="m"}} 720w, {{img_url feature_image size="l"}} 1200w" sizes="(max-width: 767px) 100vw, 400px" alt="" loading="lazy"></a>{{/if}}{{/if}}
+{{#if kicker}}{{#if primary_tag}}<a class="cv-kicker" href="{{primary_tag.url}}">{{primary_tag.name}}</a>{{/if}}{{/if}}
+<h3 class="cv-title"><a href="{{url}}">{{title}}</a></h3>
+{{#if showex}}<p class="cv-excerpt">{{excerpt words="30"}}</p>{{/if}}
+{{> "byline"}}
+</article>

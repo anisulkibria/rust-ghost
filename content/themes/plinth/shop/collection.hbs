@@ -1,0 +1,44 @@
+{{!< default}}
+{{!-- One collection: a banner, then the same catalogue as shop/shop.hbs. --}}
+<main id="main" class="pl-shop">
+<header class="pl-wrap pl-collhead">
+<div class="pl-collhead-copy">
+<nav class="pl-crumbs" aria-label="Breadcrumb"><a href="{{@site.url}}">Home</a><span>/</span><a href="{{shop.collections_url}}">Collections</a><span>/</span><span>{{collection.title}}</span></nav>
+<h1 class="pl-display">{{collection.title}}</h1>
+{{#if collection.description}}<p class="pl-sub">{{collection.description}}</p>{{/if}}
+<p class="pl-count">{{plural total empty="Nothing here yet" singular="% piece" plural="% pieces"}}</p>
+</div>
+<div class="pl-collhead-art">{{#if collection.feature_image}}<img src="{{collection.feature_image}}" alt="">{{else}}<span class="pl-hero-room pl-room-soft" aria-hidden="true"><span class="pl-hero-window"></span><span class="pl-hero-floor"></span><span class="pl-hero-piece">{{> "art" kind=collection.title}}</span></span>{{/if}}</div>
+</header>
+
+<div class="pl-wrap pl-shoptools">
+<nav class="pl-chips" aria-label="Collections">
+<a class="pl-chip" href="{{shop.url}}">All</a>
+{{#foreach collections}}<a class="pl-chip{{#if current}} is-on{{/if}}" href="{{url}}">{{title}}</a>{{/foreach}}
+</nav>
+<form method="get" class="pl-sort">
+<label for="pl-sort">Sort by</label>
+<select id="pl-sort" name="sort" onchange="this.form.submit()">
+{{#foreach sorts}}<option value="{{value}}"{{#if selected}} selected{{/if}}>{{label}}</option>{{/foreach}}
+</select>
+<noscript><button class="pl-btn pl-btn-line pl-btn-small" type="submit">Sort</button></noscript>
+</form>
+</div>
+
+<section class="pl-wrap pl-section-tight">
+{{#if products}}
+<div class="pl-grid">
+{{#foreach products}}{{> "product-card" add=@root.shop.add_url}}{{/foreach}}
+</div>
+{{#match pagination.pages ">" 1}}
+<nav class="pl-pager" aria-label="Pages">
+{{#if pagination.prev_url}}<a class="pl-round" href="{{pagination.prev_url}}" aria-label="Previous page">{{> "icon" name="left" size="18"}}</a>{{else}}<span></span>{{/if}}
+<span>Page {{pagination.page}} of {{pagination.pages}}</span>
+{{#if pagination.next_url}}<a class="pl-round" href="{{pagination.next_url}}" aria-label="Next page">{{> "icon" name="right" size="18"}}</a>{{else}}<span></span>{{/if}}
+</nav>
+{{/match}}
+{{else}}
+<div class="pl-empty" role="status"><span class="pl-empty-art">{{> "art" kind=collection.title}}</span><p class="pl-display">This collection is still being styled.</p><a class="pl-btn pl-btn-ink" href="{{shop.url}}">Shop everything</a></div>
+{{/if}}
+</section>
+</main>

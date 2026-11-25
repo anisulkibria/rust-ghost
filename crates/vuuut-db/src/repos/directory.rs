@@ -13,7 +13,7 @@ use vuuut_core::{dates, ids, Result};
 // categories
 // ---------------------------------------------------------------------------
 
-#[derive(Debug, Clone, sqlx::FromRow)]
+#[derive(Debug, Clone, Default, sqlx::FromRow)]
 pub struct Category {
     pub id: String,
     pub name: String,
@@ -21,9 +21,10 @@ pub struct Category {
     pub description: String,
     pub tint: String,
     pub sort_order: i64,
+    pub image: String,
 }
 
-const CAT_COLS: &str = "id, name, slug, description, tint, sort_order";
+const CAT_COLS: &str = "id, name, slug, description, tint, sort_order, image";
 
 pub async fn categories(pool: &Db) -> Result<Vec<Category>> {
     sqlx::query_as::<_, Category>(&format!("SELECT {CAT_COLS} FROM directory_categories ORDER BY sort_order, name"))
@@ -42,6 +43,20 @@ pub async fn category_by_slug(pool: &Db, slug: &str) -> Option<Category> {
 }
 
 pub async fn save_category(pool: &Db, id: Option<&str>, name: &str, slug: &str, description: &str, tint: &str, sort: i64) -> Result<String> {
+    save_category_with_image(pool, id, name, slug, description, tint, sort, None).await
+}
+
+/// [`save_category`], also setting the tile picture when `image` is given.
+#[allow(clippy::too_many_arguments)]
+pub async fn save_category_with_image(pool: &Db, id: Option<&str>, name: &str, slug: &str, description: &str, tint: &str, sort: i64, image: Option<&str>) -> Result<String> {
+    let id = save_category_inner(pool, id, name, slug, description, tint, sort).await?;
+    if let Some(image) = image {
+        sqlx::query("UPDATE directory_categories SET image = ? WHERE id = ?").bind(image).bind(&id).execute(pool).await.map_err(dberr)?;
+    }
+    Ok(id)
+}
+
+async fn save_category_inner(pool: &Db, id: Option<&str>, name: &str, slug: &str, description: &str, tint: &str, sort: i64) -> Result<String> {
     // Directory pages are served from the page cache; a change must empty it.
     crate::content::touch();
     let now = dates::now_db();
@@ -97,7 +112,7 @@ pub async fn category_counts(pool: &Db, now: &str) -> Vec<(String, i64)> {
 // listings
 // ---------------------------------------------------------------------------
 
-#[derive(Debug, Clone, sqlx::FromRow)]
+#[derive(Debug, Clone, Default, sqlx::FromRow)]
 pub struct Listing {
     pub id: String,
     pub slug: String,
@@ -127,15 +142,91 @@ pub struct Listing {
     pub published_at: Option<String>,
     pub created_at: String,
     pub updated_at: String,
+    pub description_lexical: String,
+    pub description_html: String,
+    pub logo: String,
+    pub gallery: String,
+    pub region: String,
+    pub postal_code: String,
+    pub country: String,
+    pub latitude: String,
+    pub longitude: String,
+    pub booking_url: String,
+    pub video_url: String,
+    pub hours: String,
+    pub hours_note: String,
+    pub price_level: i64,
+    pub amenities: String,
+    pub payments: String,
+    pub socials: String,
+    pub established: String,
+    pub seo_title: String,
+    pub seo_description: String,
 }
 
 impl Listing {
     pub fn is_featured(&self) -> bool {
         self.featured != 0
     }
+
+    pub fn gallery_list(&self) -> Vec<String> {
+        self.gallery.lines().map(str::trim).filter(|l| !l.is_empty()).map(str::to_string).collect()
+    }
+
+    /// Every picture, the main one first.
+    pub fn images(&self) -> Vec<String> {
+        let mut all: Vec<String> = Vec::new();
+        for u in std::iter::once(self.image.clone()).chain(self.gallery_list()) {
+            if !u.is_empty() && !all.contains(&u) {
+                all.push(u);
+            }
+        }
+        all
+    }
+
+    pub fn hours(&self) -> vuuut_core::directory::Hours {
+        vuuut_core::directory::Hours::from_json(&self.hours)
+    }
+
+    /// `(network, address)` pairs, in the order the rules list them.
+    pub fn social_list(&self) -> Vec<(String, String)> {
+        let v: serde_json::Value = serde_json::from_str(&self.socials).unwrap_or_default();
+        vuuut_core::directory::SOCIALS
+            .iter()
+            .filter_map(|(k, _, _)| v.get(k).and_then(|x| x.as_str()).filter(|x| !x.is_empty()).map(|x| (k.to_string(), x.to_string())))
+            .collect()
+    }
+
+    /// The description as HTML: the editor's, or the plain text as paragraphs.
+    pub fn description_markup(&self) -> String {
+        if self.description_html.trim().is_empty() {
+            vuuut_core::directory::paragraphs(&self.description)
+        } else {
+            self.description_html.clone()
+        }
+    }
+
+    /// The street address in one line: street, town, region postcode, country.
+    pub fn full_address(&self) -> String {
+        let region = [self.region.as_str(), self.postal_code.as_str()].iter().filter(|s| !s.is_empty()).copied().collect::<Vec<_>>().join(" ");
+        [self.address.as_str(), self.location.as_str(), region.as_str(), self.country.as_str()]
+            .iter()
+            .filter(|s| !s.is_empty())
+            .copied()
+            .collect::<Vec<_>>()
+            .join(", ")
+    }
 }
 
 const COLS: &str = "id, slug, title, kind, status, category_id, summary, description, image, website, email, phone, address, \
+location, price_cents, price_type, keywords, featured, submitter_name, submitter_email, member_id, reject_reason, views, \
+contact_clicks, expires_at, published_at, created_at, updated_at, \
+COALESCE(description_lexical, '') AS description_lexical, COALESCE(description_html, '') AS description_html, logo, \
+COALESCE(gallery, '') AS gallery, region, postal_code, country, latitude, longitude, booking_url, video_url, \
+COALESCE(hours, '') AS hours, hours_note, price_level, amenities, payments, COALESCE(socials, '') AS socials, established, \
+seo_title, seo_description";
+
+const BASE_COLS: &str = "id, slug, title, kind, status, category_id, summary, description, image, website, email, phone, address, \
 location, price_cents, price_type, keywords, featured, submitter_name, submitter_email, member_id, reject_reason, views, \
 contact_clicks, expires_at, published_at, created_at, updated_at";
 
@@ -203,7 +294,7 @@ pub async fn insert(pool: &Db, i: &ListingInput, status: &str, expires_at: Optio
     let slug = unique_slug(pool, &i.slug, None).await;
     let published = (status == "published").then(|| now.clone());
     sqlx::query(&format!(
-        "INSERT INTO directory_listings ({COLS}) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,'',0,0,?,?,?,?)"
+        "INSERT INTO directory_listings ({BASE_COLS}) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,'',0,0,?,?,?,?)"
     ))
     .bind(&id).bind(&slug).bind(&i.title).bind(&i.kind).bind(status).bind(i.category_id.clone())
     .bind(&i.summary).bind(&i.description).bind(&i.image).bind(&i.website).bind(&i.email).bind(&i.phone)
@@ -213,7 +304,31 @@ pub async fn insert(pool: &Db, i: &ListingInput, status: &str, expires_at: Optio
     .execute(pool)
     .await
     .map_err(dberr)?;
+    write_details(pool, &id, i).await?;
     Ok(id)
+}
+
+/// The editor's description and the rich fields, written after the row.
+async fn write_details(pool: &Db, id: &str, i: &ListingInput) -> Result<()> {
+    let d = &i.details;
+    let socials = if d.socials.is_empty() {
+        String::new()
+    } else {
+        serde_json::Value::Object(d.socials.iter().map(|(k, v)| (k.clone(), serde_json::Value::String(v.clone()))).collect()).to_string()
+    };
+    sqlx::query(
+        "UPDATE directory_listings SET description_lexical = ?, description_html = ?, logo = ?, gallery = ?, region = ?, postal_code = ?, \
+         country = ?, latitude = ?, longitude = ?, booking_url = ?, video_url = ?, hours = ?, hours_note = ?, price_level = ?, amenities = ?, \
+         payments = ?, socials = ?, established = ?, seo_title = ?, seo_description = ? WHERE id = ?",
+    )
+    .bind(&i.description_lexical).bind(&i.description_html).bind(&d.logo).bind(d.gallery.join("\n")).bind(&d.region)
+    .bind(&d.postal_code).bind(&d.country).bind(&d.latitude).bind(&d.longitude).bind(&d.booking_url).bind(&d.video_url)
+    .bind(d.hours.to_json()).bind(&d.hours_note).bind(d.price_level).bind(d.amenities.join(",")).bind(d.payments.join(","))
+    .bind(socials).bind(&d.established).bind(&d.seo_title).bind(&d.seo_description).bind(id)
+    .execute(pool)
+    .await
+    .map_err(dberr)?;
+    Ok(())
 }
 
 /// Staff edits: everything the form owns. Status, counters, the submitter
@@ -234,7 +349,7 @@ pub async fn update(pool: &Db, id: &str, i: &ListingInput) -> Result<()> {
     .execute(pool)
     .await
     .map_err(dberr)?;
-    Ok(())
+    write_details(pool, id, i).await
 }
 
 /// Publish, reject, unpublish. Publishing stamps `published_at` the first
@@ -272,6 +387,8 @@ pub struct Browse<'a> {
     /// Only what the public may see at this moment.
     pub visible_at: Option<&'a str>,
     pub location: Option<&'a str>,
+    /// Any of these price levels (1 … 4); empty is any.
+    pub price_levels: &'a [i64],
     pub limit: i64,
     pub offset: i64,
 }
@@ -304,6 +421,11 @@ fn where_clause(b: &Browse) -> (String, Vec<String>) {
     if let Some(l) = b.location {
         sql.push_str(" AND LOWER(location) = ?");
         binds.push(l.to_lowercase());
+    }
+    let levels: Vec<String> = b.price_levels.iter().filter(|n| (1..=4).contains(*n)).map(|n| n.to_string()).collect();
+    if !levels.is_empty() {
+        // Digits 1–4 only, checked above, so they are safe to write inline.
+        sql.push_str(&format!(" AND price_level IN ({})", levels.join(",")));
     }
     (sql, binds)
 }
@@ -390,4 +512,157 @@ pub async fn submitted_since(pool: &Db, email: &str, since: &str) -> i64 {
         .fetch_one(pool)
         .await
         .unwrap_or(0)
+}
+
+// ---------------------------------------------------------------------------
+// what a theme sees
+// ---------------------------------------------------------------------------
+
+use serde_json::{json, Value};
+use vuuut_core::directory::{self as rules, PriceType, Settings};
+
+fn public_url(s: &Settings, internal: &str) -> String {
+    vuuut_core::url::base(&s.paths.public_path(internal))
+}
+
+/// A place (a listing's town) as a theme sees it: browse filtered to it.
+pub fn place_json(s: &Settings, name: &str, count: i64, image: Option<&str>) -> Value {
+    let slug = rules::slugify(name);
+    json!({
+        "name": name,
+        "slug": slug,
+        "count": count,
+        "directory_url": public_url(s, "/directory/"),
+        "feature_image": image.filter(|i| !i.is_empty()),
+        "url": format!("{}?location={}", public_url(s, "/directory/"), vuuut_core::social_media::encode(name)),
+    })
+}
+
+/// A category as a theme sees it.
+pub fn category_json(s: &Settings, c: &Category, count: i64) -> Value {
+    json!({
+        "id": c.id,
+        "name": c.name,
+        "slug": c.slug,
+        "description": c.description,
+        "tint": c.tint,
+        "feature_image": if c.image.is_empty() { Value::Null } else { json!(c.image) },
+        "count": count,
+        "directory_url": public_url(s, "/directory/"),
+        "url": public_url(s, &format!("/directory/category/{}/", c.slug)),
+    })
+}
+
+/// One listing as a theme sees it — `{{#get "listings"}}`, and `listing` in
+/// `directory/listing.hbs`. Every value is data (Handlebars escapes it),
+/// except `description`, the HTML the editor rendered.
+pub fn listing_json(s: &Settings, l: &Listing, cats: &[Category]) -> Value {
+    let cat = l.category_id.as_deref().and_then(|c| cats.iter().find(|x| x.id == c));
+    let url = public_url(s, &format!("/directory/{}/", l.slug));
+    let go = |to: &str| public_url(s, &format!("/directory/{}/go/{to}/", l.slug));
+    let images = l.images();
+    let hours = l.hours();
+    let full_address = l.full_address();
+    let maps = |q: &str| format!("https://www.google.com/maps/search/?api=1&query={}", vuuut_core::social_media::encode(q));
+    let coords = (!l.latitude.is_empty() && !l.longitude.is_empty()).then(|| format!("{},{}", l.latitude, l.longitude));
+    let directions = coords.clone().map(|c| maps(&c)).or_else(|| (!full_address.is_empty()).then(|| maps(&format!("{} {}", l.title, full_address))));
+    let embed = coords.as_ref().map(|_| {
+        let (lat, lng) = (l.latitude.parse::<f64>().unwrap_or(0.0), l.longitude.parse::<f64>().unwrap_or(0.0));
+        format!(
+            "https://www.openstreetmap.org/export/embed.html?bbox={},{},{},{}&layer=mapnik&marker={lat},{lng}",
+            lng - 0.006, lat - 0.004, lng + 0.006, lat + 0.004
+        )
+    });
+    let level = rules::PRICE_LEVELS.iter().find(|(n, _, _)| *n == l.price_level);
+    let price = rules::format_price(l.price_cents, &s.currency, PriceType::from_key(&l.price_type));
+    let plain: String = if l.summary.is_empty() { l.description.chars().take(160).collect() } else { l.summary.clone() };
+    let socials: Vec<Value> = l
+        .social_list()
+        .into_iter()
+        .map(|(k, v)| json!({ "network": k, "label": rules::SOCIALS.iter().find(|x| x.0 == k).map(|x| x.1).unwrap_or(""), "url": v }))
+        .collect();
+    let named = |list: &[(&str, &str)], stored: &str| -> Vec<Value> {
+        rules::split_keys(stored).iter().filter_map(|k| rules::label_of(list, k).map(|label| json!({ "key": k, "label": label }))).collect()
+    };
+    let week: Vec<Value> = rules::DAYS_OF_WEEK
+        .iter()
+        .enumerate()
+        .filter(|(i, _)| hours.0[*i] != rules::Day::Unknown)
+        .map(|(i, (key, name, short))| json!({ "key": key, "day": name, "short": short, "hours": hours.0[i].label(), "plain": hours.0[i].plain(), "closed": hours.0[i] == rules::Day::Closed }))
+        .collect();
+    let mut out = json!({
+        "id": l.id,
+        "slug": l.slug,
+        "title": l.title,
+        "url": url,
+        "directory_url": public_url(s, "/directory/"),
+        "kind": l.kind,
+        "classified": l.kind == "classified",
+        "featured": l.is_featured(),
+        "summary": l.summary,
+        "custom_excerpt": l.summary,
+        "excerpt": plain,
+        "description": l.description_markup(),
+        "feature_image": images.first(),
+        "images": images,
+        "gallery": images.iter().skip(1).collect::<Vec<_>>(),
+        "logo": if l.logo.is_empty() { Value::Null } else { json!(l.logo) },
+        "category": cat.map(|c| json!({ "name": c.name, "slug": c.slug, "tint": c.tint, "url": public_url(s, &format!("/directory/category/{}/", c.slug)) })),
+        "place": if l.location.is_empty() { Value::Null } else { place_json(s, &l.location, 0, None) },
+        "location": l.location,
+        "address": l.address,
+        "region": l.region,
+        "postal_code": l.postal_code,
+        "country": l.country,
+        "full_address": full_address,
+        "latitude": l.latitude,
+        "longitude": l.longitude,
+        "directions_url": directions,
+        "map_embed_url": embed,
+    });
+    let more = json!({
+        "phone": l.phone,
+        "phone_url": if l.phone.is_empty() { Value::Null } else { json!(go("phone")) },
+        "email": l.email,
+        "email_url": if l.email.is_empty() { Value::Null } else { json!(go("email")) },
+        "show_contact": s.show_contact,
+        "website": l.website,
+        "website_host": rules::host_of(&l.website),
+        "website_url": if l.website.is_empty() { Value::Null } else { json!(go("website")) },
+        "booking_url": if l.booking_url.is_empty() { Value::Null } else { json!(l.booking_url) },
+        "video_url": if l.video_url.is_empty() { Value::Null } else { json!(l.video_url) },
+        "hours": week,
+        "has_hours": !hours.is_empty(),
+        "hours_note": l.hours_note,
+        "price_level": l.price_level,
+        "price_signs": level.map(|x| x.1),
+        "price_unused": level.map(|x| "$".repeat(4 - x.0 as usize)),
+        "price_label": level.map(|x| x.2),
+        "price": price,
+        "amenities": named(rules::AMENITIES, &l.amenities),
+        "payments": named(rules::PAYMENTS, &l.payments),
+        "socials": socials,
+        "established": l.established,
+        "keywords": l.keywords,
+        "views": l.views,
+        "expires_at": l.expires_at,
+        "published_at": l.published_at,
+    });
+    if let (Value::Object(a), Value::Object(b)) = (&mut out, more) {
+        a.extend(b);
+    }
+    out
+}
+
+/// Places (towns) on visible listings with how many each has and the first
+/// picture found there, busiest first.
+pub async fn places(pool: &Db, now: &str) -> Vec<(String, i64, String)> {
+    sqlx::query_as::<_, (String, i64, String)>(
+        "SELECT location, COUNT(*), MAX(image) FROM directory_listings WHERE status = 'published' AND location <> '' \
+         AND (expires_at IS NULL OR expires_at > ?) GROUP BY location ORDER BY COUNT(*) DESC, location LIMIT 60",
+    )
+    .bind(now)
+    .fetch_all(pool)
+    .await
+    .unwrap_or_default()
 }

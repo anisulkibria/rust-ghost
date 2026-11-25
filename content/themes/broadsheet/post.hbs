@@ -1,0 +1,47 @@
+{{!< default}}
+{{#post}}
+<div class="np-progress" aria-hidden="true"><span data-np-progress></span></div>
+<main id="main" class="np-wrap np-article-wrap">
+<article class="np-article {{post_class}}">
+<header class="np-article-head">
+{{> "kicker"}}
+<h1 class="np-article-title">{{title}}</h1>
+{{#if custom_excerpt}}<p class="np-dek">{{custom_excerpt}}</p>{{/if}}
+<div class="np-article-by">
+{{#foreach authors limit="2"}}<a class="np-face" href="{{url}}">{{#if profile_image}}<img src="{{img_url profile_image size="xs"}}" alt="">{{else}}<span>{{name}}</span>{{/if}}</a>{{/foreach}}
+<div>{{> "byline" read=true}}</div>
+<div class="np-article-tools">
+<button class="np-save" type="button" data-np-save data-url="{{url}}" data-title="{{title}}">{{> "icon" name="bookmark" size="14"}}<span>Save</span></button>
+<a class="np-tool" href="https://x.com/intent/tweet?url={{encode (url absolute="true")}}&amp;text={{encode title}}" target="_blank" rel="noopener" aria-label="Share on X">{{> "icon" name="x" size="14"}}</a>
+<a class="np-tool" href="https://www.facebook.com/sharer/sharer.php?u={{encode (url absolute="true")}}" target="_blank" rel="noopener" aria-label="Share on Facebook">{{> "icon" name="fb" size="14"}}</a>
+<a class="np-tool" href="mailto:?subject={{encode title}}&amp;body={{encode (url absolute="true")}}" aria-label="Email">{{> "icon" name="mail" size="14"}}</a>
+</div>
+</div>
+</header>
+{{#if feature_image}}
+<figure class="np-article-img">{{> "media" ratio="wide"}}{{#if feature_image_caption}}<figcaption class="np-caption">{{feature_image_caption}}</figcaption>{{/if}}</figure>
+{{/if}}
+<div class="np-prose gh-content">{{content}}</div>
+{{#if tags}}<p class="np-article-tags">{{#foreach tags}}{{#match visibility "public"}}<a href="{{url}}">{{name}}</a>{{/match}}{{/foreach}}</p>{{/if}}
+{{#foreach authors limit="1"}}
+<aside class="np-authorbox"><a class="np-face np-face-lg" href="{{url}}">{{#if profile_image}}<img src="{{img_url profile_image size="s"}}" alt="">{{else}}<span>{{name}}</span>{{/if}}</a><div><p class="np-label">Written by</p><h2><a href="{{url}}">{{name}}</a></h2>{{#if bio}}<p>{{bio}}</p>{{/if}}</div></aside>
+{{/foreach}}
+{{comments}}
+</article>
+<aside class="np-article-rail">
+<div class="np-sticky">
+<h2 class="np-label np-rail-title">Most recent</h2>
+<ol class="np-numbered">{{#get "posts" filter="id:-{{id}}" limit="5" include="tags"}}{{#foreach posts}}<li><span class="np-num">{{#match @number "<" 10}}0{{/match}}{{@number}}</span><div>{{> "kicker"}}<h3 class="np-headline np-h-s"><a href="{{url}}">{{title}}</a></h3></div></li>{{/foreach}}{{/get}}</ol>
+</div>
+</aside>
+</main>
+{{#if primary_tag}}
+{{#get "posts" filter="tags:{{primary_tag.slug}}+id:-{{id}}" limit="4" include="tags,authors"}}{{#if posts}}
+<section class="np-section"><div class="np-wrap">
+{{> "section-head" title=(concat "More in " @root.post.primary_tag.name) url=@root.post.primary_tag.url}}
+<div class="np-grid-4">{{#foreach posts}}{{> "story" layout="top" size="m" excerpt=true}}{{/foreach}}</div>
+</div></section>
+{{/if}}{{/get}}
+{{/if}}
+{{/post}}
+{{> "membership"}}

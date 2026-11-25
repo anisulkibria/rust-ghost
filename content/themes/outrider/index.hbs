@@ -1,0 +1,6 @@
+{{!< default}}
+<main id="main" class="or-wrap or-listing">
+<header class="or-list-head"><p class="or-label">Everything · page {{pagination.page}}</p><h1 class="or-list-title" data-or-stretch>Archive</h1></header>
+<div class="or-post-grid">{{#foreach posts}}{{> "post-card"}}{{/foreach}}</div>
+{{> "pager"}}
+</main>

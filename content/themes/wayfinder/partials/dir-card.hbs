@@ -1,0 +1,20 @@
+{{!--
+    A place from Vuuut's directory ({{#get "listings"}} or a directory page).
+    Same card as a #listing post, so every grid and filter treats them alike.
+--}}
+<article class="lcard{{#if featured}} featured{{/if}}" data-listing data-category="{{category.slug}}" data-place="{{place.slug}}" data-price="{{price_level}}">
+    <a class="lcard-image" href="{{url}}" tabindex="-1" aria-hidden="true">
+        {{#if feature_image}}
+            <img src="{{feature_image}}" alt="" loading="lazy">
+        {{else}}
+            <span class="lcard-noimage">{{> "icons/pin"}}</span>
+        {{/if}}
+        {{#if featured}}<span class="lcard-badge">{{t "Featured"}}</span>{{/if}}
+    </a>
+    <div class="lcard-text">
+        <p class="lcard-where">{{#if category}}{{category.name}}{{/if}}{{#if location}} {{t "in"}} {{location}}{{/if}}</p>
+        <h3 class="lcard-title"><a href="{{url}}">{{title}}</a></h3>
+        {{#if summary}}<p class="lcard-tagline">{{summary}}</p>{{/if}}
+        {{> "dir-price"}}
+    </div>
+</article>

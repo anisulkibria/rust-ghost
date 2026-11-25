@@ -1,0 +1,38 @@
+{{!-- Two-tier masthead: date + tagline, the big title between search and
+     the member actions, then the ruled section row. A slim bar takes over
+     once the page scrolls. --}}
+<header class="cv-head" id="cv-head">
+<div class="cv-wrap">
+<div class="cv-util">
+<span class="cv-date" data-cv-date>{{date format="dddd, D MMMM YYYY"}}</span>
+{{#if @site.description}}<span class="cv-tagline">{{@site.description}}</span>{{/if}}
+<span class="cv-util-end">{{#if @site.twitter}}<a href="{{twitter_url @site.twitter}}" aria-label="X" rel="noopener">{{> "icon" name="x" size="13"}}</a>{{/if}}{{#if @site.facebook}}<a href="{{facebook_url @site.facebook}}" aria-label="Facebook" rel="noopener">{{> "icon" name="fb" size="14"}}</a>{{/if}}<a href="{{@site.url}}/rss/">RSS</a></span>
+</div>
+<div class="cv-mast">
+<div class="cv-mast-start">
+<button class="cv-icon-btn cv-burger" type="button" aria-label="Menu" aria-expanded="false" data-cv-burger>{{> "icon" name="menu" size="20"}}</button>
+<button class="cv-search" type="button" data-ghost-search aria-label="Search">{{> "icon" name="search" size="17"}}<span>Search</span></button>
+</div>
+<a class="cv-logo" href="{{@site.url}}">{{#if @site.logo}}<img src="{{@site.logo}}" alt="{{@site.title}}">{{else}}{{@site.title}}{{/if}}</a>
+<div class="cv-actions">
+{{#if @site.members_enabled}}{{#if @member}}<a class="cv-link" href="#/portal/account">Account</a>{{else}}<a class="cv-link" href="#/portal/signin">Sign in</a><a class="cv-pill" href="#/portal/signup">Subscribe</a>{{/if}}{{/if}}
+</div>
+</div>
+<nav class="cv-nav" aria-label="Main">
+<ul class="cv-nav-list" data-cv-nav>{{navigation}}</ul>
+<div class="cv-more" data-cv-more hidden><button class="cv-more-btn" type="button" aria-expanded="false" aria-label="More links" data-cv-more-btn>{{> "icon" name="more" size="20"}}</button><ul class="cv-more-menu" data-cv-more-menu hidden></ul></div>
+</nav>
+</div>
+</header>
+<div class="cv-bar" data-cv-bar aria-hidden="true">
+<div class="cv-wrap cv-bar-in">
+<a class="cv-bar-logo" href="{{@site.url}}" tabindex="-1">{{@site.title}}</a>
+<nav class="cv-bar-nav">{{#foreach @site.navigation limit="7"}}<a href="{{url absolute="true"}}" tabindex="-1">{{label}}</a>{{/foreach}}</nav>
+<span class="cv-bar-end"><button class="cv-icon-btn" type="button" data-ghost-search tabindex="-1">{{> "icon" name="search" size="17"}}</button>{{#if @site.members_enabled}}{{#unless @member}}<a class="cv-pill cv-pill-sm" href="#/portal/signup" tabindex="-1">Subscribe</a>{{/unless}}{{/if}}</span>
+</div>
+</div>
+<div class="cv-drawer" data-cv-drawer hidden>
+<button class="cv-icon-btn cv-drawer-close" type="button" aria-label="Close" data-cv-drawer-close>{{> "icon" name="close" size="22"}}</button>
+<ul>{{#foreach @site.navigation}}<li><a href="{{url absolute="true"}}">{{label}}</a></li>{{/foreach}}</ul>
+{{#if @site.members_enabled}}{{#unless @member}}<div class="cv-drawer-actions"><a class="cv-pill" href="#/portal/signup">Subscribe</a><a class="cv-link" href="#/portal/signin">Sign in</a></div>{{/unless}}{{/if}}
+</div>

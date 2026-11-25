@@ -1,0 +1,11 @@
+<article class="ms-feed-item {{post_class}}">
+<a class="ms-feed-link" href="{{url}}">
+<time class="ms-feed-date" datetime="{{date format="YYYY-MM-DD"}}"><b>{{date format="DD"}}</b><span>{{date format="MMM"}}</span></time>
+<span class="ms-feed-body">
+<span class="ms-feed-top">{{#if primary_tag}}<span class="ms-feed-tag">{{primary_tag.name}}</span>{{/if}}{{#if featured}}<span class="ms-star" title="Featured">{{> "icon" name="star" size="12"}}</span>{{/if}}{{#match visibility "!=" "public"}}<span class="ms-lock">{{#match visibility "paid"}}Paid{{else}}Members{{/match}}</span>{{/match}}</span>
+<h2 class="ms-feed-title">{{title}}</h2>
+<span class="ms-feed-excerpt">{{excerpt words="22"}}</span>
+</span>
+<span class="ms-feed-meta"><span class="ms-feed-read">{{reading_time minute="1 min" minutes="% min"}}</span><span class="ms-feed-go" aria-hidden="true">{{> "icon" name="right" size="16"}}</span></span>
+</a>
+</article>

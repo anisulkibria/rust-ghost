@@ -1,0 +1,84 @@
+{{!< default}}
+{{!--
+    Vuuut's directory: every place, filtered on the server by category
+    (?what=), town (?where=), price (?price=) and words (?q=). Also draws a
+    category's page when the theme has no directory/category.hbs.
+--}}
+<main class="site-main" id="main">
+    <header class="list-header wrap">
+        {{#if category}}<p class="list-kicker"><a href="{{directory.url}}">{{directory.title}}</a></p>{{/if}}
+        <h1 class="list-title">{{heading}}</h1>
+        {{#if intro}}<p class="list-meta">{{intro}}</p>{{/if}}
+    </header>
+
+    <form class="filters wrap" method="get" action="{{directory.url}}" aria-label="{{t "Filter places"}}">
+        <div class="filter filter-q">
+            <label for="filter-q">{{t "Search"}}</label>
+            <input id="filter-q" type="search" name="q" value="{{query}}" placeholder="{{t "Name, dish, feature…"}}" maxlength="100">
+        </div>
+        <div class="filter">
+            <label for="filter-what">{{t "Category"}}</label>
+            <select id="filter-what" name="what">
+                <option value="">{{t "All categories"}}</option>
+                {{#foreach categories}}{{#if count}}<option value="{{slug}}"{{#if current}} selected{{/if}}>{{name}}</option>{{/if}}{{/foreach}}
+            </select>
+        </div>
+        {{#if places}}
+            <div class="filter">
+                <label for="filter-where">{{t "Place"}}</label>
+                <select id="filter-where" name="where">
+                    <option value="">{{t "Everywhere"}}</option>
+                    {{#foreach places}}<option value="{{slug}}"{{#if current}} selected{{/if}}>{{name}}</option>{{/foreach}}
+                </select>
+            </div>
+        {{/if}}
+        <div class="filter">
+            <label for="filter-price">{{t "Price"}}</label>
+            <select id="filter-price" name="price">
+                <option value="">{{t "Any price"}}</option>
+                <option value="1"{{#match price "1"}} selected{{/match}}>$ · {{t "Inexpensive"}}</option>
+                <option value="2"{{#match price "2"}} selected{{/match}}>$$ · {{t "Moderate"}}</option>
+                <option value="3"{{#match price "3"}} selected{{/match}}>$$$ · {{t "Pricey"}}</option>
+                <option value="4"{{#match price "4"}} selected{{/match}}>$$$$ · {{t "Very expensive"}}</option>
+            </select>
+        </div>
+        <button class="button" type="submit">{{> "icons/search"}}{{t "Show places"}}</button>
+        <a class="button button-quiet filter-clear" href="{{directory.url}}">{{t "Clear filters"}}</a>
+    </form>
+
+    <p class="results-count wrap" role="status">{{plural total empty=(t "No places match") singular=(t "1 place") plural=(t "% places")}}</p>
+
+    {{#if listings}}
+        <div class="grid wrap">
+            {{#foreach listings}}{{> "dir-card"}}{{/foreach}}
+        </div>
+    {{else}}
+        <div class="empty wrap">
+            <h2 class="empty-title">{{t "No places match these filters"}}</h2>
+            <p>{{t "Try another category or place, or clear the filters to see everything."}}</p>
+        </div>
+    {{/if}}
+
+    {{#if pagination.next_url}}
+        <nav class="pagination wrap" aria-label="{{t "More places"}}">
+            {{#if pagination.prev_url}}<a class="button button-quiet" href="{{pagination.prev_url}}">{{t "Previous"}}</a>{{/if}}
+            <span>{{t "Page {page} of {pages}" page=pagination.page pages=pagination.pages}}</span>
+            <a class="button button-quiet" href="{{pagination.next_url}}">{{t "Next"}}</a>
+        </nav>
+    {{else if pagination.prev_url}}
+        <nav class="pagination wrap" aria-label="{{t "More places"}}">
+            <a class="button button-quiet" href="{{pagination.prev_url}}">{{t "Previous"}}</a>
+            <span>{{t "Page {page} of {pages}" page=pagination.page pages=pagination.pages}}</span>
+        </nav>
+    {{/if}}
+
+    {{#if directory.submit_url}}
+        <section class="invite wrap" aria-labelledby="invite-heading">
+            <div class="invite-inner">
+                <h2 class="invite-heading" id="invite-heading">{{t "Run a place people should know about?"}}</h2>
+                <p>{{t "Tell us about it. We'll visit, and if it belongs here, we'll add it to the guide."}}</p>
+                <a class="button button-big" href="{{directory.submit_url}}">{{> "icons/plus"}}{{t "Add a place"}}</a>
+            </div>
+        </section>
+    {{/if}}
+</main>

@@ -1,0 +1,12 @@
+{{#if @custom.show_subscribe}}{{#if @site.members_enabled}}{{#unless @member}}
+<section class="cv-sub">
+<h2 class="cv-sub-title">{{@site.title}}</h2>
+{{#if @site.description}}<p class="cv-sub-text">{{@site.description}}</p>{{/if}}
+<form class="cv-sub-form" data-members-form="subscribe">
+<label class="cv-sr" for="cv-sub-email">Your email address</label>
+<input id="cv-sub-email" data-members-email type="email" placeholder="jamie@example.com" required autocomplete="email">
+<button class="cv-pill" type="submit">Subscribe</button>
+<p class="cv-ok">Check your inbox to confirm your subscription.</p><p class="cv-err">Something went wrong. Please try again.</p>
+</form>
+</section>
+{{/unless}}{{/if}}{{/if}}

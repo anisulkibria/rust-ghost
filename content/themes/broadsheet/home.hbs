@@ -1,0 +1,210 @@
+{{!< default}}
+{{!-- The front page. Desks are tags: us, world, politics, business,
+     technology, sports, sunday-essay, education, lifestyle, health,
+     video, opinion. Featured stories lead and fill Editor's Picks and the
+     breaking bar. Tag a post #video for a play button. A block with no
+     stories is left out. --}}
+<main id="main" class="np-home">
+
+{{!-- Front: briefs | lead | more to read ------------------------------ --}}
+<section class="np-wrap np-front" aria-label="Top stories">
+<div class="np-front-l">
+{{#get "posts" filter="featured:false" limit="2" include="tags,authors" as |briefs|}}
+{{#foreach briefs}}{{> "story" layout="top" size="m"}}{{/foreach}}
+{{/get}}
+{{#if @custom.editor_note}}
+<aside class="np-note">
+<p class="np-label">Editor’s note</p>
+<p class="np-note-text">{{@custom.editor_note}}</p>
+{{#if @custom.editor_note_by}}<p class="np-label np-note-by">— {{@custom.editor_note_by}}</p>{{/if}}
+</aside>
+{{/if}}
+{{recommendations}}
+</div>
+
+<div class="np-front-c">
+{{#get "posts" filter="featured:true" limit="1" include="tags,authors" as |lead|}}
+{{#foreach lead}}
+<article class="np-lead {{post_class}}">
+{{> "kicker"}}
+<h1 class="np-lead-title"><a href="{{url}}">{{title}}</a></h1>
+{{#if custom_excerpt}}<p class="np-dek">{{custom_excerpt}}</p>{{/if}}
+{{> "media" ratio="lead"}}
+<div class="np-lead-meta">{{> "byline" read=true}}<button class="np-save" type="button" data-np-save data-url="{{url}}" data-title="{{title}}">{{> "icon" name="bookmark" size="14"}}<span>Save</span></button></div>
+</article>
+{{/foreach}}
+{{/get}}
+<div class="np-front-pair">
+{{#get "posts" filter="featured:true" limit="3" include="tags,authors" as |second|}}
+{{#foreach second from="2"}}{{> "story" layout="top" size="m" excerpt=true}}{{/foreach}}
+{{/get}}
+</div>
+</div>
+
+<div class="np-front-r">
+<div class="np-more-read">
+<h2 class="np-label np-rail-title">More to read</h2>
+<ol class="np-numbered">
+{{#get "posts" limit="10" include="tags" as |more|}}{{#foreach more from="6" to="10"}}
+<li><span class="np-num">{{#match @number "<" 10}}0{{/match}}{{@number}}</span><div>{{> "kicker"}}<h3 class="np-headline np-h-s"><a href="{{url}}">{{title}}</a></h3></div></li>
+{{/foreach}}{{/get}}
+</ol>
+</div>
+{{#if @site.members_enabled}}{{#unless @member}}
+<form class="np-box np-signup" data-members-form="subscribe">
+<p class="np-kicker"><span>Sign up</span></p>
+<h3 class="np-box-title">Stay informed</h3>
+<p>A daily briefing on the stories our editors are watching.</p>
+<label class="np-sr" for="np-side-email">Email</label>
+<input id="np-side-email" data-members-email type="email" placeholder="your@email.com" required>
+<button class="np-btn np-btn-ink" type="submit">Subscribe</button>
+<p class="np-form-ok">Check your inbox to confirm.</p><p class="np-form-err">Something went wrong. Try again.</p>
+</form>
+{{/unless}}{{/if}}
+{{#if @custom.sponsor_name}}
+<aside class="np-box np-sponsor">
+<p class="np-label">From <em>our sponsor</em></p>
+<p><b>{{@custom.sponsor_name}}</b> {{@custom.sponsor_text}}</p>
+<ul>{{#foreach (split @custom.sponsor_perks separator="|")}}<li>{{this}}</li>{{/foreach}}</ul>
+<a class="np-btn np-btn-ink" href="{{@custom.sponsor_url}}" rel="sponsored noopener">{{@custom.sponsor_button}}</a>
+</aside>
+{{/if}}
+</div>
+</section>
+
+{{!-- Editor's Picks --------------------------------------------------- --}}
+{{#get "posts" filter="featured:true" limit="12" include="tags,authors" as |picks|}}
+<section class="np-section" data-np-rail-wrap>
+<div class="np-wrap">
+{{> "section-head" title="Editor’s Picks" sub="Hand-picked stories from the newsroom" arrows=true}}
+<div class="np-rail np-rail-4" data-np-rail>{{#foreach picks}}{{> "story" layout="top" size="m" read=true}}{{/foreach}}</div>
+</div>
+</section>
+{{/get}}
+
+{{!-- World: overlay lead + list ----------------------------------------- --}}
+{{#get "posts" filter="tag:world" limit="6" include="tags,authors" as |world|}}
+<section class="np-section">
+<div class="np-wrap">
+{{> "section-head" title="World" url=(concat @site.url "/tag/world/")}}
+<div class="np-split">
+<div>{{#foreach world limit="1"}}{{> "story" layout="overlay" excerpt=true}}{{/foreach}}</div>
+<div class="np-list np-list-rule">{{#foreach world from="2" to="5"}}{{> "story" layout="right" size="s" excerpt=true nometa=true}}{{/foreach}}</div>
+</div>
+</div>
+</section>
+{{/get}}
+
+{{!-- Politics: 3 × 3 ------------------------------------------------------ --}}
+{{#get "posts" filter="tag:politics" limit="9" include="tags,authors" as |politics|}}
+<section class="np-section">
+<div class="np-wrap">
+{{> "section-head" title="Politics" url=(concat @site.url "/tag/politics/")}}
+<div class="np-grid-3 np-grid-rows">{{#foreach politics}}{{> "story" layout="left" size="m" nometa=true}}{{/foreach}}</div>
+</div>
+</section>
+{{/get}}
+
+{{!-- Business: video lead + pair | list ----------------------------------- --}}
+{{#get "posts" filter="tag:business" limit="12" include="tags,authors" as |biz|}}
+<section class="np-section">
+<div class="np-wrap">
+{{> "section-head" title="Business" url=(concat @site.url "/tag/business/")}}
+<div class="np-split np-split-biz">
+<div>
+{{#foreach biz limit="1"}}
+<article class="np-story np-top np-h-l np-biz-lead">{{> "media" ratio="wide"}}<div class="np-story-copy">{{> "kicker"}}<h3 class="np-headline"><a href="{{url}}">{{title}}</a></h3><p class="np-excerpt">{{excerpt words="34"}}</p>{{> "byline"}}</div></article>
+{{/foreach}}
+<div class="np-pair">{{#foreach biz from="2" to="3"}}{{> "story" layout="top" size="s" nometa=true}}{{/foreach}}</div>
+</div>
+<div class="np-list np-list-rule">{{#foreach biz from="4" to="12"}}{{> "story" layout="right" size="xs" read=true nobyline=true}}{{/foreach}}</div>
+</div>
+</div>
+</section>
+{{/get}}
+
+{{!-- Technology: 3 across ----------------------------------------------- --}}
+{{#get "posts" filter="tag:technology" limit="9" include="tags,authors" as |tech|}}
+<section class="np-section" data-np-rail-wrap>
+<div class="np-wrap">
+{{> "section-head" title="Technology" url=(concat @site.url "/tag/technology/") arrows=true}}
+<div class="np-rail np-rail-3" data-np-rail>{{#foreach tech}}{{> "story" layout="top" size="m" excerpt=true read=true}}{{/foreach}}</div>
+</div>
+</section>
+{{/get}}
+
+{{!-- Sports: overlay | feature + numbered ------------------------------ --}}
+{{#get "posts" filter="tag:sports" limit="5" include="tags,authors" as |sports|}}
+<section class="np-section">
+<div class="np-wrap">
+{{> "section-head" title="Sports" url=(concat @site.url "/tag/sports/")}}
+<div class="np-split">
+<div>{{#foreach sports limit="1"}}{{> "story" layout="overlay" excerpt=true}}{{/foreach}}</div>
+<div class="np-list np-list-rule">
+{{#foreach sports from="2" to="2"}}{{> "story" layout="right" size="m" excerpt=true read=true}}{{/foreach}}
+{{#foreach sports from="3" to="5"}}<div class="np-numbered-row"><span class="np-num np-num-sm">{{#match @number "<" 10}}0{{/match}}{{@number}}</span>{{> "story" layout="right" size="xs" read=true nobyline=true nodate=true}}</div>{{/foreach}}
+</div>
+</div>
+</div>
+</section>
+{{/get}}
+
+{{!-- Sunday Essay ---------------------------------------------------------- --}}
+{{#get "posts" filter="tag:sunday-essay" limit="9" include="tags,authors" as |essays|}}
+<section class="np-section">
+<div class="np-wrap">
+{{> "section-head" title="Sunday Essay" url=(concat @site.url "/tag/sunday-essay/")}}
+<div class="np-grid-3 np-grid-tight">{{#foreach essays}}{{> "story" layout="left" size="xs"}}{{/foreach}}</div>
+</div>
+</section>
+{{/get}}
+
+{{!-- Education | Lifestyle | Health ---------------------------------------- --}}
+<section class="np-section">
+<div class="np-wrap np-grid-3 np-desks">
+{{#get "posts" filter="tag:education" limit="5" include="tags,authors" as |a|}}<div class="np-desk"><h2 class="np-desk-title"><a href="{{@site.url}}/tag/education/">Education <span>{{> "icon" name="right" size="16"}}</span></a></h2>{{#foreach a limit="1"}}{{> "story" layout="top" size="m" nobyline=true read=true}}{{/foreach}}<div class="np-list np-list-rule">{{#foreach a from="2"}}{{> "story" layout="text" size="xs" nobyline=true read=true}}{{/foreach}}</div></div>{{/get}}
+{{#get "posts" filter="tag:lifestyle" limit="5" include="tags,authors" as |b|}}<div class="np-desk"><h2 class="np-desk-title"><a href="{{@site.url}}/tag/lifestyle/">Lifestyle <span>{{> "icon" name="right" size="16"}}</span></a></h2>{{#foreach b limit="1"}}{{> "story" layout="top" size="m" nobyline=true read=true}}{{/foreach}}<div class="np-list np-list-rule">{{#foreach b from="2"}}{{> "story" layout="text" size="xs" nobyline=true read=true}}{{/foreach}}</div></div>{{/get}}
+{{#get "posts" filter="tag:health" limit="5" include="tags,authors" as |c|}}<div class="np-desk"><h2 class="np-desk-title"><a href="{{@site.url}}/tag/health/">Health <span>{{> "icon" name="right" size="16"}}</span></a></h2>{{#foreach c limit="1"}}{{> "story" layout="top" size="m" nobyline=true read=true}}{{/foreach}}<div class="np-list np-list-rule">{{#foreach c from="2"}}{{> "story" layout="text" size="xs" nobyline=true read=true}}{{/foreach}}</div></div>{{/get}}
+</div>
+</section>
+
+{{!-- Video ------------------------------------------------------------------ --}}
+{{#get "posts" filter="tag:hash-video" limit="8" include="tags,authors" as |videos|}}
+<section class="np-section" data-np-rail-wrap>
+<div class="np-wrap">
+{{> "section-head" title="Video" url=(concat @site.url "/tag/video/") arrows=true}}
+<div class="np-rail np-rail-4" data-np-rail>{{#foreach videos}}{{> "story" layout="top" size="m" excerpt=true read=true}}{{/foreach}}</div>
+</div>
+</section>
+{{/get}}
+
+{{!-- Opinion ------------------------------------------------------------------ --}}
+{{#get "posts" filter="tag:opinion" limit="6" include="tags,authors" as |ops|}}
+<section class="np-section">
+<div class="np-wrap">
+{{> "section-head" title="Opinion" url=(concat @site.url "/tag/opinion/")}}
+<div class="np-opinion">
+{{#foreach ops}}
+<article class="np-op">
+{{#primary_author}}<a class="np-op-face" href="{{url}}">{{#if profile_image}}<img src="{{img_url profile_image size="xs"}}" alt="">{{else}}<span>{{name}}</span>{{/if}}</a>{{/primary_author}}
+<div>{{> "kicker"}}<h3 class="np-op-title"><a href="{{url}}">{{title}}</a></h3><p class="np-op-by">- {{primary_author.name}}</p></div>
+</article>
+{{/foreach}}
+</div>
+</div>
+</section>
+{{/get}}
+
+{{!-- From the Archive: the paginated list ------------------------------- --}}
+{{#if posts}}
+<section class="np-section">
+<div class="np-wrap">
+{{> "section-head" title="From the Archive"}}
+<div class="np-grid-4">{{#foreach posts limit="8"}}{{> "story" layout="top" size="m" excerpt=true}}{{/foreach}}</div>
+{{> "pager"}}
+</div>
+</section>
+{{/if}}
+
+{{> "membership"}}
+</main>

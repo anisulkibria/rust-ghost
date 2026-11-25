@@ -1,0 +1,13 @@
+<svg class="ms-ic" width="{{#if size}}{{size}}{{else}}18{{/if}}" height="{{#if size}}{{size}}{{else}}18{{/if}}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
+{{#match name "search"}}<circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/>
+{{else match name "more"}}<circle cx="5" cy="12" r="1.6" fill="currentColor" stroke="none"/><circle cx="12" cy="12" r="1.6" fill="currentColor" stroke="none"/><circle cx="19" cy="12" r="1.6" fill="currentColor" stroke="none"/>
+{{else match name "left"}}<path d="m15 6-6 6 6 6"/>
+{{else match name "right"}}<path d="m9 6 6 6-6 6"/>
+{{else match name "menu"}}<path d="M4 8h16M4 16h16"/>
+{{else match name "close"}}<path d="M6 6l12 12M18 6 6 18"/>
+{{else match name "star"}}<path d="m12 3 2.6 5.6 6.1.7-4.5 4.2 1.2 6L12 16.6 6.6 19.5l1.2-6L3.3 9.3l6.1-.7z" fill="currentColor" stroke="none"/>
+{{else match name "x"}}<path d="M4 4l16 16M20 4 4 20" stroke-width="1.8"/>
+{{else match name "fb"}}<path d="M12 2a10 10 0 0 0-1.6 19.9v-7H7.9V12h2.5V9.8c0-2.5 1.5-3.9 3.8-3.9 1.1 0 2.2.2 2.2.2v2.5h-1.3c-1.2 0-1.6.8-1.6 1.6V12h2.8l-.4 2.9h-2.4v7A10 10 0 0 0 12 2z" fill="currentColor" stroke="none"/>
+{{else match name "link"}}<path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1"/><path d="M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1"/>
+{{/match}}
+</svg>

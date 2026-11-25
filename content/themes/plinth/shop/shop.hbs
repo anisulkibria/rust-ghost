@@ -1,0 +1,57 @@
+{{!< default}}
+{{!-- The catalogue and its search results. `shop/collection.hbs` takes
+     over on a collection. Data: shop, products, collections, query, sort,
+     sorts, heading, intro, total, pagination. --}}
+<main id="main" class="pl-shop">
+<header class="pl-wrap pl-pagehead">
+<nav class="pl-crumbs" aria-label="Breadcrumb"><a href="{{@site.url}}">Home</a><span>/</span>{{#if collection}}<a href="{{shop.url}}">Shop</a><span>/</span><span>{{collection.title}}</span>{{else}}<span>Shop</span>{{/if}}</nav>
+<div class="pl-pagehead-row">
+<div>
+{{#if query}}
+<h1 class="pl-display">Results for <em>“{{query}}”</em></h1>
+{{else}}
+<h1 class="pl-display">{{#if collection}}{{collection.title}}{{else}}{{#if heading}}{{heading}}{{else}}Shop everything{{/if}}{{/if}}</h1>
+{{#if collection.description}}<p class="pl-sub">{{collection.description}}</p>{{else}}{{#if intro}}<p class="pl-sub">{{intro}}</p>{{/if}}{{/if}}
+{{/if}}
+</div>
+<p class="pl-count">{{plural total empty="Nothing here yet" singular="% piece" plural="% pieces"}}</p>
+</div>
+</header>
+
+<div class="pl-wrap pl-shoptools">
+<nav class="pl-chips" aria-label="Collections">
+<a class="pl-chip{{#unless collection}} is-on{{/unless}}" href="{{shop.url}}">All</a>
+{{#foreach collections}}<a class="pl-chip{{#if current}} is-on{{/if}}" href="{{url}}">{{title}}</a>{{/foreach}}
+</nav>
+<form method="get" class="pl-sort">
+{{#if query}}<input type="hidden" name="q" value="{{query}}">{{/if}}
+<label for="pl-sort">Sort by</label>
+<select id="pl-sort" name="sort" onchange="this.form.submit()">
+{{#foreach sorts}}<option value="{{value}}"{{#if selected}} selected{{/if}}>{{label}}</option>{{/foreach}}
+</select>
+<noscript><button class="pl-btn pl-btn-line pl-btn-small" type="submit">Sort</button></noscript>
+</form>
+</div>
+
+<section class="pl-wrap pl-section-tight">
+{{#if products}}
+<div class="pl-grid">
+{{#foreach products}}{{> "product-card" add=@root.shop.add_url}}{{/foreach}}
+</div>
+{{#match pagination.pages ">" 1}}
+<nav class="pl-pager" aria-label="Pages">
+{{#if pagination.prev_url}}<a class="pl-round" href="{{pagination.prev_url}}" aria-label="Previous page">{{> "icon" name="left" size="18"}}</a>{{else}}<span></span>{{/if}}
+<span>Page {{pagination.page}} of {{pagination.pages}}</span>
+{{#if pagination.next_url}}<a class="pl-round" href="{{pagination.next_url}}" aria-label="Next page">{{> "icon" name="right" size="18"}}</a>{{else}}<span></span>{{/if}}
+</nav>
+{{/match}}
+{{else}}
+<div class="pl-empty" role="status">
+<span class="pl-empty-art">{{> "art" kind="vase"}}</span>
+<p class="pl-display">{{#if query}}Nothing matches that search.{{else}}Nothing on the floor yet.{{/if}}</p>
+<p class="pl-sub">Try another word, or browse everything.</p>
+<a class="pl-btn pl-btn-ink" href="{{shop.url}}">Shop everything</a>
+</div>
+{{/if}}
+</section>
+</main>

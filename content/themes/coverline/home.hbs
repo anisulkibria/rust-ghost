@@ -1,0 +1,26 @@
+{{!< default}}
+{{!-- Cover: the newest featured story in the middle (the newest story if
+     none is featured), the six latest others either side. Then the
+     featured strip and the paginated grid of the latest stories. --}}
+<main id="main" class="cv-main">
+{{#get "posts" filter="featured:true" limit="1" include="tags,authors" as |lead|}}
+{{#foreach lead}}{{> "cover"}}{{/foreach}}
+{{else}}
+{{#foreach posts limit="1"}}{{> "cover"}}{{/foreach}}
+{{/get}}
+
+{{#if @custom.show_featured}}
+{{#get "posts" filter="featured:true" limit="4" include="tags,authors" as |picks|}}
+<section class="cv-wrap cv-block" aria-labelledby="cv-featured-h">
+<h2 class="cv-label" id="cv-featured-h">{{@custom.featured_label}}</h2>
+<div class="cv-strip">{{#foreach picks}}{{> "strip-item"}}{{/foreach}}</div>
+</section>
+{{/get}}
+{{/if}}
+
+<section class="cv-wrap cv-block" aria-labelledby="cv-latest-h">
+<h2 class="cv-label" id="cv-latest-h">{{@custom.latest_label}}</h2>
+<div class="cv-grid">{{#foreach posts}}{{> "story" pic=true showex=true}}{{/foreach}}</div>
+{{#if pagination.next}}<a class="cv-see-all" href="{{page_url pagination.next}}">See all {{> "icon" name="arrow" size="16"}}</a>{{/if}}
+</section>
+</main>

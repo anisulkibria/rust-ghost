@@ -1,0 +1,11 @@
+{{!< default}}
+{{!-- The notebook's front page: a page with the slug `journal`. --}}
+{{#post}}
+<main id="main" class="mg-wrap mg-listing">
+<header class="mg-head mg-center"><p class="mg-kicker">{{#if custom_excerpt}}{{custom_excerpt}}{{else}}The notebook{{/if}}</p><h1 class="mg-h1">{{title}}</h1></header>
+{{#get "posts" filter="tag:-[hash-service,hash-project,hash-experience,hash-education,hash-testimonial,hash-work]" limit="12" include="tags" as |notes pages|}}
+<div class="mg-post-grid">{{#foreach notes}}{{> "post-card"}}{{/foreach}}</div>
+{{#match pages.pages ">" 1}}<p class="mg-center mg-more"><a class="mg-btn" href="{{@site.url}}/page/2/">Older notes →</a></p>{{/match}}
+{{/get}}
+</main>
+{{/post}}

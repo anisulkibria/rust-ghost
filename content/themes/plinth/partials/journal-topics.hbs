@@ -1,0 +1,7 @@
+{{!-- Topic chips under a journal heading. `current` = the slug that is on. --}}
+{{#get "tags" limit="10" filter="visibility:public" order="count.posts desc" include="count.posts" as |topics|}}
+<nav class="pl-chips pl-topics" aria-label="Topics">
+<a class="pl-chip{{#unless current}} is-on{{/unless}}" href="{{#get "pages" filter="slug:journal" limit="1" as |j|}}{{#foreach j}}{{url}}{{/foreach}}{{else}}{{@site.url}}{{/get}}">All stories</a>
+{{#foreach topics}}<a class="pl-chip{{#match slug current}} is-on{{/match}}" href="{{url}}">{{name}}</a>{{/foreach}}
+</nav>
+{{/get}}

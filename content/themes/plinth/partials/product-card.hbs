@@ -1,0 +1,32 @@
+{{!-- One product, from {{#get "products"}} or a store template. Optional
+     `add` = the store's add-to-cart address when the product itself has no
+     `add_url` (store templates pass shop.add_url). The art is the first
+     photo (the second shows on hover), else a drawing chosen by a
+     `shape:` tag, the product type or the title. --}}
+<article class="pl-card{{#if sold_out}} is-out{{/if}}">
+<div class="pl-card-art">
+<a class="pl-card-link" href="{{url}}" tabindex="-1" aria-hidden="true">
+{{#if feature_image}}
+<img class="pl-card-img" src="{{feature_image}}" alt="" loading="lazy">
+{{#if images.[1]}}<img class="pl-card-img pl-card-img-2" src="{{images.[1]}}" alt="" loading="lazy">{{/if}}
+{{else}}
+{{#if meta.shape}}{{> "art" kind=meta.shape}}{{else}}{{> "art" kind=(concat product_type " " title)}}{{/if}}
+{{/if}}
+</a>
+<div class="pl-badges">
+{{#if sold_out}}<span class="pl-badge pl-badge-ink">Sold out</span>{{else}}{{#if save_percent}}<span class="pl-badge">−{{save_percent}}%</span>{{else}}{{#if featured}}<span class="pl-badge pl-badge-soft">Pick</span>{{/if}}{{/if}}{{/if}}
+</div>
+{{#if quick_add}}{{#unless purchase_url}}
+<form class="pl-quick" method="post" action="{{#if add_url}}{{add_url}}{{else}}{{add}}{{/if}}">
+<input type="hidden" name="variant_id" value="{{quick_add}}"><input type="hidden" name="qty" value="1">
+<button type="submit" class="pl-quick-btn"><span>Add to cart</span>{{> "icon" name="plus" size="18"}}<span class="pl-sr">: {{title}}</span></button>
+</form>
+{{/unless}}{{/if}}
+</div>
+<div class="pl-card-body">
+{{#if product_type}}<span class="pl-eyebrow">{{product_type}}</span>{{/if}}
+<h3 class="pl-card-title"><a href="{{url}}">{{title}}</a></h3>
+<p class="pl-price">{{#if compare_at}}<s>{{compare_at}}</s> <b class="is-sale">{{lookup this "price"}}</b>{{else}}<b>{{lookup this "price"}}</b>{{/if}}</p>
+{{#if colors}}<ul class="pl-swatches" aria-label="Colours">{{#foreach colors limit="5"}}<li class="pl-swatch" style="background-color:{{this}}" title="{{this}}"><span class="pl-sr">{{this}}</span></li>{{/foreach}}</ul>{{/if}}
+</div>
+</article>

@@ -1,0 +1,36 @@
+{{!--
+    The sentence search over Vuuut's directory: "Find [restaurants] in [Lisbon]".
+    One choice opens that category or town, two open the directory filtered
+    (?what=&where=). Falls back to the tag-based search without a directory.
+--}}
+{{#get "listing_categories" limit="60" order="name asc" as |cats|}}
+    {{#if cats}}
+        <form class="finder" action="{{#foreach cats limit="1"}}{{directory_url}}{{/foreach}}" method="get" data-finder role="search" aria-label="{{t "Find a place"}}">
+            <p class="finder-sentence">
+                <span class="finder-word">{{t "Find"}}</span>
+                <span class="finder-pick">
+                    <label class="visually-hidden" for="finder-what">{{t "What are you looking for?"}}</label>
+                    <select id="finder-what" name="what" data-size>
+                        <option value="">{{t "anything"}}</option>
+                        {{#foreach cats}}{{#if count}}<option value="{{slug}}" data-url="{{url}}">{{name}}</option>{{/if}}{{/foreach}}
+                    </select>
+                </span>
+                {{#get "listing_places" limit="60" as |towns|}}
+                    {{#if towns}}
+                        <span class="finder-word">{{t "in"}}</span>
+                        <span class="finder-pick">
+                            <label class="visually-hidden" for="finder-where">{{t "Where?"}}</label>
+                            <select id="finder-where" name="where" data-size>
+                                <option value="">{{t "anywhere"}}</option>
+                                {{#foreach towns}}<option value="{{slug}}" data-url="{{url}}">{{name}}</option>{{/foreach}}
+                            </select>
+                        </span>
+                    {{/if}}
+                {{/get}}
+            </p>
+            <button class="button button-big finder-go" type="submit">{{> "icons/search"}}<span>{{t "Show places"}}</span></button>
+        </form>
+    {{else}}
+        {{> "finder"}}
+    {{/if}}
+{{/get}}

@@ -1,0 +1,42 @@
+{{!-- Contact strip, newsletter, link columns and the legal row. --}}
+<footer class="pl-footer">
+{{#if @custom.phone}}{{> "footer-contact"}}{{else}}{{#if @custom.contact_email}}{{> "footer-contact"}}{{else}}{{#if @custom.address}}{{> "footer-contact"}}{{/if}}{{/if}}{{/if}}
+<div class="pl-wrap pl-footer-main">
+<div class="pl-footer-news">
+<h2 class="pl-footer-h">Letters from the workshop</h2>
+<p>New pieces, restocks and the occasional sale, about once a month.</p>
+{{#if @site.members_enabled}}
+<form class="pl-news-form" data-members-form="subscribe">
+<label class="pl-sr" for="pl-news-email">Email</label>
+<input id="pl-news-email" data-members-email type="email" required placeholder="Your email address">
+<button class="pl-btn pl-btn-ink" type="submit">Sign up</button>
+<p class="pl-news-ok" role="status">Check your inbox to confirm.</p>
+<p class="pl-news-err" role="alert">That did not go through. Try again in a moment.</p>
+</form>
+{{/if}}
+</div>
+<nav class="pl-footer-col" aria-label="Shop">
+<h2 class="pl-footer-h">Shop</h2>
+<a href="{{@root.shop.url}}">Everything</a>
+{{#get "collections" limit="6"}}{{#foreach collections}}<a href="{{url}}">{{title}}</a>{{/foreach}}{{/get}}
+</nav>
+<nav class="pl-footer-col" aria-label="Site">
+<h2 class="pl-footer-h">Studio</h2>
+{{#foreach @site.navigation}}<a href="{{url absolute="true"}}">{{label}}</a>{{/foreach}}
+</nav>
+<nav class="pl-footer-col" aria-label="Help">
+<h2 class="pl-footer-h">Help</h2>
+<a href="{{@root.shop.dashboard_url}}">Orders &amp; downloads</a>
+<a href="{{@root.shop.cart_url}}">Cart</a>
+{{#foreach @site.secondary_navigation}}<a href="{{url absolute="true"}}">{{label}}</a>{{/foreach}}
+</nav>
+</div>
+<div class="pl-wrap pl-footer-legal">
+<p>© {{date format="YYYY"}} {{@site.title}}</p>
+<ul class="pl-pay" aria-label="We accept">
+<li>Visa</li><li>Mastercard</li><li>Amex</li><li>Apple Pay</li><li>Google Pay</li>
+</ul>
+<p class="pl-made">Plinth theme on <a href="https://vuuut.com" rel="noopener">Vuuut</a></p>
+</div>
+<p class="pl-footer-word" aria-hidden="true">{{@site.title}}</p>
+</footer>

@@ -255,7 +255,8 @@ impl Parser {
             _ => Cmp::Eq,
         };
 
-        let negate = if self.peek() == Some(&Tok::Minus) {
+        // `tag:-[a,b]`: the lexer reads the lone dash before `[` as a word
+        let negate = if self.peek() == Some(&Tok::Minus) || matches!(self.peek(), Some(Tok::Word(w)) if w == "-") {
             self.next();
             true
         } else {
@@ -632,16 +633,18 @@ fn compile_cond(c: &Cond, resource: &str, binds: &mut Vec<Value>) -> Result<Stri
                 NqlValue::List(items) => items,
                 single => vec![single],
             };
+            // A negated relation means "has none of these" (Ghost:
+            // `tag:-news` is posts without the news tag), not "has some
+            // other one": NOT EXISTS over the positive match.
+            let negated = c.cmp == Cmp::Ne;
+            let op = if negated { "=" } else { op };
             let mut frags = Vec::new();
             for v in values {
                 binds.push(v.to_bind());
                 frags.push(spec.replace("{op}", op).replace("{v}", "?"));
             }
-            if frags.len() == 1 {
-                Ok(frags.pop().unwrap())
-            } else {
-                Ok(format!("({})", frags.join(" OR ")))
-            }
+            let any = if frags.len() == 1 { frags.pop().unwrap() } else { format!("({})", frags.join(" OR ")) };
+            Ok(if negated { format!("NOT {any}") } else { any })
         }
     }
 }
@@ -740,21 +743,53 @@ fn eval_cond(c: &Cond, resource: &Value) -> bool {
         };
     }
 
-    let val = resource.get(key).unwrap_or(&Value::Null);
-    let matched = match (&c.value, val) {
+    // a dotted key reads a nested field: `category.slug`
+    let val = key.split('.').try_fold(resource, |v, part| v.get(part)).unwrap_or(&Value::Null);
+    match c.cmp {
+        Cmp::Gt | Cmp::Gte | Cmp::Lt | Cmp::Lte => {
+            let ord = match (&c.value, val) {
+                (NqlValue::Num(n), Value::Number(v)) => v.as_f64().and_then(|v| v.partial_cmp(n)),
+                (NqlValue::Num(n), Value::String(v)) => v.parse::<f64>().ok().and_then(|v| v.partial_cmp(n)),
+                (NqlValue::Str(s), Value::String(v)) => Some(v.as_str().cmp(s.as_str())),
+                _ => None,
+            };
+            let Some(ord) = ord else { return false };
+            match c.cmp {
+                Cmp::Gt => ord.is_gt(),
+                Cmp::Gte => ord.is_ge(),
+                Cmp::Lt => ord.is_lt(),
+                _ => ord.is_le(),
+            }
+        }
+        Cmp::Like => match (&c.value, val) {
+            (NqlValue::Str(s), Value::String(v)) => v.to_lowercase().contains(&s.to_lowercase()),
+            _ => false,
+        },
+        Cmp::Eq => value_matches(&c.value, val),
+        Cmp::Ne => !value_matches(&c.value, val),
+    }
+}
+
+/// Equality as NQL means it in memory: case-insensitive strings, a list
+/// (`[a,b]`) matching any of its values, and an array field (`collections`)
+/// matching when any element does.
+fn value_matches(want: &NqlValue, val: &Value) -> bool {
+    match (want, val) {
+        (NqlValue::List(items), _) => items.iter().any(|w| value_matches(w, val)),
+        (NqlValue::Str(_), Value::Array(_)) => {
+            let NqlValue::Str(s) = want else { return false };
+            json_str_list(val).iter().any(|v| v.eq_ignore_ascii_case(s))
+        }
+        (_, Value::Array(items)) => items.iter().any(|v| value_matches(want, v)),
         (NqlValue::Str(s), Value::String(v)) => v.eq_ignore_ascii_case(s),
         (NqlValue::Num(n), Value::Number(v)) => v.as_f64() == Some(*n),
+        (NqlValue::Num(n), Value::String(v)) => v.parse::<f64>().ok() == Some(*n),
         (NqlValue::Bool(b), Value::Bool(v)) => b == v,
         (NqlValue::Null, Value::Null) => true,
         (NqlValue::Bool(b), Value::Null) => !*b, // absent treated as false
         (NqlValue::Str(s), Value::Bool(v)) => (s.eq_ignore_ascii_case("true") || s == "1") == *v,
         (NqlValue::Num(n), Value::Null) => *n == 0.0,
         _ => false,
-    };
-    match c.cmp {
-        Cmp::Eq => matched,
-        Cmp::Ne => !matched,
-        _ => matched,
     }
 }
 
@@ -863,6 +898,21 @@ mod tests {
     /// `posts_tags.sort_order:0+tags.visibility:public`
     /// (core/server/models/post.js), so a post merely carrying the tag must
     /// not match — which is what `{{#get filter="primary_tag:x"}}` and
+    /// `tag:-news` is "posts without the news tag" (Ghost's meaning), which
+    /// themes use to keep internal-tag posts (#work, #service) out of lists.
+    /// It used to compile to "has some tag other than news", which matched
+    /// nearly every post.
+    #[test]
+    fn a_negated_relation_means_has_none_of_them() {
+        let one = compile(&parse("tag:-hash-work").unwrap(), "posts").unwrap();
+        assert!(one.clause.starts_with("NOT EXISTS"), "{}", one.clause);
+        assert!(one.clause.contains("t.slug = ?") && !one.clause.contains("<>"), "{}", one.clause);
+        let many = compile(&parse("tag:-[news,hash-work]").unwrap(), "posts").unwrap();
+        assert!(many.clause.starts_with("NOT ("), "{}", many.clause);
+        let both = compile(&parse("tag:-hash-work+tag:-hash-service").unwrap(), "posts").unwrap();
+        assert_eq!(both.clause.matches("NOT EXISTS").count(), 2, "{}", both.clause);
+    }
+
     /// `{{#prev_post in="primary_tag"}}` both depend on.
     #[test]
     fn primary_tag_is_not_plain_tag_membership() {
@@ -896,5 +946,20 @@ mod tests {
         assert!(!evaluate(&parse("featured:false").unwrap(), &post));
         assert!(!evaluate(&parse("tags:missing").unwrap(), &post));
         assert!(evaluate(&parse("tag:-missing").unwrap(), &post));
+    }
+
+    #[test]
+    fn evaluates_ranges_lists_and_array_fields_in_memory() {
+        let product = serde_json::json!({
+            "price_cents": 2500, "collections": ["chairs", "sale"], "slug": "pip-stool",
+            "category": {"slug": "cafes"}, "sold_out": false,
+        });
+        let yes = |f: &str| evaluate(&parse(f).unwrap(), &product);
+        assert!(yes("price_cents:>0") && yes("price_cents:>=2500") && yes("price_cents:<3000"));
+        assert!(!yes("price_cents:>2500") && !yes("price_cents:<100"));
+        assert!(yes("collections:chairs") && !yes("collections:lighting") && yes("collections:-lighting"));
+        assert!(yes("slug:[oak-table,pip-stool]") && !yes("slug:[oak-table]"));
+        assert!(yes("category.slug:cafes"));
+        assert!(yes("price_cents:>0+sold_out:false"));
     }
 }

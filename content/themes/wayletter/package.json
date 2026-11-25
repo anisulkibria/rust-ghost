@@ -1,0 +1,83 @@
+{
+    "name": "wayletter",
+    "description": "A minimal newsletter theme: a quiet header, a featured carousel and a dated list of every issue, with subscribe built in.",
+    "version": "1.0.0",
+    "engines": {
+        "ghost": ">=5.0.0"
+    },
+    "license": "MIT",
+    "author": {
+        "name": "Vuuut",
+        "email": "themes@vuuut.com",
+        "url": "https://vuuut.com"
+    },
+    "keywords": [
+        "vuuut",
+        "vuuut-theme",
+        "ghost-theme",
+        "newsletter",
+        "minimal",
+        "blog"
+    ],
+    "config": {
+        "posts_per_page": 5,
+        "image_sizes": {
+            "xs": {
+                "width": 160
+            },
+            "s": {
+                "width": 400
+            },
+            "m": {
+                "width": 750
+            },
+            "l": {
+                "width": 1140
+            },
+            "xl": {
+                "width": 1920
+            }
+        },
+        "card_assets": true,
+        "custom": {
+            "hero_title": {
+                "type": "text",
+                "default": "Notes on technology, work and *the business of building*.",
+                "group": "homepage",
+                "description": "The big homepage line. Words between * * are set in italic accent."
+            },
+            "hero_image": {
+                "type": "image",
+                "group": "homepage",
+                "description": "The round picture above the description. Empty uses the bundled illustration."
+            },
+            "show_featured": {
+                "type": "boolean",
+                "default": true,
+                "group": "homepage",
+                "description": "The Featured articles carousel."
+            },
+            "featured_title": {
+                "type": "text",
+                "default": "Featured articles",
+                "group": "homepage"
+            },
+            "subscribe_label": {
+                "type": "text",
+                "default": "Subscribe now",
+                "group": "homepage"
+            },
+            "band_title": {
+                "type": "text",
+                "default": "Every week, *one letter*.",
+                "group": "homepage",
+                "description": "The dark signup band. Empty hides it."
+            },
+            "band_text": {
+                "type": "text",
+                "default": "No noise, no tracking pixels, no growth hacks. One considered email, and you can leave whenever you like.",
+                "group": "homepage"
+            }
+        }
+    }
+}

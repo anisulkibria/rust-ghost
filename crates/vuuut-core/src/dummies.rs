@@ -35,11 +35,13 @@ pub enum Kind {
     Pages,
     Members,
     Products,
+    ListingCategories,
+    Listings,
     Navigation,
 }
 
 impl Kind {
-    pub const ALL: [Kind; 7] = [Kind::Tags, Kind::Users, Kind::Posts, Kind::Pages, Kind::Members, Kind::Products, Kind::Navigation];
+    pub const ALL: [Kind; 9] = [Kind::Tags, Kind::Users, Kind::Posts, Kind::Pages, Kind::Members, Kind::Products, Kind::ListingCategories, Kind::Listings, Kind::Navigation];
 
     pub fn key(self) -> &'static str {
         match self {
@@ -49,6 +51,8 @@ impl Kind {
             Kind::Pages => "pages",
             Kind::Members => "members",
             Kind::Products => "products",
+            Kind::ListingCategories => "listing_categories",
+            Kind::Listings => "listings",
             Kind::Navigation => "navigation",
         }
     }
@@ -65,6 +69,8 @@ impl Kind {
             Kind::Pages => "Pages",
             Kind::Members => "Members",
             Kind::Products => "Store products",
+            Kind::ListingCategories => "Directory categories",
+            Kind::Listings => "Directory listings",
             Kind::Navigation => "Navigation menus",
         }
     }
@@ -78,6 +84,8 @@ impl Kind {
             Kind::Pages => ("page", "pages"),
             Kind::Members => ("member", "members"),
             Kind::Products => ("product", "products"),
+            Kind::ListingCategories => ("directory category", "directory categories"),
+            Kind::Listings => ("directory listing", "directory listings"),
             Kind::Navigation => ("menu link", "menu links"),
         }
     }
@@ -91,6 +99,8 @@ impl Kind {
             Kind::Pages => "About, Contact, Privacy policy and similar.",
             Kind::Members => "Free members at @example.com addresses. They are never emailed.",
             Kind::Products => "Store products with prices, physical and digital.",
+            Kind::ListingCategories => "Restaurants, Cafés, Hotels and more, with pictures.",
+            Kind::Listings => "Places in four cities with hours, maps, photos and contact details. Switches the public directory on.",
             Kind::Navigation => "Adds links to published pages or public tags.",
         }
     }
@@ -106,6 +116,8 @@ impl Kind {
             Kind::Pages => PAGES.len() as u32,
             Kind::Members => 200,
             Kind::Products => PRODUCTS.len() as u32,
+            Kind::ListingCategories => LISTING_CATEGORIES.len() as u32,
+            Kind::Listings => LISTINGS.len() as u32,
             Kind::Navigation => 1,
         }
     }
@@ -119,6 +131,8 @@ impl Kind {
             Kind::Pages => 5,
             Kind::Members => 40,
             Kind::Products => 6,
+            Kind::ListingCategories => LISTING_CATEGORIES.len() as u32,
+            Kind::Listings => LISTINGS.len() as u32,
             Kind::Navigation => 1,
         }
     }
@@ -127,7 +141,7 @@ impl Kind {
 /// What one request generates.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Plan {
-    counts: [u32; 7],
+    counts: [u32; 9],
     /// Feature images on posts, from Unsplash. Off for a site that must not
     /// load anything from another host.
     pub images: bool,
@@ -139,7 +153,7 @@ pub struct Plan {
 
 impl Plan {
     pub fn full(images: bool) -> Plan {
-        let mut counts = [0; 7];
+        let mut counts = [0; 9];
         for (i, kind) in Kind::ALL.into_iter().enumerate() {
             counts[i] = kind.full();
         }
@@ -151,7 +165,7 @@ impl Plan {
     /// and anything unreadable is zero — a forged field can only ask for less.
     pub fn custom(fields: &[(String, String)]) -> Result<Plan, String> {
         let field = |name: &str| fields.iter().rev().find(|(k, _)| k == name).map(|(_, v)| v.trim().to_string());
-        let mut counts = [0; 7];
+        let mut counts = [0; 9];
         for (i, kind) in Kind::ALL.into_iter().enumerate() {
             let raw = field(&format!("count_{}", kind.key())).unwrap_or_default();
             let n = if kind == Kind::Navigation {
@@ -770,6 +784,203 @@ const PRODUCTS: &[ProductSpec] = &[
     ProductSpec { title: "Gift membership, one year", excerpt: "A year of paid membership for someone else, delivered by email.", detail: "Choose the date it arrives. The recipient can start reading straight away.", price_cents: 6000, product_type: "Gift", tags: &["gift"], digital: true },
 ];
 
+// ---------------------------------------------------------------------------
+// The directory catalogue
+// ---------------------------------------------------------------------------
+//
+// A small city guide: six kinds of place in four cities, every place
+// invented, every address plausible and every phone number a fictional one.
+// Enough for a directory theme to draw every section it has.
+
+pub struct ListingCategorySeed {
+    pub name: &'static str,
+    pub slug: &'static str,
+    pub description: &'static str,
+    pub tint: &'static str,
+    pub image: &'static str,
+    /// Stored opening hours, the form `vuuut_core::directory::Hours` reads.
+    pub hours: &'static str,
+    pub payments: &'static [&'static str],
+}
+
+fn photo(id: &str) -> String {
+    format!("https://images.unsplash.com/photo-{id}?w=1600&q=80")
+}
+
+pub const LISTING_CATEGORIES: &[ListingCategorySeed] = &[
+    ListingCategorySeed { name: "Restaurants", slug: "restaurants", description: "Where to sit down and eat well, from neighbourhood places to the ones worth booking weeks ahead.", tint: "pink", image: "1517248135467-4c7edcad34c4",
+        hours: r#"{"mon":"closed","tue":"12:00-15:00,18:00-22:30","wed":"12:00-15:00,18:00-22:30","thu":"12:00-15:00,18:00-22:30","fri":"12:00-15:00,18:00-23:30","sat":"12:00-15:00,18:00-23:30","sun":"12:00-16:00"}"#,
+        payments: &["cash", "credit", "debit", "contactless", "apple-pay"] },
+    ListingCategorySeed { name: "Cafés", slug: "cafes", description: "Good coffee, a table by the window and somewhere to read for an hour.", tint: "amber", image: "1501339847302-ac426a4a7cbb",
+        hours: r#"{"mon":"07:00-18:00","tue":"07:00-18:00","wed":"07:00-18:00","thu":"07:00-18:00","fri":"07:00-18:00","sat":"08:00-17:00","sun":"08:00-17:00"}"#,
+        payments: &["cash", "credit", "contactless", "apple-pay", "google-pay"] },
+    ListingCategorySeed { name: "Hotels", slug: "hotels", description: "Places to stay that make the city feel like yours for a few nights.", tint: "blue", image: "1566073771259-6a8506099945",
+        hours: r#"{"mon":"24h","tue":"24h","wed":"24h","thu":"24h","fri":"24h","sat":"24h","sun":"24h"}"#,
+        payments: &["credit", "debit", "bank"] },
+    ListingCategorySeed { name: "Bars", slug: "bars", description: "Cocktail rooms, wine bars and the corner pub everyone ends up in.", tint: "purple", image: "1514933651103-005eec06c04b",
+        hours: r#"{"mon":"17:00-01:00","tue":"17:00-01:00","wed":"17:00-01:00","thu":"17:00-01:00","fri":"17:00-02:00","sat":"17:00-02:00","sun":"16:00-00:00"}"#,
+        payments: &["cash", "credit", "contactless"] },
+    ListingCategorySeed { name: "Museums & galleries", slug: "museums-galleries", description: "Collections large and small, and the galleries showing what comes next.", tint: "teal", image: "1518998053901-5348d3961a04",
+        hours: r#"{"mon":"closed","tue":"10:00-18:00","wed":"10:00-18:00","thu":"10:00-21:00","fri":"10:00-18:00","sat":"10:00-18:00","sun":"10:00-18:00"}"#,
+        payments: &["credit", "debit", "contactless"] },
+    ListingCategorySeed { name: "Shops", slug: "shops", description: "Independent shops: books, records, clothes and things made nearby.", tint: "green", image: "1441986300917-64674bd600d8",
+        hours: r#"{"mon":"10:00-19:00","tue":"10:00-19:00","wed":"10:00-19:00","thu":"10:00-19:00","fri":"10:00-19:00","sat":"10:00-19:00","sun":"11:00-17:00"}"#,
+        payments: &["cash", "credit", "debit", "contactless", "apple-pay", "google-pay"] },
+];
+
+pub struct CitySeed {
+    pub name: &'static str,
+    pub region: &'static str,
+    pub country: &'static str,
+    pub postal: &'static str,
+    pub phone: &'static str,
+    pub lat: f64,
+    pub lng: f64,
+}
+
+pub const CITIES: &[CitySeed] = &[
+    CitySeed { name: "New York", region: "NY", country: "United States", postal: "10012", phone: "+1 212 555 01", lat: 40.7233, lng: -73.9985 },
+    CitySeed { name: "Lisbon", region: "Lisboa", country: "Portugal", postal: "1200-195", phone: "+351 21 555 01", lat: 38.7110, lng: -9.1440 },
+    CitySeed { name: "Tokyo", region: "Tokyo", country: "Japan", postal: "150-0001", phone: "+81 3 5550 01", lat: 35.6640, lng: 139.6980 },
+    CitySeed { name: "London", region: "Greater London", country: "United Kingdom", postal: "E2 7DJ", phone: "+44 20 7946 01", lat: 51.5246, lng: -0.0740 },
+];
+
+struct ListingSpec {
+    category: usize,
+    city: usize,
+    title: &'static str,
+    summary: &'static str,
+    about: &'static str,
+    detail: &'static str,
+    highlights: &'static [&'static str],
+    street: &'static str,
+    price_level: i64,
+    amenities: &'static [&'static str],
+    photos: &'static [&'static str],
+    established: &'static str,
+}
+
+const LISTINGS: &[ListingSpec] = &[
+    // Restaurants
+    ListingSpec { category: 0, city: 0, title: "Hearth & Vine", summary: "Wood-fired cooking and a wine list that rewards curiosity.", about: "Everything at Hearth & Vine passes through the open hearth at the back of the room: bread in the morning, whole fish at night, vegetables charred until they are sweet.", detail: "The room is loud in the best way. Book the counter if you want to watch the cooks work.", highlights: &["Wood-roasted half chicken", "Charred leeks with romesco", "Brown butter cake"], street: "475 Driggs Ave", price_level: 3, amenities: &["reservations", "bar", "vegetarian", "groups"], photos: &["1517248135467-4c7edcad34c4", "1414235077428-338989a2e8c0", "1555396273-367ea4eb4db5"], established: "2016" },
+    ListingSpec { category: 0, city: 1, title: "Tasca do Largo", summary: "A family tasca where the grilled fish comes straight from the morning market.", about: "Three generations run this narrow dining room off a quiet square. The menu is written on a board and changes with whatever came in from the coast that morning.", detail: "Order the house white by the jug and leave room for the custard tart.", highlights: &["Grilled sardines (in summer)", "Bacalhau à Brás", "Pastel de nata"], street: "Largo do Carmo 14", price_level: 1, amenities: &["outdoor", "kids", "groups"], photos: &["1552566626-52f8b828add9", "1559339352-11d035aa65de"], established: "1962" },
+    ListingSpec { category: 0, city: 2, title: "Sumi Counter", summary: "Eight seats around a charcoal grill, and a chef who talks you through each course.", about: "Sumi Counter serves one tasting menu a night built around binchotan charcoal: skewers, rice cooked in the embers, and a clear broth to finish.", detail: "Two sittings, at six and at half past eight. Tell them about allergies when you book.", highlights: &["Seasonal omakase", "Charcoal-grilled wagyu", "Hojicha ice cream"], street: "2-14-5 Shibuya", price_level: 4, amenities: &["reservations", "ac"], photos: &["1414235077428-338989a2e8c0", "1424847651672-bf20a4b0982b"], established: "2019" },
+    ListingSpec { category: 0, city: 3, title: "The Long Table", summary: "Shared tables, seasonal British cooking and Sunday roasts worth queueing for.", about: "Everyone sits at long oak tables and the plates come to the middle. The kitchen buys whole animals from two farms in Kent and uses all of them.", detail: "Walk-ins welcome at lunch; dinner is booked out most weekends.", highlights: &["Sunday roast", "Potted shrimp on toast", "Sticky toffee pudding"], street: "28 Redchurch Street", price_level: 2, amenities: &["groups", "kids", "vegetarian", "wheelchair"], photos: &["1555396273-367ea4eb4db5", "1517248135467-4c7edcad34c4"], established: "2012" },
+    // Cafés
+    ListingSpec { category: 1, city: 0, title: "Morning Standard", summary: "Single-origin pour-overs and the best cardamom bun in SoHo.", about: "A tiny bar with a big roaster in the back. Beans change every fortnight and the baristas will happily tell you why.", detail: "Laptop-friendly before ten and after two; the middle of the day belongs to the queue.", highlights: &["Pour-over flight", "Cardamom bun", "Cold brew tonic"], street: "112 Prince Street", price_level: 1, amenities: &["wifi", "vegan", "takeout"], photos: &["1501339847302-ac426a4a7cbb", "1495474472287-4d71bcdd2085"], established: "2018" },
+    ListingSpec { category: 1, city: 1, title: "Café Azulejo", summary: "Tiled walls, strong bica and a terrace looking down to the river.", about: "Café Azulejo has occupied the ground floor of the same tiled building since the 1930s. The coffee is strong and quick, the pastries are made upstairs.", detail: "Take the terrace table on the left for the view of the Tagus.", highlights: &["Bica and a pastel de nata", "Torrada with salted butter", "Galão"], street: "Rua da Misericórdia 8", price_level: 1, amenities: &["outdoor", "wifi", "breakfast"], photos: &["1554118811-1e0d58224f24", "1509042239860-f550ce710b93"], established: "1934" },
+    ListingSpec { category: 1, city: 2, title: "Kissa Lumen", summary: "A hushed jazz kissaten with siphon coffee and thick toast.", about: "Records play on a 1970s system while coffee brews in glass siphons along the bar. Talking is allowed, but most people come to listen.", detail: "No photos of other guests, and the last order is at half past five.", highlights: &["Siphon blend", "Thick toast with red bean", "Coffee jelly"], street: "1-3-7 Jingumae", price_level: 2, amenities: &["ac", "breakfast"], photos: &["1495474472287-4d71bcdd2085", "1445116572660-236099ec97a0"], established: "1978" },
+    ListingSpec { category: 1, city: 3, title: "Common Grounds", summary: "A bright corner café with long tables, good Wi-Fi and serious toast.", about: "Common Grounds is half café, half workspace: power at every seat, a quiet room upstairs, and sourdough from the bakery two doors down.", detail: "Dogs welcome; there is a water bowl by the door.", highlights: &["Flat white", "Sourdough with ricotta and honey", "Banana bread"], street: "9 Columbia Road", price_level: 1, amenities: &["wifi", "pets", "vegan", "wheelchair"], photos: &["1509042239860-f550ce710b93", "1521017432531-fbd92d768814"], established: "2015" },
+    // Hotels
+    ListingSpec { category: 2, city: 0, title: "The Mercer Loft Hotel", summary: "Forty-two rooms in a converted printing works, with a rooftop that faces the bridge.", about: "Big windows, high ceilings and beds made with linen from a mill in Maine. The rooftop bar opens to guests at five.", detail: "Ask for a room on the north side for the skyline at night.", highlights: &["Rooftop bar", "Bicycles to borrow", "Late check-out on Sundays"], street: "201 Mercer Street", price_level: 4, amenities: &["wifi", "gym", "bar", "ac", "wheelchair"], photos: &["1551882547-ff40c63fe5fa", "1611892440504-42a792e24d32", "1582719478250-c89cae4dc85b"], established: "2014" },
+    ListingSpec { category: 2, city: 1, title: "Casa dos Telhados", summary: "A guesthouse of twelve rooms above the rooftops of Alfama.", about: "Every room has a balcony and every balcony has a view. Breakfast is served on the terrace from eight until eleven.", detail: "The streets around are steep and cobbled; staff will meet you at the tram stop with a trolley.", highlights: &["Terrace breakfast", "River-view rooms", "Port tasting on Fridays"], street: "Rua de São Miguel 31", price_level: 2, amenities: &["wifi", "breakfast", "ac"], photos: &["1542314831-068cd1dbfeeb", "1566073771259-6a8506099945"], established: "2011" },
+    ListingSpec { category: 2, city: 2, title: "Hotel Kōen", summary: "A calm hotel beside the park, with a hot bath on every floor.", about: "Rooms are small, quiet and perfectly arranged. On the top floor a public bath looks over the trees of the park.", detail: "Two minutes from the station; the front desk keeps umbrellas for guests.", highlights: &["Rooftop bath", "Japanese breakfast", "Park-view rooms"], street: "5-1-2 Yoyogi", price_level: 3, amenities: &["wifi", "breakfast", "ac", "wheelchair"], photos: &["1566073771259-6a8506099945", "1520250497591-112f2f40a3f4"], established: "2017" },
+    ListingSpec { category: 2, city: 3, title: "The Brickfield", summary: "A Victorian warehouse turned hotel, with a pool in the old boiler room.", about: "The Brickfield keeps the warehouse's iron columns and adds deep baths and a heated pool in what used to be the boiler room.", detail: "The bar downstairs is open to non-guests and fills up after six.", highlights: &["Boiler-room pool", "Cocktail bar", "Weekend brunch"], street: "45 Shoreditch High Street", price_level: 3, amenities: &["wifi", "pool", "gym", "bar", "pets"], photos: &["1520250497591-112f2f40a3f4", "1551882547-ff40c63fe5fa"], established: "2020" },
+    // Bars
+    ListingSpec { category: 3, city: 0, title: "Low Tide", summary: "A dim, narrow cocktail bar with a menu that changes with the season.", about: "Twelve stools, one bartender per six guests and a menu written each season around a single ingredient.", detail: "No reservations. Put your name down at the door and they will text you.", highlights: &["Seasonal martini", "Smoked old fashioned", "Zero-proof spritz"], street: "38 Orchard Street", price_level: 3, amenities: &["late", "bar"], photos: &["1514933651103-005eec06c04b", "1470337458703-46ad1756a187"], established: "2017" },
+    ListingSpec { category: 3, city: 1, title: "Ginjinha Sem Rival", summary: "Cherry liqueur poured in a doorway, drunk on the street.", about: "A doorway bar no wider than a wardrobe, pouring ginjinha since before anyone can remember. Ask for it with the cherry or without.", detail: "Cash only and standing room only, which is to say the whole street.", highlights: &["Ginjinha in a chocolate cup", "Eduardino", "Vinho verde"], street: "Rua das Portas de Santo Antão 7", price_level: 1, amenities: &["late", "outdoor"], photos: &["1572116469696-31de0f17cc34", "1543007630-9710e4a00a20"], established: "1890" },
+    ListingSpec { category: 3, city: 2, title: "Bar Hoshi", summary: "Whisky and highballs, eight floors up, with the city lit below.", about: "A quiet bar with more than four hundred Japanese whiskies, poured with care and served with the view through floor-to-ceiling glass.", detail: "Smart casual. A cover charge includes a small plate of snacks.", highlights: &["Whisky highball", "Yuzu sour", "Tasting flights"], street: "3-18-9 Shinjuku", price_level: 4, amenities: &["late", "bar", "ac"], photos: &["1470337458703-46ad1756a187", "1514933651103-005eec06c04b"], established: "2008" },
+    ListingSpec { category: 3, city: 3, title: "The Crooked Anchor", summary: "A proper pub: real ale, a fire in winter and quiz night on Tuesdays.", about: "The Crooked Anchor has served the same street for two hundred years. Six cask ales, a wood fire and a landlord who remembers your order.", detail: "Quiz night every Tuesday at eight; teams of up to six.", highlights: &["Cask ales", "Scotch eggs", "Tuesday quiz"], street: "17 Arnold Circus", price_level: 1, amenities: &["pets", "groups", "outdoor", "live-music"], photos: &["1543007630-9710e4a00a20", "1572116469696-31de0f17cc34"], established: "1824" },
+    // Museums & galleries
+    ListingSpec { category: 4, city: 0, title: "Lantern Gallery", summary: "New photography and print in a former bank, free to visit.", about: "Lantern shows emerging photographers in the old banking hall, with a print room downstairs where most work is for sale.", detail: "Free entry. Late opening with talks on Thursdays.", highlights: &["Main hall exhibition", "Print room", "Thursday talks"], street: "88 Bowery", price_level: 1, amenities: &["wheelchair", "kids"], photos: &["1554907984-15263bfd63bd", "1566127444979-b3d2b654e3d7"], established: "2010" },
+    ListingSpec { category: 4, city: 1, title: "Museu do Azulejo Novo", summary: "Five centuries of painted tiles in a restored convent.", about: "Room after room of tile panels, from Moorish patterns to modern commissions, in a convent whose chapel is a work of art on its own.", detail: "Allow two hours. The café in the cloister is worth the stop.", highlights: &["The great Lisbon panorama", "The gilded chapel", "Cloister café"], street: "Rua da Madre de Deus 4", price_level: 2, amenities: &["wheelchair", "kids", "groups"], photos: &["1518998053901-5348d3961a04", "1564399579883-451a5d44ec08"], established: "1965" },
+    ListingSpec { category: 4, city: 2, title: "Ukiyo House", summary: "Woodblock prints, shown a few at a time in a quiet townhouse.", about: "A private collection of woodblock prints shown in rotation, twenty at a time, so each one can be looked at properly.", detail: "Shoes off at the door; slippers are provided.", highlights: &["Rotating print display", "Printmaking workshop", "Tea room"], street: "1-10-10 Jingumae", price_level: 2, amenities: &["ac", "groups"], photos: &["1518998053901-5348d3961a04", "1554907984-15263bfd63bd"], established: "1980" },
+    ListingSpec { category: 4, city: 3, title: "The Foundry Museum", summary: "Industrial history and hands-on workshops in a working foundry.", about: "The Foundry tells the story of the East End's makers in the buildings they worked in, with casting demonstrations every afternoon.", detail: "Children under twelve go free; workshops need booking.", highlights: &["Casting demonstrations", "Makers' workshops", "Archive tours"], street: "3 Whitechapel Road", price_level: 1, amenities: &["wheelchair", "kids", "groups"], photos: &["1564399579883-451a5d44ec08", "1518998053901-5348d3961a04"], established: "1998" },
+    // Shops
+    ListingSpec { category: 5, city: 0, title: "Paper & Pulp Books", summary: "An independent bookshop with a strong poetry shelf and a reading room.", about: "Floor-to-ceiling shelves, staff picks with handwritten notes and a reading room at the back where nobody hurries you.", detail: "Readings most Wednesdays; the newsletter lists them.", highlights: &["Staff picks", "Poetry room", "Wednesday readings"], street: "61 Spring Street", price_level: 2, amenities: &["wheelchair", "kids", "wifi"], photos: &["1472851294608-062f824d29cc", "1567401893414-76b7b1e5a7a5"], established: "2003" },
+    ListingSpec { category: 5, city: 1, title: "Loja das Conservas", summary: "Tinned fish from every cannery on the coast, wrapped like presents.", about: "The walls are lined with tins from more than a dozen Portuguese canneries, arranged by year and region, with staff who know each one.", detail: "They ship anywhere in Europe.", highlights: &["Sardines in olive oil", "Gift boxes", "Tasting counter"], street: "Rua do Arsenal 130", price_level: 2, amenities: &["delivery", "wheelchair"], photos: &["1488459716781-31db52582fe9", "1542838132-92c53300491e"], established: "2013" },
+    ListingSpec { category: 5, city: 2, title: "Kōgei Supply", summary: "Everyday things made by hand: knives, ceramics, cloth and paper.", about: "Kōgei Supply works directly with about forty workshops across Japan and sells what they make for daily use, not for display.", detail: "Knife sharpening on Saturdays.", highlights: &["Kitchen knives", "Mino ceramics", "Washi notebooks"], street: "4-26-14 Jingumae", price_level: 3, amenities: &["ac", "delivery"], photos: &["1567401893414-76b7b1e5a7a5", "1555529669-e69e7aa0ba9a"], established: "2015" },
+    ListingSpec { category: 5, city: 3, title: "Spinning Wax Records", summary: "New and second-hand vinyl, listening booths and a Saturday DJ.", about: "Racks of soul, jazz and electronic records, new and used, with three listening booths and a turntable repair counter.", detail: "Saturday afternoons a guest DJ plays from the shop window.", highlights: &["Second-hand soul", "Listening booths", "Saturday DJ"], street: "120 Brick Lane", price_level: 2, amenities: &["live-music", "pets"], photos: &["1461360228754-6e81c478b882", "1483412033650-1015ddeb83d1"], established: "1994" },
+];
+
+/// A generated listing.
+pub struct DummyListing {
+    pub category: usize,
+    pub title: &'static str,
+    pub summary: &'static str,
+    pub lexical: String,
+    pub street: &'static str,
+    pub city: &'static CitySeed,
+    pub latitude: String,
+    pub longitude: String,
+    pub phone: String,
+    pub website: String,
+    pub email: String,
+    pub hours: &'static str,
+    pub price_level: i64,
+    pub amenities: Vec<String>,
+    pub payments: Vec<String>,
+    pub socials: Vec<(String, String)>,
+    pub photos: Vec<String>,
+    pub established: &'static str,
+    pub keywords: String,
+    pub featured: bool,
+}
+
+impl ListingCategorySeed {
+    pub fn image_url(&self) -> String {
+        photo(self.image)
+    }
+}
+
+impl Generator {
+    /// The first `n` listings, spread over every city before any repeats.
+    pub fn listings(&mut self, n: u32) -> Vec<DummyListing> {
+        // Round by round, one place per category, each round shifting the
+        // cities, so a small request still covers every city and category.
+        let mut spread: Vec<&ListingSpec> = Vec::new();
+        for round in 0..CITIES.len() {
+            for cat in 0..LISTING_CATEGORIES.len() {
+                if let Some(l) = LISTINGS.iter().find(|l| l.category == cat && l.city == (round + cat) % CITIES.len()) {
+                    spread.push(l);
+                }
+            }
+        }
+        spread
+            .into_iter()
+            .take(n as usize)
+            .enumerate()
+            .map(|(i, l)| {
+                let city = &CITIES[l.city];
+                let cat = &LISTING_CATEGORIES[l.category];
+                let domain = format!("{}.example", crate::directory::slugify(l.title).replace('-', ""));
+                let offset = |k: usize| ((k * 7919 + i * 104729) % 200) as f64 / 10_000.0 - 0.01;
+                let lexical = document(vec![
+                    paragraph(l.about),
+                    paragraph(l.detail),
+                    heading("What to try", "h3"),
+                    list(l.highlights),
+                ]);
+                DummyListing {
+                    category: l.category,
+                    title: l.title,
+                    summary: l.summary,
+                    lexical,
+                    street: l.street,
+                    city,
+                    latitude: format!("{:.5}", city.lat + offset(1)),
+                    longitude: format!("{:.5}", city.lng + offset(2)),
+                    phone: format!("{}{:02}", city.phone, 10 + i),
+                    website: format!("https://{domain}/"),
+                    email: format!("hello@{domain}"),
+                    hours: cat.hours,
+                    price_level: l.price_level,
+                    amenities: l.amenities.iter().map(|s| s.to_string()).collect(),
+                    payments: cat.payments.iter().map(|s| s.to_string()).collect(),
+                    socials: vec![
+                        ("instagram".into(), format!("https://instagram.com/{}", crate::directory::slugify(l.title).replace('-', ""))),
+                        ("facebook".into(), format!("https://facebook.com/{}", crate::directory::slugify(l.title).replace('-', ""))),
+                    ],
+                    photos: l.photos.iter().map(|p| photo(p)).collect(),
+                    established: l.established,
+                    keywords: format!("{} {} {}", cat.name.to_lowercase(), city.name.to_lowercase(), l.highlights.join(" ").to_lowercase()),
+                    featured: i % 4 == 0,
+                }
+            })
+            .collect()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -825,7 +1036,25 @@ mod tests {
             assert!(plan.count(kind) <= kind.max(), "{kind:?}");
             assert!(plan.count(kind) > 0, "{kind:?}");
         }
-        assert_eq!(plan.summary(), "6 tags, 3 authors, 16 posts, 5 pages, 40 members, 6 products and navigation links");
+        assert_eq!(plan.summary(), "6 tags, 3 authors, 16 posts, 5 pages, 40 members, 6 products, 6 directory categories, 24 directory listings and navigation links");
+    }
+
+    #[test]
+    fn the_directory_catalogue_covers_every_city_and_category_without_repeats() {
+        let mut g = Generator::new(7);
+        let six = g.listings(6);
+        let cats: std::collections::HashSet<usize> = six.iter().map(|l| l.category).collect();
+        assert_eq!(cats.len(), 6, "a small request still has one of each kind of place");
+        let all = g.listings(Kind::Listings.max());
+        assert_eq!(all.len(), 24);
+        let titles: std::collections::HashSet<&str> = all.iter().map(|l| l.title).collect();
+        assert_eq!(titles.len(), 24);
+        for l in &all {
+            assert!(l.website.ends_with(".example/") && l.email.ends_with(".example"), "{}", l.title);
+            assert!(!crate::directory::Hours::from_json(l.hours).is_empty(), "{}", l.title);
+            assert!(l.latitude.parse::<f64>().is_ok() && l.longitude.parse::<f64>().is_ok());
+            assert!(!l.photos.is_empty() && (1..=4).contains(&l.price_level));
+        }
     }
 
     #[test]

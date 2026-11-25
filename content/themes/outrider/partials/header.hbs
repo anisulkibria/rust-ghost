@@ -1,0 +1,10 @@
+<header class="or-header" id="or-header">
+<div class="or-wrap or-header-in">
+<a class="or-logo" href="{{@site.url}}">{{#if @site.logo}}<img src="{{@site.logo}}" alt="{{@site.title}}">{{else}}<span class="or-logo-mark" aria-hidden="true"></span><span>{{@site.title}}</span>{{/if}}</a>
+<nav class="or-nav" id="or-nav" aria-label="Main">
+{{navigation}}
+<a class="or-btn or-btn-accent or-nav-cta" href="mailto:{{@custom.contact_email}}">{{@custom.cta_label}}<span class="or-btn-arrow" aria-hidden="true">↗</span></a>
+</nav>
+<button class="or-menu" type="button" aria-controls="or-nav" aria-expanded="false" data-or-menu><span></span><span></span><span class="or-sr">Menu</span></button>
+</div>
+</header>

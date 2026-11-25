@@ -1,0 +1,14 @@
+{{!< default}}
+{{!-- Older stories (/page/2/ on): the store homepage owns `/`. --}}
+<main id="main" class="pl-journal">
+<header class="pl-wrap pl-jhead">
+<p class="pl-kicker">The journal{{#if pagination.page}} · page {{pagination.page}} of {{pagination.pages}}{{/if}}</p>
+<h1 class="pl-jtitle">Rooms, makers <em>and notes</em></h1>
+{{> "journal-topics"}}
+</header>
+<section class="pl-wrap pl-section-tight">
+<div class="pl-post-grid">{{#foreach posts}}{{> "post-card"}}{{/foreach}}</div>
+{{> "pager"}}
+</section>
+{{> "journal-news"}}
+</main>

@@ -1,0 +1,12 @@
+{{!< default}}
+{{!-- The journal's front page: a page with the slug `journal` (the
+     homepage owns `/`; older notes continue at /page/2/). --}}
+{{#post}}
+<main id="main" class="or-wrap or-listing">
+<header class="or-list-head"><p class="or-label">{{#if custom_excerpt}}{{custom_excerpt}}{{else}}Notes from the studio{{/if}}</p><h1 class="or-list-title" data-or-stretch>{{title}}</h1></header>
+{{#get "posts" filter="tag:-hash-work+tag:-hash-service+tag:-hash-testimonial" limit="12" include="tags" as |notes pages|}}
+<div class="or-post-grid">{{#foreach notes}}{{> "post-card"}}{{/foreach}}</div>
+{{#match pages.pages ">" 1}}<p class="or-center"><a class="or-btn or-btn-line" href="{{@site.url}}/page/2/">Older notes →</a></p>{{/match}}
+{{/get}}
+</main>
+{{/post}}

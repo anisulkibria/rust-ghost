@@ -153,7 +153,7 @@ pub(crate) async fn dummies_page(
 <p class="muted">Everything a theme's demo shows, in one go. Pages that already exist are linked rather than duplicated, and links are added to your menus, not swapped for them.</p>
 <ul class="dm-list">{full_list}</ul>
 <form method="post" action="{BASE}full/" class="dm-actions">
-<label class="dm-check"><input type="checkbox" name="images" value="1" checked> Feature images on posts, from Unsplash</label>
+<label class="dm-check"><input type="checkbox" name="images" value="1" checked> Photos on posts and places, from Unsplash</label>
 <button class="btn" type="submit">Generate the full demo</button>
 </form>
 </section>
@@ -164,8 +164,8 @@ pub(crate) async fn dummies_page(
 <form method="post" action="{BASE}custom/">
 <div class="dm-rows">{custom_rows}</div>
 <div class="dm-options">
-<label class="field fixed" style="margin:0"><select name="status"><option value="published" selected>Published</option><option value="draft">Draft</option></select><span>Posts, pages and products</span>{caret}</label>
-<label class="dm-check"><input type="checkbox" name="images" value="1"> Feature images on posts, from Unsplash</label>
+<label class="field fixed" style="margin:0"><select name="status"><option value="published" selected>Published</option><option value="draft">Draft</option></select><span>Posts, pages, products and listings</span>{caret}</label>
+<label class="dm-check"><input type="checkbox" name="images" value="1"> Photos on posts and places, from Unsplash</label>
 </div>
 <div class="dm-actions"><button class="btn" type="submit">Generate</button></div>
 </form>
@@ -378,6 +378,13 @@ async fn generate(state: &AppState, actor: &Actor, plan: &Plan) -> vuuut_core::R
     }
     note(Kind::Products, n);
 
+    let (cats_made, listings_made, places_link) = directory(db, &state.settings, &batch, &mut g, plan).await?;
+    note(Kind::ListingCategories, cats_made);
+    note(Kind::Listings, listings_made);
+    if let Some(url) = places_link {
+        menu.push((Menu::Primary, "Places".to_string(), url));
+    }
+
     // Append links while preserving any links already in either menu.
     if plan.count(Kind::Navigation) > 0 {
         if plan.count(Kind::Pages) == 0 && plan.count(Kind::Tags) == 0 {
@@ -534,4 +541,120 @@ mod tests {
         assert_eq!(friendly_date("2026-11-24 09:05:00"), "24 Nov 2026, 09:05");
         assert_eq!(friendly_date("soon"), "soon");
     }
+}
+
+/// The directory's share of a batch: categories (one that already exists is
+/// used, not duplicated), then listings filed under them. Making published
+/// listings switches the public directory on, since a guide nobody can open
+/// is not a demo; the directory's address comes back for the menu.
+async fn directory(db: &vuuut_db::Db, settings: &vuuut_db::SettingsCache, batch: &str, g: &mut Generator, plan: &Plan) -> vuuut_core::Result<(i64, i64, Option<String>)> {
+    let mut dir_cats: HashMap<usize, String> = HashMap::new();
+    let wants_listings = plan.count(Kind::Listings) > 0;
+    let mut n = 0;
+    for (i, seed) in rules::LISTING_CATEGORIES.iter().enumerate() {
+        if let Some(existing) = repos::directory::category_by_slug(db, seed.slug).await {
+            dir_cats.insert(i, existing.id);
+            continue;
+        }
+        if (i as u32) >= plan.count(Kind::ListingCategories) {
+            continue;
+        }
+        let image = if plan.images { seed.image_url() } else { String::new() };
+        let id = repos::directory::save_category_with_image(db, None, seed.name, seed.slug, seed.description, seed.tint, i as i64, Some(&image)).await?;
+        repo::record(db, batch, Kind::ListingCategories, &id).await?;
+        dir_cats.insert(i, id);
+        n += 1;
+    }
+    let cats_made = n;
+    let mut n = 0;
+    for l in g.listings(plan.count(Kind::Listings)) {
+        let photos = if plan.images { l.photos.clone() } else { Vec::new() };
+        let input = vuuut_core::directory::ListingInput {
+            title: l.title.to_string(),
+            slug: vuuut_core::directory::slugify(l.title),
+            kind: "directory".into(),
+            category_id: dir_cats.get(&l.category).cloned(),
+            summary: l.summary.to_string(),
+            description: vuuut_render::markdown::html_to_plaintext(&vuuut_render::lexical::to_html(&l.lexical)).chars().take(vuuut_core::directory::MAX_DESCRIPTION).collect(),
+            image: photos.first().cloned().unwrap_or_default(),
+            website: l.website.clone(),
+            email: l.email.clone(),
+            phone: l.phone.clone(),
+            address: l.street.to_string(),
+            location: l.city.name.to_string(),
+            price_type: "none".into(),
+            keywords: l.keywords.clone(),
+            featured: l.featured,
+            description_html: vuuut_render::lexical::to_html(&l.lexical),
+            description_lexical: l.lexical.clone(),
+            details: vuuut_core::directory::Details {
+                gallery: photos.iter().skip(1).cloned().collect(),
+                region: l.city.region.to_string(),
+                postal_code: l.city.postal.to_string(),
+                country: l.city.country.to_string(),
+                latitude: l.latitude.clone(),
+                longitude: l.longitude.clone(),
+                hours: vuuut_core::directory::Hours::from_json(l.hours),
+                price_level: l.price_level,
+                amenities: l.amenities.clone(),
+                payments: l.payments.clone(),
+                socials: l.socials.clone(),
+                established: l.established.to_string(),
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+        let id = repos::directory::insert(db, &input, if plan.publish { "published" } else { "draft" }, None, None).await?;
+        repo::record(db, batch, Kind::Listings, &id).await?;
+        n += 1;
+    }
+    let listings_made = n;
+    if wants_listings && plan.publish && n > 0 {
+        if settings.get_str(vuuut_core::directory::SETTING_ENABLED).as_deref() != Some("true") {
+            settings.set(db, vuuut_core::directory::SETTING_ENABLED, &serde_json::json!(true)).await?;
+        }
+        let paths = vuuut_core::directory::Paths::read(|k| settings.get_str(k));
+        return Ok((cats_made, listings_made, Some(paths.public_path("/directory/"))));
+    }
+    Ok((cats_made, listings_made, None))
+}
+
+/// `vuuut seed-directory`: the directory demo — every category and listing
+/// in the catalogue, with photos, published, plus a "Places" menu link — as
+/// one ordinary dummy batch, so Tools → Dummy content can remove it again.
+pub async fn seed_directory_demo(db: &vuuut_db::Db, settings: &vuuut_db::SettingsCache) -> vuuut_core::Result<String> {
+    let fields: Vec<(String, String)> = [
+        ("count_listing_categories", Kind::ListingCategories.max().to_string()),
+        ("count_listings", Kind::Listings.max().to_string()),
+        ("count_navigation", "1".to_string()),
+        ("images", "on".to_string()),
+        ("status", "published".to_string()),
+    ]
+    .into_iter()
+    .map(|(k, v)| (k.to_string(), v))
+    .collect();
+    let plan = Plan::custom(&fields).map_err(vuuut_core::GhostError::BadRequest)?;
+    let owner: Option<String> = sqlx::query_scalar(
+        "SELECT ru.user_id FROM roles_users ru JOIN roles r ON r.id = ru.role_id WHERE r.name = 'Owner' LIMIT 1",
+    )
+    .fetch_optional(db)
+    .await
+    .ok()
+    .flatten();
+    let batch = repo::create_batch(db, "custom", &plan.summary(), owner.as_deref().unwrap_or("")).await?;
+    let seed = u64::from_str_radix(&batch[batch.len().saturating_sub(16)..], 16).unwrap_or(1);
+    let mut g = Generator::new(seed);
+    let (cats, listings, link) = directory(db, settings, &batch, &mut g, &plan).await?;
+    if let Some(url) = link {
+        let mut links: Vec<serde_json::Value> = match settings.get("navigation") {
+            Some(serde_json::Value::Array(l)) => l,
+            _ => Vec::new(),
+        };
+        if !links.iter().any(|l| l.get("url").and_then(|u| u.as_str()) == Some(url.as_str())) {
+            links.push(serde_json::json!({ "label": "Places", "url": url }));
+            settings.set(db, "navigation", &serde_json::Value::Array(links)).await?;
+            repo::record_with(db, &batch, Kind::Navigation, &format!("navigation|{url}"), "Places").await?;
+        }
+    }
+    Ok(format!("{cats} directory categories and {listings} directory listings"))
 }

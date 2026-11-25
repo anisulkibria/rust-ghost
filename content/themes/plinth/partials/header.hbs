@@ -1,0 +1,51 @@
+{{!-- Announcement bar, header (logo, store search, account, cart) and the
+     navigation row with the collections menu. `shop` is there on store
+     pages only; elsewhere the cart link has no count. --}}
+{{#if @custom.announcement}}
+<div class="pl-topbar">
+<div class="pl-wrap pl-topbar-in">
+<nav class="pl-topbar-links" aria-label="Help">{{#foreach @site.secondary_navigation limit="3"}}<a href="{{url absolute="true"}}">{{label}}</a>{{/foreach}}</nav>
+<p class="pl-topbar-note">{{> "icon" name="truck" size="16"}}<span>{{@custom.announcement}}</span></p>
+<div class="pl-topbar-social">
+{{#if @site.facebook}}<a href="{{facebook_url @site.facebook}}" aria-label="Facebook" rel="noopener">f</a>{{/if}}
+{{#if @site.twitter}}<a href="{{twitter_url @site.twitter}}" aria-label="X" rel="noopener">𝕏</a>{{/if}}
+{{#if @custom.gram_handle}}<a href="https://instagram.com/{{@custom.gram_handle}}" aria-label="Instagram" rel="noopener">ig</a>{{/if}}
+</div>
+</div>
+</div>
+{{/if}}
+<header class="pl-header" id="pl-header">
+<div class="pl-wrap pl-header-in">
+<button class="pl-iconbtn pl-menu-btn" type="button" aria-controls="pl-nav" aria-expanded="false" data-pl-menu>{{> "icon" name="menu" size="22"}}<span class="pl-sr">Menu</span></button>
+<a class="pl-logo" href="{{@site.url}}">{{#if @site.logo}}<img src="{{@site.logo}}" alt="{{@site.title}}">{{else}}<span class="pl-logo-mark" aria-hidden="true"></span>{{@site.title}}{{/if}}</a>
+<form class="pl-search" method="get" action="{{@root.shop.url}}" role="search" data-pl-search>
+<label class="pl-sr" for="pl-search-in">Search the shop</label>
+<select class="pl-search-cat" aria-label="Category" data-pl-search-cat>
+<option value="{{@root.shop.url}}">All categories</option>
+{{#get "collections" limit="30"}}{{#foreach collections}}<option value="{{url}}">{{title}}</option>{{/foreach}}{{/get}}
+</select>
+<input id="pl-search-in" type="search" name="q" placeholder="What are you looking for?" maxlength="100"{{#if query}} value="{{query}}"{{/if}}>
+<button type="submit" class="pl-search-go">{{> "icon" name="search" size="18"}}<span class="pl-sr">Search</span></button>
+</form>
+<div class="pl-header-actions">
+<a class="pl-action pl-hide-s" href="{{@root.shop.dashboard_url}}">{{> "icon" name="user"}}<span><small>Your account</small>Sign in</span></a>
+<a class="pl-cart" href="{{@root.shop.cart_url}}" aria-label="Cart{{#if shop.cart_count}}, {{shop.cart_count}} items{{/if}}">{{> "icon" name="bag" size="22"}}{{#if shop.cart_count}}<span class="pl-cart-count">{{shop.cart_count}}</span>{{/if}}</a>
+</div>
+</div>
+<nav class="pl-nav" id="pl-nav" aria-label="Main">
+<div class="pl-wrap pl-nav-in">
+<div class="pl-mega">
+<button class="pl-nav-link pl-mega-btn" type="button" aria-expanded="false" aria-controls="pl-mega-panel" data-pl-mega>Shop by category<svg width="10" height="10" viewBox="0 0 10 10" aria-hidden="true"><path d="m2 4 3 3 3-3" fill="none" stroke="currentColor" stroke-width="1.5"/></svg></button>
+<div class="pl-mega-panel" id="pl-mega-panel" hidden>
+<div class="pl-mega-grid">
+{{#get "collections" limit="12"}}{{#foreach collections}}{{> "collection-circle" count=true}}{{/foreach}}{{else}}<p class="pl-muted">Collections you publish in the store appear here.</p>{{/get}}
+</div>
+<a class="pl-btn pl-btn-ink" href="{{@root.shop.collections_url}}">Every collection {{> "icon" name="arrow" size="16"}}</a>
+</div>
+</div>
+<a class="pl-nav-link" href="{{@root.shop.url}}">Shop all</a>
+{{navigation}}
+<a class="pl-nav-link pl-nav-sale" href="{{> "sale-url"}}">On sale</a>
+</div>
+</nav>
+</header>

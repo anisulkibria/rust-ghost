@@ -35,6 +35,8 @@ fn table(kind: Kind) -> Option<&'static str> {
         Kind::Posts | Kind::Pages => Some("posts"),
         Kind::Members => Some("members"),
         Kind::Products => Some("ecom_products"),
+        Kind::ListingCategories => Some("directory_categories"),
+        Kind::Listings => Some("directory_listings"),
         Kind::Navigation => None,
     }
 }
@@ -113,6 +115,14 @@ async fn current_fingerprint(pool: &Db, kind: Kind, id: &str) -> Result<Option<S
         Kind::Products => {
             let Some(product) = repos::ecom::find_product(pool, id).await? else { return Ok(None) };
             Some(json!([product, repos::ecom::read_variants(pool, id).await?]))
+        }
+        Kind::ListingCategories => {
+            sqlx::query_as::<_, (String, String, String, String, String, i64, String)>("SELECT name, slug, description, tint, image, sort_order, updated_at FROM directory_categories WHERE id = ?")
+                .bind(id).fetch_optional(pool).await.map_err(dberr)?.map(|row| json!([row.0, row.1, row.2, row.3, row.4, row.5, row.6]))
+        }
+        Kind::Listings => {
+            let Some(l) = repos::directory::find(pool, id).await? else { return Ok(None) };
+            Some(json!([l.updated_at, l.status, l.title, l.description, l.description_lexical, l.featured, l.hours, l.image, l.gallery, l.category_id, l.website, l.phone]))
         }
         Kind::Navigation => None,
     };
@@ -272,7 +282,7 @@ struct Item {
 
 /// The order removal goes in: what depends on others first, so a tag is
 /// judged after the dummy posts that used it are gone.
-const REMOVAL_ORDER: [Kind; 7] = [Kind::Posts, Kind::Pages, Kind::Products, Kind::Members, Kind::Navigation, Kind::Tags, Kind::Users];
+const REMOVAL_ORDER: [Kind; 9] = [Kind::Posts, Kind::Pages, Kind::Products, Kind::Listings, Kind::ListingCategories, Kind::Members, Kind::Navigation, Kind::Tags, Kind::Users];
 
 /// Remove one batch's dummies, or every batch's when `batch` is `None`.
 pub async fn remove(pool: &Db, settings: &SettingsCache, batch: Option<&str>) -> Result<Removal> {
@@ -341,6 +351,8 @@ async fn remove_row(pool: &Db, item: &Item) -> Result<Outcome> {
         Kind::Products => {
             repos::ecom::delete_product(pool, id).await?;
         }
+        Kind::Listings => repos::directory::delete(pool, id).await?,
+        Kind::ListingCategories => repos::directory::delete_category(pool, id).await?,
         Kind::Members => {
             for sql in [
                 "DELETE FROM members_newsletters WHERE member_id = ?",
@@ -375,6 +387,9 @@ async fn in_use(pool: &Db, kind: Kind, id: &str) -> Result<bool> {
             "SELECT COUNT(*) FROM ecom_customers WHERE member_id = ?",
             "SELECT COUNT(*) FROM members_labels WHERE member_id = ?",
         ],
+        // A category somebody's own listing uses stays.
+        Kind::ListingCategories => &["SELECT COUNT(*) FROM directory_listings WHERE category_id = ?"],
+        Kind::Listings => &[],
         Kind::Navigation => &[],
     };
     for sql in queries {

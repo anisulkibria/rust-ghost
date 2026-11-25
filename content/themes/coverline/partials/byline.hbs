@@ -1,0 +1,1 @@
+<p class="cv-by">{{#match visibility "!=" "public"}}<span class="cv-lock" title="{{#match visibility "paid"}}Paid members{{else}}Members{{/match}}">{{> "icon" name="lock" size="11"}}</span>{{/match}}By {{#foreach authors limit="2"}}{{name}}{{#unless @last}}, {{/unless}}{{/foreach}} — <time datetime="{{date format="YYYY-MM-DD"}}">{{date format="D MMM YYYY"}}</time></p>
