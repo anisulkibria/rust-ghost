@@ -17,7 +17,7 @@
 </div>
 <nav class="pl-footer-col" aria-label="Shop">
 <h2 class="pl-footer-h">Shop</h2>
-<a href="{{@root.shop.url}}">Everything</a>
+<a href="{{shop.url}}">Everything</a>
 {{#get "collections" limit="6"}}{{#foreach collections}}<a href="{{url}}">{{title}}</a>{{/foreach}}{{/get}}
 </nav>
 <nav class="pl-footer-col" aria-label="Site">
@@ -26,8 +26,8 @@
 </nav>
 <nav class="pl-footer-col" aria-label="Help">
 <h2 class="pl-footer-h">Help</h2>
-<a href="{{@root.shop.dashboard_url}}">Orders &amp; downloads</a>
-<a href="{{@root.shop.cart_url}}">Cart</a>
+<a href="{{shop.dashboard_url}}">Orders &amp; downloads</a>
+<a href="{{shop.cart_url}}">Cart</a>
 {{#foreach @site.secondary_navigation}}<a href="{{url absolute="true"}}">{{label}}</a>{{/foreach}}
 </nav>
 </div>

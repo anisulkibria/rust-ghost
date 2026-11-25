@@ -1,0 +1,27 @@
+{
+    "name": "atrium",
+    "description": "A calm, professional theme for appointment businesses on Vuuut: studios, clinics, salons and consultants.",
+    "version": "1.0.0",
+    "engines": { "ghost": ">=5.0.0" },
+    "license": "MIT",
+    "author": { "name": "Vuuut", "email": "hello@vuuut.com", "url": "https://vuuut.com" },
+    "gpm": { "type": "theme", "categories": ["Business", "Health"] },
+    "keywords": ["ghost-theme", "vuuut-theme", "booking", "appointments", "salon", "clinic", "studio"],
+    "config": {
+        "posts_per_page": 9,
+        "image_sizes": { "xs": { "width": 160 }, "s": { "width": 400 }, "m": { "width": 760 }, "l": { "width": 1200 }, "xl": { "width": 1800 }, "xxl": { "width": 2400 } },
+        "card_assets": true,
+        "custom": {
+            "color_scheme": { "type": "select", "options": ["Light", "Dark", "Follow the reader's device"], "default": "Light", "description": "Where every reader starts. Each can switch with the light/dark button." },
+            "use_site_accent": { "type": "boolean", "default": false, "description": "Use the site's accent colour instead of Atrium's pine green." },
+            "booking_address": { "type": "text", "default": "/book/", "description": "Address of the booking pages, as set in Tools → Booking." },
+            "hero_heading": { "type": "text", "default": "Care that fits around your life", "description": "The homepage headline. The last three words are set in italics." },
+            "hero_text": { "type": "text", "description": "A line or two under the headline. Leave empty for the built-in line." },
+            "hero_image": { "type": "image", "description": "The homepage's main picture. Defaults to the first featured service." },
+            "visit_address": { "type": "text", "description": "Your address, for the Visit us block. Leave empty to hide the block." },
+            "visit_hours": { "type": "text", "default": "Mon–Fri 9am–7pm · Sat 9am–2pm", "description": "Opening hours in one line, for the Visit us block." },
+            "visit_phone": { "type": "text", "description": "A phone number for the Visit us block and the footer." },
+            "show_journal": { "type": "boolean", "default": true, "description": "Shows your latest posts on the homepage.", "group": "homepage" }
+        }
+    }
+}

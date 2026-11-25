@@ -1,0 +1,8 @@
+{{#if feature_image}}
+    <img src="{{feature_image}}" alt="" loading="lazy">
+{{else}}
+    <span class="word-art tint-{{category.tint}}" aria-hidden="true">
+        <span class="word-art-title">{{> "language-word" category}}</span>
+        {{#if category}}<span class="word-art-topic">{{category.name}}</span>{{/if}}
+    </span>
+{{/if}}

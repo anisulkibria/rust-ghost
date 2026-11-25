@@ -8,13 +8,13 @@
 {{!-- 1. Category circles ------------------------------------------------ --}}
 <section class="pl-wrap pl-strip" aria-label="Categories">
 <div class="pl-strip-track" data-pl-drag>
-<a class="pl-circle pl-circle-sale" href="{{> "sale-url"}}"><span class="pl-circle-art"><span class="pl-sale-dot">Sale</span></span><span class="pl-circle-name">On sale</span></a>
+<a class="pl-circle pl-circle-sale" href="{{> "sale-url" fallback=shop.url}}"><span class="pl-circle-art"><span class="pl-sale-dot">Sale</span></span><span class="pl-circle-name">On sale</span></a>
 {{#get "collections" limit="12"}}{{#foreach collections}}{{> "collection-circle"}}{{/foreach}}{{/get}}
-<a class="pl-circle pl-circle-new" href="{{@root.shop.url}}?sort=newest"><span class="pl-circle-art"><span class="pl-sale-dot">New</span></span><span class="pl-circle-name">New in</span></a>
+<a class="pl-circle pl-circle-new" href="{{shop.url}}?sort=newest"><span class="pl-circle-art"><span class="pl-sale-dot">New</span></span><span class="pl-circle-name">New in</span></a>
 {{#get "products" filter="featured:true" limit="4" as |picks|}}{{#foreach picks}}
 <a class="pl-circle" href="{{url}}"><span class="pl-circle-art">{{#if feature_image}}<img src="{{feature_image}}" alt="" loading="lazy">{{else}}{{#if meta.shape}}{{> "art" kind=meta.shape}}{{else}}{{> "art" kind=(concat product_type " " title)}}{{/if}}{{/if}}</span><span class="pl-circle-name">{{title}}</span></a>
 {{/foreach}}{{/get}}
-<a class="pl-circle pl-circle-all" href="{{@root.shop.url}}"><span class="pl-circle-art">{{> "icon" name="arrow" size="28"}}</span><span class="pl-circle-name">Shop all</span></a>
+<a class="pl-circle pl-circle-all" href="{{shop.url}}"><span class="pl-circle-art">{{> "icon" name="arrow" size="28"}}</span><span class="pl-circle-name">Shop all</span></a>
 </div>
 </section>
 
@@ -52,7 +52,7 @@
 <div class="pl-hero-copy">
 <p class="pl-hero-kicker">{{@site.description}}</p>
 <h1 class="pl-hero-title">{{@site.title}}</h1>
-<a class="pl-btn pl-btn-light" href="{{@root.shop.url}}">Shop everything {{> "icon" name="arrow" size="16"}}</a>
+<a class="pl-btn pl-btn-light" href="{{shop.url}}">Shop everything {{> "icon" name="arrow" size="16"}}</a>
 </div>
 </article>
 </section>
@@ -63,10 +63,10 @@
 <section class="pl-wrap pl-section" aria-labelledby="pl-new-h">
 <div class="pl-head">
 <div><h2 id="pl-new-h" class="pl-h2">New arrivals</h2><p class="pl-sub">Just in from the workshops, ready to ship.</p></div>
-<div class="pl-head-end"><a class="pl-more" href="{{@root.shop.url}}?sort=newest">View all</a>{{> "rail-buttons"}}</div>
+<div class="pl-head-end"><a class="pl-more" href="{{../shop.url}}?sort=newest">View all</a>{{> "rail-buttons"}}</div>
 </div>
 <div class="pl-arrivals">
-<a class="pl-promo" href="{{@root.shop.url}}">
+<a class="pl-promo" href="{{../shop.url}}">
 <span class="pl-promo-kicker">New season</span>
 <span class="pl-promo-title">{{@custom.promo_title}}</span>
 <span class="pl-promo-art">{{> "art" kind="lamp"}}</span>
@@ -90,7 +90,7 @@
 <span><b data-m>00</b><small>mins</small></span><i>:</i>
 <span><b data-s>00</b><small>secs</small></span>
 </p>
-<p class="pl-flash-text">{{@custom.sale_text}} <a href="{{> "sale-url"}}">Shop the sale →</a></p>
+<p class="pl-flash-text">{{@custom.sale_text}} <a href="{{> "sale-url" fallback=shop.url}}">Shop the sale →</a></p>
 </div>
 </section>
 {{/if}}
@@ -118,10 +118,10 @@
 <section class="pl-wrap pl-section" aria-labelledby="pl-cat-h">
 <div class="pl-head">
 <div><h2 id="pl-cat-h" class="pl-h2">Shop by category</h2></div>
-<a class="pl-more" href="{{@root.shop.collections_url}}">Every collection</a>
+<a class="pl-more" href="{{../shop.collections_url}}">Every collection</a>
 </div>
 <div class="pl-cats">
-<a class="pl-circle pl-circle-sale" href="{{> "sale-url"}}"><span class="pl-circle-art"><span class="pl-sale-dot">Sale</span></span><span class="pl-circle-name">On sale</span></a>
+<a class="pl-circle pl-circle-sale" href="{{> "sale-url" fallback=../shop.url}}"><span class="pl-circle-art"><span class="pl-sale-dot">Sale</span></span><span class="pl-circle-name">On sale</span></a>
 {{#foreach cats}}{{> "collection-circle" count=true}}{{/foreach}}
 </div>
 </section>
@@ -169,7 +169,7 @@
 <p class="pl-kicker">Shop the look</p>
 <h2 id="pl-look-h" class="pl-display">A room, <em>piece by piece</em></h2>
 <p class="pl-sub">Tap a dot to see what is in the picture, then take it home.</p>
-<a class="pl-btn pl-btn-ink" href="{{@root.shop.url}}">Shop all pieces {{> "icon" name="arrow" size="16"}}</a>
+<a class="pl-btn pl-btn-ink" href="{{../shop.url}}">Shop all pieces {{> "icon" name="arrow" size="16"}}</a>
 </div>
 </section>
 {{/get}}
@@ -220,7 +220,7 @@
 <section class="pl-wrap pl-section" aria-labelledby="pl-offers-h">
 <div class="pl-head">
 <div><h2 id="pl-offers-h" class="pl-h2">Shop our offers</h2><p class="pl-sub">Marked down while they last.</p></div>
-<div class="pl-head-end"><a class="pl-more" href="{{> "sale-url"}}">View all</a>{{> "rail-buttons"}}</div>
+<div class="pl-head-end"><a class="pl-more" href="{{> "sale-url" fallback=../shop.url}}">View all</a>{{> "rail-buttons"}}</div>
 </div>
 <div class="pl-rail" data-pl-rail>
 {{#foreach offers}}{{> "product-card"}}{{/foreach}}

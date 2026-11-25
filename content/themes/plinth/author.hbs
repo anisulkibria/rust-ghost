@@ -12,8 +12,8 @@
 {{#if location}}<span>{{> "icon" name="pin" size="16"}}{{location}}</span>{{/if}}
 <span>{{plural ../pagination.total empty="No stories yet" singular="% story" plural="% stories"}}</span>
 {{#if website}}<a href="{{website}}" rel="noopener">{{> "icon" name="arrow" size="16"}}Website</a>{{/if}}
-{{#if twitter}}<a href="{{twitter_url}}" rel="noopener">X</a>{{/if}}
-{{#if facebook}}<a href="{{facebook_url}}" rel="noopener">Facebook</a>{{/if}}
+{{#if twitter}}<a href="{{social_url type="twitter"}}" rel="noopener">X</a>{{/if}}
+{{#if facebook}}<a href="{{social_url type="facebook"}}" rel="noopener">Facebook</a>{{/if}}
 </p>
 </div>
 </div>

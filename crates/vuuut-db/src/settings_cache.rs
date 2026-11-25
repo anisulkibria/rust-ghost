@@ -235,7 +235,88 @@ impl SettingsCache {
         Ok(())
     }
 
+    /// Set the shared price currency and preserve the major units of live
+    /// catalogue amounts. Existing orders and membership tiers have their own currency.
+    pub async fn set_site_currency(&self, pool: &Db, code: &str) -> Result<()> {
+        use vuuut_core::currency::{self, minor_unit_scale};
+        let Some(code) = currency::normalize(code) else {
+            return Err(GhostError::BadRequest("Choose a currency.".into()));
+        };
+        let mut tx = pool.begin().await.map_err(crate::repos::dberr)?;
+        // Serialize concurrent currency changes on the seeded store setting.
+        sqlx::query("UPDATE settings SET value = value WHERE `key` = 'ecom_currency'")
+            .execute(&mut *tx).await.map_err(crate::repos::dberr)?;
+        let stored: HashMap<String, String> = sqlx::query_as::<_, (String, crate::types::Text)>(
+            "SELECT `key`, value FROM settings WHERE `key` IN ('site_currency','ecom_currency','donations_currency','donations_suggested_amount')",
+        ).fetch_all(&mut *tx).await.map_err(crate::repos::dberr)?
+            .into_iter().map(|(key, value)| (key, value.0)).collect();
+        let get = |key: &str| stored.get(key).cloned();
+        let old_store = vuuut_core::ecom::Settings::read(get).currency;
+        let old_tips = currency::donations(get).unwrap_or_else(|| currency::DEFAULT.into());
+        let old_scale = minor_unit_scale(&old_store);
+        let new_scale = minor_unit_scale(&code);
+
+        if new_scale == 1 {
+            for (table, condition) in [
+                ("lms_courses", "price_cents % 100 <> 0 OR compare_cents % 100 <> 0"),
+                ("directory_listings", "price_cents % 100 <> 0"),
+            ] {
+                let query = format!("SELECT COUNT(*) FROM {table} WHERE {condition}");
+                let count = sqlx::query_scalar::<_, i64>(&query).fetch_one(&mut *tx).await.map_err(crate::repos::dberr)?;
+                if count > 0 {
+                    return Err(GhostError::BadRequest("Adjust fractional course or listing prices before choosing a whole-unit currency.".into()));
+                }
+            }
+        }
+        if old_scale != new_scale {
+            for (table, column, predicate) in [
+                ("ecom_variants", "price_cents", "1 = 1"),
+                ("ecom_variants", "compare_at_cents", "1 = 1"),
+                ("ecom_variants", "cost_cents", "1 = 1"),
+                ("ecom_shipping_rates", "price_cents", "1 = 1"),
+                ("ecom_shipping_rates", "min_subtotal_cents", "1 = 1"),
+                ("ecom_shipping_rates", "max_subtotal_cents", "1 = 1"),
+                ("ecom_discounts", "min_subtotal_cents", "1 = 1"),
+                ("ecom_discounts", "value", "kind = 'fixed'"),
+            ] {
+                let invalid = if new_scale == 1 {
+                    format!("{column} % 100 <> 0")
+                } else {
+                    format!("{column} > {} OR {column} < -{}", i64::MAX / 100, i64::MAX / 100)
+                };
+                let check = format!("SELECT COUNT(*) FROM {table} WHERE ({predicate}) AND ({invalid})");
+                let count = sqlx::query_scalar::<_, i64>(&check).fetch_one(&mut *tx).await.map_err(crate::repos::dberr)?;
+                if count > 0 {
+                    return Err(GhostError::BadRequest("Adjust store prices, shipping rates, or discounts that cannot be represented in this currency.".into()));
+                }
+                let arithmetic = if new_scale == 1 { "/ 100" } else { "* 100" };
+                let update = format!("UPDATE {table} SET {column} = {column} {arithmetic} WHERE {predicate}");
+                sqlx::query(&update).execute(&mut *tx).await.map_err(crate::repos::dberr)?;
+            }
+        }
+
+        let amount = get("donations_suggested_amount").and_then(|value| value.parse::<i64>().ok()).unwrap_or(0);
+        let tip_scale = minor_unit_scale(&old_tips.to_ascii_uppercase());
+        let amount = amount.checked_mul(new_scale).filter(|value| value % tip_scale == 0)
+            .map(|value| value / tip_scale)
+            .ok_or_else(|| GhostError::BadRequest("Adjust the suggested tip before choosing this currency.".into()))?;
+        let mut saved = Vec::new();
+        for (key, value) in [
+            (currency::SETTING, serde_json::json!(code)),
+            ("donations_suggested_amount", serde_json::json!(amount)),
+        ] {
+            saved.push((key.to_string(), write_setting(&mut *tx, key, &value).await?));
+        }
+        tx.commit().await.map_err(crate::repos::dberr)?;
+        self.map.write().unwrap().extend(saved);
+        crate::content::touch();
+        Ok(())
+    }
+
     fn check_writable(&self, key: &str) -> Result<()> {
+        if key == vuuut_core::currency::SETTING {
+            return Err(GhostError::BadRequest("Change the site currency under Payments settings.".into()));
+        }
         if self.is_locked(key) {
             return Err(GhostError::NoPermissionError { message: "Email delivery is managed by your hosting provider".into(), context: None });
         }

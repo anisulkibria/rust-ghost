@@ -33,6 +33,8 @@ pub mod workflows;
 pub mod social_media;
 pub mod caching;
 pub mod directory;
+pub mod lms;
+pub mod booking;
 pub mod dummies;
 pub mod ecom;
 pub mod payments;

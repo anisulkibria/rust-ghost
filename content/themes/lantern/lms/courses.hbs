@@ -1,0 +1,51 @@
+{{!< default}}
+{{!-- Vuuut LMS: the catalogue, a category, and search results. --}}
+{{> "lms-assets"}}
+<main id="main" class="catalog">
+    <section class="cat-hero">
+        <div class="hero-glow" aria-hidden="true"></div>
+        <div class="wrap">
+            <nav class="crumbs">{{#if category}}<a href="{{lms.url}}">{{lms.title}}</a> <span>/</span> {{category.name}}{{else}}<span>{{lms.title}}</span>{{/if}}</nav>
+            <h1>{{#if category}}{{category.name}}{{else}}{{heading}}{{/if}}</h1>
+            {{#if intro}}<p class="lede">{{intro}}</p>{{/if}}
+            <form class="cat-search" method="get" action="{{#if category}}{{category.url}}{{else}}{{lms.url}}{{/if}}" role="search">
+                <label class="cs-q">{{> "icons/search"}}<input type="search" name="q" value="{{filters.query}}" placeholder="Search {{#if category}}{{category.name}} {{/if}}courses" aria-label="Search courses" maxlength="100"></label>
+                <select name="level" aria-label="Level"><option value="">Any level</option><option value="beginner"{{#match filters.level "beginner"}} selected{{/match}}>Beginner</option><option value="intermediate"{{#match filters.level "intermediate"}} selected{{/match}}>Intermediate</option><option value="advanced"{{#match filters.level "advanced"}} selected{{/match}}>Advanced</option></select>
+                <select name="price" aria-label="Price"><option value="">Any price</option><option value="free"{{#match filters.price "free"}} selected{{/match}}>Free</option><option value="paid"{{#match filters.price "paid"}} selected{{/match}}>Paid</option></select>
+                <select name="sort" aria-label="Sort"><option value="">Recommended</option><option value="newest"{{#match filters.sort "newest"}} selected{{/match}}>Newest</option><option value="popular"{{#match filters.sort "popular"}} selected{{/match}}>Most popular</option><option value="price"{{#match filters.sort "price"}} selected{{/match}}>Price: low to high</option><option value="title"{{#match filters.sort "title"}} selected{{/match}}>A–Z</option></select>
+                <button class="btn" type="submit">Search</button>
+            </form>
+            <nav class="cat-chips" aria-label="Subjects">
+                <a class="chip{{#unless category}} on{{/unless}}" href="{{lms.url}}">All</a>
+                {{#foreach categories}}{{#if count}}<a class="chip tint-{{tint}}{{#if current}} on{{/if}}" href="{{url}}">{{name}} <span>{{count}}</span></a>{{/if}}{{/foreach}}
+            </nav>
+        </div>
+    </section>
+
+    {{#unless filters.searching}}{{#if featured}}
+    <section class="wrap band-tight">
+        <header class="band-head"><div><p class="eyebrow">Hand-picked</p><h2>Featured</h2></div></header>
+        <div class="feature-strip">{{#foreach featured limit="1"}}
+            <a class="feature-big" href="{{url}}">
+                {{#if feature_image}}<img src="{{feature_image}}" alt="">{{/if}}
+                <span class="fb-body"><span class="cc-meta">{{#if category}}<span class="tint tint-{{category.tint}}">{{category.name}}</span>{{/if}}<span>{{level_label}}</span></span>
+                <b>{{title}}</b><span class="fb-sub">{{excerpt}}</span>
+                <span class="cc-facts"><span>{{> "icons/book"}}{{lessons}} lessons</span>{{#if duration}}<span>{{> "icons/clock"}}{{duration}}</span>{{/if}}{{#if rating}}<span><span class="stars" style="--r:{{rating_percent}}%"></span> {{rating}}</span>{{/if}}</span>
+                <span class="fb-cta">{{#if compare_price}}<s>{{compare_price}}</s>{{/if}}<b>{{price_label}}</b><span class="btn">View course {{> "icons/arrow"}}</span></span></span>
+            </a>{{/foreach}}
+        </div>
+    </section>
+    {{/if}}{{/unless}}
+
+    <section class="wrap band-tight">
+        <header class="band-head"><div><h2 class="h-small">{{total}} course{{#match total "!=" 1}}s{{/match}}{{#if filters.query}} for “{{filters.query}}”{{/if}}</h2></div>{{#if lms.signed_in}}<a class="more" href="{{lms.dashboard_url}}">My learning {{> "icons/arrow"}}</a>{{/if}}</header>
+        {{#if courses}}
+        <div class="course-grid">{{#foreach courses}}{{> "course-card"}}{{/foreach}}</div>
+        {{else}}
+        <div class="empty"><h3>No courses match</h3><p>Try fewer words, another subject or any price.</p><a class="btn btn-quiet" href="{{lms.url}}">Clear filters</a></div>
+        {{/if}}
+        {{#match pagination.pages ">" 1}}
+        <nav class="pager">{{#if pagination.prev_url}}<a class="btn btn-quiet" href="{{pagination.prev_url}}">← Previous</a>{{/if}}<span>Page {{pagination.page}} of {{pagination.pages}}</span>{{#if pagination.next_url}}<a class="btn btn-quiet" href="{{pagination.next_url}}">Next →</a>{{/if}}</nav>
+        {{/match}}
+    </section>
+</main>

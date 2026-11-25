@@ -32,6 +32,8 @@ pub(crate) const CONTENT: &[(&str, &[&str])] = &[
     ("caching", &["Page cache", "Purge everything", "Cached pages", "Hit rate", "Response time", "Slowest pages", "Cache-Control", "max-age", "s-maxage", "ETag", "304 Not Modified", "gzip", "Compression", "Lazy-load images", "Speculation rules", "Prerender", "Preconnect", "Cloudflare", "CDN", "Purge cache", "Performance", "Speed", "TTFB"]),
     ("ecom", &["Store", "Shop", "Products", "Variants", "Options", "Inventory", "Stock", "SKU", "Collections", "Smart collections", "Orders", "Fulfil", "Refund", "Customers", "Discount codes", "Coupons", "Shipping rates", "Taxes", "VAT", "Checkout", "Cart", "Abandoned checkouts", "Payments", "Bank transfer", "Cash on delivery", "Stripe", "Packing slip", "Refund policy", "Digital downloads", "Downloadable files", "Download limit", "Revoke downloads"]),
     ("directories", &["Directory", "Classifieds", "Listings", "Business listings", "For sale", "Wanted", "Jobs", "Categories", "Waiting for review", "Approve", "Reject", "Featured", "Expiry", "Renew", "Submit a listing", "Visitor submissions", "Price", "Location", "Contact details"]),
+    ("booking", &["Bookings", "Appointments", "Scheduling", "Calendar", "Services", "Staff", "Working hours", "Business hours", "Time off", "Holidays", "Availability", "Buffers", "Group classes", "Approve bookings", "Reschedule", "Cancel booking", "Reminders", "Deposits", "Pay online", "Customers", "No-show", "Calendly", "Acuity", "Cal.com", "Bookly", "Amelia", "SimplyBook", "Square Appointments"]),
+    ("lms", &["Courses", "Online courses", "Lessons", "Curriculum", "Sections", "Quizzes", "Questions", "Assignments", "Grading", "Students", "Enrolments", "Enrol a student", "Progress", "Drip content", "Free preview", "Certificates", "Course reviews", "Ratings", "Instructor", "Pass mark", "Sell courses", "LearnDash", "LifterLMS", "Tutor LMS", "LearnPress", "Sensei", "E-learning", "My learning"]),
     ("dummies", &["Dummy content", "Demo content", "Sample content", "Demo site", "Placeholder posts", "Lorem ipsum", "Generate posts", "Generate members", "Test data", "Remove dummy content"]),
     ("analytics", &["Total views", "Unique visitors", "Top content", "Top sources", "Locations", "Campaigns", "Audience", "Signup sources", "New members per day", "Recent members", "Newsletters sent", "Traffic", "Referrers", "Web analytics"]),
     ("announcement", &["Announcement bar", "Banner text", "Background colour", "Visibility", "Visitors", "Free members", "Paid members", "Dismiss"]),
@@ -122,6 +124,11 @@ pub(crate) async fn things_inside(state: &AppState) -> HashMap<&'static str, Vec
     for c in vuuut_db::repos::directory::categories(&state.db).await.unwrap_or_default() {
         put("directories", "Category", &c.name);
     }
+    if let Ok((courses, _)) = vuuut_db::repos::lms::browse(&state.db, &vuuut_db::repos::lms::Browse { limit: 200, ..Default::default() }).await {
+        for c in courses {
+            put("lms", "Course", &c.title);
+        }
+    }
     for d in vuuut_db::repos::cookies::declarations(&state.db).await.unwrap_or_default() {
         put("cookies", "Cookie", &d.name);
     }
@@ -169,6 +176,24 @@ pub(crate) async fn former_module_states(state: &AppState) -> Vec<(&'static str,
         (_, p) if p > 0 => format!("{p} to review · {live} live"),
         (true, _) => format!("Public · {live} live"),
         (false, _) => format!("Not public · {live} ready"),
+    })));
+
+    let bs = crate::booking::booking_settings(state);
+    let pending = count("SELECT COUNT(*) FROM booking_bookings WHERE status = 'pending'").await;
+    let services = count("SELECT COUNT(*) FROM booking_services WHERE status = 'active'").await;
+    out.push(("booking", (bs.enabled, match (bs.enabled, pending) {
+        (_, n) if n > 0 => format!("{} to approve · {services} services", plural(n, "request", "requests")),
+        (true, _) => format!("Open · {}", plural(services, "service", "services")),
+        (false, _) => format!("Closed · {}", plural(services, "service", "services")),
+    })));
+
+    let ls = crate::lms::lms_settings(state);
+    let courses = count("SELECT COUNT(*) FROM lms_courses WHERE status = 'published'").await;
+    let to_grade = count("SELECT COUNT(*) FROM lms_submissions WHERE status = 'submitted'").await;
+    out.push(("lms", (ls.enabled, match (ls.enabled, to_grade) {
+        (_, n) if n > 0 => format!("{} to grade · {courses} live", plural(n, "assignment", "assignments")),
+        (true, _) => format!("Public · {}", plural(courses, "course", "courses")),
+        (false, _) => format!("Not public · {}", plural(courses, "course", "courses")),
     })));
 
     let bs = crate::builder::builder_settings(state);

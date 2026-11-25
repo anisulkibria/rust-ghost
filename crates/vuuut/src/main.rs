@@ -36,7 +36,7 @@ async fn main() {
             }
             return;
         }
-        cli::Command::Doctor | cli::Command::SeedDemo | cli::Command::SeedDirectory | cli::Command::ImportContent(_) | cli::Command::Start => {}
+        cli::Command::Doctor | cli::Command::SeedDemo | cli::Command::SeedDirectory | cli::Command::SeedLms | cli::Command::SeedLanguages | cli::Command::SeedBooking | cli::Command::SeedThemeDemo(_) | cli::Command::ImportContent(_) | cli::Command::Start => {}
     }
 
     tracing_subscriber::fmt()
@@ -184,8 +184,50 @@ async fn main() {
         return;
     }
 
-    // `vuuut seed-directory`: the directory demo as one dummy batch (Tools →
-    // Dummy content removes it), then exit.
+    // `vuuut seed-theme-demo --demo studio|academy`: a recorded theme demo.
+    if let cli::Command::SeedThemeDemo(key) = &command {
+        let settings = vuuut_db::SettingsCache::load(&db).await.expect("settings");
+        match vuuut_admin_ui::dummies::seed_theme_demo(&db, &settings, key).await {
+            Ok(made) => tracing::info!("theme demo seeded: {}", vuuut_core::dummies::join_and(&made)),
+            Err(e) => {
+                tracing::error!("theme demo failed: {}", e.message());
+                std::process::exit(1);
+            }
+        }
+        return;
+    }
+
+    // `vuuut seed-booking`: the sample business for Tools → Booking.
+    if matches!(command, cli::Command::SeedBooking) {
+        let settings = vuuut_db::SettingsCache::load(&db).await.expect("settings");
+        match vuuut_admin_ui::booking::seed_sample_business(&db, &settings).await {
+            Ok(made) => tracing::info!("sample business seeded: {made} services"),
+            Err(e) => {
+                tracing::error!("booking seeding failed: {}", e.message());
+                std::process::exit(1);
+            }
+        }
+        return;
+    }
+
+    // Seed the selected LMS demo, then exit.
+    if matches!(command, cli::Command::SeedLms | cli::Command::SeedLanguages) {
+        let settings = vuuut_db::SettingsCache::load(&db).await.expect("settings");
+        let result = if matches!(command, cli::Command::SeedLanguages) {
+            vuuut_admin_ui::lms::seed_language_academy(&db, &settings).await
+        } else {
+            vuuut_admin_ui::lms::seed_sample_academy(&db, &settings, None).await
+        };
+        match result {
+            Ok(made) => tracing::info!("sample academy seeded: {made} courses"),
+            Err(e) => {
+                tracing::error!("academy seeding failed: {}", e.message());
+                std::process::exit(1);
+            }
+        }
+        return;
+    }
+
     if matches!(command, cli::Command::SeedDirectory) {
         let settings = vuuut_db::SettingsCache::load(&db).await.expect("settings");
         match vuuut_admin_ui::dummies::seed_directory_demo(&db, &settings).await {
@@ -338,6 +380,8 @@ async fn main() {
     // of the process: a member waiting three days for the next email in a
     // chain has nobody making a request when it comes due.
     vuuut_api::automations_engine::spawn(state.clone());
+    // Tools → Booking: release unpaid holds, send reminders.
+    vuuut_api::booking::spawn(state.clone());
     vuuut_api::members::spawn_gift_delivery(state.clone());
     vuuut_api::email_analytics::spawn(state.clone());
     // Ships operational rows to the analytics warehouse, if one is

@@ -76,6 +76,8 @@ pub(crate) async fn admin_asset(Path((version, file)): Path<(String, String)>) -
         "translations-search.js" => include_str!("../assets/translations-search.js"),
         "forms-builder.js" => include_str!("../assets/forms-builder.js"),
         "media-library.js" => include_str!("../assets/media-library.js"),
+        "lms-editor.js" => include_str!("../assets/lms-editor.js"),
+        "booking-editor.js" => include_str!("../assets/booking-editor.js"),
         "unsplash-picker.js" => include_str!("../assets/unsplash-picker.js"),
         "publishing-workflows.js" => include_str!("../assets/publishing-workflows.js"),
         "automation-editor.js" => include_str!("../assets/automation-editor.js"),

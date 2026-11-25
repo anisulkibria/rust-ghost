@@ -1,0 +1,43 @@
+{{!< default}}
+{{!-- Vuuut LMS: My learning. --}}
+{{> "lms-assets"}}
+<main id="main" class="dash">
+    <section class="cat-hero dash-hero">
+        <div class="hero-glow" aria-hidden="true"></div>
+        <div class="wrap">
+            {{#if lms.signed_in}}
+            <p class="eyebrow">My learning</p>
+            <h1>Welcome back, <em>{{lms.student.name}}</em></h1>
+            <div class="dash-stats"><div><b>{{stats.in_progress}}</b><span>in progress</span></div><div><b>{{stats.completed}}</b><span>completed</span></div><div><b>{{stats.certificates}}</b><span>certificates</span></div></div>
+            {{else}}
+            <h1>Your learning, in one place</h1>
+            <p class="lede">Sign in to pick up where you left off.</p>
+            <p><a class="btn" href="#/portal/signin" data-portal="signin">Sign in</a> <a class="btn btn-quiet" href="{{lms.url}}">Browse courses</a></p>
+            {{/if}}
+        </div>
+    </section>
+    {{#if lms.signed_in}}
+    <section class="wrap band-tight">
+        {{#if enrolments}}
+        <div class="enrolled">{{#foreach enrolments}}
+            <article class="en-card{{#if enrolment.completed}} is-complete{{/if}}">
+                <a class="en-art" href="{{url}}">{{#if feature_image}}<img src="{{feature_image}}" alt="" loading="lazy">{{/if}}</a>
+                <div class="en-body">
+                    <p class="cc-meta">{{#if category}}<span class="tint tint-{{category.tint}}">{{category.name}}</span>{{/if}}{{#if enrolment.completed}}<span class="done-tag">{{> "icons/check"}} Completed</span>{{/if}}</p>
+                    <h2><a href="{{url}}">{{title}}</a></h2>
+                    <div class="meter"><span style="width:{{enrolment.progress}}%"></span></div>
+                    <p class="muted">{{enrolment.progress}}% complete{{#if enrolment.last_active_at}} · last studied {{enrolment.last_active_at}}{{/if}}</p>
+                    <p class="en-actions">{{#if enrolment.active}}<a class="btn" href="{{enrolment.continue_url}}">{{#if enrolment.completed}}Review{{else}}{{#if enrolment.progress}}Continue{{else}}Start{{/if}}{{/if}} {{> "icons/arrow"}}</a>{{else}}<span class="muted">Access has ended</span>{{/if}}
+                    {{#if enrolment.certificate_url}}<a class="btn btn-quiet" href="{{enrolment.certificate_url}}">{{> "icons/award"}} Certificate</a>{{/if}}</p>
+                </div>
+            </article>
+        {{/foreach}}</div>
+        {{else}}
+        <div class="empty"><h3>No courses yet</h3><p>Pick something you're curious about — many courses are free.</p><a class="btn" href="{{lms.url}}">Find a course</a></div>
+        {{/if}}
+    </section>
+    {{/if}}
+    {{#if recommended}}
+    <section class="band wrap"><header class="band-head"><div><p class="eyebrow">Next up</p><h2>Recommended for you</h2></div></header><div class="course-grid">{{#foreach recommended}}{{> "course-card"}}{{/foreach}}</div></section>
+    {{/if}}
+</main>

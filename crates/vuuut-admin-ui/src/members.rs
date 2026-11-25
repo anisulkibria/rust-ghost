@@ -1298,19 +1298,7 @@ pub(crate) async fn member_activity_card(state: &AppState, member_id: &str) -> S
 /// An amount in a currency's smallest unit, as money.
 pub(crate) fn money(amount: i64, currency: Option<&str>) -> String {
     let code = currency.unwrap_or("usd").to_uppercase();
-    let symbol = match code.as_str() {
-        "USD" => "$",
-        "EUR" => "\u{20ac}",
-        "GBP" => "\u{a3}",
-        _ => "",
-    };
-    let whole = amount / 100;
-    let cents = (amount % 100).abs();
-    if symbol.is_empty() {
-        format!("{whole}.{cents:02} {code}")
-    } else {
-        format!("{symbol}{whole}.{cents:02}")
-    }
+    vuuut_core::ecom::format_money(amount, &code)
 }
 
 /// Everything the member form holds: details, newsletters, custom fields and

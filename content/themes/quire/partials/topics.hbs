@@ -1,10 +1,10 @@
 {{!--
-    The homepage opener: every public topic, biggest first, set as one
+    Show up to topic_limit public topics, biggest first, set as one
     sentence. Hovering or focusing a topic marks it and shows its newest
     story in the peek beside it. Commas, "and" and the full stop come from
     CSS, so topics without posts can be skipped without breaking the sentence.
 --}}
-{{#get "tags" limit="14" include="count.posts" order="count.posts desc" filter="visibility:public" as |topics|}}
+{{#get "tags" limit=topic_limit include="count.posts" order="count.posts desc" filter="visibility:public" as |topics|}}
     {{#if topics}}
         <section class="topics" aria-labelledby="topics-heading">
             <div class="topics-inner wrap">

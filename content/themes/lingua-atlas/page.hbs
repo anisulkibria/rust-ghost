@@ -1,0 +1,12 @@
+{{!< default}}
+{{#post}}
+<main id="main">
+    <article class="article page-article {{post_class}}">
+        {{#if @page.show_title_and_feature_image}}
+        <header class="article-head wrap-text"><h1>{{title}}</h1>{{#if custom_excerpt}}<p class="lede">{{custom_excerpt}}</p>{{/if}}</header>
+        {{#if feature_image}}<figure class="article-image wrap"><img src="{{img_url feature_image size="xl"}}" alt="{{title}}"></figure>{{/if}}
+        {{/if}}
+        <div class="content gh-content">{{content}}</div>
+    </article>
+</main>
+{{/post}}

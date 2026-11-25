@@ -16,7 +16,6 @@ pub(crate) async fn orders_page(State(state): State<AppState>, headers: HeaderMa
         Ok(a) => a,
         Err(r) => return r,
     };
-    let s = store_settings(&state);
     let view = q.get("view").map(String::as_str).filter(|v| VIEWS.iter().any(|(k, _)| k == v)).unwrap_or("all");
     let query = q.get("q").map(|v| v.chars().take(100).collect::<String>()).unwrap_or_default();
     let terms = rules::search_terms(&query);
@@ -40,7 +39,7 @@ pub(crate) async fn orders_page(State(state): State<AppState>, headers: HeaderMa
                 n = o.number,
                 d = date(&o.created_at),
                 who = esc(&who),
-                t = money(o.total_cents, &s),
+                t = esc(&rules::format_money(o.total_cents, &o.currency)),
                 fin = if o.is_cancelled() { r#"<span class="chip draft">Cancelled</span>"#.to_string() } else { chip_for_financial(&o.financial_status) },
                 ful = chip_for_fulfillment(&o.fulfillment_status),
                 items = countable(item_counts.get(&o.id).copied().unwrap_or(0), "item"),
@@ -223,8 +222,8 @@ pub(crate) async fn order_page(State(state): State<AppState>, headers: HeaderMap
                 r#"<p class="ec-p"><a href="/ghost/ecom/customers/{id}/"><b>{n}</b></a><br><span class="muted">{orders}{spent}</span></p>"#,
                 id = esc(&c.id),
                 n = esc(&c.name()),
-                orders = countable(st.as_ref().map(|s| s.0).unwrap_or(0), "order"),
-                spent = st.as_ref().map(|s| format!(" · {} spent", m(s.1))).unwrap_or_default(),
+                orders = countable(st.as_ref().map(|s| s.orders).unwrap_or(0), "order"),
+                spent = st.as_ref().map(|s| format!(" · {} spent", esc(&super::customers::spending(s, &o.currency, false)))).unwrap_or_default(),
             ),
             _ => r#"<p class="muted ec-p">Guest</p>"#.to_string(),
         },

@@ -1,6 +1,0 @@
-{{!< default}}
-<main id="main" class="mg-wrap mg-listing">
-{{#tag}}<header class="mg-head mg-center"><p class="mg-kicker">{{plural ../pagination.total empty="Nothing yet" singular="% post" plural="% posts"}}</p><h1 class="mg-h1">{{name}}</h1>{{#if description}}<p class="mg-lead">{{description}}</p>{{/if}}</header>{{/tag}}
-<div class="mg-post-grid">{{#foreach posts}}{{> "post-card"}}{{/foreach}}</div>
-{{> "pager"}}
-</main>

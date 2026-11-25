@@ -15,7 +15,7 @@
         <h1 class="visually-hidden">{{@site.title}}</h1>
 
         {{#if posts}}
-            {{#if @custom.show_topics}}{{> "topics"}}{{/if}}
+            {{#if @custom.show_topics}}{{> "topics" topic_limit="5"}}{{/if}}
 
             <section class="lead wrap" aria-labelledby="lead-heading">
                 <h2 class="visually-hidden" id="lead-heading">{{t "Latest stories"}}</h2>

@@ -253,7 +253,7 @@ pub(crate) async fn ecom_home(State(state): State<AppState>, headers: HeaderMap,
     };
     let s = store_settings(&state);
     let from = vuuut_core::dates::to_db_string(&(chrono::Utc::now() - chrono::Duration::days(30)));
-    let rows = repo::sales_since(&state.db, &from).await;
+    let rows = repo::sales_since(&state.db, &from, &s.currency).await;
     let points = daily(&rows, 30);
     let today = points.last().map(|p| (p.1, p.2)).unwrap_or((0, 0));
     let month: i64 = points.iter().map(|p| p.1).sum();
@@ -263,7 +263,7 @@ pub(crate) async fn ecom_home(State(state): State<AppState>, headers: HeaderMap,
     let (_, out, low) = repo::stock_summary(&state.db, s.low_stock).await;
     let n = |k: &str| counts.get(k).copied().unwrap_or(0);
     let (recent, _) = repo::browse_orders(&state.db, &repo::OrderBrowse { view: "all", limit: 6, ..Default::default() }).await;
-    let top = repo::top_products(&state.db, &from, 5).await;
+    let top = repo::top_products(&state.db, &from, &s.currency, 5).await;
 
     let banner = if s.enabled {
         format!(
@@ -342,7 +342,7 @@ pub(crate) async fn ecom_home(State(state): State<AppState>, headers: HeaderMap,
                 customer = if customer.is_empty() { String::new() } else { format!(" · {}", esc(customer)) },
                 date = date(&o.created_at),
                 status = chip_for_financial(&o.financial_status),
-                total = money(o.total_cents, &s),
+                total = esc(&rules::format_money(o.total_cents, &o.currency)),
             )
         })
         .collect();
@@ -366,7 +366,7 @@ pub(crate) async fn ecom_home(State(state): State<AppState>, headers: HeaderMap,
 <div class="ec-tiles rise" style="--i:3">{a}{b}{c}{d}</div>
 <div class="ec-home-grid">
 <section class="card ec-home-panel rise" aria-labelledby="ec-home-sales" style="--i:4">
-<header class="ec-home-panel-head"><div class="ec-home-heading"><h2 id="ec-home-sales">Sales</h2><span class="ec-home-period">Last 30 days</span></div></header>
+<header class="ec-home-panel-head"><div class="ec-home-heading"><h2 id="ec-home-sales">Sales</h2><span class="ec-home-period">Last 30 days · {currency}</span></div></header>
 {chart}</section>
 <section class="card rows ec-home-panel rise" aria-labelledby="ec-home-todo" style="--i:4">
 <header class="ec-home-panel-head"><h2 id="ec-home-todo">To do</h2></header>
@@ -378,6 +378,7 @@ pub(crate) async fn ecom_home(State(state): State<AppState>, headers: HeaderMap,
 <header class="ec-home-panel-head"><div class="ec-home-heading"><h2 id="ec-home-sellers">Best sellers</h2><span class="ec-home-period">Last 30 days</span></div><a class="btn text small" href="/ghost/ecom/analytics/?days=30">View analytics</a></header>
 {top}</section>
 </div>"#,
+        currency = esc(&s.currency),
         a = tile("Today", &rules::format_money(today.0, &s.currency), &countable(today.1, "order"), Some("/ghost/ecom/orders/"), "chart", "green"),
         b = tile("30 days", &rules::format_money(month, &s.currency), &countable(month_orders, "order"), Some("/ghost/ecom/analytics/"), "trending", "blue"),
         c = tile("To fulfil", &n("unfulfilled").to_string(), "Open orders not yet shipped", Some("/ghost/ecom/orders/?view=unfulfilled"), "truck", if n("unfulfilled") > 0 { "amber" } else { "slate" }),
@@ -418,7 +419,7 @@ pub(crate) async fn ecom_analytics(State(state): State<AppState>, headers: Heade
         _ => 30,
     };
     let from = vuuut_core::dates::to_db_string(&(chrono::Utc::now() - chrono::Duration::days(days)));
-    let rows = repo::sales_since(&state.db, &from).await;
+    let rows = repo::sales_since(&state.db, &from, &s.currency).await;
     let points = daily(&rows, days);
     let gross: i64 = rows.iter().filter(|r| r.financial_status != "voided").map(|r| r.total_cents).sum();
     let refunds: i64 = rows.iter().map(|r| r.refunded_cents).sum();
@@ -430,7 +431,7 @@ pub(crate) async fn ecom_analytics(State(state): State<AppState>, headers: Heade
     let mut customers: Vec<&str> = rows.iter().filter_map(|r| r.customer_id.as_deref()).collect();
     customers.sort();
     customers.dedup();
-    let top = repo::top_products(&state.db, &from, 10).await;
+    let top = repo::top_products(&state.db, &from, &s.currency, 10).await;
     let range = [(7, "7 days"), (30, "30 days"), (90, "90 days")]
         .iter()
         .map(|(d, l)| format!(r#"<a class="chip{on}" href="?days={d}">{l}</a>"#, on = if *d == days { " tonal" } else { "" }))

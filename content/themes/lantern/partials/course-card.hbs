@@ -1,0 +1,18 @@
+<a class="course-card{{#if featured}} is-featured{{/if}}" href="{{url}}">
+    <span class="cc-art">
+        {{#if feature_image}}<img src="{{feature_image}}" alt="" loading="lazy">{{else}}<span class="cc-ph"></span>{{/if}}
+        {{#if featured}}<span class="cc-flag">Bestseller</span>{{/if}}
+        {{#if free}}<span class="cc-free">Free</span>{{/if}}
+    </span>
+    <span class="cc-body">
+        <span class="cc-meta">{{#if category}}<span class="tint tint-{{category.tint}}">{{category.name}}</span>{{/if}}<span>{{level_label}}</span></span>
+        <span class="cc-title">{{title}}</span>
+        <span class="cc-sub">{{excerpt}}</span>
+        {{#if instructor}}<span class="cc-by">{{#if instructor.profile_image}}<img src="{{instructor.profile_image}}" alt="">{{else}}<i>{{instructor.initials}}</i>{{/if}}{{instructor.name}}</span>{{/if}}
+        <span class="cc-facts"><span>{{> "icons/book"}}{{lessons}} lessons</span>{{#if duration}}<span>{{> "icons/clock"}}{{duration}}</span>{{/if}}{{#if students}}<span>{{> "icons/users"}}{{students}}</span>{{/if}}</span>
+        <span class="cc-foot">
+            {{#if rating}}<span class="cc-rating"><span class="stars" style="--r:{{rating_percent}}%"></span><b>{{rating}}</b><span>({{reviews}})</span></span>{{else}}<span class="cc-new">New</span>{{/if}}
+            <span class="cc-price">{{#if compare_price}}<s>{{compare_price}}</s>{{/if}}{{price_label}}</span>
+        </span>
+    </span>
+</a>

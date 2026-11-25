@@ -527,6 +527,20 @@ pub async fn populate_missing_settings(pool: &Db) -> Result<()> {
                 .map_err(|e| vuuut_core::GhostError::Db(e.to_string()))?;
         }
     }
+    // A site already using one denomination can adopt it without repricing.
+    // Existing sites with mixed currencies keep their prices until an owner
+    // saves the shared setting in Payments.
+    let codes = sqlx::query_scalar::<_, crate::types::Text>(
+        "SELECT value FROM settings WHERE `key` IN ('ecom_currency','lms_currency','directory_currency','donations_currency')",
+    ).fetch_all(pool).await.map_err(crate::repos::dberr)?;
+    if let [first, rest @ ..] = codes.as_slice() {
+        if let Some(code) = vuuut_core::currency::normalize(&first.0) {
+            if codes.len() == 4 && rest.iter().all(|value| vuuut_core::currency::normalize(&value.0).as_deref() == Some(&code)) {
+                sqlx::query("UPDATE settings SET value = ?, updated_at = ? WHERE `key` = 'site_currency' AND value = ''")
+                    .bind(&code).bind(&now).execute(pool).await.map_err(crate::repos::dberr)?;
+            }
+        }
+    }
     Ok(())
 }
 

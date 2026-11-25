@@ -16,8 +16,8 @@
   --clay: #C66A3D;
   --wood: #B98656;
   --t1: #EADFD3; --t2: #DCE4DA; --t3: #F1DAD2; --t4: #DAE0EA; --t5: #EFE6C6; --t6: #E7DDE9;
-  --f-display: "Familjen Grotesk", "Helvetica Neue", sans-serif;
-  --f-body: "Hanken Grotesk", "Helvetica Neue", sans-serif;
+  --f-display: var(--gh-font-heading, "Familjen Grotesk"), "Helvetica Neue", sans-serif;
+  --f-body: var(--gh-font-body, "Hanken Grotesk"), "Helvetica Neue", sans-serif;
   --f-serif: "Newsreader", Georgia, serif;
   --r-s: 10px; --r: 18px; --r-l: 28px;
   --wrap: 1440px;

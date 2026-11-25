@@ -27,8 +27,8 @@
   --feed: 860px;
   --pad: 28px;
   --r: 14px;
-  --font: "Mulish", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-  --serif: "Instrument Serif", Georgia, serif;
+  --font: var(--gh-font-body, "Mulish"), -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --serif: var(--gh-font-heading, "Instrument Serif"), Georgia, serif;
   --ease: cubic-bezier(.2, .8, .2, 1);
 }
 *, *::before, *::after { box-sizing: border-box; }

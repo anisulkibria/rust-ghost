@@ -1,6 +1,0 @@
-{{!< default}}
-<main id="main" class="or-wrap or-listing">
-{{#tag}}<header class="or-list-head"><p class="or-label">{{plural ../pagination.total empty="Nothing yet" singular="% entry" plural="% entries"}}</p><h1 class="or-list-title" data-or-stretch>{{name}}</h1>{{#if description}}<p class="or-hero-text">{{description}}</p>{{/if}}</header>{{/tag}}
-<div class="or-post-grid">{{#foreach posts}}{{#has tag="#work"}}{{> "work-card"}}{{else}}{{> "post-card"}}{{/has}}{{/foreach}}</div>
-{{> "pager"}}
-</main>

@@ -4,7 +4,7 @@
 <header class="np-wrap np-list-head np-author-head">
 <span class="np-face np-face-xl">{{#if profile_image}}<img src="{{img_url profile_image size="s"}}" alt="">{{else}}<span>{{name}}</span>{{/if}}</span>
 <div><p class="np-label">{{#if location}}{{location}}{{else}}Staff writer{{/if}}</p><h1 class="np-list-title">{{name}}</h1>{{#if bio}}<p class="np-dek">{{bio}}</p>{{/if}}
-<p class="np-author-links">{{#if website}}<a href="{{website}}" rel="noopener">Website</a>{{/if}}{{#if twitter}}<a href="{{twitter_url}}" rel="noopener">X</a>{{/if}}<span>{{plural ../pagination.total empty="No stories" singular="% story" plural="% stories"}}</span></p></div>
+<p class="np-author-links">{{#if website}}<a href="{{website}}" rel="noopener">Website</a>{{/if}}{{#if twitter}}<a href="{{social_url type="twitter"}}" rel="noopener">X</a>{{/if}}<span>{{plural ../pagination.total empty="No stories" singular="% story" plural="% stories"}}</span></p></div>
 </header>
 {{/author}}
 <section class="np-wrap">

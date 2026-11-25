@@ -1,0 +1,8 @@
+{{!< default}}
+{{> "booking-assets"}}
+<main id="main" class="bk-page bk-one">
+    <div class="wrap bk-one-grid">
+        {{#service}}<aside class="bk-info"><p class="eyebrow">Reschedule</p><h1>Choose a <em>new time</em></h1><ul class="facts"><li>{{> "icons/calendar"}}<span><small>Service</small><b>{{name}}</b></span></li><li>{{> "icons/clock"}}<span><small>Length</small><b>{{duration}}</b></span></li></ul></aside>{{/service}}
+        <section class="bk-panel"><header class="bk-panel-head"><b>Pick a new day and time</b><small>We'll email you the change</small></header>{{{forms.picker}}}</section>
+    </div>
+</main>

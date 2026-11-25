@@ -1,0 +1,111 @@
+{{!< default}}
+{{!-- Vuuut LMS: one course. `forms.cta` is the enrol / buy / continue
+      button Vuuut decides on; `forms.review` the review form for students. --}}
+{{> "lms-assets"}}
+{{#course}}
+<main id="main" class="course">
+    <section class="course-hero">
+        <div class="hero-glow" aria-hidden="true"></div>
+        <div class="wrap course-hero-grid">
+            <div class="ch-copy">
+                <nav class="crumbs"><a href="{{catalog_url}}">{{../lms.title}}</a>{{#if category}} <span>/</span> <a href="{{category.url}}">{{category.name}}</a>{{/if}}</nav>
+                {{#if ../flash}}<p class="flash{{#if ../flash.error}} flash-err{{/if}}" role="status">{{../flash.message}}</p>{{/if}}
+                <p class="ch-tags">{{#if featured}}<span class="tag-hot">Bestseller</span>{{/if}}<span>{{level_label}}</span>{{#if language}}<span>{{language}}</span>{{/if}}{{#if certificate}}<span>{{> "icons/award"}} Certificate</span>{{/if}}</p>
+                <h1>{{title}}</h1>
+                {{#if subtitle}}<p class="ch-sub">{{subtitle}}</p>{{/if}}
+                <p class="ch-meta">
+                    {{#if rating}}<span class="ch-rating"><b>{{rating}}</b><span class="stars" style="--r:{{rating_percent}}%"></span><a href="#reviews">({{reviews}} reviews)</a></span>{{/if}}
+                    {{#if students}}<span>{{> "icons/users"}}{{students}} students</span>{{/if}}
+                    <span>{{> "icons/book"}}{{lessons}} lessons</span>
+                    {{#if duration}}<span>{{> "icons/clock"}}{{duration}}</span>{{/if}}
+                </p>
+                {{#if instructor}}<p class="ch-by">{{#if instructor.profile_image}}<img src="{{instructor.profile_image}}" alt="">{{else}}<i>{{instructor.initials}}</i>{{/if}}<span>Taught by <a href="{{instructor.url}}">{{instructor.name}}</a></span></p>{{/if}}
+            </div>
+            <aside class="buy-card" id="enrol">
+                <div class="bc-media">
+                    {{#if intro_video}}{{#if intro_video.iframe}}<iframe src="{{intro_video.url}}" title="Introduction" loading="lazy" allowfullscreen allow="autoplay; encrypted-media; picture-in-picture"></iframe>{{else}}<video src="{{intro_video.url}}" controls preload="metadata" playsinline></video>{{/if}}
+                    {{else}}{{#if feature_image}}<img src="{{feature_image}}" alt="">{{/if}}{{/if}}
+                </div>
+                <div class="bc-body">
+                    {{#if enrolment.enrolled}}
+                        <p class="bc-label">Your progress</p>
+                        <div class="meter"><span style="width:{{enrolment.progress}}%"></span></div>
+                        <p class="bc-note">{{enrolment.progress}}% complete · {{enrolment.done}} of {{enrolment.total}} lessons</p>
+                    {{else}}
+                        <p class="bc-price">{{#if compare_price}}<s>{{compare_price}}</s>{{/if}}<b>{{price_label}}</b>{{#if compare_price}}<em>Save today</em>{{/if}}</p>
+                    {{/if}}
+                    <div class="bc-cta">{{{../forms.cta}}}</div>
+                    <ul class="bc-includes">
+                        <li>{{> "icons/book"}}{{lessons}} lessons{{#if duration}} · {{duration}} of learning{{/if}}</li>
+                        <li>{{> "icons/clock"}}Learn at your own pace</li>
+                        <li>{{> "icons/globe"}}Any device, anywhere</li>
+                        {{#if certificate}}<li>{{> "icons/award"}}Certificate of completion</li>{{/if}}
+                    </ul>
+                </div>
+            </aside>
+        </div>
+    </section>
+
+    <div class="wrap course-body">
+        <div class="course-main">
+            {{#if outcomes}}
+            <section class="panel learn-panel"><h2>What you'll learn</h2><ul class="ticks">{{#foreach outcomes}}<li>{{> "icons/check"}}<span>{{this}}</span></li>{{/foreach}}</ul></section>
+            {{/if}}
+
+            <section class="panel" id="curriculum">
+                <header class="panel-head"><h2>Course content</h2><p>{{sections_count}} sections · {{lessons}} lessons{{#if duration}} · {{duration}}{{/if}}</p><button class="link-btn" type="button" data-expand-all>Expand all</button></header>
+                <div class="syllabus">
+                {{#foreach curriculum}}
+                    <details class="syl"{{#if @first}} open{{/if}}>
+                        <summary><span class="syl-n">{{@number}}</span><span class="syl-t">{{title}}</span><span class="syl-m">{{count}} lessons{{#if duration}} · {{duration}}{{/if}}</span></summary>
+                        <ol>{{#foreach lessons}}
+                            <li class="syl-item{{#if done}} is-done{{/if}}{{#if locked}} is-locked{{/if}}">
+                                {{#if locked}}<span class="syl-row">{{else}}<a class="syl-row" href="{{url}}">{{/if}}
+                                    <span class="syl-ic syl-{{kind}}">{{#if done}}{{> "icons/check"}}{{else}}{{#match kind "quiz"}}?{{else match kind "assignment"}}✎{{else}}{{> "icons/play"}}{{/match}}{{/if}}</span>
+                                    <span class="syl-name">{{title}}{{#if summary}}<small>{{summary}}</small>{{/if}}</span>
+                                    {{#if preview}}{{#unless done}}<span class="pill">Preview</span>{{/unless}}{{/if}}
+                                    <span class="syl-dur">{{#match kind "lesson"}}{{duration}}{{else}}{{kind_label}}{{/match}}</span>
+                                {{#if locked}}</span>{{else}}</a>{{/if}}
+                            </li>
+                        {{/foreach}}</ol>
+                    </details>
+                {{/foreach}}
+                </div>
+            </section>
+
+            <section class="panel"><h2>About this course</h2><div class="prose">{{{description}}}</div></section>
+
+            {{#if requirements}}<section class="panel panel-split"><div><h2>Requirements</h2><ul class="dots">{{#foreach requirements}}<li>{{this}}</li>{{/foreach}}</ul></div>
+            {{#if audience}}<div><h2>Who it's for</h2><ul class="dots">{{#foreach audience}}<li>{{this}}</li>{{/foreach}}</ul></div>{{/if}}</section>{{/if}}
+
+            {{#if instructor}}
+            <section class="panel teacher"><h2>Your instructor</h2>
+                <div class="teacher-row">{{#if instructor.profile_image}}<img src="{{instructor.profile_image}}" alt="">{{else}}<i>{{instructor.initials}}</i>{{/if}}
+                <div><a class="teacher-name" href="{{instructor.url}}">{{instructor.name}}</a>{{#if instructor.bio}}<p>{{instructor.bio}}</p>{{else}}<p>Instructor at {{@site.title}}.</p>{{/if}}</div></div>
+            </section>
+            {{/if}}
+
+            {{#if ../lms.reviews}}
+            <section class="panel" id="reviews">
+                <h2>Student reviews</h2>
+                {{#if rating}}
+                <div class="rv-sum"><div class="rv-big"><b>{{rating}}</b><span class="stars" style="--r:{{rating_percent}}%"></span><small>Course rating · {{reviews}} reviews</small></div>
+                <div class="rv-bars">{{#foreach breakdown}}<span><i>{{stars}} ★</i><em style="--w:{{percent}}%"></em><i>{{percent}}%</i></span>{{/foreach}}</div></div>
+                {{else}}<p class="muted">No reviews yet — be the first.</p>{{/if}}
+                {{#if ../forms.review}}<details class="rv-write"><summary>Write a review</summary>{{{../forms.review}}}</details>{{/if}}
+                <div class="rv-list">{{#foreach reviews_list}}
+                    <article class="rv"><header><i>{{initial}}</i><div><b>{{name}}</b><span class="rv-stars">{{stars}}</span></div><time>{{date}}</time></header>{{#if title}}<h3>{{title}}</h3>{{/if}}<p>{{body}}</p></article>
+                {{/foreach}}</div>
+            </section>
+            {{/if}}
+        </div>
+    </div>
+
+    {{#if ../related}}
+    <section class="band wrap"><header class="band-head"><div><p class="eyebrow">Keep going</p><h2>More in {{category.name}}</h2></div></header>
+        <div class="course-grid">{{#foreach ../related}}{{> "course-card"}}{{/foreach}}</div></section>
+    {{/if}}
+    <div class="mobile-buy">{{#unless enrolment.enrolled}}<span><b>{{price_label}}</b>{{#if compare_price}}<s>{{compare_price}}</s>{{/if}}</span>{{/unless}}<a class="btn" href="#enrol">{{#if enrolment.enrolled}}Continue learning{{else}}Enrol now{{/if}}</a></div>
+    <script type="application/ld+json">{{{schema}}}</script>
+</main>
+{{/course}}

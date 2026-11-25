@@ -1,0 +1,18 @@
+<article class="course-row">
+    <a class="course-row-link" href="{{url}}">
+        <div class="row-art">{{> "course-art"}}</div>
+        <div class="row-copy">
+            <div class="cc-meta">
+                {{#if category}}<span>{{category.name}}</span>{{/if}}
+                <span>{{level_label}}</span>
+            </div>
+            <h3>{{title}}</h3>
+            {{#if excerpt}}<p>{{excerpt}}</p>{{/if}}
+            <div class="row-foot">
+                <span class="row-price">{{price_label}}</span>
+                <span class="row-facts">{{#if duration}}{{duration}} · {{/if}}{{lessons}} lesson{{#match lessons "!=" 1}}s{{/match}}</span>
+                <span class="row-arrow" aria-hidden="true">{{> "icons/arrow"}}</span>
+            </div>
+        </div>
+    </a>
+</article>

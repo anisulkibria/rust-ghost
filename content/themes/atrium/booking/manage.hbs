@@ -1,0 +1,36 @@
+{{!< default}}
+{{!-- Vuuut booking: the customer's own booking (a secret link). --}}
+{{> "booking-assets"}}
+{{#appointment}}
+<main id="main" class="bk-page manage{{#if new}} is-new{{/if}}">
+    <div class="wrap-text">
+        {{#if ../flash}}<p class="flash{{#if ../flash.error}} flash-err{{/if}}">{{../flash.message}}</p>{{/if}}
+        <header class="done">
+            <span class="done-ic status-{{status}}">{{#match status "cancelled"}}✕{{else}}{{> "icons/check"}}{{/match}}</span>
+            <h1>{{heading}}</h1>
+            {{#if lede}}<p class="lede">{{lede}}</p>{{/if}}
+        </header>
+        <article class="ticket">
+            <div class="ticket-date"><small>{{weekday}}</small><b>{{dom}}</b><span>{{month}}</span></div>
+            <div class="ticket-body">
+                <p class="kicker">{{status_label}}</p>
+                <h2>{{service}}</h2>
+                <ul class="ticket-facts">
+                    <li>{{> "icons/clock"}}<span><b>{{time}} – {{end_time}}</b> · {{duration}}</span></li>
+                    <li>{{> "icons/pin"}}<span>{{where}}</span></li>
+                    {{#if staff}}<li>{{#if staff.photo}}<img src="{{staff.photo}}" alt="">{{else}}<i>{{staff.initials}}</i>{{/if}}<span>With <b>{{staff.name}}</b></span></li>{{/if}}
+                    {{#if price}}<li><span class="fact-price">{{price}}</span><span>{{#if paid}}Paid{{else}}To pay at your visit{{/if}}</span></li>{{/if}}
+                </ul>
+                <p class="ticket-ref">{{day}} · Times in {{timezone}} · Ref <b>{{ref}}</b></p>
+            </div>
+        </article>
+        <div class="manage-actions">
+            <a class="btn" href="{{ics_url}}">{{> "icons/calendar"}} Add to calendar</a>
+            <a class="btn btn-ghost" href="{{google_url}}" target="_blank" rel="noopener">Google Calendar</a>
+            {{#if can_change}}<a class="btn btn-ghost" href="{{reschedule_url}}">{{> "icons/refresh"}} Reschedule</a>{{{../forms.cancel}}}{{/if}}
+        </div>
+        <p class="muted manage-note">{{#if can_change}}{{#if cancel_hours}}You can reschedule or cancel online until {{cancel_hours}} hours before.{{else}}You can reschedule or cancel online any time before.{{/if}}{{else}}{{#match status "confirmed"}}It's too close to the time to change online — please get in touch.{{/match}}{{/if}}</p>
+        <p class="manage-more"><a href="{{book_url}}">Book something else {{> "icons/arrow"}}</a></p>
+    </div>
+</main>
+{{/appointment}}

@@ -1,0 +1,137 @@
+{{!< default}}
+{{!-- The academy's front door: a lit hero with search, subjects, featured
+      courses, how it works, popular and free courses, the journal, and a
+      closing call to join. Every course block reads Vuuut's LMS through
+      {{#get "courses"}}; nothing shows while the LMS is switched off. --}}
+<main id="main" class="home">
+    <section class="lx" aria-labelledby="lx-title">
+        <div class="lx-panel">
+            <div class="lx-light" aria-hidden="true"></div>
+            <div class="lx-grid" aria-hidden="true"></div>
+            <div class="lx-grain" aria-hidden="true"></div>
+            <div class="lx-inner">
+                <div class="lx-copy">
+                    <a class="lx-pill" href="{{#if @custom.catalog_address}}{{@custom.catalog_address}}{{else}}/courses/{{/if}}"><span class="lx-pill-dot"></span>Now enrolling <span class="lx-pill-sep"></span> <b>Certificates included</b> {{> "icons/arrow"}}</a>
+                    <h1 class="lx-title" id="lx-title" data-italic-tail>{{#if @custom.hero_heading}}{{@custom.hero_heading}}{{else}}Learn the skills that light the way{{/if}}</h1>
+                    <p class="lx-text">{{#if @custom.hero_text}}{{@custom.hero_text}}{{else}}Practical, beautifully taught courses in code, design, business and wellbeing. Learn at your own pace, get feedback on real projects, and earn certificates that prove it.{{/if}}</p>
+                    <form class="lx-search" method="get" action="{{#if @custom.catalog_address}}{{@custom.catalog_address}}{{else}}/courses/{{/if}}" role="search">
+                        {{> "icons/search"}}
+                        <input type="search" name="q" placeholder="What do you want to learn today?" aria-label="Search courses" maxlength="100">
+                        <button class="btn" type="submit">Explore courses</button>
+                    </form>
+                    {{#get "courses" limit="100" as |all|}}
+                    <div class="lx-proof" data-proof>
+                        <span class="lx-stat"><b data-proof-students>—</b><small>learners</small></span>
+                        <span class="lx-stat" data-proof-rate><b><span data-proof-rating>—</span><i>★</i></b><small>average rating</small></span>
+                        <span class="lx-stat"><b data-proof-courses>—</b><small>courses</small></span>
+                        <span class="lx-stat"><b>{{> "icons/award"}}</b><small>certified</small></span>
+                        <span hidden>{{#foreach all}}<i data-s="{{students}}" data-r="{{rating}}" data-n="{{reviews}}"></i>{{/foreach}}</span>
+                    </div>
+                    {{/get}}
+                </div>
+
+                <div class="lx-stage" aria-hidden="true">
+                    {{#get "courses" filter="featured:true" limit="1" as |pick|}}{{#foreach pick}}
+                    <div class="lx-window">
+                        <div class="lx-bar"><i></i><i></i><i></i><span>{{title}}</span></div>
+                        <div class="lx-video">
+                            {{#if feature_image}}<img src="{{feature_image}}" alt="">{{/if}}
+                            <span class="lx-play">{{> "icons/play"}}</span>
+                            <span class="lx-chapter"><small>Lesson 3 of {{lessons}}</small>Putting it into practice</span>
+                            <span class="lx-scrub"><span></span></span>
+                        </div>
+                        <div class="lx-lessons">
+                            <div class="lx-row done"><span class="lx-tick">{{> "icons/check"}}</span><b>Welcome &amp; what you'll build</b><em>4m</em></div>
+                            <div class="lx-row done"><span class="lx-tick">{{> "icons/check"}}</span><b>The core ideas</b><em>12m</em></div>
+                            <div class="lx-row now"><span class="lx-tick">{{> "icons/play"}}</span><b>Putting it into practice</b><em>18m</em></div>
+                            <div class="lx-row"><span class="lx-tick">?</span><b>Quick quiz</b><em>5 questions</em></div>
+                        </div>
+                    </div>
+                    <div class="lx-float lx-quiz"><span class="ring" style="--p:92"></span><span><b>Quiz passed</b><small>92% · first try</small></span></div>
+                    <div class="lx-float lx-cert"><span class="lx-cert-ic">{{> "icons/award"}}</span><span><b>Certificate earned</b><small>{{title}}</small></span></div>
+                    <div class="lx-float lx-rate"><span class="stars" style="--r:{{#if rating_percent}}{{rating_percent}}{{else}}96{{/if}}%"></span><b>{{#if rating}}{{rating}}{{else}}4.9{{/if}}</b><small>{{#if reviews}}{{reviews}} reviews{{else}}Loved by students{{/if}}</small></div>
+                    {{/foreach}}{{/get}}
+                </div>
+            </div>
+
+            {{#get "course_categories" limit="12" as |cats|}}
+            <div class="lx-ribbon" aria-label="Subjects">
+                <div class="lx-track">
+                    {{#foreach cats}}<a href="{{url}}">{{name}}<span>{{count}}</span></a>{{/foreach}}
+                    {{#foreach cats}}<a href="{{url}}" aria-hidden="true" tabindex="-1">{{name}}<span>{{count}}</span></a>{{/foreach}}
+                </div>
+            </div>
+            {{/get}}
+        </div>
+    </section>
+
+    {{#if @custom.show_categories}}
+    {{#get "course_categories" limit="12" as |cats|}}
+    <section class="band wrap">
+        <header class="band-head"><div><p class="eyebrow">Explore</p><h2>Choose a subject</h2></div><a class="more" href="{{#if @custom.catalog_address}}{{@custom.catalog_address}}{{else}}/courses/{{/if}}">All courses {{> "icons/arrow"}}</a></header>
+        <div class="subjects">
+            {{#foreach cats}}{{#if count}}
+            <a class="subject tint-{{tint}}" href="{{url}}">
+                {{#if feature_image}}<img src="{{feature_image}}" alt="" loading="lazy">{{/if}}
+                <span class="subject-body"><b>{{name}}</b><span>{{count}} course{{#match count "!=" 1}}s{{/match}}</span></span>
+            </a>
+            {{/if}}{{/foreach}}
+        </div>
+    </section>
+    {{/get}}
+    {{/if}}
+
+    {{#get "courses" filter="featured:true" limit="3" as |featured|}}
+    <section class="band wrap">
+        <header class="band-head"><div><p class="eyebrow">Hand-picked</p><h2>Featured courses</h2></div></header>
+        <div class="course-grid">{{#foreach featured}}{{> "course-card"}}{{/foreach}}</div>
+    </section>
+    {{/get}}
+
+    <section class="night">
+        <div class="night-glow" aria-hidden="true"></div>
+        <div class="wrap">
+            <header class="band-head band-head-center"><p class="eyebrow">How it works</p><h2>From curious to <em>certified</em></h2></header>
+            <ol class="steps">
+                <li><span class="step-n">01</span><h3>Enrol in a click</h3><p>Pick a course and start straight away — free courses need nothing more than your email.</p></li>
+                <li><span class="step-n">02</span><h3>Learn at your pace</h3><p>Short lessons, video and real exercises. Quizzes check what stuck; your progress is saved as you go.</p></li>
+                <li><span class="step-n">03</span><h3>Show what you know</h3><p>Hand in a project for feedback and earn a certificate anyone can verify.</p></li>
+            </ol>
+        </div>
+    </section>
+
+    {{#get "courses" order="popular" limit="6" as |popular|}}
+    <section class="band wrap">
+        <header class="band-head"><div><p class="eyebrow">Most loved</p><h2>Popular right now</h2></div><a class="more" href="{{#if @custom.catalog_address}}{{@custom.catalog_address}}{{else}}/courses/{{/if}}?sort=popular">See all {{> "icons/arrow"}}</a></header>
+        <div class="course-grid">{{#foreach popular}}{{> "course-card"}}{{/foreach}}</div>
+    </section>
+    {{/get}}
+
+    {{#get "courses" filter="free:true" limit="4" as |free|}}
+    <section class="band wrap free-band">
+        <div class="free-intro"><p class="eyebrow">No cost, no catch</p><h2>Start with a <em>free</em> course</h2><p>Learn the basics, meet the teaching style, and earn a certificate — without paying a thing.</p><a class="btn" href="{{#if @custom.catalog_address}}{{@custom.catalog_address}}{{else}}/courses/{{/if}}?price=free">Browse free courses</a></div>
+        <div class="free-list">{{#foreach free}}
+            <a class="free-row" href="{{url}}">{{#if feature_image}}<img src="{{feature_image}}" alt="" loading="lazy">{{/if}}<span><b>{{title}}</b><small>{{lessons}} lessons{{#if duration}} · {{duration}}{{/if}} · {{level_label}}</small></span>{{> "icons/arrow"}}</a>
+        {{/foreach}}</div>
+    </section>
+    {{/get}}
+
+    {{#if @custom.show_journal}}
+    {{#get "posts" limit="3" include="tags" as |journal|}}
+    <section class="band wrap">
+        <header class="band-head"><div><p class="eyebrow">From the journal</p><h2>Notes, guides and stories</h2></div></header>
+        <div class="post-grid">{{#foreach journal}}{{> "post-card"}}{{/foreach}}</div>
+    </section>
+    {{/get}}
+    {{/if}}
+
+    <section class="cta wrap">
+        <div class="cta-inner">
+            <h2>{{#if @custom.cta_heading}}{{@custom.cta_heading}}{{else}}Start learning today — your first course is free{{/if}}</h2>
+            <div class="cta-actions">
+                <a class="btn btn-light" href="{{#if @custom.catalog_address}}{{@custom.catalog_address}}{{else}}/courses/{{/if}}">Explore courses</a>
+                {{#if @site.members_enabled}}{{#unless @member}}<a class="btn btn-ghost-light" href="#/portal/signup" data-portal="signup">Create a free account</a>{{/unless}}{{/if}}
+            </div>
+        </div>
+    </section>
+</main>

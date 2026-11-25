@@ -48,7 +48,7 @@
 {{#get "posts" filter="tags:{{primary_tag.slug}}+id:-{{id}}" limit="3" include="tags,authors"}}
 {{#if posts}}
 <section class="pl-wrap pl-section" aria-labelledby="pl-more-h">
-<div class="pl-head"><div><p class="pl-kicker">Keep reading</p><h2 id="pl-more-h" class="pl-h2">More in {{@root.post.primary_tag.name}}</h2></div><a class="pl-more" href="{{@root.post.primary_tag.url}}">Every story</a></div>
+<div class="pl-head"><div><p class="pl-kicker">Keep reading</p><h2 id="pl-more-h" class="pl-h2">More in {{../primary_tag.name}}</h2></div><a class="pl-more" href="{{../primary_tag.url}}">Every story</a></div>
 <div class="pl-post-grid">{{#foreach posts}}{{> "post-card"}}{{/foreach}}</div>
 </section>
 {{/if}}
@@ -58,7 +58,7 @@
 
 {{#get "products" filter="featured:true" limit="8" as |also|}}
 <section class="pl-wrap pl-section" aria-labelledby="pl-also-h">
-<div class="pl-head"><div><p class="pl-kicker">Shop the story</p><h2 id="pl-also-h" class="pl-h2">From the shop</h2></div><div class="pl-head-end"><a class="pl-more" href="{{@root.shop.url}}">Shop all</a>{{> "rail-buttons"}}</div></div>
+<div class="pl-head"><div><p class="pl-kicker">Shop the story</p><h2 id="pl-also-h" class="pl-h2">From the shop</h2></div><div class="pl-head-end"><a class="pl-more" href="{{../shop.url}}">Shop all</a>{{> "rail-buttons"}}</div></div>
 <div class="pl-rail" data-pl-rail>{{#foreach also}}{{> "product-card"}}{{/foreach}}</div>
 </section>
 {{/get}}

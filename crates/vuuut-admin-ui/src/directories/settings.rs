@@ -48,7 +48,6 @@ pub(crate) async fn dir_settings_page(State(state): State<AppState>, headers: He
     let home = s.paths.public_path("/directory/");
     let submit = s.paths.public_path("/directory/submit/");
     let days: Vec<(String, String)> = d::DAYS.iter().map(|n| (n.to_string(), format!("{n} days"))).collect();
-    let cur: Vec<(String, String)> = d::CURRENCIES.iter().map(|c| (c.to_string(), c.to_string())).collect();
     page_for_role(
         actor.role,
         "Directory settings",
@@ -101,7 +100,7 @@ pub(crate) async fn dir_settings_page(State(state): State<AppState>, headers: He
                 default = d::DEFAULT_PER_PAGE,
             )),
             contact = row("mail", "teal", "Show email and phone", "Off shows only each listing's website.", &switch(d::SETTING_SHOW_CONTACT, s.show_contact)),
-            currency = row("tags", "amber", "Currency", "For classified prices.", &select(d::SETTING_CURRENCY, "Currency", &cur, &s.currency)),
+            currency = row("tags", "amber", "Currency", "Set in Payments.", &format!(r#"<a href="/ghost/settings/payments/#currency">{}</a>"#, esc(&s.currency))),
             subs = row("add", "pink", "Let visitors add listings", &format!("Submission form at {submit}"), &switch(d::SETTING_SUBMISSIONS, s.submissions)),
             members = row("person", "purple", "Members only", "Only signed-in members can use the form.", &switch(d::SETTING_MEMBERS_ONLY, s.members_only)),
             moderate = row("check", "green", "Review before publishing", "New listings wait in Overview until an editor approves them.", &switch(d::SETTING_MODERATE, s.moderate)),
@@ -156,7 +155,6 @@ pub(crate) async fn dir_settings_save(State(state): State<AppState>, headers: He
         (d::SETTING_CLASSIFIED_DAYS, serde_json::json!(s.classified_days)),
         (d::SETTING_PER_PAGE, serde_json::json!(per_page)),
         (d::SETTING_SHOW_CONTACT, serde_json::json!(s.show_contact)),
-        (d::SETTING_CURRENCY, serde_json::json!(s.currency)),
         (d::SETTING_BASE_PATH, serde_json::json!(paths.base)),
         (d::SETTING_LISTING_PATH, serde_json::json!(paths.listing)),
     ];

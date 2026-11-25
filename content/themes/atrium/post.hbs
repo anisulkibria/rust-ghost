@@ -1,0 +1,17 @@
+{{!< default}}
+{{#post}}
+<main id="main">
+    <article class="article {{post_class}}">
+        <header class="article-head wrap-text">
+            {{#primary_tag}}<a class="eyebrow" href="{{url}}">{{name}}</a>{{/primary_tag}}
+            <h1>{{title}}</h1>
+            {{#if custom_excerpt}}<p class="lede">{{custom_excerpt}}</p>{{/if}}
+            <p class="article-meta">{{#primary_author}}{{name}}{{/primary_author}} · {{date format="D MMMM YYYY"}} · {{reading_time}}</p>
+        </header>
+        {{#if feature_image}}<figure class="article-image wrap"><img src="{{img_url feature_image size="xl"}}" alt="{{#if feature_image_alt}}{{feature_image_alt}}{{else}}{{title}}{{/if}}">{{#if feature_image_caption}}<figcaption>{{feature_image_caption}}</figcaption>{{/if}}</figure>{{/if}}
+        <div class="content gh-content">{{content}}</div>
+        <aside class="wrap-text post-cta"><div><b>Feeling inspired?</b><span>Book a treatment or class in under a minute.</span></div><a class="btn" href="{{> "book-url"}}">Book now</a></aside>
+        {{comments}}
+    </article>
+</main>
+{{/post}}

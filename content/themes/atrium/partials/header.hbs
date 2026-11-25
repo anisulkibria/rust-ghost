@@ -1,0 +1,15 @@
+<header class="hd" data-header>
+    <div class="wrap hd-in">
+        <a class="brand" href="{{@site.url}}">{{#if @site.logo}}<img src="{{img_url @site.logo size="s"}}" alt="{{@site.title}}">{{else}}<span class="brand-mark" aria-hidden="true">{{> "icons/leaf"}}</span><span>{{@site.title}}</span>{{/if}}</a>
+        <nav class="nav" id="nav" aria-label="Main">
+            <a href="{{> "book-url"}}">Services</a>
+            {{navigation}}
+        </nav>
+        <div class="hd-act">
+            <button class="ib" type="button" data-scheme-toggle aria-label="Switch light and dark"><span class="i-sun">{{> "icons/sun"}}</span><span class="i-moon">{{> "icons/moon"}}</span></button>
+            {{#if @site.members_enabled}}{{#unless @member}}<a class="hd-link" href="#/portal/signin" data-portal="signin">Sign in</a>{{/unless}}{{/if}}
+            <a class="btn btn-sm" href="{{> "book-url"}}">Book now</a>
+            <button class="ib menu" type="button" aria-label="Menu" aria-controls="nav" aria-expanded="false">{{> "icons/menu"}}</button>
+        </div>
+    </div>
+</header>

@@ -833,14 +833,14 @@ body:not(:has(.lcard)) .guides { display: none; }
 .article-footer { margin-top: var(--s-7); padding-top: var(--s-4); border-top: 1px solid var(--rule); }
 .comments { margin-top: var(--s-8); }
 
-/* Store, directory and page builder (.vs, .vd, .vb-page) render inside a
+/* Store, directory and page builder (.vs, .vd, .vl, .vb-page) render inside a
    page's content with their own layout and type; the reading styles below
    skip them, and the page content is full width so they centre themselves. */
-.content > :is(.vs, .vd, .vb-page) { margin-top: var(--s-5); }
+.content > :is(.vs, .vd, .vl, .vb-page) { margin-top: var(--s-5); }
 
 /* Reading column, with breakout tracks for wide and full cards */
-.article .content:where(:not(:has(> :is(.vs, .vd, .vb-page)))),
-.page-article .content:where(:not(:has(> :is(.vs, .vd, .vb-page)))) {
+.article .content:where(:not(:has(> :is(.vs, .vd, .vl, .vb-page)))),
+.page-article .content:where(:not(:has(> :is(.vs, .vd, .vl, .vb-page)))) {
     display: grid;
     grid-template-columns:
         [full-start] minmax(var(--gutter), 1fr)
@@ -849,39 +849,39 @@ body:not(:has(.lcard)) .guides { display: none; }
         minmax(0, 8rem) [wide-end]
         minmax(var(--gutter), 1fr) [full-end];
 }
-.article .content:where(:not(:has(> :is(.vs, .vd, .vb-page)))) > *,
-.page-article .content:where(:not(:has(> :is(.vs, .vd, .vb-page)))) > * { grid-column: main; }
-.article .content:where(:not(:has(> :is(.vs, .vd, .vb-page)))) > .kg-width-wide, .page-article .content:where(:not(:has(> :is(.vs, .vd, .vb-page)))) > .kg-width-wide { grid-column: wide; }
-.article .content:where(:not(:has(> :is(.vs, .vd, .vb-page)))) > .kg-width-full, .page-article .content:where(:not(:has(> :is(.vs, .vd, .vb-page)))) > .kg-width-full { grid-column: full; }
+.article .content:where(:not(:has(> :is(.vs, .vd, .vl, .vb-page)))) > *,
+.page-article .content:where(:not(:has(> :is(.vs, .vd, .vl, .vb-page)))) > * { grid-column: main; }
+.article .content:where(:not(:has(> :is(.vs, .vd, .vl, .vb-page)))) > .kg-width-wide, .page-article .content:where(:not(:has(> :is(.vs, .vd, .vl, .vb-page)))) > .kg-width-wide { grid-column: wide; }
+.article .content:where(:not(:has(> :is(.vs, .vd, .vl, .vb-page)))) > .kg-width-full, .page-article .content:where(:not(:has(> :is(.vs, .vd, .vl, .vb-page)))) > .kg-width-full { grid-column: full; }
 
-.content:where(:not(:has(> :is(.vs, .vd, .vb-page)))) { font-size: var(--step-1); line-height: 1.7; }
-.content:where(:not(:has(> :is(.vs, .vd, .vb-page)))) > * + * { margin-top: 1.3em; }
-.content:where(:not(:has(> :is(.vs, .vd, .vb-page)))) > h2 { margin-top: 1.9em; font-family: var(--font-head); font-size: var(--step-3); font-weight: 800; line-height: 1.15; letter-spacing: -0.02em; }
-.content:where(:not(:has(> :is(.vs, .vd, .vb-page)))) > h3 { margin-top: 1.7em; font-size: var(--step-2); font-weight: 800; line-height: 1.25; }
-.content:where(:not(:has(> :is(.vs, .vd, .vb-page)))) > h2 + *, .content > h3 + * { margin-top: 0.5em; }
-.content:where(:not(:has(> :is(.vs, .vd, .vb-page)))) a { color: inherit; text-decoration-color: var(--accent); text-decoration-thickness: 2px; text-underline-offset: 3px; }
-.content:where(:not(:has(> :is(.vs, .vd, .vb-page)))) a:hover { color: var(--accent-text); }
-.content:where(:not(:has(> :is(.vs, .vd, .vb-page)))) strong { font-weight: 750; }
-.content:where(:not(:has(> :is(.vs, .vd, .vb-page)))) ul, .content ol { padding-left: 1.25em; }
-.content:where(:not(:has(> :is(.vs, .vd, .vb-page)))) li + li { margin-top: 0.35em; }
-.content:where(:not(:has(> :is(.vs, .vd, .vb-page)))) li::marker { color: var(--park); }
-.content:where(:not(:has(> :is(.vs, .vd, .vb-page)))) > blockquote:not([class]) { padding-left: 1em; border-left: 4px solid var(--park); font-size: var(--step-2); font-weight: 600; line-height: 1.45; }
-.content:where(:not(:has(> :is(.vs, .vd, .vb-page)))) > blockquote.kg-blockquote-alt { font-size: var(--step-3); font-weight: 800; font-style: normal; line-height: 1.2; text-align: left; color: var(--ink); }
-.content:where(:not(:has(> :is(.vs, .vd, .vb-page)))) > hr { width: 100%; height: 1px; border: 0; background: var(--rule); margin-block: 2.2em; }
-.content:where(:not(:has(> :is(.vs, .vd, .vb-page)))) code { padding: 0.1em 0.35em; border-radius: 5px; background: var(--sunk); font-size: 0.88em; }
-.content:where(:not(:has(> :is(.vs, .vd, .vb-page)))) pre { overflow-x: auto; padding: var(--s-5); border-radius: var(--radius-m); background: var(--band); color: var(--band-ink); font-size: 0.875rem; }
-.content:where(:not(:has(> :is(.vs, .vd, .vb-page)))) pre code { padding: 0; background: none; }
-.content:where(:not(:has(> :is(.vs, .vd, .vb-page)))) table { width: 100%; border-collapse: collapse; font-size: var(--step-0); }
-.content:where(:not(:has(> :is(.vs, .vd, .vb-page)))) th, .content td { padding: var(--s-2) var(--s-3); border-bottom: 1px solid var(--rule); text-align: left; }
-.content:where(:not(:has(> :is(.vs, .vd, .vb-page)))) figcaption { margin-top: var(--s-3); font-size: var(--step--1); color: var(--muted); text-align: left; }
-.content:where(:not(:has(> :is(.vs, .vd, .vb-page)))) > .kg-card { margin-top: 2em; }
-.content:where(:not(:has(> :is(.vs, .vd, .vb-page)))) > .kg-card + * { margin-top: 2em; }
-.content:where(:not(:has(> :is(.vs, .vd, .vb-page)))) .kg-image, .content .kg-gallery-image img { border-radius: var(--radius-s); }
-.content:where(:not(:has(> :is(.vs, .vd, .vb-page)))) .kg-callout-card { font-size: var(--step-0); border-radius: var(--radius-m); }
-.content:where(:not(:has(> :is(.vs, .vd, .vb-page)))) .kg-bookmark-card a { text-decoration: none; }
-.content:where(:not(:has(> :is(.vs, .vd, .vb-page)))) .kg-bookmark-container { border-radius: var(--radius-m); }
-.content:where(:not(:has(> :is(.vs, .vd, .vb-page)))) .kg-button-card a.kg-btn { text-decoration: none; border-radius: 999px; }
-.content:where(:not(:has(> :is(.vs, .vd, .vb-page)))) .kg-file-card a, .content .kg-product-card a { text-decoration: none; }
+.content:where(:not(:has(> :is(.vs, .vd, .vl, .vb-page)))) { font-size: var(--step-1); line-height: 1.7; }
+.content:where(:not(:has(> :is(.vs, .vd, .vl, .vb-page)))) > * + * { margin-top: 1.3em; }
+.content:where(:not(:has(> :is(.vs, .vd, .vl, .vb-page)))) > h2 { margin-top: 1.9em; font-family: var(--font-head); font-size: var(--step-3); font-weight: 800; line-height: 1.15; letter-spacing: -0.02em; }
+.content:where(:not(:has(> :is(.vs, .vd, .vl, .vb-page)))) > h3 { margin-top: 1.7em; font-size: var(--step-2); font-weight: 800; line-height: 1.25; }
+.content:where(:not(:has(> :is(.vs, .vd, .vl, .vb-page)))) > h2 + *, .content > h3 + * { margin-top: 0.5em; }
+.content:where(:not(:has(> :is(.vs, .vd, .vl, .vb-page)))) a { color: inherit; text-decoration-color: var(--accent); text-decoration-thickness: 2px; text-underline-offset: 3px; }
+.content:where(:not(:has(> :is(.vs, .vd, .vl, .vb-page)))) a:hover { color: var(--accent-text); }
+.content:where(:not(:has(> :is(.vs, .vd, .vl, .vb-page)))) strong { font-weight: 750; }
+.content:where(:not(:has(> :is(.vs, .vd, .vl, .vb-page)))) ul, .content ol { padding-left: 1.25em; }
+.content:where(:not(:has(> :is(.vs, .vd, .vl, .vb-page)))) li + li { margin-top: 0.35em; }
+.content:where(:not(:has(> :is(.vs, .vd, .vl, .vb-page)))) li::marker { color: var(--park); }
+.content:where(:not(:has(> :is(.vs, .vd, .vl, .vb-page)))) > blockquote:not([class]) { padding-left: 1em; border-left: 4px solid var(--park); font-size: var(--step-2); font-weight: 600; line-height: 1.45; }
+.content:where(:not(:has(> :is(.vs, .vd, .vl, .vb-page)))) > blockquote.kg-blockquote-alt { font-size: var(--step-3); font-weight: 800; font-style: normal; line-height: 1.2; text-align: left; color: var(--ink); }
+.content:where(:not(:has(> :is(.vs, .vd, .vl, .vb-page)))) > hr { width: 100%; height: 1px; border: 0; background: var(--rule); margin-block: 2.2em; }
+.content:where(:not(:has(> :is(.vs, .vd, .vl, .vb-page)))) code { padding: 0.1em 0.35em; border-radius: 5px; background: var(--sunk); font-size: 0.88em; }
+.content:where(:not(:has(> :is(.vs, .vd, .vl, .vb-page)))) pre { overflow-x: auto; padding: var(--s-5); border-radius: var(--radius-m); background: var(--band); color: var(--band-ink); font-size: 0.875rem; }
+.content:where(:not(:has(> :is(.vs, .vd, .vl, .vb-page)))) pre code { padding: 0; background: none; }
+.content:where(:not(:has(> :is(.vs, .vd, .vl, .vb-page)))) table { width: 100%; border-collapse: collapse; font-size: var(--step-0); }
+.content:where(:not(:has(> :is(.vs, .vd, .vl, .vb-page)))) th, .content td { padding: var(--s-2) var(--s-3); border-bottom: 1px solid var(--rule); text-align: left; }
+.content:where(:not(:has(> :is(.vs, .vd, .vl, .vb-page)))) figcaption { margin-top: var(--s-3); font-size: var(--step--1); color: var(--muted); text-align: left; }
+.content:where(:not(:has(> :is(.vs, .vd, .vl, .vb-page)))) > .kg-card { margin-top: 2em; }
+.content:where(:not(:has(> :is(.vs, .vd, .vl, .vb-page)))) > .kg-card + * { margin-top: 2em; }
+.content:where(:not(:has(> :is(.vs, .vd, .vl, .vb-page)))) .kg-image, .content .kg-gallery-image img { border-radius: var(--radius-s); }
+.content:where(:not(:has(> :is(.vs, .vd, .vl, .vb-page)))) .kg-callout-card { font-size: var(--step-0); border-radius: var(--radius-m); }
+.content:where(:not(:has(> :is(.vs, .vd, .vl, .vb-page)))) .kg-bookmark-card a { text-decoration: none; }
+.content:where(:not(:has(> :is(.vs, .vd, .vl, .vb-page)))) .kg-bookmark-container { border-radius: var(--radius-m); }
+.content:where(:not(:has(> :is(.vs, .vd, .vl, .vb-page)))) .kg-button-card a.kg-btn { text-decoration: none; border-radius: 999px; }
+.content:where(:not(:has(> :is(.vs, .vd, .vl, .vb-page)))) .kg-file-card a, .content .kg-product-card a { text-decoration: none; }
 
 .share-button {
     display: inline-flex;

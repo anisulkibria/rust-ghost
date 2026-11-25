@@ -69,6 +69,8 @@ pub(crate) const TOOLS: &[Tool] = &[
         description: "Built-in apps, API keys for your own scripts, and webhooks." },
     Tool { key: "languages", title: "Languages", href: "/ghost/languages/", icon: "globe", tint: "teal",
         description: "Publish this site in more than one language, and keep the translations in step." },
+    Tool { key: "lms", title: "LMS & Online Courses", href: "/ghost/lms/", icon: "school", tint: "purple",
+        description: "Sell and teach courses: lessons, video, quizzes, assignments, drip, progress, reviews and certificates." },
     Tool { key: "machine-payments", title: "Machine payments", href: "/ghost/machine-payments/", icon: "integrations", tint: "amber",
         description: "Let readers and AI agents pay per article, by card or stablecoin." },
     Tool { key: "media", title: "Media", href: "/ghost/media/", icon: "library", tint: "pink",
@@ -81,6 +83,8 @@ pub(crate) const TOOLS: &[Tool] = &[
         description: "The primary and secondary menus your theme shows." },
     Tool { key: "newsletters", title: "Newsletters", href: "/ghost/newsletters/", icon: "send", tint: "amber",
         description: "What goes out, who gets it, how it was opened, and what stopped it." },
+    Tool { key: "booking", title: "Booking & Appointment Scheduling", href: "/ghost/booking/", icon: "calendar", tint: "teal",
+        description: "Take appointments and class bookings online: services, staff hours, time off, payments, reminders and a calendar." },
     Tool { key: "builder", title: "Page Builder & Visual Editor", href: "/ghost/builder/", icon: "layout", tint: "pink",
         description: "Design any page visually: drag-and-drop sections, columns and widgets, inside your theme." },
     // Owner only, and never grantable — see `crate::permissions::UNGRANTABLE`.

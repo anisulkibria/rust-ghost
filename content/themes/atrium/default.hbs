@@ -1,0 +1,27 @@
+<!DOCTYPE html>
+<html lang="{{@site.locale}}" data-scheme="{{#match @custom.color_scheme "Light"}}light{{else match @custom.color_scheme "Dark"}}dark{{else}}auto{{/match}}">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <script>try{var s=localStorage.getItem('vuuut-scheme');if(s==='light'||s==='dark')document.documentElement.setAttribute('data-scheme',s)}catch(e){}</script>
+    <title>{{meta_title page=" (Page %)"}}</title>
+    <link rel="preload" as="font" type="font/woff2" href="{{asset "fonts/manrope.woff2"}}" crossorigin>
+    <link rel="preload" as="font" type="font/woff2" href="{{asset "fonts/instrument-serif.woff2"}}" crossorigin>
+    <style>
+        @font-face { font-family: "Instrument Serif"; font-style: normal; font-weight: 400; font-display: swap; src: url("{{asset "fonts/instrument-serif.woff2"}}") format("woff2"); }
+        @font-face { font-family: "Instrument Serif"; font-style: italic; font-weight: 400; font-display: swap; src: url("{{asset "fonts/instrument-serif-italic.woff2"}}") format("woff2"); }
+        @font-face { font-family: "Manrope"; font-style: normal; font-weight: 200 800; font-display: swap; src: url("{{asset "fonts/manrope.woff2"}}") format("woff2"); }
+    </style>
+    <link rel="stylesheet" href="{{asset "css/screen.css"}}">
+    {{#if @custom.use_site_accent}}{{#if @site.accent_color}}<style>:root { --pine: {{@site.accent_color}}; }</style>{{/if}}{{/if}}
+    {{ghost_head}}
+</head>
+<body class="{{body_class}}">
+<a class="skip" href="#main">Skip to content</a>
+{{> "header"}}
+{{{body}}}
+{{> "footer"}}
+<script src="{{asset "js/atrium.js"}}" defer></script>
+{{ghost_foot}}
+</body>
+</html>

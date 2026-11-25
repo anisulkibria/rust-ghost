@@ -1,0 +1,21 @@
+{{!< default}}
+{{#post}}
+<main id="main">
+    <article class="article {{post_class}}">
+        <header class="article-head wrap-text">
+            {{#primary_tag}}<a class="eyebrow" href="{{url}}">{{name}}</a>{{/primary_tag}}
+            <h1>{{title}}</h1>
+            {{#if custom_excerpt}}<p class="lede">{{custom_excerpt}}</p>{{/if}}
+            <p class="article-meta">{{#primary_author}}{{#if profile_image}}<img src="{{img_url profile_image size="xs"}}" alt="">{{/if}}<a href="{{url}}">{{name}}</a>{{/primary_author}} · <time datetime="{{date format="YYYY-MM-DD"}}">{{date format="D MMMM YYYY"}}</time> · {{reading_time}}</p>
+        </header>
+        {{#if feature_image}}
+        <figure class="article-image wrap"><img srcset="{{img_url feature_image size="m"}} 760w, {{img_url feature_image size="l"}} 1200w, {{img_url feature_image size="xl"}} 1800w" sizes="(max-width: 1240px) 100vw, 1200px" src="{{img_url feature_image size="xl"}}" alt="{{#if feature_image_alt}}{{feature_image_alt}}{{else}}{{title}}{{/if}}">{{#if feature_image_caption}}<figcaption>{{feature_image_caption}}</figcaption>{{/if}}</figure>
+        {{/if}}
+        <div class="content gh-content">{{content}}</div>
+        {{comments}}
+    </article>
+    {{#get "courses" limit="3" order="popular" as |more|}}
+    <section class="band wrap"><header class="band-head"><div><p class="eyebrow">Keep learning</p><h2>Courses you might like</h2></div></header><div class="course-grid">{{#foreach more}}{{> "course-card"}}{{/foreach}}</div></section>
+    {{/get}}
+</main>
+{{/post}}

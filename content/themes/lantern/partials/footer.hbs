@@ -1,0 +1,30 @@
+<footer class="site-footer">
+    <div class="wrap footer-grid">
+        <div class="footer-brand">
+            <a class="brand" href="{{@site.url}}"><span class="brand-mark" aria-hidden="true">{{> "icons/lantern"}}</span><span class="brand-name">{{@site.title}}</span></a>
+            {{#if @site.description}}<p>{{@site.description}}</p>{{/if}}
+            {{#if @site.members_enabled}}{{#unless @member}}
+            <form class="footer-signup" data-members-form="signup">
+                <input data-members-email type="email" required placeholder="Your email" aria-label="Your email">
+                <button class="btn" type="submit">Get new courses first</button>
+                <p class="form-note" data-members-success>Check your inbox to confirm.</p>
+            </form>
+            {{/unless}}{{/if}}
+        </div>
+        <div class="footer-col">
+            <h2>Learn</h2>
+            <a href="{{#if @custom.catalog_address}}{{@custom.catalog_address}}{{else}}/courses/{{/if}}">All courses</a>
+            <a href="{{#if @custom.catalog_address}}{{@custom.catalog_address}}{{else}}/courses/{{/if}}?price=free">Free courses</a>
+            <a href="{{#if @custom.catalog_address}}{{@custom.catalog_address}}{{else}}/courses/{{/if}}dashboard/">My learning</a>
+        </div>
+        <div class="footer-col">
+            <h2>Site</h2>
+            {{navigation type="secondary"}}
+            <a href="{{@site.url}}/rss/">RSS</a>
+        </div>
+    </div>
+    <div class="wrap footer-base">
+        <span>© {{date format="YYYY"}} {{@site.title}}</span>
+        <span>Published with Vuuut · Lantern theme</span>
+    </div>
+</footer>

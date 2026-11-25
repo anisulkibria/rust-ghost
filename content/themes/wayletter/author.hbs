@@ -1,6 +1,6 @@
 {{!< default}}
 <main id="main" class="ms-main ms-wrap">
 {{#author}}<header class="ms-page-head">{{#if profile_image}}<img class="ms-page-pic ms-round" src="{{img_url profile_image size="xs"}}" alt="">{{/if}}<h1 class="ms-page-title">{{name}}</h1>{{#if bio}}<p class="ms-page-desc">{{bio}}</p>{{/if}}
-<p class="ms-page-links">{{#if location}}<span>{{location}}</span>{{/if}}{{#if website}}<a href="{{website}}" rel="noopener">Website</a>{{/if}}{{#if twitter}}<a href="{{twitter_url}}" rel="noopener">X</a>{{/if}}{{#if facebook}}<a href="{{facebook_url}}" rel="noopener">Facebook</a>{{/if}}</p></header>{{/author}}
+<p class="ms-page-links">{{#if location}}<span>{{location}}</span>{{/if}}{{#if website}}<a href="{{website}}" rel="noopener">Website</a>{{/if}}{{#if twitter}}<a href="{{social_url type="twitter"}}" rel="noopener">X</a>{{/if}}{{#if facebook}}<a href="{{social_url type="facebook"}}" rel="noopener">Facebook</a>{{/if}}</p></header>{{/author}}
 {{> "feed"}}
 </main>

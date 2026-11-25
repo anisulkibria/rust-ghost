@@ -989,11 +989,8 @@ async fn gift_redeem(State(state): State<AppState>, Path(token): Path<String>, h
 /// price's amount is donor-set on the checkout page — `custom_unit_amount`
 /// — with the site's suggested amount as the preset.
 async fn donation_price(state: &AppState, cfg: &vuuut_stripe::StripeConfig) -> Result<String, vuuut_core::GhostError> {
-    let currency = state
-        .settings
-        .get_str("donations_currency")
-        .filter(|c| !c.is_empty())
-        .unwrap_or_else(|| "USD".to_string());
+    let currency = vuuut_core::currency::donations(|key| state.settings.get_str(key))
+        .unwrap_or_else(|| vuuut_core::currency::DEFAULT.into());
 
     // {"price": "…", "product": "…", "currency": "USD"} — the currency rides
     // along so a change of heart is caught, not silently tipped in the old
@@ -1054,7 +1051,7 @@ async fn donation_checkout(state: &AppState, headers: &HeaderMap, req: &Checkout
             "BadRequestError",
         );
     };
-    if state.settings.get_str("donations_currency").filter(|c| !c.is_empty()).is_none() {
+    if vuuut_core::currency::donations(|key| state.settings.get_str(key)).is_none() {
         return api_error(
             StatusCode::BAD_REQUEST,
             "Donations are not configured on this site.",

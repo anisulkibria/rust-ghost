@@ -1,8 +1,8 @@
 <footer class="cv-foot">
 <div class="cv-wrap">
 <div class="cv-foot-social">
-{{#if @site.twitter}}<a href="{{twitter_url @site.twitter}}" aria-label="X" rel="noopener">{{> "icon" name="x" size="16"}}</a>{{/if}}
-{{#if @site.facebook}}<a href="{{facebook_url @site.facebook}}" aria-label="Facebook" rel="noopener">{{> "icon" name="fb" size="18"}}</a>{{/if}}
+{{#if @site.twitter}}<a href="{{social_url type="twitter"}}" aria-label="X" rel="noopener">{{> "icon" name="x" size="16"}}</a>{{/if}}
+{{#if @site.facebook}}<a href="{{social_url type="facebook"}}" aria-label="Facebook" rel="noopener">{{> "icon" name="fb" size="18"}}</a>{{/if}}
 </div>
 <div class="cv-foot-bar">
 <a class="cv-foot-name" href="{{@site.url}}">{{@site.title}}</a>

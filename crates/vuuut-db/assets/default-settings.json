@@ -910,6 +910,13 @@
     "value": "false"
   },
   {
+    "group": "core",
+    "key": "site_currency",
+    "type": "string",
+    "flags": "",
+    "value": ""
+  },
+  {
     "group": "donations",
     "key": "donations_currency",
     "type": "string",

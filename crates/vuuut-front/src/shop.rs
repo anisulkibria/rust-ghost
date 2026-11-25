@@ -663,6 +663,8 @@ async fn product(State(state): State<AppState>, headers: HeaderMap, Path(handle)
             .collect::<String>()
     );
     let added = q.get("added").is_some();
+    // A product that sells a course (Tools → LMS) reads as the course.
+    let course = crate::lms::product_course(&state, &headers, &p.id).await;
     let files = repo::files(&state.db, &p.id).await;
     let free = vs.iter().all(|v| v.price_cents == 0);
     let digital = if files.is_empty() {
@@ -746,6 +748,7 @@ async fn product(State(state): State<AppState>, headers: HeaderMap, Path(handle)
         product["max_quantity"] = json!(rules::MAX_LINE_QTY);
         product["added"] = json!(added);
         product["schema"] = json!(product_schema(&p, &vs, &images, &s, &absolute, &state.site_url()));
+        product["course"] = course.as_ref().map(|c| c.json.clone()).unwrap_or(Value::Null);
         let mut data = serde_json::Map::new();
         data.insert("product".into(), product);
         data.insert("collection".into(), collections.first().map(collection_json).unwrap_or(Value::Null));
@@ -762,11 +765,11 @@ async fn product(State(state): State<AppState>, headers: HeaderMap, Path(handle)
 {tax_note}
 <form class="vs-buy" method="post" action="{add}" data-variants="{vjson}">
 {pickers}{select}
-<p class="vs-stock" id="vs-stock">{stock}</p>
+<p class="vs-stock" id="vs-stock"{stock_hide}>{stock}</p>
 <div class="vs-buy-row">{buy}{demo}</div>
 {free_back}{added}
 </form>
-{digital}
+{digital}{course_html}
 <div class="vs-desc">{desc}</div>
 {policies}
 </div></div>
@@ -784,9 +787,20 @@ async fn product(State(state): State<AppState>, headers: HeaderMap, Path(handle)
         add = link("/shop/cart/add/"),
         vjson = esc(&variant_json),
         stock = stock_line(first, &s),
+        stock_hide = if course.is_some() { " hidden" } else { "" },
+        course_html = course.as_ref().map(|c| c.html.clone()).unwrap_or_default(),
         // A direct purchase link elsewhere (Polar, Gumroad) takes the place
         // of the cart.
-        buy = if p.purchase_url.is_empty() {
+        buy = if let Some(url) = course.as_ref().and_then(|c| c.continue_url.clone()) {
+            format!(r#"<a class="vs-btn vs-btn-big" href="{}">You're enrolled — continue learning →</a>"#, esc(&url))
+        } else if course.is_some() && p.purchase_url.is_empty() {
+            format!(
+                r#"<input type="hidden" name="qty" value="1"><input type="hidden" name="once" value="1" data-keep>
+<button class="vs-btn vs-btn-big" id="vs-add" type="submit"{disabled}>Enrol now · {price}</button>"#,
+                disabled = if first.available(1) { "" } else { " disabled" },
+                price = money(first.price_cents, &s),
+            )
+        } else if p.purchase_url.is_empty() {
             format!(
                 r#"<label class="vs-qty"><span>Quantity</span><input type="number" name="qty" value="1" min="1" max="{maxq}" inputmode="numeric"></label>
 <button class="vs-btn vs-btn-big" id="vs-add" type="submit"{disabled}>{add_label}</button>"#,
@@ -967,6 +981,10 @@ struct AddForm {
     qty: Option<String>,
     #[serde(default)]
     back: Option<String>,
+    /// `1`: add only when the variant is not in the cart yet — one of a
+    /// course is all anybody needs.
+    #[serde(default)]
+    once: Option<String>,
 }
 
 async fn cart_add(State(state): State<AppState>, headers: HeaderMap, Form(f): Form<AddForm>) -> Response {
@@ -992,7 +1010,9 @@ async fn cart_add(State(state): State<AppState>, headers: HeaderMap, Form(f): Fo
         },
     };
     let mut lines = repo::find_cart(&state.db, &token).await.map(|c| c.lines()).unwrap_or_default();
-    lines.push(CartLine { variant_id: v.id.clone(), qty });
+    if !(f.once.as_deref() == Some("1") && lines.iter().any(|l| l.variant_id == v.id)) {
+        lines.push(CartLine { variant_id: v.id.clone(), qty });
+    }
     let lines = rules::normalise_cart(lines);
     let _ = repo::save_cart_lines(&state.db, &token, &lines).await;
     let to = if f.back.as_deref() == Some("checkout") {
@@ -1868,8 +1888,18 @@ async fn dashboard(State(state): State<AppState>, headers: HeaderMap, Query(q): 
             let by_id: HashMap<&str, &repo::Order> = orders.iter().map(|o| (o.id.as_str(), o)).collect();
             let now = vuuut_core::dates::now_db();
             let live: Vec<&repo::Order> = orders.iter().filter(|o| !o.is_cancelled()).collect();
-            let spent: i64 = live.iter().filter(|o| o.is_paid()).map(|o| o.net()).sum();
-            let currency = live.first().map(|o| o.currency.clone()).unwrap_or_else(|| s.currency.clone());
+            let mut spending = std::collections::BTreeMap::<&str, i64>::new();
+            for order in live.iter().filter(|order| order.is_paid()) {
+                *spending.entry(&order.currency).or_default() += order.net();
+            }
+            let spent = if spending.is_empty() {
+                rules::format_money(0, &s.currency)
+            } else {
+                spending.iter().map(|(currency, amount)| {
+                    let formatted = rules::format_money(*amount, currency);
+                    if spending.len() == 1 || rules::symbol(currency).is_empty() { formatted } else { format!("{formatted} {currency}") }
+                }).collect::<Vec<_>>().join(" · ")
+            };
             let file_count: usize = grants
                 .iter()
                 .filter(|g| by_id.get(g.order_id.as_str()).is_some_and(|o| !o.is_cancelled()))
@@ -1953,7 +1983,7 @@ async fn dashboard(State(state): State<AppState>, headers: HeaderMap, Query(q): 
                 email = esc(&m.email),
                 orders = live.len(),
                 orders_l = if live.len() == 1 { "Order" } else { "Orders" },
-                spent = esc(&rules::format_money(spent, &currency)),
+                spent = esc(&spent),
                 files = file_count,
                 files_l = if file_count == 1 { "File to download" } else { "Files to download" },
                 downloads = if downloads.is_empty() {

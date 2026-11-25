@@ -1,0 +1,16 @@
+<footer class="ft">
+    <div class="wrap ft-cta">
+        <h2>Ready when <em>you are</em></h2>
+        <p>Choose a time online in under a minute — you'll get an instant confirmation and can reschedule any time.</p>
+        <a class="btn btn-light" href="{{> "book-url"}}">Book an appointment</a>
+    </div>
+    <div class="wrap ft-grid">
+        <div>
+            <a class="brand brand-light" href="{{@site.url}}"><span class="brand-mark" aria-hidden="true">{{> "icons/leaf"}}</span><span>{{@site.title}}</span></a>
+            {{#if @site.description}}<p class="ft-desc">{{@site.description}}</p>{{/if}}
+        </div>
+        <div><h3>Visit</h3>{{#if @custom.visit_address}}<p>{{@custom.visit_address}}</p>{{/if}}{{#if @custom.visit_hours}}<p>{{@custom.visit_hours}}</p>{{/if}}{{#if @custom.visit_phone}}<p><a href="tel:{{@custom.visit_phone}}">{{@custom.visit_phone}}</a></p>{{/if}}</div>
+        <div><h3>Explore</h3><a href="{{> "book-url"}}">All services</a>{{navigation type="secondary"}}</div>
+    </div>
+    <div class="wrap ft-base"><span>© {{date format="YYYY"}} {{@site.title}}</span><span>Online booking by Vuuut · Atrium theme</span></div>
+</footer>

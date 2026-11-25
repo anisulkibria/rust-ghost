@@ -870,26 +870,35 @@ pub async fn browse_customers(pool: &Db, terms: &[String], marketing: bool, limi
     (q.bind(limit).bind(offset).fetch_all(pool).await.unwrap_or_default(), total)
 }
 
-/// `(orders, spent net of refunds, last order date)` per customer id.
-pub async fn customer_stats(pool: &Db, ids_in: &[String]) -> HashMap<String, (i64, i64, String)> {
-    let mut out: HashMap<String, (i64, i64, String)> = HashMap::new();
+#[derive(Debug, Clone, Default)]
+pub struct CustomerStats {
+    pub orders: i64,
+    pub last: String,
+    pub spending: std::collections::BTreeMap<String, (i64, i64)>,
+}
+
+/// Totals net of refunds, grouped by the currency of the original order.
+pub async fn customer_stats(pool: &Db, ids_in: &[String]) -> HashMap<String, CustomerStats> {
+    let mut out: HashMap<String, CustomerStats> = HashMap::new();
     for chunk in ids_in.chunks(500) {
         let sql = format!(
-            "SELECT customer_id, total_cents, refunded_cents, financial_status, created_at FROM ecom_orders WHERE status <> 'cancelled' AND customer_id IN ({})",
+            "SELECT customer_id, total_cents, refunded_cents, financial_status, created_at, currency FROM ecom_orders WHERE status <> 'cancelled' AND customer_id IN ({})",
             marks(chunk.len())
         );
-        let mut q = sqlx::query_as::<_, (String, i64, i64, String, String)>(&sql);
+        let mut q = sqlx::query_as::<_, (String, i64, i64, String, String, String)>(&sql);
         for id in chunk {
             q = q.bind(id);
         }
-        for (cid, total, refunded, fin, created) in q.fetch_all(pool).await.unwrap_or_default() {
-            let e = out.entry(cid).or_insert((0, 0, String::new()));
-            e.0 += 1;
+        for (cid, total, refunded, fin, created, currency) in q.fetch_all(pool).await.unwrap_or_default() {
+            let e = out.entry(cid).or_default();
+            e.orders += 1;
             if matches!(fin.as_str(), "paid" | "partially_refunded" | "refunded") {
-                e.1 += total - refunded;
+                let (orders, spent) = e.spending.entry(currency).or_default();
+                *orders += 1;
+                *spent += total - refunded;
             }
-            if created > e.2 {
-                e.2 = created;
+            if created > e.last {
+                e.last = created;
             }
         }
     }
@@ -1316,24 +1325,26 @@ pub struct SaleRow {
     pub customer_id: Option<String>,
 }
 
-pub async fn sales_since(pool: &Db, from: &str) -> Vec<SaleRow> {
+pub async fn sales_since(pool: &Db, from: &str, currency: &str) -> Vec<SaleRow> {
     sqlx::query_as::<_, SaleRow>(
         "SELECT id, created_at, total_cents, refunded_cents, discount_cents, tax_cents, shipping_cents, financial_status, customer_id FROM ecom_orders \
-         WHERE created_at >= ? AND status <> 'cancelled' ORDER BY created_at",
+         WHERE created_at >= ? AND currency = ? AND status <> 'cancelled' ORDER BY created_at",
     )
     .bind(from)
+    .bind(currency)
     .fetch_all(pool)
     .await
     .unwrap_or_default()
 }
 
 /// `(product_id, title, units, revenue)` best first, since `from`.
-pub async fn top_products(pool: &Db, from: &str, limit: usize) -> Vec<(String, String, i64, i64)> {
+pub async fn top_products(pool: &Db, from: &str, currency: &str, limit: usize) -> Vec<(String, String, i64, i64)> {
     let rows = sqlx::query_as::<_, (Option<String>, String, i64, i64)>(
         "SELECT i.product_id, i.title, i.quantity, i.total_cents FROM ecom_order_items i JOIN ecom_orders o ON o.id = i.order_id \
-         WHERE o.created_at >= ? AND o.status <> 'cancelled'",
+         WHERE o.created_at >= ? AND o.currency = ? AND o.status <> 'cancelled'",
     )
     .bind(from)
+    .bind(currency)
     .fetch_all(pool)
     .await
     .unwrap_or_default();

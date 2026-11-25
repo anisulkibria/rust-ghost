@@ -1,0 +1,126 @@
+{{!< default}}
+{{!-- Atrium's front door: a calm hero with the next step in plain sight,
+      the service menu, featured treatments, how booking works, the team,
+      the journal and where to find you. Services and people come from
+      Vuuut's booking tool; nothing shows while booking is off. --}}
+<main id="main" class="home">
+    <section class="hero">
+        <div class="wrap hero-grid">
+            <div class="hero-copy">
+                <p class="eyebrow"><span class="dot"></span>Online booking · instant confirmation</p>
+                <h1 class="hero-title" data-italic-tail="3">{{#if @custom.hero_heading}}{{@custom.hero_heading}}{{else}}Care that fits around your life{{/if}}</h1>
+                <p class="hero-text">{{#if @custom.hero_text}}{{@custom.hero_text}}{{else}}Treatments, classes and consultations with people who take their time. Choose what you need, pick a time that suits you, and you're booked — no phone tag.{{/if}}</p>
+                <div class="hero-cta">
+                    <a class="btn btn-lg" href="{{> "book-url"}}">{{> "icons/calendar"}} Book an appointment</a>
+                    <a class="btn btn-ghost btn-lg" href="#team">Meet the team</a>
+                </div>
+                <ul class="hero-points">
+                    <li>{{> "icons/check"}} Confirmed in seconds</li>
+                    <li>{{> "icons/refresh"}} Reschedule online</li>
+                    <li>{{> "icons/mail"}} Reminder before your visit</li>
+                </ul>
+            </div>
+            <div class="hero-art">
+                {{#if @custom.hero_image}}
+                    <img class="hero-img" src="{{img_url @custom.hero_image size="l"}}" alt="">
+                {{else}}
+                    {{#get "services" filter="featured:true" limit="1" as |lead|}}{{#foreach lead}}{{#if feature_image}}<img class="hero-img" src="{{feature_image}}" alt="">{{/if}}{{/foreach}}{{/get}}
+                {{/if}}
+                {{#get "services" filter="featured:true" limit="1" as |lead|}}{{#foreach lead}}
+                <a class="hero-card" href="{{book_url}}">
+                    <span class="hero-card-ic">{{> "icons/calendar"}}</span>
+                    <span><small>Most booked</small><b>{{name}}</b><em>{{duration}} · {{price_label}}</em></span>
+                    {{> "icons/arrow"}}
+                </a>
+                {{/foreach}}{{/get}}
+                {{#get "booking_staff" limit="4" as |team|}}
+                <div class="hero-team"><span class="faces">{{#foreach team}}{{#if photo}}<img src="{{photo}}" alt="">{{else}}<i>{{initials}}</i>{{/if}}{{/foreach}}</span><span><b>Our team</b><small>Experienced, kind, unhurried</small></span></div>
+                {{/get}}
+            </div>
+        </div>
+    </section>
+
+    {{#get "service_categories" limit="12" as |groups|}}
+    <section class="wrap band menu-band" id="services">
+        <header class="band-head"><div><p class="eyebrow">The menu</p><h2>Services &amp; <em>prices</em></h2></div><a class="more" href="{{> "book-url"}}">Book any service {{> "icons/arrow"}}</a></header>
+        <div class="menu-list">
+            {{#foreach groups}}{{#if count}}
+            <div class="menu-col">
+                <h3 class="menu-h"><span class="tint-dot tint-{{tint}}"></span>{{name}}</h3>
+                {{#if description}}<p class="menu-d">{{description}}</p>{{/if}}
+                {{#foreach services}}{{> "menu-row"}}{{/foreach}}
+            </div>
+            {{/if}}{{/foreach}}
+        </div>
+    </section>
+    {{/get}}
+
+    {{#get "services" filter="featured:true" limit="3" as |featured|}}
+    <section class="wrap band">
+        <header class="band-head"><div><p class="eyebrow">Signature treatments</p><h2>Loved by our <em>regulars</em></h2></div></header>
+        <div class="svc-grid">{{#foreach featured}}{{> "service-card"}}{{/foreach}}</div>
+    </section>
+    {{/get}}
+
+    <section class="steps-band">
+        <div class="wrap">
+            <header class="band-head band-center"><p class="eyebrow">How it works</p><h2>Booked in <em>three easy steps</em></h2></header>
+            <ol class="steps">
+                <li><span class="step-n">1</span><h3>Choose a service</h3><p>Every treatment and class with its length and price, so there are no surprises.</p></li>
+                <li><span class="step-n">2</span><h3>Pick a time</h3><p>See real availability — choose a person you like, or whoever is free first.</p></li>
+                <li><span class="step-n">3</span><h3>You're booked</h3><p>An instant confirmation, a calendar invite and a reminder the day before.</p></li>
+            </ol>
+        </div>
+    </section>
+
+    {{#get "booking_staff" limit="12" as |team|}}
+    <section class="wrap band" id="team">
+        <header class="band-head"><div><p class="eyebrow">The people</p><h2>Meet the <em>team</em></h2></div></header>
+        <div class="team">
+            {{#foreach team}}
+            <a class="person" href="{{url}}">
+                <span class="person-art">{{#if photo}}<img src="{{photo}}" alt="" loading="lazy">{{else}}<i>{{initials}}</i>{{/if}}</span>
+                <b>{{name}}</b><small>{{title}}</small>
+                <span class="person-cta">Book with {{name}} {{> "icons/arrow"}}</span>
+            </a>
+            {{/foreach}}
+        </div>
+    </section>
+    {{/get}}
+
+    {{#if @custom.show_journal}}
+    {{!-- Posts tagged "journal" when there are any, otherwise the latest. --}}
+    {{#get "posts" filter="tag:journal" limit="3" include="tags" as |journal|}}
+    {{#if journal}}
+    <section class="wrap band">
+        <header class="band-head"><div><p class="eyebrow">Journal</p><h2>Notes for <em>feeling well</em></h2></div><a class="more" href="{{@site.url}}/tag/journal/">Read the journal {{> "icons/arrow"}}</a></header>
+        <div class="post-grid">{{#foreach journal}}{{> "post-card"}}{{/foreach}}</div>
+    </section>
+    {{else}}
+    {{#get "posts" limit="3" include="tags" as |latest|}}
+    <section class="wrap band">
+        <header class="band-head"><div><p class="eyebrow">Journal</p><h2>Notes for <em>feeling well</em></h2></div></header>
+        <div class="post-grid">{{#foreach latest}}{{> "post-card"}}{{/foreach}}</div>
+    </section>
+    {{/get}}
+    {{/if}}
+    {{/get}}
+    {{/if}}
+
+    {{#if @custom.visit_address}}
+    <section class="wrap band visit">
+        <div class="visit-copy">
+            <p class="eyebrow">Visit us</p>
+            <h2>Come and <em>say hello</em></h2>
+            <p class="visit-line">{{> "icons/pin"}}<span>{{@custom.visit_address}}</span></p>
+            {{#if @custom.visit_hours}}<p class="visit-line">{{> "icons/clock"}}<span>{{@custom.visit_hours}}</span></p>{{/if}}
+            {{#if @custom.visit_phone}}<p class="visit-line">{{> "icons/phone"}}<a href="tel:{{@custom.visit_phone}}">{{@custom.visit_phone}}</a></p>{{/if}}
+            <a class="btn" href="{{> "book-url"}}">Book your visit</a>
+        </div>
+        <div class="visit-art">
+            {{#get "services" limit="2" as |pics|}}{{#foreach pics}}{{#if @last}}{{#if feature_image}}<img src="{{feature_image}}" alt="" loading="lazy">{{/if}}{{/if}}{{/foreach}}{{/get}}
+            <a class="visit-dir" href="https://www.google.com/maps/search/?api=1&amp;query={{encode @custom.visit_address}}" target="_blank" rel="noopener">{{> "icons/pin"}} Get directions</a>
+        </div>
+    </section>
+    {{/if}}
+</main>

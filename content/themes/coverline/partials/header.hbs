@@ -6,7 +6,7 @@
 <div class="cv-util">
 <span class="cv-date" data-cv-date>{{date format="dddd, D MMMM YYYY"}}</span>
 {{#if @site.description}}<span class="cv-tagline">{{@site.description}}</span>{{/if}}
-<span class="cv-util-end">{{#if @site.twitter}}<a href="{{twitter_url @site.twitter}}" aria-label="X" rel="noopener">{{> "icon" name="x" size="13"}}</a>{{/if}}{{#if @site.facebook}}<a href="{{facebook_url @site.facebook}}" aria-label="Facebook" rel="noopener">{{> "icon" name="fb" size="14"}}</a>{{/if}}<a href="{{@site.url}}/rss/">RSS</a></span>
+<span class="cv-util-end">{{#if @site.twitter}}<a href="{{social_url type="twitter"}}" aria-label="X" rel="noopener">{{> "icon" name="x" size="13"}}</a>{{/if}}{{#if @site.facebook}}<a href="{{social_url type="facebook"}}" aria-label="Facebook" rel="noopener">{{> "icon" name="fb" size="14"}}</a>{{/if}}<a href="{{@site.url}}/rss/">RSS</a></span>
 </div>
 <div class="cv-mast">
 <div class="cv-mast-start">

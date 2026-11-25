@@ -538,11 +538,11 @@ details[open] > .tree-heading .tree-chevron { transform: rotate(90deg); }
 /* Content                                                             */
 /* ------------------------------------------------------------------ */
 
-/* Store, directory and page builder (.vs, .vd, .vb-page) render inside a
+/* Store, directory and page builder (.vs, .vd, .vl, .vb-page) render inside a
    page's content with their own layout and type; these styles skip them. */
-.content > :is(.vs, .vd, .vb-page) { margin-top: var(--s-5); }
+.content > :is(.vs, .vd, .vl, .vb-page) { margin-top: var(--s-5); }
 
-.page-content:where(:not(:has(> :is(.vs, .vd, .vb-page)))) {
+.page-content:where(:not(:has(> :is(.vs, .vd, .vl, .vb-page)))) {
     max-width: calc(var(--measure) + 2 * var(--gutter));
     margin-inline: auto;
     padding: 0 var(--gutter) var(--s-8);
@@ -553,14 +553,14 @@ details[open] > .tree-heading .tree-chevron { transform: rotate(90deg); }
 .page-image img { border-radius: var(--radius-m); }
 .page-article header { padding-bottom: var(--s-5); }
 
-.content:where(:not(:has(> :is(.vs, .vd, .vb-page)))) {
+.content:where(:not(:has(> :is(.vs, .vd, .vl, .vb-page)))) {
     padding-top: var(--s-4);
     font-size: var(--step-1);
     line-height: 1.72;
     color: var(--ink);
 }
-.content:where(:not(:has(> :is(.vs, .vd, .vb-page)))) > * + * { margin-top: 1.15em; }
-.content:where(:not(:has(> :is(.vs, .vd, .vb-page)))) > h2 {
+.content:where(:not(:has(> :is(.vs, .vd, .vl, .vb-page)))) > * + * { margin-top: 1.15em; }
+.content:where(:not(:has(> :is(.vs, .vd, .vl, .vb-page)))) > h2 {
     margin-top: 1.8em;
     font-family: var(--font-head);
     font-size: var(--step-4);
@@ -568,9 +568,9 @@ details[open] > .tree-heading .tree-chevron { transform: rotate(90deg); }
     line-height: 1.2;
     letter-spacing: -0.02em;
 }
-.content:where(:not(:has(> :is(.vs, .vd, .vb-page)))) > h3 { margin-top: 1.9em; font-size: var(--step-2); font-weight: 600; line-height: 1.3; }
-.content:where(:not(:has(> :is(.vs, .vd, .vb-page)))) > h4 { margin-top: 1.6em; font-size: var(--step-1); font-weight: 600; }
-.content:where(:not(:has(> :is(.vs, .vd, .vb-page)))) > :is(h2, h3, h4) + * { margin-top: 0.5em; }
+.content:where(:not(:has(> :is(.vs, .vd, .vl, .vb-page)))) > h3 { margin-top: 1.9em; font-size: var(--step-2); font-weight: 600; line-height: 1.3; }
+.content:where(:not(:has(> :is(.vs, .vd, .vl, .vb-page)))) > h4 { margin-top: 1.6em; font-size: var(--step-1); font-weight: 600; }
+.content:where(:not(:has(> :is(.vs, .vd, .vl, .vb-page)))) > :is(h2, h3, h4) + * { margin-top: 0.5em; }
 
 .anchor {
     margin-left: 0.35em;
@@ -583,27 +583,27 @@ details[open] > .tree-heading .tree-chevron { transform: rotate(90deg); }
 :is(h2, h3):hover > .anchor, .anchor:focus-visible { opacity: 1; }
 .anchor:hover { color: var(--accent-text); }
 
-.content:where(:not(:has(> :is(.vs, .vd, .vb-page)))) a:not(.anchor, .kg-btn) {
+.content:where(:not(:has(> :is(.vs, .vd, .vl, .vb-page)))) a:not(.anchor, .kg-btn) {
     color: var(--accent-text);
     text-decoration: underline;
     text-decoration-thickness: 1px;
     text-underline-offset: 3px;
 }
-.content:where(:not(:has(> :is(.vs, .vd, .vb-page)))) a:not(.anchor, .kg-btn):hover { text-decoration-thickness: 2px; }
-.content:where(:not(:has(> :is(.vs, .vd, .vb-page)))) strong { font-weight: 600; }
-.content:where(:not(:has(> :is(.vs, .vd, .vb-page)))) :is(ul, ol) { padding-left: 1.4em; }
-.content:where(:not(:has(> :is(.vs, .vd, .vb-page)))) li + li { margin-top: 0.4em; }
-.content:where(:not(:has(> :is(.vs, .vd, .vb-page)))) li::marker { color: var(--muted); }
-.content:where(:not(:has(> :is(.vs, .vd, .vb-page)))) ol > li::marker { font-variant-numeric: tabular-nums; font-weight: 600; color: var(--accent-text); }
+.content:where(:not(:has(> :is(.vs, .vd, .vl, .vb-page)))) a:not(.anchor, .kg-btn):hover { text-decoration-thickness: 2px; }
+.content:where(:not(:has(> :is(.vs, .vd, .vl, .vb-page)))) strong { font-weight: 600; }
+.content:where(:not(:has(> :is(.vs, .vd, .vl, .vb-page)))) :is(ul, ol) { padding-left: 1.4em; }
+.content:where(:not(:has(> :is(.vs, .vd, .vl, .vb-page)))) li + li { margin-top: 0.4em; }
+.content:where(:not(:has(> :is(.vs, .vd, .vl, .vb-page)))) li::marker { color: var(--muted); }
+.content:where(:not(:has(> :is(.vs, .vd, .vl, .vb-page)))) ol > li::marker { font-variant-numeric: tabular-nums; font-weight: 600; color: var(--accent-text); }
 
-.content:where(:not(:has(> :is(.vs, .vd, .vb-page)))) > blockquote:not([class]) {
+.content:where(:not(:has(> :is(.vs, .vd, .vl, .vb-page)))) > blockquote:not([class]) {
     padding: var(--s-1) 0 var(--s-1) var(--s-4);
     border-left: 3px solid var(--rule);
     color: var(--ink-soft);
 }
 
-.content:where(:not(:has(> :is(.vs, .vd, .vb-page)))) code,
-.content:where(:not(:has(> :is(.vs, .vd, .vb-page)))) kbd {
+.content:where(:not(:has(> :is(.vs, .vd, .vl, .vb-page)))) code,
+.content:where(:not(:has(> :is(.vs, .vd, .vl, .vb-page)))) kbd {
     padding: 0.12em 0.36em;
     border-radius: 4px;
     background: var(--panel);
@@ -611,8 +611,8 @@ details[open] > .tree-heading .tree-chevron { transform: rotate(90deg); }
     font-family: var(--font-code);
     font-size: 0.86em;
 }
-.content:where(:not(:has(> :is(.vs, .vd, .vb-page)))) kbd { box-shadow: inset 0 -1px 0 var(--rule), inset 0 0 0 1px var(--rule); }
-.content:where(:not(:has(> :is(.vs, .vd, .vb-page)))) pre {
+.content:where(:not(:has(> :is(.vs, .vd, .vl, .vb-page)))) kbd { box-shadow: inset 0 -1px 0 var(--rule), inset 0 0 0 1px var(--rule); }
+.content:where(:not(:has(> :is(.vs, .vd, .vl, .vb-page)))) pre {
     overflow-x: auto;
     padding: var(--s-4) var(--s-5);
     border-radius: var(--radius-m);
@@ -622,25 +622,25 @@ details[open] > .tree-heading .tree-chevron { transform: rotate(90deg); }
     font-size: 0.875rem;
     line-height: 1.65;
 }
-.content:where(:not(:has(> :is(.vs, .vd, .vb-page)))) pre code { padding: 0; background: none; box-shadow: none; color: inherit; font-size: inherit; }
+.content:where(:not(:has(> :is(.vs, .vd, .vl, .vb-page)))) pre code { padding: 0; background: none; box-shadow: none; color: inherit; font-size: inherit; }
 
-.content:where(:not(:has(> :is(.vs, .vd, .vb-page)))) table { width: 100%; border-collapse: collapse; font-size: var(--step-0); }
-.content:where(:not(:has(> :is(.vs, .vd, .vb-page)))) th { background: var(--panel); font-weight: 600; text-align: left; }
-.content:where(:not(:has(> :is(.vs, .vd, .vb-page)))) :is(th, td) { padding: var(--s-2) var(--s-3); border: 1px solid var(--rule); vertical-align: top; }
+.content:where(:not(:has(> :is(.vs, .vd, .vl, .vb-page)))) table { width: 100%; border-collapse: collapse; font-size: var(--step-0); }
+.content:where(:not(:has(> :is(.vs, .vd, .vl, .vb-page)))) th { background: var(--panel); font-weight: 600; text-align: left; }
+.content:where(:not(:has(> :is(.vs, .vd, .vl, .vb-page)))) :is(th, td) { padding: var(--s-2) var(--s-3); border: 1px solid var(--rule); vertical-align: top; }
 
-.content:where(:not(:has(> :is(.vs, .vd, .vb-page)))) > hr { height: 1px; border: 0; background: var(--rule); margin-block: 2.2em; }
-.content:where(:not(:has(> :is(.vs, .vd, .vb-page)))) figcaption { margin-top: var(--s-2); font-size: var(--step--1); color: var(--muted); text-align: left; }
-.content:where(:not(:has(> :is(.vs, .vd, .vb-page)))) img { border-radius: var(--radius-s); }
+.content:where(:not(:has(> :is(.vs, .vd, .vl, .vb-page)))) > hr { height: 1px; border: 0; background: var(--rule); margin-block: 2.2em; }
+.content:where(:not(:has(> :is(.vs, .vd, .vl, .vb-page)))) figcaption { margin-top: var(--s-2); font-size: var(--step--1); color: var(--muted); text-align: left; }
+.content:where(:not(:has(> :is(.vs, .vd, .vl, .vb-page)))) img { border-radius: var(--radius-s); }
 /* Wide and full cards fill the reading column; a docs page keeps one edge. */
 .content > .kg-width-wide,
 .content > .kg-width-full { width: 100%; max-width: 100%; }
 .content > .kg-width-full img, .content > .kg-width-wide img { width: 100%; }
-.content:where(:not(:has(> :is(.vs, .vd, .vb-page)))) > .kg-card { margin-top: 1.6em; }
-.content:where(:not(:has(> :is(.vs, .vd, .vb-page)))) > .kg-card + * { margin-top: 1.6em; }
-.content:where(:not(:has(> :is(.vs, .vd, .vb-page)))) .kg-callout-card { border-radius: var(--radius-m); font-size: var(--step-0); }
-.content:where(:not(:has(> :is(.vs, .vd, .vb-page)))) .kg-bookmark-container { border-radius: var(--radius-m); text-decoration: none !important; color: inherit !important; }
-.content:where(:not(:has(> :is(.vs, .vd, .vb-page)))) .kg-toggle-card { border-radius: var(--radius-m); }
-.content:where(:not(:has(> :is(.vs, .vd, .vb-page)))) .kg-button-card a.kg-btn { border-radius: var(--radius-s); text-decoration: none; }
+.content:where(:not(:has(> :is(.vs, .vd, .vl, .vb-page)))) > .kg-card { margin-top: 1.6em; }
+.content:where(:not(:has(> :is(.vs, .vd, .vl, .vb-page)))) > .kg-card + * { margin-top: 1.6em; }
+.content:where(:not(:has(> :is(.vs, .vd, .vl, .vb-page)))) .kg-callout-card { border-radius: var(--radius-m); font-size: var(--step-0); }
+.content:where(:not(:has(> :is(.vs, .vd, .vl, .vb-page)))) .kg-bookmark-container { border-radius: var(--radius-m); text-decoration: none !important; color: inherit !important; }
+.content:where(:not(:has(> :is(.vs, .vd, .vl, .vb-page)))) .kg-toggle-card { border-radius: var(--radius-m); }
+.content:where(:not(:has(> :is(.vs, .vd, .vl, .vb-page)))) .kg-button-card a.kg-btn { border-radius: var(--radius-s); text-decoration: none; }
 
 /* ------------------------------------------------------------------ */
 /* Feedback and previous/next                                          */

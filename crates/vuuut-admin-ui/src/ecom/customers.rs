@@ -8,6 +8,21 @@ use super::*;
 
 const CUSTOMERS: &str = "/ghost/ecom/customers/";
 
+pub(super) fn spending(stats: &repo::CustomerStats, default: &str, average: bool) -> String {
+    if stats.spending.is_empty() {
+        return rules::format_money(0, default);
+    }
+    stats.spending.iter().map(|(code, (count, net))| {
+        let value = if average { net / count } else { *net };
+        let formatted = rules::format_money(value, code);
+        if stats.spending.len() == 1 || rules::symbol(code).is_empty() {
+            formatted
+        } else {
+            format!("{formatted} {code}")
+        }
+    }).collect::<Vec<_>>().join(" · ")
+}
+
 pub(crate) async fn customers_page(State(state): State<AppState>, headers: HeaderMap, Query(q): Query<HashMap<String, String>>) -> Response {
     let actor = match guard(&state, &headers, Role::Editor, false).await {
         Ok(a) => a,
@@ -24,7 +39,7 @@ pub(crate) async fn customers_page(State(state): State<AppState>, headers: Heade
     let rows: String = list
         .iter()
         .map(|c| {
-            let st = stats.get(&c.id).cloned().unwrap_or((0, 0, String::new()));
+            let st = stats.get(&c.id).cloned().unwrap_or_default();
             let a = c.address();
             format!(
                 r#"<tr><td><a href="{CUSTOMERS}{id}/"><b>{n}</b></a><br><small class="muted">{e}</small></td><td>{mk}</td><td>{loc}</td><td>{o}</td><td class="ec-num">{spent}</td><td>{last}</td></tr>"#,
@@ -33,9 +48,9 @@ pub(crate) async fn customers_page(State(state): State<AppState>, headers: Heade
                 e = esc(&c.email),
                 mk = if c.accepts_marketing != 0 { r#"<span class="chip published">Subscribed</span>"# } else { r#"<span class="chip">Not subscribed</span>"# },
                 loc = esc(&[a.city.as_str(), rules::country_name(&a.country)].iter().filter(|x| !x.is_empty()).copied().collect::<Vec<_>>().join(", ")),
-                o = countable(st.0, "order"),
-                spent = money(st.1, &s),
-                last = if st.2.is_empty() { "—".to_string() } else { esc(st.2.get(..10).unwrap_or(&st.2)) },
+                o = countable(st.orders, "order"),
+                spent = esc(&spending(&st, &s.currency, false)),
+                last = if st.last.is_empty() { "—".to_string() } else { esc(st.last.get(..10).unwrap_or(&st.last)) },
             )
         })
         .collect();
@@ -88,9 +103,9 @@ pub(crate) async fn customers_export(State(state): State<AppState>, headers: Hea
     let cell = |v: &str| format!("\"{}\"", rules::csv_cell(v).replace('"', "\"\""));
     let mut out = String::from("Email,First name,Last name,Phone,Accepts marketing,City,Country,Orders,Spent,Tags,Note\n");
     for c in &list {
-        let st = stats.get(&c.id).cloned().unwrap_or((0, 0, String::new()));
+        let st = stats.get(&c.id).cloned().unwrap_or_default();
         let a = c.address();
-        let row = [c.email.clone(), c.first_name.clone(), c.last_name.clone(), c.phone.clone(), if c.accepts_marketing != 0 { "yes".into() } else { "no".into() }, a.city, a.country, st.0.to_string(), rules::decimal(st.1, &s.currency), c.tags.clone(), c.note.clone()];
+        let row = [c.email.clone(), c.first_name.clone(), c.last_name.clone(), c.phone.clone(), if c.accepts_marketing != 0 { "yes".into() } else { "no".into() }, a.city, a.country, st.orders.to_string(), if st.spending.is_empty() { rules::decimal(0, &s.currency) } else { st.spending.iter().map(|(code, (_, net))| format!("{} {code}", rules::decimal(*net, code))).collect::<Vec<_>>().join(" | ") }, c.tags.clone(), c.note.clone()];
         out.push_str(&row.iter().map(|x| cell(x)).collect::<Vec<_>>().join(","));
         out.push('\n');
     }
@@ -128,14 +143,14 @@ async fn customer_view(state: &AppState, actor: &Actor, c: Option<repo::Customer
     let (orders, stats) = match &c {
         Some(c) => {
             let (o, _) = repo::browse_orders(&state.db, &repo::OrderBrowse { customer_id: Some(&c.id), view: "all", limit: 100, ..Default::default() }).await;
-            let st = repo::customer_stats(&state.db, std::slice::from_ref(&c.id)).await.remove(&c.id).unwrap_or((0, 0, String::new()));
+            let st = repo::customer_stats(&state.db, std::slice::from_ref(&c.id)).await.remove(&c.id).unwrap_or_default();
             (o, st)
         }
-        None => (Vec::new(), (0, 0, String::new())),
+        None => (Vec::new(), repo::CustomerStats::default()),
     };
     let order_rows: String = orders
         .iter()
-        .map(|o| format!(r#"<a class="row" href="/ghost/ecom/orders/{id}/"><div class="body"><span class="title">#{n}</span><span class="detail">{d}</span></div><span class="trailing">{fin} {ful} <b>{t}</b></span></a>"#, id = esc(&o.id), n = o.number, d = date(&o.created_at), fin = chip_for_financial(&o.financial_status), ful = chip_for_fulfillment(&o.fulfillment_status), t = money(o.total_cents, &s)))
+        .map(|o| format!(r#"<a class="row" href="/ghost/ecom/orders/{id}/"><div class="body"><span class="title">#{n}</span><span class="detail">{d}</span></div><span class="trailing">{fin} {ful} <b>{t}</b></span></a>"#, id = esc(&o.id), n = o.number, d = date(&o.created_at), fin = chip_for_financial(&o.financial_status), ful = chip_for_fulfillment(&o.fulfillment_status), t = esc(&rules::format_money(o.total_cents, &o.currency))))
         .collect();
     let member_link = match c.as_ref().and_then(|c| c.member_id.clone()) {
         Some(m) => format!(r#"<p class="ec-p"><a href="/ghost/members/{}/">{} Also a member of this site</a></p>"#, esc(&m), svg("person")),
@@ -145,9 +160,9 @@ async fn customer_view(state: &AppState, actor: &Actor, c: Option<repo::Customer
         r#"{kpis}<section class="card padded ec-card"><h2 class="ec-card-title"><span class="ic tint-amber">{rc}</span>Orders</h2><div class="rows">{rows}</div>{create}</section>"#,
         kpis = if c.is_some() {
             format!(r#"<div class="ec-tiles">{}{}{}</div>"#,
-                tile("Orders", &stats.0.to_string(), "Not counting cancelled", None, "receipt", "blue"),
-                tile("Amount spent", &rules::format_money(stats.1, &s.currency), "Paid, net of refunds", None, "chart", "green"),
-                tile("Average order", &rules::format_money(if stats.0 > 0 { stats.1 / stats.0 } else { 0 }, &s.currency), &if stats.2.is_empty() { "No orders yet".into() } else { format!("Last on {}", stats.2.get(..10).unwrap_or(&stats.2)) }, None, "trending", "purple"))
+                tile("Orders", &stats.orders.to_string(), "Not counting cancelled", None, "receipt", "blue"),
+                tile("Amount spent", &spending(&stats, &s.currency, false), "Paid, net of refunds", None, "chart", "green"),
+                tile("Average order", &spending(&stats, &s.currency, true), &if stats.last.is_empty() { "No orders yet".into() } else { format!("Last on {}", stats.last.get(..10).unwrap_or(&stats.last)) }, None, "trending", "purple"))
         } else {
             String::new()
         },

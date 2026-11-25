@@ -59,7 +59,7 @@ pub(crate) const SETTINGS_GROUPS: &[SettingsGroup] = &[
     SettingsGroup { slug: "languages", tool: Some("languages"), title: "Languages", icon: "globe", tint: "teal", items: &["Default publication language", "Languages", "Search engines", "Navigation per language"] },
     SettingsGroup { slug: "memberships", tool: Some("memberships"), title: "Membership", icon: "ghost", tint: "teal", items: &["Access", "Spam filters", "Tiers", "Signup portal", "Gift subscriptions", "Tips & donations", "Custom fields"] },
     SettingsGroup { slug: "newsletters", tool: Some("newsletters"), title: "Newsletters", icon: "send", tint: "purple", items: &["Newsletter sending", "Default recipients", "Newsletter provider", "The newsletters themselves"] },
-    SettingsGroup { slug: "payments", tool: None, title: "Payments", icon: "card", tint: "green", items: &["Stripe", "Polar", "Gumroad", "Store payment methods", "Tips & donations"] },
+    SettingsGroup { slug: "payments", tool: None, title: "Payments", icon: "card", tint: "green", items: &["Currency", "Stripe", "Polar", "Gumroad", "Store payment methods", "Tips & donations"] },
     SettingsGroup { slug: "popups", tool: Some("popups"), title: "Popups", icon: "panel-show", tint: "pink", items: &["On or off", "On phones", "Space between popups", "Consent note"] },
     SettingsGroup { slug: "security", tool: Some("security"), title: "Security", icon: "lock", tint: "red", items: &["Sign-in", "Sessions", "Response headers", "Requests this server makes and trusts", "Spam", "Firewall"] },
     SettingsGroup { slug: "seo", tool: Some("seo"), title: "SEO", icon: "trending", tint: "blue", items: &["Search appearance", "Crawling", "robots.txt", "IndexNow"] },
@@ -577,18 +577,6 @@ pub(crate) fn generate_access_code() -> String {
         [vuuut_core::ids::random_below(ACCESS_CODE_WORDS.len() as u32) as usize];
     format!("{word}{:03}", vuuut_core::ids::random_below(1000))
 }
-
-/// Currencies offered for tips and donations. Ghost stores
-/// `donations_currency` as an upper-case ISO code, unlike a tier's price
-/// currency, which it keeps lower-case.
-pub(crate) const CURRENCIES: &[(&str, &str)] = &[
-    ("USD", "USD $"),
-    ("EUR", "EUR €"),
-    ("GBP", "GBP £"),
-    ("AUD", "AUD $"),
-    ("CAD", "CAD $"),
-    ("INR", "INR ₹"),
-];
 
 /// Ghost's timezone picker (moment-timezone names with GMT offsets), west →
 /// east. A stored value outside the list is still shown as a raw option.

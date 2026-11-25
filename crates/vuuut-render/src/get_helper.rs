@@ -30,7 +30,7 @@ impl GetHelper {
 ///
 /// And the directory's `listings`, `listing_categories` and `listing_places`
 /// (see [`browse_directory`]).
-const RESOURCES: &[&str] = &["posts", "pages", "tags", "authors", "tiers", "newsletters", "products", "collections", "listings", "listing_categories", "listing_places"];
+const RESOURCES: &[&str] = &["posts", "pages", "tags", "authors", "tiers", "newsletters", "products", "collections", "listings", "listing_categories", "listing_places", "courses", "course_categories", "services", "service_categories", "booking_staff"];
 
 /// Ghost's `optimization:maxLimit`. Since 6.x `limit="all"` is capped here too
 /// rather than fetching the whole table.
@@ -490,6 +490,8 @@ async fn run_get(
         "products" => browse_products(deps, filter_expr.as_ref(), order, limit, page).await,
         "collections" => browse_collections(deps, filter_expr.as_ref(), limit, page).await,
         "listings" | "listing_categories" | "listing_places" => browse_directory(deps, resource, filter_expr.as_ref(), order, limit, page).await,
+        "courses" | "course_categories" => browse_courses(deps, resource, filter_expr.as_ref(), order, limit, page).await,
+        "services" | "service_categories" | "booking_staff" => browse_booking(deps, resource, filter_expr.as_ref(), limit, page).await,
         _ => Ok((Value::Array(vec![]), vuuut_core::models::pagination_json(1, limit.max(1), 0))),
     }
 }
@@ -679,6 +681,109 @@ async fn browse_directory(
                 _ => {}
             }
             rows.iter().map(|l| repo::listing_json(&settings, l, &cats)).collect()
+        }
+    };
+    if let Some(f) = filter {
+        items.retain(|i| vuuut_nql::evaluate(f, i));
+    }
+    let total = items.len() as i64;
+    let items: Vec<Value> = if limit < 0 {
+        items
+    } else {
+        items.into_iter().skip(((page.max(1) - 1) * per_page) as usize).take(per_page as usize).collect()
+    };
+    Ok((Value::Array(items), vuuut_core::models::pagination_json(page, per_page, total)))
+}
+
+/// The booking pages for themes. Nothing while booking is off.
+///
+/// * `services` — bookable services as `vuuut_db::repos::booking::service_json`
+///   (`name`, `url`, `book_url`, `feature_image`, `summary`, `duration`,
+///   `price_label`, `free`, `group`, `category.slug`, `staff`, `featured`…).
+/// * `service_categories` — categories with `count` and their `services`.
+/// * `booking_staff` — the team: `name`, `title`, `photo`, `bio`, `url`,
+///   `services`, `hours`.
+async fn browse_booking(deps: &HelperDeps, resource: &str, filter: Option<&vuuut_nql::Expr>, limit: i64, page: i64) -> vuuut_core::Result<(Value, Value)> {
+    use vuuut_db::repos::booking as repo;
+    let per_page = if limit > 0 { limit } else { 15 };
+    let stored: std::collections::HashMap<String, String> =
+        vuuut_db::repos::settings::all(&deps.pool).await?.into_iter().map(|s| (s.key, s.value)).collect();
+    let s = vuuut_core::booking::Settings::read(|k| stored.get(k).cloned());
+    if !s.enabled {
+        return Ok((Value::Array(vec![]), vuuut_core::models::pagination_json(1, per_page, 0)));
+    }
+    let services = repo::services(&deps.pool, true).await;
+    let staff = repo::staff(&deps.pool, true).await;
+    let cats = repo::categories(&deps.pool).await;
+    let links = repo::links(&deps.pool).await;
+    let people_for = |sid: &str| -> Vec<&repo::Staff> {
+        let l: Vec<&String> = links.iter().filter(|(s, _)| s == sid).map(|(_, p)| p).collect();
+        staff.iter().filter(|p| l.is_empty() || l.contains(&&p.id)).collect()
+    };
+    let mut items: Vec<Value> = match resource {
+        "booking_staff" => staff.iter().map(|p| {
+            let offered: Vec<&repo::Service> = services.iter().filter(|v| people_for(&v.id).iter().any(|x| x.id == p.id)).collect();
+            repo::staff_json(&s, p, &offered)
+        }).collect(),
+        "service_categories" => cats.iter().map(|c| {
+            let list: Vec<Value> = services.iter().filter(|v| v.category_id.as_deref() == Some(c.id.as_str())).map(|v| repo::service_json(&s, v, &cats, &people_for(&v.id))).collect();
+            let mut j = repo::category_json(&s, c, list.len());
+            j["services"] = Value::Array(list);
+            j
+        }).collect(),
+        _ => services.iter().map(|v| repo::service_json(&s, v, &cats, &people_for(&v.id))).collect(),
+    };
+    if let Some(f) = filter {
+        items.retain(|i| vuuut_nql::evaluate(f, i));
+    }
+    let total = items.len() as i64;
+    let items: Vec<Value> = if limit < 0 { items } else { items.into_iter().skip(((page.max(1) - 1) * per_page) as usize).take(per_page as usize).collect() };
+    Ok((Value::Array(items), vuuut_core::models::pagination_json(page, per_page, total)))
+}
+
+/// The LMS catalogue for themes. Nothing while the LMS is off.
+///
+/// * `courses` — published courses as `vuuut_db::repos::lms::course_json`
+///   (`title`, `url`, `feature_image`, `subtitle`, `category.slug`, `level`,
+///   `price`, `free`, `rating`, `students`, `lessons`, `duration`,
+///   `instructor`, …). `order`: default (featured, then the staff order),
+///   `newest`, `popular`, `title`, `price`.
+/// * `course_categories` — categories with `count` (published courses).
+///
+/// `filter` is NQL over those fields, e.g. `featured:true`, `free:true`,
+/// `category.slug:design`, `level:beginner`.
+async fn browse_courses(
+    deps: &HelperDeps,
+    resource: &str,
+    filter: Option<&vuuut_nql::Expr>,
+    order: Option<&str>,
+    limit: i64,
+    page: i64,
+) -> vuuut_core::Result<(Value, Value)> {
+    use vuuut_db::repos::lms as repo;
+    let per_page = if limit > 0 { limit } else { 15 };
+    let stored: std::collections::HashMap<String, String> =
+        vuuut_db::repos::settings::all(&deps.pool).await?.into_iter().map(|s| (s.key, s.value)).collect();
+    let settings = vuuut_core::lms::Settings::read(|k| stored.get(k).cloned());
+    if !settings.enabled {
+        return Ok((Value::Array(vec![]), vuuut_core::models::pagination_json(1, per_page, 0)));
+    }
+    let x = repo::extras(&deps.pool).await;
+    let mut items: Vec<Value> = match resource {
+        "course_categories" => {
+            let counts = repo::category_counts(&deps.pool).await;
+            x.categories.iter().map(|c| repo::category_json(&settings, c, counts.get(&c.id).copied().unwrap_or(0))).collect()
+        }
+        _ => {
+            let sort = match order.unwrap_or("").trim().to_ascii_lowercase().as_str() {
+                "newest" | "published_at desc" => "newest",
+                "popular" | "views desc" => "popular",
+                "title" | "title asc" => "title",
+                "price" | "price asc" => "price",
+                _ => "",
+            };
+            let (rows, _) = repo::browse(&deps.pool, &repo::Browse { status: Some("published"), order: sort, limit: 500, ..Default::default() }).await?;
+            rows.iter().map(|c| repo::course_json(&settings, c, &x)).collect()
         }
     };
     if let Some(f) = filter {

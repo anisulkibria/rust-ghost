@@ -733,6 +733,9 @@ async fn submit(
         Ok(i) => i,
         Err(m) => return back(&m),
     };
+    if vuuut_core::currency::fixed_price_to_minor(input.price_cents, &s.currency).is_none() {
+        return back("Enter a whole price for this currency.");
+    }
     let day_ago = vuuut_core::dates::to_db_string(&(chrono::Utc::now() - chrono::Duration::days(1)));
     if repo::submitted_since(&state.db, &input.submitter_email, &day_ago).await >= 5 {
         return back("That address has sent five listings today. Please try again tomorrow.");

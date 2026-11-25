@@ -1,0 +1,22 @@
+<footer class="site-footer">
+    <div class="wrap footer-grid">
+        <div class="footer-brand">
+            {{> "brand"}}
+            {{#if @site.description}}<p>{{@site.description}}</p>{{/if}}
+        </div>
+        <div class="footer-col">
+            <h2>Learn</h2>
+            <a href="{{> "catalog-url"}}">All courses</a>
+            <a href="{{> "catalog-url"}}?price=free">Free courses</a>
+            {{#if @member}}<a href="{{#if lms.dashboard_url}}{{lms.dashboard_url}}{{else}}{{> "catalog-url"}}dashboard/{{/if}}">My learning</a>{{/if}}
+        </div>
+        <div class="footer-col">
+            <h2>Site</h2>
+            {{navigation type="secondary"}}
+            <a href="{{@site.url}}/rss/">RSS</a>
+        </div>
+    </div>
+    <div class="wrap footer-base">
+        <span>© {{date format="YYYY"}} {{@site.title}}</span>
+    </div>
+</footer>

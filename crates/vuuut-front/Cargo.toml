@@ -21,6 +21,7 @@ serde = { workspace = true }
 serde_yaml = { workspace = true }
 serde_json = { workspace = true }
 chrono = { workspace = true }
+chrono-tz = { workspace = true }
 tracing = { workspace = true }
 percent-encoding = { workspace = true }
 mime_guess = { workspace = true }

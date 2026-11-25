@@ -38,7 +38,7 @@
 {{#if primary_tag}}
 {{#get "posts" filter="tags:{{primary_tag.slug}}+id:-{{id}}" limit="4" include="tags,authors"}}{{#if posts}}
 <section class="np-section"><div class="np-wrap">
-{{> "section-head" title=(concat "More in " @root.post.primary_tag.name) url=@root.post.primary_tag.url}}
+{{> "section-head" title=(concat "More in " ../primary_tag.name) url=../primary_tag.url}}
 <div class="np-grid-4">{{#foreach posts}}{{> "story" layout="top" size="m" excerpt=true}}{{/foreach}}</div>
 </div></section>
 {{/if}}{{/get}}

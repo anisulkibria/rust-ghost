@@ -1,0 +1,55 @@
+{{!< default}}
+{{!-- Vuuut LMS: the lesson player. `forms.interactive` is the quiz or the
+      assignment, `forms.complete` the "Complete & continue" button and
+      `forms.cta` the enrol button shown on a locked lesson. --}}
+{{> "lms-assets"}}
+<main id="main" class="player{{#if enrolment.celebrate}} vl-celebrate{{/if}}">
+    <aside class="pl-side" id="vl-side">
+        <div class="pl-side-inner">
+            <a class="pl-back" href="{{course.url}}">{{> "icons/arrow"}}<span>{{course.title}}</span></a>
+            {{#if enrolment.enrolled}}
+            <div class="pl-prog"><span class="ring" style="--p:{{enrolment.progress}}"></span><span><b>{{enrolment.progress}}% complete</b><small>{{enrolment.done}} of {{enrolment.total}} done</small></span></div>
+            {{/if}}
+            <nav class="pl-nav" aria-label="Course content">
+            {{#foreach course.curriculum}}
+                <details class="pl-sec"{{#if open}} open{{/if}}>
+                    <summary><span>{{title}}</span><small>{{done}}/{{count}}</small></summary>
+                    <ol>{{#foreach lessons}}
+                        <li class="pl-item{{#if done}} is-done{{/if}}{{#if locked}} is-locked{{/if}}{{#if current}} is-current{{/if}}">
+                            <a href="{{url}}"{{#if current}} aria-current="page"{{/if}}><span class="pl-ic">{{#if done}}{{> "icons/check"}}{{else}}{{#match kind "quiz"}}?{{else match kind "assignment"}}✎{{else}}{{> "icons/play"}}{{/match}}{{/if}}</span><span class="pl-t">{{title}}</span>{{#if duration}}<small>{{duration}}</small>{{/if}}</a>
+                        </li>
+                    {{/foreach}}</ol>
+                </details>
+            {{/foreach}}
+            </nav>
+        </div>
+    </aside>
+    {{#lesson}}
+    <article class="pl-stage">
+        <div class="pl-top">
+            <button class="btn btn-quiet vl-side-toggle" type="button" aria-controls="vl-side" aria-expanded="false">☰ Contents</button>
+            <span class="pl-step">{{#if section}}{{section}} · {{/if}}{{kind_label}} {{number}} of {{total}}{{#if duration}} · {{duration}}{{/if}}</span>
+        </div>
+        {{#if ../flash}}<p class="flash{{#if ../flash.error}} flash-err{{/if}}" role="status">{{../flash.message}}</p>{{/if}}
+        {{#if staff_preview}}<p class="flash">Staff preview — every lesson is open to you and nothing is recorded.</p>{{/if}}
+        {{#if ../enrolment.celebrate}}
+        <section class="finish"><span class="finish-ic">{{> "icons/award"}}</span><div><h2>You finished the course!</h2>{{#if ../enrolment.certificate_url}}<p>Your certificate is ready.</p>{{/if}}</div>{{#if ../enrolment.certificate_url}}<a class="btn btn-light" href="{{../enrolment.certificate_url}}">View certificate</a>{{/if}}</section>
+        {{/if}}
+        <h1 class="pl-title">{{title}}</h1>
+        {{#if locked}}
+            <section class="pl-locked"><span class="lock-ic">🔒</span><h2>{{locked}}</h2>{{#unless ../enrolment.enrolled}}<div class="pl-locked-cta">{{{../forms.cta}}}</div>{{/unless}}</section>
+        {{else}}
+            {{#if video_html}}<div class="pl-video">{{{video_html}}}</div>{{/if}}
+            {{#if html}}<div class="prose pl-prose">{{{html}}}</div>{{/if}}
+            {{{../forms.interactive}}}
+            {{#if attachments}}<section class="pl-files"><h2>Downloads</h2><ul>{{#foreach attachments}}<li><a href="{{url}}" target="_blank" rel="noopener" download>{{> "icons/book"}}<span>{{label}}</span></a></li>{{/foreach}}</ul></section>{{/if}}
+            {{#if preview}}{{#unless staff_preview}}<section class="pl-preview-cta"><div><b>Enjoying the preview?</b><span>Enrol to unlock every lesson and track your progress.</span></div><a class="btn" href="{{../course.url}}#enrol">See the course</a></section>{{/unless}}{{/if}}
+        {{/if}}
+        <footer class="pl-foot">
+            {{#if prev_url}}<a class="pl-prev" href="{{prev_url}}"><small>Previous</small><span>{{prev_title}}</span></a>{{else}}<span></span>{{/if}}
+            <div class="pl-done">{{{../forms.complete}}}</div>
+            {{#if next_url}}<a class="pl-next" href="{{next_url}}"><small>Next</small><span>{{next_title}}</span></a>{{else}}<span></span>{{/if}}
+        </footer>
+    </article>
+    {{/lesson}}
+</main>

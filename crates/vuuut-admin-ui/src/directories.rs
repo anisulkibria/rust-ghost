@@ -622,6 +622,10 @@ async fn read_form(state: &AppState, pairs: &[(String, String)]) -> Result<rules
     let mut form_main = form.clone();
     form_main.insert("image".into(), images.first().cloned().unwrap_or_default());
     let mut input = rules::ListingInput::from_form(&form_main, true, |id| categories.iter().any(|c| c.id == id))?;
+    let currency = rules::Settings::read(|key| state.settings.get_str(key)).currency;
+    if vuuut_core::currency::fixed_price_to_minor(input.price_cents, &currency).is_none() {
+        return Err("Enter a whole price for this currency.".into());
+    }
     let mut all: Vec<(String, String)> = pairs.iter().filter(|(k, _)| k != "gallery").cloned().collect();
     all.extend(images.iter().skip(1).map(|u| ("gallery".to_string(), u.clone())));
     input.details = rules::Details::from_form(&form, &all)?;

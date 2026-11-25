@@ -1,0 +1,27 @@
+{{!< default}}
+{{!-- Vuuut booking: every bookable service, by category, and the team. --}}
+{{> "booking-assets"}}
+<main id="main" class="bk-page">
+    <header class="page-head wrap bk-head"><p class="eyebrow">Book online</p><h1>{{booking.title}}</h1>{{#if booking.intro}}<p class="lede">{{booking.intro}}</p>{{/if}}
+        <nav class="bk-jump">{{#foreach groups}}<a href="#{{slug}}">{{name}}</a>{{/foreach}}{{#if team}}<a href="#team">Team</a>{{/if}}</nav></header>
+    <div class="wrap bk-layout">
+        <div class="bk-groups">
+            {{#foreach groups}}
+            <section class="bk-group" id="{{slug}}">
+                <h2>{{name}}</h2>{{#if description}}<p class="menu-d">{{description}}</p>{{/if}}
+                <div class="svc-grid svc-grid-2">{{#foreach services}}{{> "service-card"}}{{/foreach}}</div>
+            </section>
+            {{/foreach}}
+        </div>
+        <aside class="bk-aside">
+            <div class="aside-card"><h3>Opening hours</h3><dl class="hours">{{#foreach booking.hours}}<dt>{{short}}</dt><dd{{#if closed}} class="closed"{{/if}}>{{hours}}</dd>{{/foreach}}</dl>
+            {{#if booking.address}}<p class="visit-line">{{> "icons/pin"}}<span>{{booking.address}}</span></p>{{/if}}<p class="muted">Times in {{booking.timezone}}.</p></div>
+            <div class="aside-card aside-pine"><h3>Good to know</h3><ul class="ticks"><li>{{> "icons/check"}}Instant email confirmation</li><li>{{> "icons/check"}}Reschedule or cancel online{{#if booking.cancel_hours}} up to {{booking.cancel_hours}}h before{{/if}}</li><li>{{> "icons/check"}}A reminder before your visit</li></ul></div>
+        </aside>
+    </div>
+    {{#if team}}
+    <section class="wrap band" id="team"><header class="band-head"><div><p class="eyebrow">The people</p><h2>Choose who you <em>see</em></h2></div></header>
+        <div class="team">{{#foreach team}}<a class="person" href="{{url}}"><span class="person-art">{{#if photo}}<img src="{{photo}}" alt="" loading="lazy">{{else}}<i>{{initials}}</i>{{/if}}</span><b>{{name}}</b><small>{{title}}</small><span class="person-cta">See availability {{> "icons/arrow"}}</span></a>{{/foreach}}</div>
+    </section>
+    {{/if}}
+</main>

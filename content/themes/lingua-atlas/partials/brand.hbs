@@ -1,0 +1,8 @@
+<a class="brand" href="{{@site.url}}">
+    {{#if @site.logo}}
+        <img class="brand-logo" src="{{img_url @site.logo size="s"}}" alt="{{@site.title}}">
+    {{else}}
+        <span class="brand-mark" aria-hidden="true">Aa</span>
+        <span class="brand-name">{{@site.title}}</span>
+    {{/if}}
+</a>

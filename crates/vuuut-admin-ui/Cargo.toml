@@ -11,6 +11,7 @@ vuuut-mail = { workspace = true }
 vuuut-stripe = { workspace = true }
 csv = { workspace = true }
 chrono = { workspace = true }
+chrono-tz = { workspace = true }
 vuuut-routing = { workspace = true }
 sha2 = { workspace = true }
 hex = { workspace = true }

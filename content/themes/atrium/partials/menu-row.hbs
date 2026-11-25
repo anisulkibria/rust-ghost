@@ -1,0 +1,7 @@
+<a class="mrow" href="{{book_url}}"{{#if external}} target="_blank" rel="noopener"{{/if}}>
+    <span class="mrow-main"><b>{{name}}</b><small>{{summary}}</small></span>
+    <span class="mrow-dots" aria-hidden="true"></span>
+    <span class="mrow-meta">{{duration}}{{#if group}} · group{{/if}}</span>
+    <span class="mrow-price">{{price_label}}</span>
+    <span class="mrow-go" aria-hidden="true">{{> "icons/arrow"}}</span>
+</a>

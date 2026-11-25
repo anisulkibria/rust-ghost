@@ -4,8 +4,8 @@
 <a class="np-footer-name" href="{{@site.url}}">{{@site.title}}</a>
 {{#if @site.description}}<p>{{@site.description}}</p>{{/if}}
 <div class="np-footer-social">
-{{#if @site.twitter}}<a href="{{twitter_url @site.twitter}}" aria-label="X" rel="noopener">{{> "icon" name="x" size="16"}}</a>{{/if}}
-{{#if @site.facebook}}<a href="{{facebook_url @site.facebook}}" aria-label="Facebook" rel="noopener">{{> "icon" name="fb" size="16"}}</a>{{/if}}
+{{#if @site.twitter}}<a href="{{social_url type="twitter"}}" aria-label="X" rel="noopener">{{> "icon" name="x" size="16"}}</a>{{/if}}
+{{#if @site.facebook}}<a href="{{social_url type="facebook"}}" aria-label="Facebook" rel="noopener">{{> "icon" name="fb" size="16"}}</a>{{/if}}
 <a href="#/portal/signup" aria-label="Newsletter">{{> "icon" name="mail" size="16"}}</a>
 <a href="{{@site.url}}/rss/" aria-label="RSS">{{> "icon" name="rss" size="16"}}</a>
 </div>

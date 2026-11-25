@@ -1,0 +1,112 @@
+{{!< default}}
+<main id="main" class="home">
+    <section class="code-hero" aria-labelledby="hero-title">
+        <div class="wrap code-hero-grid">
+            <div class="code-hero-copy">
+                <p class="hero-label"><span aria-hidden="true">&gt;_</span> Online coding courses</p>
+                <h1 id="hero-title"{{#if @custom.hero_heading}} class="custom-heading"{{/if}}>{{#if @custom.hero_heading}}{{@custom.hero_heading}}{{else}}Learn to code.<br><em>Build what’s<br> next.</em>{{/if}}</h1>
+                <p class="hero-intro">{{#if @custom.hero_text}}{{@custom.hero_text}}{{else}}Learn JavaScript, Python, PHP, Rust, HTML and CSS through hands-on courses you can take at your own pace.{{/if}}</p>
+                <div class="hero-actions">
+                    <a class="btn" href="{{> "catalog-url"}}">Explore courses {{> "icons/arrow"}}</a>
+                    <a class="more" href="{{> "catalog-url"}}?price=free">Browse free courses</a>
+                </div>
+            </div>
+            <div class="code-hero-art">
+                <div class="code-window" aria-hidden="true">
+                    <div class="code-window-bar"><span class="window-dots"><i></i><i></i><i></i></span><span>hello.js</span><span>JS</span></div>
+                    <pre><code><span class="code-comment">// Start with one line.</span>
+<span class="code-keyword">const</span> message = <span class="code-string">'Hello, world!'</span>;
+console.<span class="code-method">log</span>(message);</code></pre>
+                    <div class="code-output"><span>&gt;</span> Hello, world!</div>
+                </div>
+                <nav class="stack-links" aria-label="Popular programming topics">
+                    <a href="{{> "catalog-url"}}?q=JavaScript"><span aria-hidden="true">JS</span> JavaScript</a>
+                    <a href="{{> "catalog-url"}}?q=Python"><span aria-hidden="true">Py</span> Python</a>
+                    <a href="{{> "catalog-url"}}?q=PHP"><span aria-hidden="true">php</span> PHP</a>
+                    <a href="{{> "catalog-url"}}?q=Rust"><span aria-hidden="true">Rs</span> Rust</a>
+                    <a href="{{> "catalog-url"}}?q=HTML"><span aria-hidden="true">&lt;&gt;</span> HTML</a>
+                    <a href="{{> "catalog-url"}}?q=CSS"><span aria-hidden="true">{ }</span> CSS</a>
+                </nav>
+            </div>
+        </div>
+    </section>
+
+    {{#get "courses" filter="featured:true" limit="1" as |featured|}}
+    {{#if featured}}
+    <section class="home-band" aria-labelledby="featured-title">
+        <div class="wrap">
+            <header class="home-band-head"><h2 id="featured-title">Featured course</h2><a class="more" href="{{> "catalog-url"}}">View all courses {{> "icons/arrow"}}</a></header>
+            {{#foreach featured}}{{> "course-row"}}{{/foreach}}
+        </div>
+    </section>
+    {{/if}}
+    {{/get}}
+
+    {{#get "courses" filter="featured:false+duration_minutes:>0+duration_minutes:<=60" limit="3" as |quick|}}
+    {{#if quick}}
+    <section class="home-band home-band-quick" aria-labelledby="quick-title">
+        <div class="wrap">
+            <header class="home-band-head"><h2 id="quick-title">Quick courses</h2><p>Learn a skill in an hour or less.</p></header>
+            <div class="course-rows">{{#foreach quick}}{{> "course-row"}}{{/foreach}}</div>
+        </div>
+    </section>
+    {{/if}}
+    {{/get}}
+
+    {{#get "courses" filter="featured:false+(duration_minutes:0,duration_minutes:>60)" order="newest" limit="3" as |latest|}}
+    {{#if latest}}
+    <section class="home-band home-band-dark" aria-labelledby="latest-title">
+        <div class="wrap">
+            <header class="home-band-head"><h2 id="latest-title">Recently published</h2><a class="more" href="{{> "catalog-url"}}?sort=newest">See what’s new {{> "icons/arrow"}}</a></header>
+            <div class="course-grid">{{#foreach latest}}{{> "course-card"}}{{/foreach}}</div>
+        </div>
+    </section>
+    {{/if}}
+    {{/get}}
+
+    {{#if @custom.show_categories}}
+    {{#get "course_categories" filter="count:>0" limit="12" as |topics|}}
+    {{#if topics}}
+    <section class="home-band" aria-labelledby="topics-title">
+        <div class="wrap">
+            <header class="home-band-head"><h2 id="topics-title">Explore by topic</h2></header>
+            <div class="topic-grid">{{#foreach topics}}
+                <a class="topic-card tint-{{tint}}" href="{{url}}">
+                    <span class="topic-icon" aria-hidden="true">{{> "icons/book"}}</span>
+                    <span><strong>{{name}}</strong><small>{{count}} course{{#match count "!=" 1}}s{{/match}}</small></span>
+                    {{> "icons/arrow"}}
+                </a>
+            {{/foreach}}</div>
+        </div>
+    </section>
+    {{/if}}
+    {{/get}}
+    {{/if}}
+
+    {{#if @custom.show_journal}}
+    {{#get "posts" limit="3" include="tags" as |journal|}}
+    {{#if journal}}
+    <section class="home-band home-band-journal" aria-labelledby="guides-title">
+        <div class="wrap">
+            <header class="home-band-head"><h2 id="guides-title">From the journal</h2></header>
+            <div class="post-grid">{{#foreach journal}}{{> "post-card"}}{{/foreach}}</div>
+        </div>
+    </section>
+    {{/if}}
+    {{/get}}
+    {{/if}}
+
+    <section class="home-band home-band-cta" aria-labelledby="start-title">
+        <div class="wrap start-grid">
+            <div class="start-panel">
+                <h2 id="start-title">{{#if @custom.cta_heading}}{{@custom.cta_heading}}{{else}}Ready to start coding?{{/if}}</h2>
+                <a class="btn" href="{{> "catalog-url"}}">Find your first course {{> "icons/arrow"}}</a>
+            </div>
+            <div class="start-details">
+                <p><span aria-hidden="true">{{> "icons/book"}}</span><strong>Choose a course for your level</strong></p>
+                <p><span aria-hidden="true">{{> "icons/clock"}}</span><strong>Make progress at your own pace</strong></p>
+                <p><span aria-hidden="true">{{> "icons/check"}}</span><strong>Put what you learn into practice</strong></p>
+            </div>
+        </div>
+    </section>
+</main>

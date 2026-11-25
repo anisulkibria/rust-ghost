@@ -28,6 +28,8 @@ pub mod explore;
 pub mod federation;
 pub mod firewall;
 pub mod ecom;
+pub mod lms;
+pub mod booking;
 pub mod payments;
 pub mod forms;
 pub mod member_events;

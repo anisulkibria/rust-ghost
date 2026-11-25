@@ -1,0 +1,9 @@
+<a class="post-card" href="{{url}}">
+    {{#if feature_image}}<span class="pc-art"><img src="{{img_url feature_image size="m"}}" alt="" loading="lazy"></span>{{/if}}
+    <span class="pc-body">
+        {{#primary_tag}}<span class="pc-tag">{{name}}</span>{{/primary_tag}}
+        <span class="pc-title">{{title}}</span>
+        <span class="pc-excerpt">{{excerpt words="24"}}</span>
+        <span class="pc-meta">{{date format="D MMM YYYY"}} · {{reading_time}}</span>
+    </span>
+</a>

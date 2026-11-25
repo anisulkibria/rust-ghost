@@ -62,7 +62,6 @@ pub(crate) async fn ecom_settings_page(State(state): State<AppState>, headers: H
     let s = store_settings(&state);
     let rates = repo::shipping_rates(&state.db).await;
     let site_title = state.settings.get_str("title").unwrap_or_default();
-    let cur: String = rules::CURRENCIES.iter().map(|c| format!(r#"<option value="{c}"{s}>{c}</option>"#, s = if *c == s.currency { " selected" } else { "" })).collect();
     let rate_rows: String = rates
         .iter()
         .map(|r| {
@@ -88,7 +87,7 @@ pub(crate) async fn ecom_settings_page(State(state): State<AppState>, headers: H
 <div class="card padded ec-set rise" style="--i:2">
 {open}
 <div class="ec-grid2 ec-set-fields"><label class="field"><input name="ecom_store_name" value="{name}" placeholder=" " maxlength="80"><span>Store name (blank uses “{site}”)</span></label>
-<label class="field fixed"><select name="ecom_currency">{cur}</select><span>Currency</span>{SELECT_CARET}</label></div>
+<p>Currency <a href="/ghost/settings/payments/#currency">{currency}</a></p></div>
 <div class="ec-set-fields"><label class="field"><textarea name="ecom_intro" rows="2" placeholder=" " maxlength="400">{intro}</textarea><span>Welcome line on the store's home</span></label>
 <div class="ec-grid2"><label class="field"><input name="ecom_per_page" type="number" min="1" step="1" value="{per}" placeholder="{default_per}"><span>Products per page</span></label>
 <label class="field"><input name="ecom_low_stock" value="{low}" type="number" min="0" placeholder=" "><span>“Low stock” at or under</span></label></div></div>
@@ -143,6 +142,7 @@ pub(crate) async fn ecom_settings_page(State(state): State<AppState>, headers: H
         name = esc(&s.store_name),
         site = esc(&site_title),
         intro = esc(&s.intro),
+        currency = esc(&s.currency),
         per = s.per_page,
         default_per = rules::DEFAULT_PER_PAGE,
         low = s.low_stock,
@@ -253,7 +253,6 @@ pub(crate) async fn ecom_settings_save(State(state): State<AppState>, headers: H
         ("ecom_enabled", serde_json::json!(s.enabled)),
         ("ecom_store_name", serde_json::json!(s.store_name)),
         ("ecom_intro", serde_json::json!(s.intro)),
-        ("ecom_currency", serde_json::json!(s.currency)),
         ("ecom_tax_rate", serde_json::json!(s.tax_rate_bp)),
         ("ecom_tax_included", serde_json::json!(s.tax_included)),
         ("ecom_tax_shipping", serde_json::json!(s.tax_shipping)),

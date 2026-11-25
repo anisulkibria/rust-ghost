@@ -1,5 +1,6 @@
 //! Payment provider settings and checkout methods for the storefront.
 use super::*;
+use vuuut_core::currency;
 
 const BASE: &str = "/ghost/settings/payments/";
 
@@ -339,7 +340,7 @@ pub(crate) async fn page(
     let polar_status = provider_status(&state, PaymentMethod::Polar);
     let gumroad_status = provider_status(&state, PaymentMethod::Gumroad);
     let webhook = |name: &str| esc(&format!("{}/members/webhooks/{name}/", state.site_url()));
-    let body = format!(r#"{head}{banner}{stripe}
+    let body = format!(r#"{head}{banner}{currency_settings}{stripe}
 <div class="section" id="polar">Polar</div>
 <form class="card padded" method="post" action="{BASE}polar/">
 <p>{polar_status}</p>
@@ -387,44 +388,74 @@ pub(crate) async fn page(
         cod = checkbox("manual", "Cash on delivery", methods.pay_manual),
         transfer = checkbox("bank", "Bank transfer", methods.pay_bank),
         bank_details = esc(&methods.bank_details),
+        currency_settings = currency_card(&state),
         tips = tips_card(&state),
     );
     page_for_role(actor.role, "Payments", "settings", Some(&actor.user), &body, true).into_response()
 }
 
+fn currency_card(state: &AppState) -> String {
+    let get = |key: &str| state.settings.get_str(key);
+    let selected = currency::preferred(get);
+    let legacy_note = if currency::configured(get).is_none() {
+        "<p class=\"muted\">Save a currency to apply it across the site.</p>"
+    } else {
+        ""
+    };
+    format!(r#"<div class="section" id="currency">Currency</div>
+<form class="card padded" method="post" action="{BASE}currency/">
+<p class="muted">Sets the currency for store prices and checkout, courses, listings, tips, and new membership tiers. Changing it keeps the numeric price and changes its denomination.</p>
+{legacy_note}
+<label class="field fixed"><select name="currency">{options}</select><span>Site currency</span>{SELECT_CARET}</label>
+<button class="btn" type="submit">Save currency</button>
+</form>"#, options = select_options(currency::OPTIONS, &selected))
+}
+
+pub(crate) async fn save_currency(
+    State(state): State<AppState>, headers: HeaderMap, Form(form): Form<HashMap<String, String>>,
+) -> Response {
+    if let Err(response) = guard_write(&state, &headers).await { return response; }
+    let back = format!("{BASE}#currency");
+    let code = form.get("currency").map(String::as_str).unwrap_or_default();
+    match state.settings.set_site_currency(&state.db, code).await {
+        Ok(()) => crate::ecom::flash_to(&back, "ok", "Site currency saved."),
+        Err(vuuut_core::GhostError::BadRequest(message)) => crate::ecom::flash_to(&back, "error", &message),
+        Err(error) => {
+            tracing::error!("saving site currency: {error}");
+            crate::ecom::flash_to(&back, "error", "The site currency could not be saved.")
+        }
+    }
+}
+
 fn tips_card(state: &AppState) -> String {
-    let currency = state.settings.get_str("donations_currency").unwrap_or_else(|| "USD".into());
-    let cents = state.settings.get_str("donations_suggested_amount")
+    let code = currency::donations(|key| state.settings.get_str(key)).unwrap_or_else(|| currency::DEFAULT.into());
+    let minor_amount = state.settings.get_str("donations_suggested_amount")
         .and_then(|value| value.parse::<i64>().ok()).unwrap_or_default();
     let link = esc(&format!("{}/#/portal/support", state.site_url()));
     format!(r#"<div class="section" id="tips">Tips &amp; donations</div>
 <form class="card padded" method="post" action="{BASE}tips/">
 <p class="muted">Tips and donations use Stripe.</p>
 <div class="ec-grid2">
-<label class="field fixed"><select name="currency">{currencies}</select><span>Currency</span>{SELECT_CARET}</label>
+<p class="muted">Tip currency <a href="{BASE}#currency">{code}</a></p>
 <label class="field"><input name="amount" type="number" min="0" max="10000" step="1" value="{amount}" placeholder=" "><span>Suggested amount</span></label>
 </div>
 <button class="btn" type="submit">Save tip settings</button>
 <a class="btn tonal" href="{link}" target="_blank" rel="noopener">Open tips page</a>
-</form>"#, currencies = select_options(CURRENCIES, &currency), amount = cents / 100)
+</form>"#, code = esc(&code), amount = minor_amount / currency::minor_unit_scale(&code.to_ascii_uppercase()))
 }
 
 pub(crate) async fn save_tips(
     State(state): State<AppState>, headers: HeaderMap, Form(form): Form<HashMap<String, String>>,
 ) -> Response {
     if let Err(response) = guard_write(&state, &headers).await { return response; }
-    let currency = form.get("currency").map(String::as_str).unwrap_or("");
+    let code = currency::donations(|key| state.settings.get_str(key)).unwrap_or_else(|| currency::DEFAULT.into());
     let amount = form.get("amount").map(|value| value.trim()).unwrap_or("0");
     let amount = if amount.is_empty() { Some(0) } else { amount.parse::<i64>().ok() };
     let Some(amount) = amount.filter(|value| (0..=10_000).contains(value)) else {
         return crate::ecom::flash_to("/ghost/settings/payments/#tips", "error", "Enter a suggested amount from 0 to 10,000.");
     };
-    if !CURRENCIES.iter().any(|(code, _)| *code == currency) {
-        return crate::ecom::flash_to("/ghost/settings/payments/#tips", "error", "Choose a currency.");
-    }
     write_settings(&state, "tips", &[
-        ("donations_currency", serde_json::json!(currency)),
-        ("donations_suggested_amount", serde_json::json!(amount * 100)),
+        ("donations_suggested_amount", serde_json::json!(amount * currency::minor_unit_scale(&code.to_ascii_uppercase()))),
     ]).await
 }
 

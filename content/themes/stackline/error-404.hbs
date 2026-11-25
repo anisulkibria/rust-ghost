@@ -1,0 +1,3 @@
+{{!< default}}
+<main id="main" class="error-page wrap"><p class="eyebrow">404</p><h1>This page wandered off</h1><p class="lede">The lesson may have moved. Try the catalogue instead.</p>
+<form class="hero-search" method="get" action="{{#if @custom.catalog_address}}{{@custom.catalog_address}}{{else}}/courses/{{/if}}" role="search">{{> "icons/search"}}<input type="search" name="q" placeholder="Search courses" aria-label="Search courses"><button class="btn" type="submit">Search</button></form></main>

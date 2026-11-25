@@ -5,6 +5,8 @@ mod analytics;
 pub mod builder_site;
 // The public directory (Tools → Directory & Classified Listings).
 mod directory;
+mod lms;
+mod booking;
 // The online store (Tools → E-commerce & Online Stores).
 mod shop;
 mod images;
@@ -42,7 +44,9 @@ pub fn site_router(state: AppState) -> Router {
     Router::new()
         .fallback_service(inner)
         .layer(axum::middleware::from_fn_with_state(state.clone(), shop::addresses))
-        .layer(axum::middleware::from_fn_with_state(state, directory::addresses))
+        .layer(axum::middleware::from_fn_with_state(state.clone(), directory::addresses))
+        .layer(axum::middleware::from_fn_with_state(state.clone(), lms::addresses))
+        .layer(axum::middleware::from_fn_with_state(state, booking::addresses))
 }
 
 fn site_routes(state: AppState) -> Router {
@@ -59,6 +63,10 @@ fn site_routes(state: AppState) -> Router {
         .merge(vuuut_api::social_media::share_router())
         // Tools → Directory & Classified Listings: the public directory.
         .merge(directory::router())
+        // Tools → LMS & Online Courses: the catalogue at /courses/.
+        .merge(lms::router())
+        // Tools → Booking & Appointment Scheduling: /book/.
+        .merge(booking::router())
         // Tools → E-commerce & Online Stores: the storefront at /shop/.
         .merge(shop::router())
         .route("/assets/{*path}", get(routes::theme_asset))

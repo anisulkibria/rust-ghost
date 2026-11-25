@@ -1,0 +1,7 @@
+<a class="pcard" href="{{url}}">
+    {{#if feature_image}}<span class="pcard-art"><img src="{{img_url feature_image size="m"}}" alt="" loading="lazy"></span>{{/if}}
+    {{#primary_tag}}<span class="kicker">{{name}}</span>{{/primary_tag}}
+    <span class="pcard-t">{{title}}</span>
+    <span class="pcard-x">{{excerpt words="22"}}</span>
+    <span class="pcard-m">{{date format="D MMM YYYY"}} · {{reading_time}}</span>
+</a>

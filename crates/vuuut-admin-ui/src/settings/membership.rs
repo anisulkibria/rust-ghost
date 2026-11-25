@@ -49,13 +49,6 @@ pub(crate) fn parse_price_cents(raw: &str) -> Option<i64> {
     cleaned.parse::<f64>().ok().map(|v| (v * 100.0).round() as i64).filter(|c| *c > 0)
 }
 
-pub(crate) fn format_price_input(cents: Option<i64>) -> String {
-    match cents {
-        Some(c) if c > 0 => format!("{:.2}", c as f64 / 100.0),
-        _ => String::new(),
-    }
-}
-
 pub(crate) async fn tier_benefits(state: &AppState, tier_id: &str) -> Vec<String> {
     sqlx::query_scalar::<_, String>(
         "SELECT b.name FROM benefits b JOIN products_benefits pb ON pb.benefit_id = b.id \
@@ -114,11 +107,12 @@ pub(crate) async fn tier_create(State(state): State<AppState>, headers: HeaderMa
     let id = vuuut_core::ids::new_id();
     let now = vuuut_core::dates::now_db();
     let slug = format!("tier-{}", &id[..8]);
+    let currency = vuuut_core::currency::preferred(|key| state.settings.get_str(key)).to_ascii_lowercase();
     let res = sqlx::query(
         "INSERT INTO products (id, name, slug, active, visibility, type, currency, created_at, updated_at) \
-         VALUES (?, 'New tier', ?, 0, 'public', 'paid', 'usd', ?, ?)",
+         VALUES (?, 'New tier', ?, 0, 'public', 'paid', ?, ?, ?)",
     )
-    .bind(&id).bind(&slug).bind(&now).bind(&now)
+    .bind(&id).bind(&slug).bind(&currency).bind(&now).bind(&now)
     .execute(&state.db).await;
     match res {
         Ok(_) => Redirect::to(&format!("/ghost/memberships/settings/tiers/{id}/")).into_response(),
@@ -168,6 +162,12 @@ pub(crate) async fn tier_edit_page(
         "Connect Stripe on the Membership screen before setting prices — without it a paid tier cannot be sold.".to_string()
     };
 
+    let tier_currency = currency.as_deref().unwrap_or("usd");
+    let tier_code = tier_currency.to_ascii_uppercase();
+    let currency_options: Vec<_> = vuuut_core::currency::OPTIONS.iter()
+        .map(|(code, label)| (code.to_ascii_lowercase(), *label)).collect();
+    let currency_options: Vec<_> = currency_options.iter()
+        .map(|(code, label)| (code.as_str(), *label)).collect();
     let price_fields = if is_free {
         String::new()
     } else {
@@ -185,12 +185,9 @@ pub(crate) async fn tier_edit_page(
 </div></div>
 </div>"#,
             coin = svg("chart"),
-            monthly = esc(&format_price_input(monthly)),
-            yearly = esc(&format_price_input(yearly)),
-            cur_opts = select_options(
-                &[("usd", "USD $"), ("eur", "EUR €"), ("gbp", "GBP £"), ("aud", "AUD $"), ("cad", "CAD $"), ("inr", "INR ₹")],
-                &currency.clone().unwrap_or_else(|| "usd".into())
-            ),
+            monthly = esc(&monthly.map(|price| vuuut_core::ecom::money_input(price, &tier_code)).unwrap_or_default()),
+            yearly = esc(&yearly.map(|price| vuuut_core::ecom::money_input(price, &tier_code)).unwrap_or_default()),
+            cur_opts = select_options(&currency_options, tier_currency),
             car = SELECT_CARET,
             trial = trial,
             price_note = price_note,
@@ -273,9 +270,15 @@ pub(crate) async fn tier_edit_save(
         return tier_flash(&tid, "error", "A tier needs a name.");
     }
     let is_free = ttype == "free";
-    let currency = if form.currency.trim().is_empty() { "usd".to_string() } else { form.currency.trim().to_lowercase() };
-    let monthly = if is_free { None } else { parse_price_cents(&form.monthly_price) };
-    let yearly = if is_free { None } else { parse_price_cents(&form.yearly_price) };
+    let currency = if form.currency.trim().is_empty() { old_currency.clone().unwrap_or_else(|| "usd".into()) } else { form.currency.trim().to_ascii_lowercase() };
+    let parse = |raw| parse_price_cents(raw).and_then(|value| vuuut_core::currency::fixed_price_to_minor(value, &currency.to_ascii_uppercase()));
+    let monthly = if is_free { None } else { parse(&form.monthly_price) };
+    let yearly = if is_free { None } else { parse(&form.yearly_price) };
+    if !is_free && vuuut_core::ecom::zero_decimal(&currency.to_ascii_uppercase())
+        && [(&form.monthly_price, monthly), (&form.yearly_price, yearly)].into_iter().any(|(raw, value)| parse_price_cents(raw).is_some() && value.is_none())
+    {
+        return tier_flash(&tid, "error", "Enter whole prices for this currency.");
+    }
     let trial: i64 = form.trial_days.trim().parse().unwrap_or(0).max(0);
 
     let now = vuuut_core::dates::now_db();
@@ -1156,19 +1159,12 @@ pub(crate) async fn membership_save(State(state): State<AppState>, headers: Head
 
     // Accept the tip fields from older versions of the membership form.
     if form.contains_key("donations_currency") {
-        let currency = one_of(
-            get("donations_currency"),
-            &CURRENCIES.iter().map(|(c, _)| *c).collect::<Vec<_>>(),
-            "USD".into(),
-        );
-        // Shown in the major unit, stored in the minor one, and capped where
-        // Stripe caps a preset amount.
+        let currency = vuuut_core::currency::donations(|key| state.settings.get_str(key))
+            .unwrap_or_else(|| vuuut_core::currency::DEFAULT.into());
         let amount = get("donations_suggested_amount").trim().parse::<i64>().unwrap_or(0);
-        let cents = amount.clamp(0, 10_000) * 100;
-        ok &= state.settings.set(&state.db, "donations_currency", &serde_json::json!(currency)).await.is_ok();
-        ok &= state
-            .settings
-            .set(&state.db, "donations_suggested_amount", &serde_json::json!(cents))
+        let minor_amount = amount.clamp(0, 10_000) * vuuut_core::currency::minor_unit_scale(&currency.to_ascii_uppercase());
+        ok &= state.settings
+            .set(&state.db, "donations_suggested_amount", &serde_json::json!(minor_amount))
             .await
             .is_ok();
     }

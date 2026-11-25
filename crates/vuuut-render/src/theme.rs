@@ -397,8 +397,9 @@ pub fn load_and_activate(
     // online store renders these, when a theme has them, in place of its own
     // markup (see `vuuut_front::shop`). They take a layout like any template.
     // The directory does the same with `directory/*.hbs` (see
-    // `vuuut_front::directory`).
-    for app in ["shop", "directory"] {
+    // `vuuut_front::directory`), and the LMS with `lms/*.hbs`
+    // (`vuuut_front::lms`).
+    for app in ["shop", "directory", "lms", "booking"] {
     let shop_dir = theme_dir.join(app);
     if shop_dir.is_dir() {
         for entry in walkdir::WalkDir::new(&shop_dir).max_depth(1) {

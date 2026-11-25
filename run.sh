@@ -182,6 +182,7 @@ status)
         echo "not running"
     fi
     ;;
+seed-languages) "$BIN" seed-languages ;;
 build) cargo build --release ;;
 upgrade) cargo build --locked --release; "$0" restart ;;
 rebuild) cargo clean && cargo build --release ;;
@@ -189,5 +190,5 @@ rebuild) cargo clean && cargo build --release ;;
 # reach the tests without being typed each time.
 test) shift; cargo test --workspace "$@" ;;
 log) tail -f "$LOG" ;;
-*) echo "usage: $0 start|stop|restart|status|build|upgrade|rebuild|test|log   (settings: .env, see .env.example)" ;;
+*) echo "usage: $0 start|stop|restart|status|build|upgrade|rebuild|test|log|seed-languages   (settings: .env, see .env.example)" ;;
 esac

@@ -19,6 +19,11 @@ pub enum Command {
     Systemd(Args),
     SeedDemo,
     SeedDirectory,
+    SeedLms,
+    SeedBooking,
+    /// `seed-theme-demo --demo academy|studio`: a theme demo from Tools → Dummy content.
+    SeedThemeDemo(String),
+    SeedLanguages,
     /// `import-content FILE [--keep-settings]`: a Ghost export (a theme's
     /// demo/*.json) through the same importer as Universal import.
     ImportContent(Args),
@@ -77,6 +82,10 @@ pub fn parse() -> Command {
         "systemd" | "service" => Command::Systemd(args),
         "seed-demo" => Command::SeedDemo,
         "seed-directory" => Command::SeedDirectory,
+        "seed-lms" => Command::SeedLms,
+        "seed-booking" => Command::SeedBooking,
+        "seed-theme-demo" => Command::SeedThemeDemo(args.get("demo").unwrap_or("studio").to_string()),
+        "seed-languages" => Command::SeedLanguages,
         "import-content" => {
             let mut a = args;
             if let Some(file) = rest.iter().find(|r| !r.starts_with("--")) {
@@ -104,6 +113,10 @@ COMMANDS
     systemd          Print a systemd unit for running Vuuut as a service
     seed-demo        Fill the site with demo content, then exit
     seed-directory   Add the directory demo (places, categories, photos), then exit
+    seed-lms         Add the sample academy (courses, lessons, quizzes, students), then exit
+    seed-booking     Add the sample business (services, staff, hours, bookings), then exit
+    seed-theme-demo  --demo studio|academy: the Atrium or Lantern theme demo, removable from Tools → Dummy content
+    seed-languages   Add the Arabic, English and French sample courses, then exit
     import-content FILE  Import a Ghost export (e.g. a theme's demo/*.json); --with-settings also loads its menus
     version          Print the version
 

@@ -37,6 +37,11 @@ fn table(kind: Kind) -> Option<&'static str> {
         Kind::Products => Some("ecom_products"),
         Kind::ListingCategories => Some("directory_categories"),
         Kind::Listings => Some("directory_listings"),
+        Kind::Courses => Some("lms_courses"),
+        Kind::CourseCategories => Some("lms_categories"),
+        Kind::Services => Some("booking_services"),
+        Kind::ServiceCategories => Some("booking_categories"),
+        Kind::BookingStaff => Some("booking_staff"),
         Kind::Navigation => None,
     }
 }
@@ -123,6 +128,19 @@ async fn current_fingerprint(pool: &Db, kind: Kind, id: &str) -> Result<Option<S
         Kind::Listings => {
             let Some(l) = repos::directory::find(pool, id).await? else { return Ok(None) };
             Some(json!([l.updated_at, l.status, l.title, l.description, l.description_lexical, l.featured, l.hours, l.image, l.gallery, l.category_id, l.website, l.phone]))
+        }
+        // Every save through the editors moves `updated_at`; the address and
+        // name catch an edit made within the same second.
+        Kind::Courses | Kind::CourseCategories | Kind::Services | Kind::ServiceCategories | Kind::BookingStaff => {
+            let (table, name) = match kind {
+                Kind::Courses => ("lms_courses", "title"),
+                Kind::CourseCategories => ("lms_categories", "name"),
+                Kind::Services => ("booking_services", "name"),
+                Kind::ServiceCategories => ("booking_categories", "name"),
+                _ => ("booking_staff", "name"),
+            };
+            sqlx::query_as::<_, (String, String, String)>(&format!("SELECT updated_at, slug, {name} FROM {table} WHERE id = ?"))
+                .bind(id).fetch_optional(pool).await.map_err(dberr)?.map(|row| json!([row.0, row.1, row.2]))
         }
         Kind::Navigation => None,
     };
@@ -282,7 +300,24 @@ struct Item {
 
 /// The order removal goes in: what depends on others first, so a tag is
 /// judged after the dummy posts that used it are gone.
-const REMOVAL_ORDER: [Kind; 9] = [Kind::Posts, Kind::Pages, Kind::Products, Kind::Listings, Kind::ListingCategories, Kind::Members, Kind::Navigation, Kind::Tags, Kind::Users];
+const REMOVAL_ORDER: [Kind; vuuut_core::dummies::KINDS] = [
+    Kind::Posts,
+    Kind::Pages,
+    // A course before its store product and its demo students.
+    Kind::Courses,
+    Kind::Products,
+    Kind::Listings,
+    Kind::ListingCategories,
+    Kind::CourseCategories,
+    // Services (and their sample bookings) before the team and categories.
+    Kind::Services,
+    Kind::BookingStaff,
+    Kind::ServiceCategories,
+    Kind::Members,
+    Kind::Navigation,
+    Kind::Tags,
+    Kind::Users,
+];
 
 /// Remove one batch's dummies, or every batch's when `batch` is `None`.
 pub async fn remove(pool: &Db, settings: &SettingsCache, batch: Option<&str>) -> Result<Removal> {
@@ -353,6 +388,16 @@ async fn remove_row(pool: &Db, item: &Item) -> Result<Outcome> {
         }
         Kind::Listings => repos::directory::delete(pool, id).await?,
         Kind::ListingCategories => repos::directory::delete_category(pool, id).await?,
+        Kind::Courses => repos::lms::delete_course(pool, id).await?,
+        Kind::CourseCategories => repos::lms::delete_category(pool, id).await?,
+        Kind::Services => {
+            // Only sample bookings remain here: a real customer's keeps the
+            // service (see `in_use`).
+            sqlx::query("DELETE FROM booking_bookings WHERE service_id = ?").bind(id).execute(pool).await.map_err(dberr)?;
+            repos::booking::delete_service(pool, id).await?;
+        }
+        Kind::BookingStaff => repos::booking::delete_staff(pool, id).await?,
+        Kind::ServiceCategories => repos::booking::delete_category(pool, id).await?,
         Kind::Members => {
             for sql in [
                 "DELETE FROM members_newsletters WHERE member_id = ?",
@@ -386,7 +431,19 @@ async fn in_use(pool: &Db, kind: Kind, id: &str) -> Result<bool> {
             "SELECT COUNT(*) FROM members_stripe_customers WHERE member_id = ?",
             "SELECT COUNT(*) FROM ecom_customers WHERE member_id = ?",
             "SELECT COUNT(*) FROM members_labels WHERE member_id = ?",
+            "SELECT COUNT(*) FROM lms_enrollments WHERE member_id = ?",
+            "SELECT COUNT(*) FROM booking_bookings WHERE member_id = ?",
         ],
+        // Enrolled by somebody who is not a demo student.
+        Kind::Courses => &["SELECT COUNT(*) FROM lms_enrollments WHERE course_id = ? AND member_id NOT IN (SELECT item_id FROM dummy_items WHERE kind = 'members')"],
+        Kind::CourseCategories => &["SELECT COUNT(*) FROM lms_courses WHERE category_id = ?"],
+        // Booked by a real customer: sample customers are all @example.com.
+        Kind::Services => &["SELECT COUNT(*) FROM booking_bookings WHERE service_id = ? AND email NOT LIKE '%@example.com'"],
+        Kind::BookingStaff => &[
+            "SELECT COUNT(*) FROM booking_service_staff WHERE staff_id = ?",
+            "SELECT COUNT(*) FROM booking_bookings WHERE staff_id = ? AND email NOT LIKE '%@example.com'",
+        ],
+        Kind::ServiceCategories => &["SELECT COUNT(*) FROM booking_services WHERE category_id = ?"],
         // A category somebody's own listing uses stays.
         Kind::ListingCategories => &["SELECT COUNT(*) FROM directory_listings WHERE category_id = ?"],
         Kind::Listings => &[],

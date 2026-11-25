@@ -105,7 +105,7 @@
 <section class="pl-wrap pl-section" aria-labelledby="pl-rel-h">
 <div class="pl-head"><div><h2 id="pl-rel-h" class="pl-h2">Pairs well with</h2></div><div class="pl-head-end">{{> "rail-buttons"}}</div></div>
 <div class="pl-rail" data-pl-rail>
-{{#foreach related}}{{> "product-card" add=@root.shop.add_url}}{{/foreach}}
+{{#foreach related}}{{> "product-card" add=../shop.add_url}}{{/foreach}}
 </div>
 </section>
 {{/if}}

@@ -37,11 +37,47 @@ pub enum Kind {
     Products,
     ListingCategories,
     Listings,
+    /// Online courses with lessons, quizzes, students and reviews. Their
+    /// course categories, demo students and store products come with them.
+    Courses,
+    CourseCategories,
+    /// Bookable services. Their categories, team and sample bookings come
+    /// with them.
+    Services,
+    ServiceCategories,
+    BookingStaff,
     Navigation,
 }
 
+/// How many kinds there are.
+pub const KINDS: usize = 14;
+
+/// How many sample courses and services the catalogues hold.
+pub const SAMPLE_COURSES: u32 = 7;
+pub const SAMPLE_SERVICES: u32 = 8;
+
 impl Kind {
-    pub const ALL: [Kind; 9] = [Kind::Tags, Kind::Users, Kind::Posts, Kind::Pages, Kind::Members, Kind::Products, Kind::ListingCategories, Kind::Listings, Kind::Navigation];
+    pub const ALL: [Kind; KINDS] = [
+        Kind::Tags,
+        Kind::Users,
+        Kind::Posts,
+        Kind::Pages,
+        Kind::Members,
+        Kind::Products,
+        Kind::ListingCategories,
+        Kind::Listings,
+        Kind::Courses,
+        Kind::CourseCategories,
+        Kind::Services,
+        Kind::ServiceCategories,
+        Kind::BookingStaff,
+        Kind::Navigation,
+    ];
+
+    /// Kinds made only alongside another kind, never asked for on their own.
+    pub fn is_companion(self) -> bool {
+        matches!(self, Kind::CourseCategories | Kind::ServiceCategories | Kind::BookingStaff)
+    }
 
     pub fn key(self) -> &'static str {
         match self {
@@ -53,6 +89,11 @@ impl Kind {
             Kind::Products => "products",
             Kind::ListingCategories => "listing_categories",
             Kind::Listings => "listings",
+            Kind::Courses => "courses",
+            Kind::CourseCategories => "course_categories",
+            Kind::Services => "services",
+            Kind::ServiceCategories => "service_categories",
+            Kind::BookingStaff => "booking_staff",
             Kind::Navigation => "navigation",
         }
     }
@@ -71,6 +112,11 @@ impl Kind {
             Kind::Products => "Store products",
             Kind::ListingCategories => "Directory categories",
             Kind::Listings => "Directory listings",
+            Kind::Courses => "Courses",
+            Kind::CourseCategories => "Course categories",
+            Kind::Services => "Booking services",
+            Kind::ServiceCategories => "Service categories",
+            Kind::BookingStaff => "Booking team",
             Kind::Navigation => "Navigation menus",
         }
     }
@@ -86,6 +132,11 @@ impl Kind {
             Kind::Products => ("product", "products"),
             Kind::ListingCategories => ("directory category", "directory categories"),
             Kind::Listings => ("directory listing", "directory listings"),
+            Kind::Courses => ("course", "courses"),
+            Kind::CourseCategories => ("course category", "course categories"),
+            Kind::Services => ("bookable service", "bookable services"),
+            Kind::ServiceCategories => ("service category", "service categories"),
+            Kind::BookingStaff => ("team member", "team members"),
             Kind::Navigation => ("menu link", "menu links"),
         }
     }
@@ -101,6 +152,11 @@ impl Kind {
             Kind::Products => "Store products with prices, physical and digital.",
             Kind::ListingCategories => "Restaurants, Cafés, Hotels and more, with pictures.",
             Kind::Listings => "Places in four cities with hours, maps, photos and contact details. Switches the public directory on.",
+            Kind::Courses => "Complete courses with lessons, quizzes, assignments, students and reviews; paid ones get a store product. Switches the course catalogue on.",
+            Kind::CourseCategories => "Made with courses.",
+            Kind::Services => "A wellness studio: massage, facials, classes and consultations, with its team, weekly hours and two weeks of sample bookings. Switches booking on.",
+            Kind::ServiceCategories => "Made with services.",
+            Kind::BookingStaff => "Made with services.",
             Kind::Navigation => "Adds links to published pages or public tags.",
         }
     }
@@ -118,6 +174,9 @@ impl Kind {
             Kind::Products => PRODUCTS.len() as u32,
             Kind::ListingCategories => LISTING_CATEGORIES.len() as u32,
             Kind::Listings => LISTINGS.len() as u32,
+            Kind::Courses => SAMPLE_COURSES,
+            Kind::Services => SAMPLE_SERVICES,
+            Kind::CourseCategories | Kind::ServiceCategories | Kind::BookingStaff => 0,
             Kind::Navigation => 1,
         }
     }
@@ -133,6 +192,9 @@ impl Kind {
             Kind::Products => 6,
             Kind::ListingCategories => LISTING_CATEGORIES.len() as u32,
             Kind::Listings => LISTINGS.len() as u32,
+            // Courses and a booking business change what the site is, so
+            // they come from their theme demos (see [`Demo`]), not here.
+            Kind::Courses | Kind::CourseCategories | Kind::Services | Kind::ServiceCategories | Kind::BookingStaff => 0,
             Kind::Navigation => 1,
         }
     }
@@ -141,7 +203,7 @@ impl Kind {
 /// What one request generates.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Plan {
-    counts: [u32; 9],
+    counts: [u32; KINDS],
     /// Feature images on posts, from Unsplash. Off for a site that must not
     /// load anything from another host.
     pub images: bool,
@@ -149,15 +211,77 @@ pub struct Plan {
     pub publish: bool,
     /// Whether this is the one-click demo, for the record it leaves.
     pub full: bool,
+    /// A theme demo: the plan also writes that theme's own journal, pages,
+    /// menu and settings.
+    pub demo: Option<Demo>,
+}
+
+/// A ready-made site for one of the bundled themes that needs a platform
+/// tool's content to look like itself.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Demo {
+    /// Lantern: an online academy.
+    Academy,
+    /// Atrium: an appointment business.
+    Studio,
+}
+
+impl Demo {
+    pub const ALL: [Demo; 2] = [Demo::Academy, Demo::Studio];
+
+    pub fn key(self) -> &'static str {
+        match self {
+            Demo::Academy => "academy",
+            Demo::Studio => "studio",
+        }
+    }
+
+    pub fn from_key(key: &str) -> Option<Demo> {
+        Demo::ALL.into_iter().find(|d| d.key() == key)
+    }
+
+    /// The bundled theme it is made for.
+    pub fn theme(self) -> &'static str {
+        match self {
+            Demo::Academy => "lantern",
+            Demo::Studio => "atrium",
+        }
+    }
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Demo::Academy => "Online academy",
+            Demo::Studio => "Wellness studio",
+        }
+    }
+
+    pub fn hint(self) -> &'static str {
+        match self {
+            Demo::Academy => "Seven complete courses with lessons, quizzes, students and reviews, paid courses in the store, plus a learning journal, pages and menu.",
+            Demo::Studio => "A booking business: eight services, a team of four with weekly hours, two weeks of bookings, a wellness journal, About and Visit pages, menu and the theme's settings.",
+        }
+    }
+
+    /// What the demo makes.
+    pub fn plan(self, images: bool) -> Plan {
+        let mut counts = [0; KINDS];
+        let mut set = |kind: Kind, n: u32| counts[Kind::ALL.iter().position(|k| *k == kind).unwrap_or(0)] = n;
+        match self {
+            Demo::Academy => set(Kind::Courses, SAMPLE_COURSES),
+            Demo::Studio => set(Kind::Services, SAMPLE_SERVICES),
+        }
+        set(Kind::Navigation, 1);
+        Plan { counts, images, publish: true, full: false, demo: Some(self) }
+    }
 }
 
 impl Plan {
     pub fn full(images: bool) -> Plan {
-        let mut counts = [0; 9];
+        let mut counts = [0; KINDS];
         for (i, kind) in Kind::ALL.into_iter().enumerate() {
             counts[i] = kind.full();
         }
-        Plan { counts, images, publish: true, full: true }
+        Plan { counts, images, publish: true, full: true, demo: None }
     }
 
     /// A custom plan from the form's fields: `count_<kind>` for each kind,
@@ -165,7 +289,7 @@ impl Plan {
     /// and anything unreadable is zero — a forged field can only ask for less.
     pub fn custom(fields: &[(String, String)]) -> Result<Plan, String> {
         let field = |name: &str| fields.iter().rev().find(|(k, _)| k == name).map(|(_, v)| v.trim().to_string());
-        let mut counts = [0; 9];
+        let mut counts = [0; KINDS];
         for (i, kind) in Kind::ALL.into_iter().enumerate() {
             let raw = field(&format!("count_{}", kind.key())).unwrap_or_default();
             let n = if kind == Kind::Navigation {
@@ -180,6 +304,7 @@ impl Plan {
             images: matches!(field("images").as_deref(), Some("on" | "1" | "true")),
             publish: field("status").as_deref() != Some("draft"),
             full: false,
+            demo: None,
         };
         if plan.is_empty() {
             return Err("Choose at least one kind of content and how many to make.".into());
@@ -644,7 +769,7 @@ pub enum Block {
 }
 
 impl Block {
-    fn node(&self) -> Value {
+    pub fn node(&self) -> Value {
         match self {
             Block::P(t) => paragraph(t),
             Block::H(t) => heading(t, "h2"),
@@ -1034,7 +1159,7 @@ mod tests {
         let plan = Plan::full(true);
         for kind in Kind::ALL {
             assert!(plan.count(kind) <= kind.max(), "{kind:?}");
-            assert!(plan.count(kind) > 0, "{kind:?}");
+            assert!(plan.count(kind) > 0 || kind.full() == 0, "{kind:?}");
         }
         assert_eq!(plan.summary(), "6 tags, 3 authors, 16 posts, 5 pages, 40 members, 6 products, 6 directory categories, 24 directory listings and navigation links");
     }

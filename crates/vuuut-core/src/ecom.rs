@@ -25,7 +25,7 @@ pub const CURRENCIES: &[&str] = &[
 
 /// Currencies with no minor unit: ¥100 is stored as 100, not 10000.
 pub fn zero_decimal(currency: &str) -> bool {
-    matches!(currency, "JPY")
+    crate::currency::minor_unit_scale(currency) == 1
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -69,10 +69,10 @@ impl Settings {
         };
         let num = |k: &str| get(k).and_then(|v| v.trim().trim_matches('"').parse::<i64>().ok());
         let text = |k: &str, max: usize| clean(&get(k).unwrap_or_default(), max);
-        let currency = get("ecom_currency")
+        let currency = crate::currency::configured(&get).or_else(|| get("ecom_currency")
             .map(|c| c.trim().trim_matches('"').to_uppercase())
             .filter(|c| CURRENCIES.contains(&c.as_str()))
-            .unwrap_or_else(|| "USD".into());
+        ).unwrap_or_else(|| "USD".into());
         Settings {
             enabled: flag("ecom_enabled", false),
             store_name: text("ecom_store_name", 80),
@@ -301,7 +301,15 @@ pub fn symbol(currency: &str) -> &'static str {
         "USD" | "CAD" | "AUD" | "NZD" | "SGD" | "HKD" | "MXN" => "$",
         "EUR" => "€",
         "GBP" => "£",
-        "JPY" => "¥",
+        "JPY" | "CNY" => "¥",
+        "KRW" => "₩",
+        "PHP" => "₱",
+        "THB" => "฿",
+        "TRY" => "₺",
+        "VND" => "₫",
+        "NGN" => "₦",
+        "ILS" => "₪",
+        "UAH" => "₴",
         "INR" => "₹",
         "BDT" => "৳",
         "BRL" => "R$",

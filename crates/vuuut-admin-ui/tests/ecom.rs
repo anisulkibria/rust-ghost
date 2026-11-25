@@ -105,6 +105,10 @@ impl Fixture {
 }
 
 async fn fixture() -> Fixture {
+    fixture_with_theme("source").await
+}
+
+async fn fixture_with_theme(theme: &str) -> Fixture {
     let test_db = vuuut_db::pool::connect_test().await.unwrap();
     let db = test_db.pool();
     vuuut_db::seed::seed_if_empty(&db).await.unwrap();
@@ -127,7 +131,7 @@ async fn fixture() -> Fixture {
         vuuut_routing::routes_yaml::parse_routes_yaml(vuuut_routing::routes_yaml::DEFAULT_ROUTES_YAML)
             .unwrap();
     let router = Arc::new(vuuut_routing::RouterTree::build(&routes).unwrap());
-    let theme_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../content/themes/source");
+    let theme_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../content/themes").join(theme);
     let deps = vuuut_render::HelperDeps {
         pool: Arc::new(db.clone()),
         runtime: tokio::runtime::Handle::current(),
@@ -880,6 +884,46 @@ async fn storefront_page_size_accepts_custom_numbers_and_defaults_to_ten() {
     let saved = post(&f.state, settings, &owner, &[("ecom_enabled", "1"), ("ecom_per_page", "")]).await;
     assert!(saved.location.contains("ok="), "{}", saved.location);
     assert_eq!(f.state.settings.get("ecom_per_page"), Some(serde_json::json!(10)));
+}
+
+#[tokio::test]
+async fn payment_currency_is_shared_and_preserves_catalogue_amounts() {
+    use vuuut_core::{directory, ecom, lms};
+    use vuuut_db::repos::ecom as store;
+
+    let f = fixture_with_theme("margin").await;
+    let owner = f.session().await;
+    let get_setting = |key: &str| f.state.settings.get_str(key);
+    f.state.settings.set_many(&f.state.db, &[
+        ("donations_currency", serde_json::json!("USD")),
+        ("donations_suggested_amount", serde_json::json!(500)),
+    ]).await.unwrap();
+    let product = store::save_product(&f.state.db, None, &store::ProductInput {
+        handle: "currency-check".into(), title: "Currency check".into(),
+        ..Default::default()
+    }, &[store::VariantInput { price_cents: 12_500, ..Default::default() }], &[]).await.unwrap();
+
+    let page = get(&f.state, "/settings/payments/", &owner).await;
+    assert_eq!(page.status, StatusCode::OK);
+    assert_eq!(page.body.matches(r#"<select name="currency">"#).count(), 1);
+    for currency in ["BDT", "AED", "JPY", "XOF", "USD"] {
+        assert!(page.body.contains(&format!(r#"<option value="{currency}""#)));
+    }
+
+    for (currency, price, tip) in [("BDT", 12_500, 500), ("JPY", 125, 5), ("USD", 12_500, 500)] {
+        let saved = post(&f.state, "/settings/payments/currency/", &owner, &[("currency", currency)]).await;
+        assert!(saved.location.contains("ok="), "{}", saved.location);
+        assert_eq!(ecom::Settings::read(get_setting).currency, currency);
+        assert_eq!(lms::Settings::read(get_setting).currency, currency);
+        assert_eq!(directory::Settings::read(get_setting).currency, currency);
+        assert_eq!(vuuut_core::currency::donations(get_setting).as_deref(), Some(currency));
+        assert_eq!(f.state.settings.get("donations_suggested_amount"), Some(serde_json::json!(tip)));
+        assert_eq!(store::variants(&f.state.db, &product).await[0].price_cents, price);
+    }
+
+    let rejected = post(&f.state, "/settings/payments/currency/", &owner, &[("currency", "XXX")]).await;
+    assert!(rejected.location.contains("error="), "{}", rejected.location);
+    assert_eq!(get_setting("site_currency").as_deref(), Some("USD"));
 }
 
 #[tokio::test]

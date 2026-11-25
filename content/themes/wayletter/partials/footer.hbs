@@ -3,8 +3,8 @@
 <p class="ms-foot-copy">{{@site.title}} © {{date format="YYYY"}}</p>
 <div class="ms-foot-mid">
 <div class="ms-foot-social">
-{{#if @site.twitter}}<a href="{{twitter_url @site.twitter}}" aria-label="X" rel="noopener">{{> "icon" name="x" size="16"}}</a>{{/if}}
-{{#if @site.facebook}}<a href="{{facebook_url @site.facebook}}" aria-label="Facebook" rel="noopener">{{> "icon" name="fb" size="17"}}</a>{{/if}}
+{{#if @site.twitter}}<a href="{{social_url type="twitter"}}" aria-label="X" rel="noopener">{{> "icon" name="x" size="16"}}</a>{{/if}}
+{{#if @site.facebook}}<a href="{{social_url type="facebook"}}" aria-label="Facebook" rel="noopener">{{> "icon" name="fb" size="17"}}</a>{{/if}}
 </div>
 {{#if @site.secondary_navigation}}<nav class="ms-foot-nav" aria-label="Footer">{{#foreach @site.secondary_navigation}}<a href="{{url absolute="true"}}">{{label}}</a>{{/foreach}}</nav>{{/if}}
 </div>

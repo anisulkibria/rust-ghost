@@ -1,0 +1,9 @@
+<a class="svc" href="{{book_url}}"{{#if external}} target="_blank" rel="noopener"{{/if}}>
+    <span class="svc-art">{{#if feature_image}}<img src="{{feature_image}}" alt="" loading="lazy">{{/if}}{{#if group}}<span class="svc-flag">Group class</span>{{/if}}</span>
+    <span class="svc-body">
+        {{#if category}}<span class="kicker">{{category.name}}</span>{{/if}}
+        <span class="svc-name">{{name}}</span>
+        <span class="svc-sum">{{summary}}</span>
+        <span class="svc-foot"><span class="svc-meta">{{> "icons/clock"}}{{duration}}</span><span class="svc-price">{{price_label}}</span></span>
+    </span>
+</a>

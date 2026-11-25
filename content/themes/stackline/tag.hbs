@@ -1,0 +1,6 @@
+{{!< default}}
+<main id="main" class="listing-page">
+    {{#tag}}<header class="page-head wrap"><p class="eyebrow">Topic</p><h1>{{name}}</h1>{{#if description}}<p class="lede">{{description}}</p>{{/if}}</header>{{/tag}}
+    <div class="wrap post-grid">{{#foreach posts}}{{> "post-card"}}{{/foreach}}</div>
+    {{> "pagination"}}
+</main>

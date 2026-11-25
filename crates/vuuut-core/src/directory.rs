@@ -122,15 +122,7 @@ impl PriceType {
 /// `2500` cents, `"USD"`, fixed → `$25.00`; free → `Free`. Currencies the
 /// site is likely to use get their symbol; any other code is printed as is.
 pub fn format_price(cents: i64, currency: &str, t: PriceType) -> Option<String> {
-    let symbol = match currency {
-        "USD" | "CAD" | "AUD" | "NZD" | "SGD" | "HKD" => "$",
-        "EUR" => "€",
-        "GBP" => "£",
-        "JPY" => "¥",
-        "INR" => "₹",
-        "BDT" => "৳",
-        _ => "",
-    };
+    let symbol = crate::ecom::symbol(currency);
     let amount = || {
         let whole = cents / 100;
         let frac = cents % 100;
@@ -310,7 +302,7 @@ impl Settings {
         };
         let num = |k: &str| get(k).and_then(|v| v.trim().trim_matches('"').parse::<i64>().ok());
         let title = clean(&get(SETTING_TITLE).unwrap_or_default(), 60);
-        let currency = get(SETTING_CURRENCY).map(|c| c.trim().trim_matches('"').to_uppercase()).filter(|c| CURRENCIES.contains(&c.as_str())).unwrap_or_else(|| "USD".into());
+        let currency = crate::currency::configured(&get).or_else(|| get(SETTING_CURRENCY).map(|c| c.trim().trim_matches('"').to_uppercase()).filter(|c| CURRENCIES.contains(&c.as_str()))).unwrap_or_else(|| "USD".into());
         Settings {
             enabled: flag(SETTING_ENABLED, false),
             title: if title.is_empty() { DEFAULT_TITLE.into() } else { title },

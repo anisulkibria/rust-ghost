@@ -1,0 +1,8 @@
+{{#if feature_image}}
+    <img src="{{feature_image}}" alt="" loading="lazy">
+{{else}}
+    <span class="code-art tint-{{category.tint}}" aria-hidden="true">
+        <span class="code-art-mark">&lt;/&gt;</span>
+        {{#if category}}<span class="code-art-topic">{{category.name}}</span>{{/if}}
+    </span>
+{{/if}}

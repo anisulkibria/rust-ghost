@@ -1,0 +1,30 @@
+<header class="site-header" data-header>
+    <div class="site-header-inner wrap">
+        <a class="brand" href="{{@site.url}}">
+            {{#if @site.logo}}
+                <img class="brand-logo" src="{{img_url @site.logo size="s"}}" alt="{{@site.title}}">
+            {{else}}
+                <span class="brand-mark" aria-hidden="true">{{> "icons/lantern"}}</span>
+                <span class="brand-name">{{@site.title}}</span>
+            {{/if}}
+        </a>
+        <nav class="site-nav" id="site-nav" aria-label="Main">
+            <a class="nav-courses" href="{{#if @custom.catalog_address}}{{@custom.catalog_address}}{{else}}/courses/{{/if}}">Courses</a>
+            {{navigation}}
+        </nav>
+        <div class="site-actions">
+            <button class="icon-btn" type="button" data-ghost-search aria-label="Search">{{> "icons/search"}}</button>
+            <button class="icon-btn scheme-toggle" type="button" aria-label="Switch light and dark" data-scheme-toggle><span class="i-sun">{{> "icons/sun"}}</span><span class="i-moon">{{> "icons/moon"}}</span></button>
+            {{#if @site.members_enabled}}
+                {{#if @member}}
+                    <a class="btn btn-quiet" href="{{#if @custom.catalog_address}}{{@custom.catalog_address}}{{else}}/courses/{{/if}}dashboard/">My learning</a>
+                    <a class="avatar-btn" href="#/portal/account" data-portal="account" aria-label="Your account">{{#if @member.name}}{{@member.firstname}}{{else}}Account{{/if}}</a>
+                {{else}}
+                    <a class="link-signin" href="#/portal/signin" data-portal="signin">Sign in</a>
+                    <a class="btn" href="#/portal/signup" data-portal="signup">Join free</a>
+                {{/if}}
+            {{/if}}
+            <button class="icon-btn menu-toggle" type="button" aria-label="Menu" aria-expanded="false" aria-controls="site-nav">{{> "icons/menu"}}</button>
+        </div>
+    </div>
+</header>

@@ -1,0 +1,102 @@
+{
+    "name": "lantern",
+    "description": "An academy theme for Vuuut's LMS: a course catalogue, course pages, a focused lesson player and My learning.",
+    "version": "1.0.0",
+    "engines": {
+        "ghost": ">=5.0.0"
+    },
+    "license": "MIT",
+    "author": {
+        "name": "Vuuut",
+        "email": "hello@vuuut.com",
+        "url": "https://vuuut.com"
+    },
+    "gpm": {
+        "type": "theme",
+        "categories": [
+            "Education",
+            "Business"
+        ]
+    },
+    "keywords": [
+        "ghost-theme",
+        "vuuut-theme",
+        "lms",
+        "courses",
+        "education",
+        "academy"
+    ],
+    "config": {
+        "posts_per_page": 9,
+        "image_sizes": {
+            "xs": {
+                "width": 160
+            },
+            "s": {
+                "width": 400
+            },
+            "m": {
+                "width": 760
+            },
+            "l": {
+                "width": 1200
+            },
+            "xl": {
+                "width": 1800
+            },
+            "xxl": {
+                "width": 2400
+            }
+        },
+        "card_assets": true,
+        "custom": {
+            "color_scheme": {
+                "type": "select",
+                "options": [
+                    "Light",
+                    "Dark",
+                    "Follow the reader's device"
+                ],
+                "default": "Light",
+                "description": "Where every reader starts. Each can switch with the light/dark button."
+            },
+            "use_site_accent": {
+                "type": "boolean",
+                "default": false,
+                "description": "Use the site's accent colour instead of Lantern's warm amber."
+            },
+            "catalog_address": {
+                "type": "text",
+                "default": "/courses/",
+                "description": "Address of the course catalogue, as set in Tools \u2192 LMS & Online Courses."
+            },
+            "hero_heading": {
+                "type": "text",
+                "default": "Learn the skills that light the way",
+                "description": "The big homepage headline. The last two words are set in italics."
+            },
+            "hero_text": {
+                "type": "text",
+                "description": "One or two lines under the headline. Leave empty for the built-in academy line."
+            },
+            "show_categories": {
+                "type": "boolean",
+                "default": true,
+                "description": "Shows the subjects grid on the homepage.",
+                "group": "homepage"
+            },
+            "show_journal": {
+                "type": "boolean",
+                "default": true,
+                "description": "Shows your latest posts on the homepage.",
+                "group": "homepage"
+            },
+            "cta_heading": {
+                "type": "text",
+                "default": "Start learning today \u2014 your first course is free",
+                "description": "Heading of the closing band on the homepage.",
+                "group": "homepage"
+            }
+        }
+    }
+}

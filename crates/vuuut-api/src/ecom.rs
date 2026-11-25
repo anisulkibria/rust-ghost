@@ -235,6 +235,8 @@ pub async fn on_paid(state: &AppState, order: &repo::Order) -> bool {
     if !rules::order_unlocks_downloads(&order.status, &order.financial_status) || order.email.is_empty() {
         return false;
     }
+    // Courses sold through the store (Tools → LMS & Online Courses).
+    crate::lms::on_order_paid(state, &order).await;
     let granted = repo::grant_downloads(&state.db, &order, None).await.unwrap_or(0);
     if granted == 0 {
         return false;

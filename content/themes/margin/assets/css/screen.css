@@ -292,14 +292,14 @@ button { font: inherit; color: inherit; }
 .layout-main { min-width: 0; }
 
 /* Standalone apps need the whole main area for their own layout. */
-.layout:has(> .layout-main > .article > .entry-body > .content > :is(.vs, .vd, .vb-page)) {
+.layout:has(> .layout-main > .article > .entry-body > .content > :is(.vs, .vd, .vl, .vb-page)) {
     grid-template-columns: minmax(0, 1fr);
 
     > .layout-main, .article > .entry-body { max-width: none; }
     > .layout-side { display: none; }
 }
 
-.content > .vs {
+.content > :is(.vs, .vl) {
     left: auto;
     width: 100%;
     transform: none;
@@ -574,7 +574,7 @@ button { font: inherit; color: inherit; }
 /* 7. Content & cards ------------------------------------------------------- */
 
 /* Store, directory and builder controls supply their own typography. */
-.content:where(:not(:has(> :is(.vs, .vd, .vb-page)))) {
+.content:where(:not(:has(> :is(.vs, .vd, .vl, .vb-page)))) {
     & > :where(:not(link, script, style)) ~ :where(:not(link, script, style)) { margin-top: 1.25em; }
 
     & a {

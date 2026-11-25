@@ -1,0 +1,27 @@
+<!DOCTYPE html>
+<html lang="{{@site.locale}}" data-scheme="{{#match @custom.color_scheme "Light"}}light{{else match @custom.color_scheme "Dark"}}dark{{else}}auto{{/match}}">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <script>try{var s=localStorage.getItem('lingua-atlas-scheme');if(s==='light'||s==='dark')document.documentElement.setAttribute('data-scheme',s)}catch(e){}</script>
+    <title>{{meta_title page=" (Page %)"}}</title>
+    <link rel="preload" as="font" type="font/woff2" href="{{asset "fonts/jakarta-roman.woff2"}}" crossorigin>
+    <style>
+        @font-face { font-family: "Plus Jakarta Sans"; font-style: normal; font-weight: 300 800; font-display: swap; src: url("{{asset "fonts/jakarta-roman.woff2"}}") format("woff2"); }
+        @font-face { font-family: "Plus Jakarta Sans"; font-style: italic; font-weight: 300 800; font-display: swap; src: url("{{asset "fonts/jakarta-italic.woff2"}}") format("woff2"); }
+    </style>
+    <link rel="stylesheet" href="{{asset "css/screen.css"}}">
+    {{#if @custom.use_site_accent}}{{#if @site.accent_color}}<style>:root { --accent: {{@site.accent_color}}; --accent-ink: {{contrast_text_color @site.accent_color}}; }</style>{{/if}}{{/if}}
+    {{ghost_head}}
+</head>
+<body class="{{body_class}}">
+<a class="skip-link" href="#main">Skip to content</a>
+<div class="site">
+    {{> "header"}}
+    {{{body}}}
+    {{> "footer"}}
+</div>
+<script src="{{asset "js/lingua-atlas.js"}}" defer></script>
+{{ghost_foot}}
+</body>
+</html>

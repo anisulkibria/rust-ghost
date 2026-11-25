@@ -306,3 +306,23 @@
   .vs-file .vs-btn { grid-column: 1 / -1; }
 }
 .vs-signin-ic { display: grid !important; margin: 0 auto; }
+
+/* A product that sells a course (Tools → LMS): what the course holds. */
+.vs-course { margin: 22px 0; padding: 22px 22px 18px; border-radius: var(--vs-radius); border: 1px solid var(--vs-line); background: var(--vs-surface); display: grid; gap: 16px; }
+.vs-course-head { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; }
+.vs-course-kicker { font-size: 12px; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; color: var(--vs-accent); }
+.vs-course-rating { font-weight: 700; color: #e09a16; } .vs-course-rating span { color: var(--vs-muted); font-weight: 500; }
+.vs .vs-course-facts { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px 18px; font-size: 15px; }
+.vs-course-facts li { display: flex; gap: 8px; align-items: baseline; }
+.vs-course-facts li::before { content: "✓"; color: var(--vs-accent); font-weight: 800; }
+.vs-course-learn b, .vs-course-syl b { display: block; margin-bottom: 8px; }
+.vs .vs-course-learn ul { margin: 0; padding-left: 18px; display: grid; gap: 4px; font-size: 15px; color: var(--vs-muted); }
+.vs .vs-course-syl ol { margin: 0; padding: 0; list-style: none; border: 1px solid var(--vs-line); border-radius: 12px; overflow: hidden; counter-reset: syl; }
+.vs-course-syl li { counter-increment: syl; display: flex; justify-content: space-between; gap: 12px; padding: 10px 14px; font-size: 14.5px; }
+.vs-course-syl li + li { border-top: 1px solid var(--vs-line); }
+.vs-course-syl li span::before { content: counter(syl, decimal-leading-zero) "  "; color: var(--vs-accent); font-weight: 700; }
+.vs-course-syl em { font-style: normal; color: var(--vs-muted); white-space: nowrap; font-size: 13.5px; }
+.vs-course-by { margin: 0 !important; color: var(--vs-muted); font-size: 15px; }
+.vs .vs-course-link { font-weight: 700; color: var(--vs-accent); text-decoration: none; }
+.vs .vs-course-link:hover { text-decoration: underline; }
+@media (max-width: 560px) { .vs .vs-course-facts { grid-template-columns: 1fr; } }

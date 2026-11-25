@@ -1,0 +1,99 @@
+{{!< default}}
+<main id="main" class="home">
+    <section class="atlas-hero" aria-labelledby="hero-title">
+        <div class="wrap atlas-hero-grid">
+            <div class="atlas-intro">
+                <p class="eyebrow">Online language courses</p>
+                <h1 id="hero-title">{{#if @custom.hero_heading}}{{@custom.hero_heading}}{{else}}Learn a language.<br><em>Make it yours.</em>{{/if}}</h1>
+                <p class="atlas-lede">{{#if @custom.hero_text}}{{@custom.hero_text}}{{else}}Start speaking, reading, and writing in Arabic, English, or French with short lessons and everyday exercises.{{/if}}</p>
+                <div class="atlas-actions">
+                    <a class="btn" href="{{> "catalog-url"}}">Explore courses {{> "icons/arrow"}}</a>
+                    <a class="more" href="{{> "catalog-url"}}?price=free">Find free courses {{> "icons/arrow"}}</a>
+                </div>
+            </div>
+            <div class="phrase-board">
+                <div class="phrase-board-heading"><span>Ways to say hello</span>{{> "icons/globe"}}</div>
+                <div class="phrase-sheet">
+                    <p><span>Arabic</span><strong lang="ar" dir="rtl">مَرْحَبًا</strong></p>
+                    <p><span>English</span><strong lang="en">Hello</strong></p>
+                    <p><span>French</span><strong lang="fr">Bonjour</strong></p>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    {{#if @custom.show_categories}}
+    {{#get "course_categories" filter="slug:[arabic,english,french]+count:>0" limit="3" as |languages|}}
+    {{#if languages}}
+    <section class="atlas-section" aria-labelledby="language-heading">
+        <div class="wrap">
+            <header class="atlas-section-head"><h2 id="language-heading">Choose a language</h2></header>
+            <div class="language-grid">{{#foreach languages}}
+                <a class="language-tile language-{{slug}}" href="{{url}}">
+                    <span class="tile-word" aria-hidden="true">{{> "language-word"}}</span>
+                    <span class="tile-label"><strong>{{name}}</strong><small>{{count}} course{{#match count "!=" 1}}s{{/match}}</small></span>
+                    <span class="tile-arrow" aria-hidden="true">{{> "icons/arrow"}}</span>
+                </a>
+            {{/foreach}}</div>
+        </div>
+    </section>
+    {{/if}}
+    {{/get}}
+    {{/if}}
+
+    {{#get "courses" filter="access:paid+free:false+category.slug:[arabic,english,french]" limit="3" as |paid_courses|}}
+    {{#if paid_courses}}
+    <section class="atlas-section atlas-paid" aria-labelledby="paid-heading">
+        <div class="wrap">
+            <header class="atlas-section-head">
+                <div><h2 id="paid-heading">Go further</h2><p>Paid courses with guided practice for your next step.</p></div>
+                <a class="more" href="{{> "catalog-url"}}?price=paid">Browse paid courses {{> "icons/arrow"}}</a>
+            </header>
+            <div class="course-grid">{{#foreach paid_courses}}{{> "course-card"}}{{/foreach}}</div>
+        </div>
+    </section>
+    {{/if}}
+    {{/get}}
+
+    {{#get "courses" filter="featured:true+free:true+category.slug:[arabic,english,french]" limit="3" as |featured|}}
+    {{#if featured}}
+    <section class="atlas-section atlas-picks" aria-labelledby="featured-heading">
+        <div class="wrap">
+            <header class="atlas-section-head"><h2 id="featured-heading">Start for free</h2><a class="more" href="{{> "catalog-url"}}?price=free">Browse free courses {{> "icons/arrow"}}</a></header>
+            <div class="course-grid">{{#foreach featured}}{{> "course-card"}}{{/foreach}}</div>
+        </div>
+    </section>
+    {{/if}}
+    {{/get}}
+
+    {{#get "courses" filter="featured:false+free:true+category.slug:[arabic,english,french]+duration_minutes:>0+duration_minutes:<=45" limit="3" as |short_courses|}}
+    {{#if short_courses}}
+    <section class="atlas-section" aria-labelledby="short-heading">
+        <div class="wrap">
+            <header class="atlas-section-head"><h2 id="short-heading">Practice in under an hour</h2></header>
+            <div class="course-rows">{{#foreach short_courses}}{{> "course-row"}}{{/foreach}}</div>
+        </div>
+    </section>
+    {{/if}}
+    {{/get}}
+
+    {{#if @custom.show_journal}}
+    {{#get "posts" limit="3" include="tags" as |journal|}}
+    {{#if journal}}
+    <section class="atlas-section atlas-picks" aria-labelledby="journal-heading">
+        <div class="wrap">
+            <header class="atlas-section-head"><h2 id="journal-heading">From the journal</h2></header>
+            <div class="post-grid">{{#foreach journal}}{{> "post-card"}}{{/foreach}}</div>
+        </div>
+    </section>
+    {{/if}}
+    {{/get}}
+    {{/if}}
+
+    <section class="atlas-cta" aria-labelledby="start-title">
+        <div class="wrap atlas-cta-inner">
+            <h2 id="start-title">{{#if @custom.cta_heading}}{{@custom.cta_heading}}{{else}}Ready for your first lesson?{{/if}}</h2>
+            <a class="btn" href="{{> "catalog-url"}}">Browse courses {{> "icons/arrow"}}</a>
+        </div>
+    </section>
+</main>

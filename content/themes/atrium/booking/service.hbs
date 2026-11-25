@@ -1,0 +1,36 @@
+{{!< default}}
+{{!-- Vuuut booking: one service and its booking form. `forms.booking` is
+      the picker and form Vuuut renders and checks. --}}
+{{> "booking-assets"}}
+{{#service}}
+<main id="main" class="bk-page bk-one">
+    <div class="wrap">
+        <nav class="crumbs"><a href="{{../booking.url}}">{{../booking.title}}</a><span>/</span>{{#if category}}<span>{{category.name}}</span><span>/</span>{{/if}}<span>{{name}}</span></nav>
+        {{#if ../flash}}<p class="flash flash-err">{{../flash.message}}</p>{{/if}}
+    </div>
+    <div class="wrap bk-one-grid">
+        <aside class="bk-info">
+            {{#if feature_image}}<div class="bk-info-art"><img src="{{feature_image}}" alt=""></div>{{/if}}
+            {{#if category}}<p class="eyebrow">{{category.name}}</p>{{/if}}
+            <h1>{{name}}</h1>
+            {{#if summary}}<p class="lede">{{summary}}</p>{{/if}}
+            <ul class="facts">
+                <li>{{> "icons/clock"}}<span><small>Length</small><b>{{duration}}</b></span></li>
+                <li><span class="fact-price">{{price_label}}</span><span><small>Price</small><b>{{#if free}}No charge{{else}}{{#if pay_online}}Pay when booking{{else}}Pay at your visit{{/if}}{{/if}}</b></span></li>
+                <li>{{> "icons/pin"}}<span><small>{{location_label}}</small><b>{{where}}</b></span></li>
+                {{#if group}}<li>{{> "icons/calendar"}}<span><small>Group</small><b>Up to {{capacity}} people</b></span></li>{{/if}}
+            </ul>
+            {{#if staff}}<div class="with"><span class="faces">{{#foreach staff}}{{#if photo}}<img src="{{photo}}" alt="">{{else}}<i>{{initials}}</i>{{/if}}{{/foreach}}</span><span>With {{#foreach staff}}{{#unless @first}}{{#if @last}} or {{else}}, {{/if}}{{/unless}}<a href="{{url}}">{{name}}</a>{{/foreach}}</span></div>{{/if}}
+            <div class="prose">{{{description}}}</div>
+        </aside>
+        <section class="bk-panel" aria-label="Book {{name}}">
+            <header class="bk-panel-head"><b>Book {{name}}</b>{{#if approval}}<small>We'll confirm your request by email</small>{{else}}<small>Instant confirmation</small>{{/if}}</header>
+            {{{../forms.booking}}}
+        </section>
+    </div>
+    {{#if ../related}}
+    <section class="wrap band"><header class="band-head"><div><p class="eyebrow">You might also like</p><h2>More {{#if category}}{{category.name}}{{else}}services{{/if}}</h2></div></header>
+        <div class="svc-grid">{{#foreach ../related}}{{> "service-card"}}{{/foreach}}</div></section>
+    {{/if}}
+</main>
+{{/service}}

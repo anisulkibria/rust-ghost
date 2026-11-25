@@ -256,7 +256,7 @@ async fn write_tier(
     let new = id.is_none();
     let id = id.unwrap_or_else(ids::new_id);
     let old = if new {
-        json!({"type":"paid","currency":"usd","status":"active","visibility":"public","trial_days":0})
+        json!({"type":"paid","currency":vuuut_core::currency::preferred(|key| state.settings.get_str(key)).to_ascii_lowercase(),"status":"active","visibility":"public","trial_days":0})
     } else {
         let Some(value) = tier_values(&state, Some(&id)).await.into_iter().next() else {
             return StatusCode::NOT_FOUND.into_response();

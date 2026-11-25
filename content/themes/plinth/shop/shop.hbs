@@ -36,7 +36,7 @@
 <section class="pl-wrap pl-section-tight">
 {{#if products}}
 <div class="pl-grid">
-{{#foreach products}}{{> "product-card" add=@root.shop.add_url}}{{/foreach}}
+{{#foreach products}}{{> "product-card" add=../shop.add_url}}{{/foreach}}
 </div>
 {{#match pagination.pages ">" 1}}
 <nav class="pl-pager" aria-label="Pages">
