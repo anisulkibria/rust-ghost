@@ -1257,6 +1257,8 @@ pub(crate) fn page_for(title: &str, active: &str, user: Option<&vuuut_core::mode
     // survives only where there is no scripting at all — which is what the
     // `.no-js` rules in the stylesheet are written against.
     let dark = if theme == "dark" { r#" class="no-js dark""# } else { r#" class="no-js""# };
+    static PUBLISHING_WORKFLOWS_HASH: std::sync::LazyLock<String> =
+        std::sync::LazyLock::new(|| asset_hash(crate::assets::PUBLISHING_WORKFLOWS_JS));
     Html(format!(
         r#"<!DOCTYPE html><html{dark} data-theme="{theme}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <script>{theme_js}</script>
@@ -1264,13 +1266,14 @@ pub(crate) fn page_for(title: &str, active: &str, user: Option<&vuuut_core::mode
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='%23984059'%3E%3Cpath d='M12 2a8 8 0 0 0-8 8v10.6c0 .7.85 1.05 1.35.55l1.9-1.9 2.2 2.2c.3.3.78.3 1.08 0L12 20l1.47 1.45c.3.3.78.3 1.08 0l2.2-2.2 1.9 1.9c.5.5 1.35.15 1.35-.55V10a8 8 0 0 0-8-8z'/%3E%3C/svg%3E">
 <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700&family=Fraunces:opsz,wght@9..144,500..700&family=Roboto+Mono:wght@400;500&display=swap">
-<link rel="stylesheet" href="{assets}/admin.css?v={css_hash}"></head><body>{shell}<script>{js}</script><script src="{assets}/publishing-workflows.js" defer></script></body></html>"#,
+<link rel="stylesheet" href="{assets}/admin.css?v={css_hash}"></head><body>{shell}<script>{js}</script><script src="{assets}/publishing-workflows.js?v={workflows_hash}" defer></script></body></html>"#,
         dark = dark,
         theme = theme,
         theme_js = THEME_JS,
         title = esc(title),
         site_name = esc(&admin_site_name()),
         css_hash = admin_css_hash(),
+        workflows_hash = *PUBLISHING_WORKFLOWS_HASH,
         shell = shell,
         js = JS,
         assets = ASSETS,

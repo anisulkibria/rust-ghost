@@ -489,6 +489,7 @@ pub fn admin_ui_router(state: AppState) -> Router<AppState> {
         .route("/dummies/full/", post(dummies::generate_full))
         .route("/dummies/custom/", post(dummies::generate_custom))
         .route("/dummies/demo/", post(dummies::generate_demo))
+        .route("/dummies/sample/", post(dummies::load_sample))
         .route("/dummies/remove/", post(dummies::remove))
         .route("/caching/", get(caching::caching_page))
         .route("/caching/purge/", post(caching::purge_all))

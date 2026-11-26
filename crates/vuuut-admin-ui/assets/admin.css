@@ -4403,35 +4403,52 @@ a.ec-tile:hover { border-color: var(--outline); }
 .ec-rate .btn.small { justify-content: center; }
 @media (max-width: 900px) { .ec-rate { grid-template-columns: 1fr 1fr; } .ec-rate .ec-rate-add { grid-column: span 2; } }
 
-/* ---- dummies (Tools → Dummy content) ----
-   Two cards side by side (full demo, custom), then the list of batches.
-   Rows, chips, fields and switches are the shared primitives. */
-.dm-lead { margin: -2px 4px 14px; font-size: 13.5px; max-width: 82ch; }
-.dm-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; align-items: start; }
-@media (max-width: 960px) { .dm-grid { grid-template-columns: 1fr; } }
-.dm-card h2 { margin: 12px 0 4px; font-size: 18px; }
-.dm-card > p.muted { margin: 0 0 14px; font-size: 13.5px; line-height: 1.5; }
-.dm-list { list-style: none; margin: 0 0 16px; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 8px; }
-.dm-list li { display: flex; align-items: baseline; gap: 8px; padding: 10px 12px; border-radius: 12px;
-  background: color-mix(in srgb, var(--on-surface) 4%, transparent); font-size: 13.5px; }
-.dm-count { font-size: 20px; font-weight: 700; font-variant-numeric: tabular-nums; }
-.dm-rows .dm-row { padding-inline: 0; }
-.dm-rows .dm-row + .dm-row { border-top: 1px solid color-mix(in srgb, var(--outline-variant) 55%, transparent); }
-.dm-number { width: 84px; height: 38px; padding: 0 10px; border: 1px solid var(--outline-variant); border-radius: 10px;
+/* ---- Tools → Dummy content ---- */
+.dm-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.05fr); gap: 20px; align-items: start; }
+.dm-stack { display: grid; gap: 22px; min-width: 0; }
+.dm-grid .card, .dm-generated .card { margin-bottom: 0; }
+.dm-card-head { display: flex; gap: 12px; align-items: flex-start; margin-bottom: 16px; }
+.dm-card-head h2, .dm-section-head h2 { margin: 0; font-size: 18px; line-height: 1.3; }
+.dm-section-head { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 6px 14px; margin: 0 4px 10px; }
+.dm-section-head a { color: var(--primary); font-size: 13px; font-weight: 600; text-underline-offset: 3px; }
+.dm-links { display: flex; flex-wrap: wrap; gap: 4px 12px; }
+.dm-title { display: block; margin: 0; font-size: 14.5px; font-weight: 600; line-height: 1.35; }
+.dm-detail { margin: 3px 0 0; color: var(--on-surface-variant); font-size: 13px; line-height: 1.5; overflow-wrap: anywhere; }
+.dm-theme-name { color: var(--on-surface-variant); font-weight: 500; }
+.dm-list { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+.dm-list li { display: flex; align-items: baseline; gap: 6px; padding: 8px 10px; border-radius: 12px;
+  background: color-mix(in srgb, var(--on-surface) 4%, transparent); font-size: 13px; line-height: 1.3; overflow-wrap: anywhere; }
+.dm-count { flex: none; font-size: 18px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.dm-row { display: grid; grid-template-columns: minmax(0, 1fr) 72px; gap: 12px; align-items: center; padding: 10px 0; }
+.dm-row + .dm-row, .dm-choice + .dm-choice { border-top: 1px solid var(--glass-stroke); }
+.dm-row .switch { justify-self: end; margin-right: 3px; }
+.dm-number { width: 100%; height: 38px; padding: 0 8px; border: 1px solid var(--outline-variant); border-radius: 10px;
   background: none; color: var(--on-surface); font: inherit; font-size: 14px; font-variant-numeric: tabular-nums; text-align: right; }
-.dm-number:focus { outline: 2px solid var(--primary); outline-offset: 1px; border-color: transparent; }
-.dm-options { display: grid; grid-template-columns: minmax(0, 220px) minmax(0, 1fr); gap: 12px 16px; align-items: center; margin-top: 14px; }
-@media (max-width: 640px) { .dm-options { grid-template-columns: 1fr; } }
-.dm-check { display: flex; align-items: center; gap: 8px; font-size: 13.5px; cursor: pointer; }
-.dm-actions { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; margin-top: 16px; }
-.dm-generated, .dm-demos { margin-top: 24px; }
-.dm-demos .dm-lead { margin: 0 4px 12px; }
-.dm-demo .body .chip { margin-top: 6px; align-self: flex-start; }
-.dm-demo .trailing { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; justify-content: flex-end; }
-@media (max-width: 640px) { .dm-demo { flex-wrap: wrap; } .dm-demo .trailing { width: 100%; justify-content: flex-start; } }
-.dm-generated-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; margin: 0 4px 12px; }
-.dm-generated-head h2 { margin: 0; font-size: 18px; }
-.dm-empty { margin: 0 4px; font-size: 13.5px; }
+.dm-number:focus-visible { outline: 2px solid var(--primary); outline-offset: 1px; }
+.dm-options { display: flex; flex-wrap: wrap; gap: 10px 16px; align-items: center; padding-top: 14px; border-top: 1px solid var(--glass-stroke); }
+.dm-options > div { flex: 1 1 190px; min-width: 0; }
+.dm-options .field { margin: 0; }
+.dm-check { display: inline-flex; align-items: center; gap: 8px; font-size: 13px; cursor: pointer; }
+.dm-check input { flex: none; accent-color: var(--primary); }
+.dm-actions { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; margin-top: 14px; }
+.dm-custom .dm-actions { justify-content: flex-end; }
+.dm-choices { container: dm-choices / inline-size; }
+.dm-choice { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 8px 12px; align-items: start; padding: 14px 16px; }
+.dm-choice .ic { width: 34px; height: 34px; border-radius: 11px; }
+.dm-choice .chip { margin-top: 6px; }
+.dm-choice-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; grid-column: 2; }
+@container dm-choices (min-width: 440px) {
+  .dm-choice { grid-template-columns: auto minmax(0, 1fr) auto; }
+  .dm-choice-actions { grid-column: 3; align-self: center; justify-content: flex-end; }
+}
+.dm-generated { margin-top: 24px; }
+.dm-empty { margin: 0; font-size: 13px; }
+@media (max-width: 1080px) { .dm-grid { grid-template-columns: minmax(0, 1fr); } }
+@media (max-width: 520px) {
+  .dm-card.card.padded { padding: 16px; }
+  .dm-list { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .dm-actions > .btn, .dm-custom .dm-actions > .btn { width: 100%; justify-content: center; }
+}
 
 /* ---------------------------------------------------------------------------
    Tools → LMS & Online Courses (lm-)

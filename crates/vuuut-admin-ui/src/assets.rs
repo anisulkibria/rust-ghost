@@ -28,6 +28,7 @@ pub(crate) const KOENIG_VERSION: &str = koenig_version!();
 pub(crate) const ASSETS: &str = concat!("/ghost/assets/", koenig_version!());
 
 pub(crate) const ECOM_EDITOR_JS: &str = include_str!("../assets/ecom-editor.js");
+pub(crate) const PUBLISHING_WORKFLOWS_JS: &str = include_str!("../assets/publishing-workflows.js");
 pub(crate) const BUILDER_EDITOR_CSS: &str = concat!(include_str!("../assets/unsplash-picker.css"), include_str!("../assets/builder-editor.css"));
 
 pub(crate) fn pintura_asset_tags(config: &serde_json::Value) -> String {
@@ -81,7 +82,7 @@ pub(crate) async fn admin_asset(Path((version, file)): Path<(String, String)>) -
         "podcast-editor.js" => include_str!("../assets/podcast-editor.js"),
         "portfolio-editor.js" => include_str!("../assets/portfolio-editor.js"),
         "unsplash-picker.js" => include_str!("../assets/unsplash-picker.js"),
-        "publishing-workflows.js" => include_str!("../assets/publishing-workflows.js"),
+        "publishing-workflows.js" => PUBLISHING_WORKFLOWS_JS,
         "automation-editor.js" => include_str!("../assets/automation-editor.js"),
         "machine-payments.js" => include_str!("../assets/machine-payments.js"),
         "checkout-design.js" => include_str!("../assets/checkout-design.js"),

@@ -173,7 +173,14 @@ fn with_header(mut r: Response, name: &'static str, value: &str) -> Response {
     r
 }
 
+/// Internal renders with unsaved settings must stay out of the public cache and metrics.
+#[derive(Clone, Copy)]
+pub struct BypassPageCache;
+
 pub async fn page_cache(State(state): State<AppState>, req: Request, next: Next) -> Response {
+    if req.extensions().get::<BypassPageCache>().is_some() {
+        return next.run(req).await;
+    }
     let started = Instant::now();
     let s = settings(&state);
     GZIP.store(s.gzip, Ordering::Relaxed);

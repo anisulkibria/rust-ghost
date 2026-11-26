@@ -1,6 +1,6 @@
 {
     "name": "broadsheet",
-    "description": "Broadsheet, a newspaper theme: breaking ticker, masthead, a three-column front page, section blocks for every desk, opinion, video, an archive and a membership band.",
+    "description": "Broadsheet, a newspaper theme: breaking ticker, masthead, a three-column front page, configurable tag sections, an archive and a membership band.",
     "version": "1.0.0",
     "engines": {
         "ghost": ">=5.0.0"
@@ -54,6 +54,12 @@
                 "type": "text",
                 "default": "ET",
                 "description": "Shown after the clock in the black bar."
+            },
+            "homepage_section_tags": {
+                "type": "text",
+                "default": "",
+                "group": "homepage",
+                "description": "Comma-separated tag slugs in display order. Blank shows up to 8 of the most-used public tags."
             },
             "editor_note": {
                 "type": "text",

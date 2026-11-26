@@ -184,7 +184,7 @@ async fn main() {
         return;
     }
 
-    // `vuuut seed-theme-demo --demo studio|academy`: a recorded theme demo.
+    // `vuuut seed-theme-demo --demo KEY`: a recorded theme demo.
     if let cli::Command::SeedThemeDemo(key) = &command {
         let settings = vuuut_db::SettingsCache::load(&db).await.expect("settings");
         match vuuut_admin_ui::dummies::seed_theme_demo(&db, &settings, key).await {

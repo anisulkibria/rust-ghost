@@ -63,6 +63,8 @@ struct Proj {
 
 /// Also `vuuut seed-portfolio [studio]`. Does nothing when projects exist.
 pub async fn seed_sample_portfolio(db: &vuuut_db::Db, settings: &vuuut_db::SettingsCache, studio: bool) -> vuuut_core::Result<usize> {
+    static SAMPLE_WRITE: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+    let _write = SAMPLE_WRITE.lock().await;
     let (existing, _) = repo::projects(db, &repo::ProjectQuery { limit: 1, ..Default::default() }).await;
     if !existing.is_empty() {
         return Ok(0);

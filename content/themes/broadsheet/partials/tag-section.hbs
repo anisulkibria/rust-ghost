@@ -1,0 +1,12 @@
+{{#get "posts" filter="tag:{{slug}}" limit="9" include="tags,authors" as |stories|}}
+{{#if stories}}
+<section class="np-section" data-np-rail-wrap>
+<div class="np-wrap">
+{{> "section-head" title=../name url=../url arrows=true}}
+<div class="np-rail np-rail-3" data-np-rail>
+{{#foreach stories}}{{> "story" layout="top" size="m" excerpt=true read=true}}{{/foreach}}
+</div>
+</div>
+</section>
+{{/if}}
+{{/get}}

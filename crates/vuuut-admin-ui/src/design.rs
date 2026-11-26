@@ -278,6 +278,11 @@ theme's, so they live in <a href="/ghost/settings/general/">Settings &rarr; Gene
 description. What is below belongs to <b>{name}</b> and changes when the theme does.</p></div></div>
 {custom_html}
 </form>
+<details class="card padded" id="design-preview" data-home="{home}">
+<summary>Live site preview</summary>
+<p role="status" hidden></p>
+<iframe title="Theme preview" sandbox="allow-scripts" style="width:100%;height:70vh;border:0;border-radius:16px;margin-top:16px"></iframe>
+</details>
 <form method="post" action="/ghost/customizations/reset/" id="reset-form" data-confirm="Reset theme settings|Custom settings for {name} go back to the theme's defaults."></form>
 <script src="{assets}/unsplash-picker.js" defer></script>"#,
             name = esc(&theme.name),
@@ -290,6 +295,7 @@ description. What is below belongs to <b>{name}</b> and changes when the theme d
             palette = svg("themes"),
             banner = banner,
             custom_html = custom_html,
+            home = esc(&vuuut_core::url::base("/")),
         ),
         true,
     )
@@ -309,24 +315,48 @@ pub(crate) const FONT_STACKS: &[(&str, &str)] = &[
     ("'SF Mono', 'Cascadia Code', Consolas, 'Courier New', monospace", "Monospace"),
 ];
 
-pub(crate) async fn design_preview(State(state): State<AppState>, headers: HeaderMap, axum::Json(form): axum::Json<HashMap<String,String>>) -> Response {
-    if let Err(r)=require_role(&state,&headers,Role::Administrator).await{return r}
-    let theme=state.theme.read().await.clone();
-    let mut values=Vec::new();
-    for key in ["logo","icon","cover_image","accent_color","heading_font","body_font"] {
-        if let Some(value)=form.get(key){values.push((key.into(),serde_json::json!(value)));}
+pub(crate) async fn design_preview(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    axum::Json(form): axum::Json<HashMap<String, String>>,
+) -> Response {
+    if let Err(r) = require_role(&state, &headers, Role::Administrator).await {
+        return r;
     }
-    let mut custom=state.settings.get("custom_theme_settings").and_then(|value|value.as_object().cloned()).unwrap_or_default();
-    custom.insert(theme.name.clone(),serde_json::Value::Object(coerce_custom_values(&theme.pkg.config.custom,&form)));
-    values.push(("custom_theme_settings".into(),serde_json::Value::Object(custom)));
-    values.push(("web_analytics".into(),serde_json::json!(false)));
-    values.push(("is_private".into(),serde_json::json!(false)));
-    let mut preview=state.clone();preview.settings=std::sync::Arc::new(state.settings.with_overrides(values));
+    let theme = state.theme.read().await.clone();
+    let mut values = Vec::new();
+    for key in ["logo", "icon", "cover_image", "accent_color", "heading_font", "body_font"] {
+        if let Some(value) = form.get(key) {
+            values.push((key.into(), serde_json::json!(value)));
+        }
+    }
+    let mut custom = state.settings.get("custom_theme_settings")
+        .and_then(|value| value.as_object().cloned()).unwrap_or_default();
+    custom.insert(theme.name.clone(), serde_json::Value::Object(coerce_custom_values(&theme.pkg.config.custom, &form)));
+    values.extend([
+        ("custom_theme_settings".into(), serde_json::Value::Object(custom)),
+        ("web_analytics".into(), serde_json::json!(false)),
+        ("is_private".into(), serde_json::json!(false)),
+        (vuuut_core::builder::SETTING_MAINTENANCE.into(), serde_json::json!("off")),
+    ]);
+    let mut preview = state.clone();
+    preview.settings = std::sync::Arc::new(state.settings.with_overrides(values));
+
     use tower::ServiceExt;
-    match vuuut_front::site_router(preview).oneshot(axum::http::Request::builder().uri("/").body(axum::body::Body::empty()).unwrap()).await {
-        Ok(mut response)=>{response.headers_mut().insert(header::CACHE_CONTROL,"private, no-store".parse().unwrap());response},
-        Err(_)=>(StatusCode::INTERNAL_SERVER_ERROR,"Could not render preview").into_response()
+    let mut request = axum::http::Request::new(axum::body::Body::empty());
+    request.extensions_mut().insert(vuuut_api::caching::BypassPageCache);
+    let Ok(response) = vuuut_front::site_router(preview).oneshot(request).await;
+    if !response.status().is_success() {
+        return (StatusCode::BAD_GATEWAY, "Could not render the homepage preview").into_response();
     }
+    let Ok(bytes) = axum::body::to_bytes(response.into_body(), usize::MAX).await else {
+        return (StatusCode::INTERNAL_SERVER_ERROR, "Could not read the homepage preview").into_response();
+    };
+    // JSON keeps the public HTML out of the admin address rewriter.
+    (
+        [(header::CACHE_CONTROL, "private, no-store")],
+        axum::Json(serde_json::json!({ "html": String::from_utf8_lossy(&bytes) })),
+    ).into_response()
 }
 
 pub(crate) async fn design_save(State(state): State<AppState>, headers: HeaderMap, Form(form): Form<HashMap<String, String>>) -> Response {

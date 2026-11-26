@@ -47,6 +47,10 @@ impl Fixture {
 }
 
 async fn fixture() -> Fixture {
+    fixture_with_theme("source").await
+}
+
+async fn fixture_with_theme(theme: &str) -> Fixture {
     let test_db = vuuut_db::pool::connect_test().await.unwrap();
     let db = test_db.pool();
     vuuut_db::seed::seed_if_empty(&db).await.unwrap();
@@ -69,7 +73,7 @@ async fn fixture() -> Fixture {
         vuuut_routing::routes_yaml::parse_routes_yaml(vuuut_routing::routes_yaml::DEFAULT_ROUTES_YAML)
             .unwrap();
     let router = Arc::new(vuuut_routing::RouterTree::build(&routes).unwrap());
-    let theme_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../content/themes/source");
+    let theme_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../content/themes").join(theme);
     let deps = vuuut_render::HelperDeps {
         pool: Arc::new(db.clone()),
         runtime: tokio::runtime::Handle::current(),
@@ -215,6 +219,64 @@ async fn the_moved_pages_open_at_their_new_urls_and_the_old_ones_redirect() {
     assert!(custom.body.contains("Edit theme code"));
     let settings = get(&f.state, "/settings/", &cookie).await;
     assert!(!settings.body.contains("Code injection") && !settings.body.contains("Announcement"));
+}
+
+#[tokio::test]
+async fn broadsheet_homepage_preview_uses_unsaved_order_without_polluting_the_public_cache() {
+    use vuuut_db::repos::tags::{insert, NewTag};
+
+    let f = fixture_with_theme("broadsheet").await;
+    let cookie = f.session().await;
+    for (name, posts) in [("Climate Desk", 2), ("Arts Desk", 1), ("Empty Desk", 0)] {
+        let tag = insert(&f.state.db, &NewTag { name: name.into(), ..Default::default() }).await.unwrap();
+        for n in 0..posts {
+            let slug = format!("{}-{n}", tag.slug.as_deref().unwrap());
+            let entry = f.entry("post", &slug, &slug, None, None, "published").await;
+            sqlx::query("INSERT INTO posts_tags (id, post_id, tag_id, sort_order) VALUES (?, ?, ?, 0)")
+                .bind(vuuut_core::ids::new_id()).bind(entry).bind(&tag.id)
+                .execute(&f.state.db).await.unwrap();
+        }
+    }
+    f.state.settings.set(&f.state.db, vuuut_core::caching::SETTING_PAGE_CACHE, &serde_json::json!(true)).await.unwrap();
+    let public = || async {
+        let response = vuuut_front::site_router(f.state.clone())
+            .oneshot(Request::new(Body::empty())).await.unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        String::from_utf8(to_bytes(response.into_body(), usize::MAX).await.unwrap().to_vec()).unwrap()
+    };
+    let climate = "More in Climate Desk";
+    let arts = "More in Arts Desk";
+    let homepage = public().await;
+    assert!(homepage.find(climate).unwrap() < homepage.find(arts).unwrap());
+    assert!(!homepage.contains("More in Empty Desk"));
+
+    let custom = get(&f.state, "/customizations/", &cookie).await;
+    assert!(custom.body.contains("Homepage section tags"));
+    assert!(custom.body.contains("Live site preview"));
+
+    let response = vuuut_admin_ui::admin_ui_router(f.state.clone()).with_state(f.state.clone())
+        .oneshot(Request::post("/customizations/preview/")
+            .header("host", HOST).header("origin", ORIGIN).header("cookie", &cookie)
+            .header("content-type", "application/json")
+            .body(Body::from(r#"{"homepage_section_tags":" arts-desk, missing, climate-desk, arts-desk, empty-desk "}"#)).unwrap())
+        .await.unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(response.headers()["cache-control"], "private, no-store");
+    let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
+    let result: serde_json::Value = serde_json::from_slice(&body).unwrap();
+    let preview = result["html"].as_str().unwrap();
+    assert!(preview.contains(r#"class="np-home""#));
+    assert!(preview.contains("/tag/arts-desk/"));
+    assert!(preview.find(arts).unwrap() < preview.find(climate).unwrap());
+    assert_eq!(preview.matches(arts).count(), 1);
+    assert!(!preview.contains("More in Empty Desk"));
+    assert_eq!(public().await, homepage);
+
+    let saved = post(&f.state, "/customizations/", &cookie, &[("homepage_section_tags", "arts-desk")]).await;
+    assert!(saved.flash().contains("Design settings saved"));
+    let homepage = public().await;
+    assert!(homepage.contains(arts));
+    assert!(!homepage.contains(climate));
 }
 
 #[tokio::test]

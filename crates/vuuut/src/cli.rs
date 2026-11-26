@@ -24,7 +24,7 @@ pub enum Command {
     SeedPodcast,
     /// `seed-portfolio [--studio]`: a personal (default) or studio portfolio.
     SeedPortfolio(bool),
-    /// `seed-theme-demo --demo academy|studio`: a theme demo from Tools → Dummy content.
+    /// `seed-theme-demo --demo KEY`: a theme demo from Tools → Dummy content.
     SeedThemeDemo(String),
     SeedLanguages,
     /// `import-content FILE [--keep-settings]`: a Ghost export (a theme's
@@ -122,7 +122,7 @@ COMMANDS
     seed-booking     Add the sample business (services, staff, hours, bookings), then exit
     seed-podcast     Add the sample show (hosts, guests, episodes, downloads), then exit
     seed-portfolio   Add a sample portfolio (--studio for a design studio), then exit
-    seed-theme-demo  --demo studio|academy: the Atrium or Lantern theme demo, removable from Tools → Dummy content
+    seed-theme-demo  --demo academy|documentation|studio: load a removable theme demo
     seed-languages   Add the Arabic, English and French sample courses, then exit
     import-content FILE  Import a Ghost export (e.g. a theme's demo/*.json); --with-settings also loads its menus
     version          Print the version

@@ -211,7 +211,7 @@ pub struct Plan {
     pub publish: bool,
     /// Whether this is the one-click demo, for the record it leaves.
     pub full: bool,
-    /// A theme demo: the plan also writes that theme's own journal, pages,
+    /// A theme demo: the plan also writes that theme's own content, pages,
     /// menu and settings.
     pub demo: Option<Demo>,
 }
@@ -222,16 +222,19 @@ pub struct Plan {
 pub enum Demo {
     /// Lantern: an online academy.
     Academy,
+    /// Handbook: a documentation site.
+    Documentation,
     /// Atrium: an appointment business.
     Studio,
 }
 
 impl Demo {
-    pub const ALL: [Demo; 2] = [Demo::Academy, Demo::Studio];
+    pub const ALL: [Demo; 3] = [Demo::Academy, Demo::Documentation, Demo::Studio];
 
     pub fn key(self) -> &'static str {
         match self {
             Demo::Academy => "academy",
+            Demo::Documentation => "documentation",
             Demo::Studio => "studio",
         }
     }
@@ -244,6 +247,7 @@ impl Demo {
     pub fn theme(self) -> &'static str {
         match self {
             Demo::Academy => "lantern",
+            Demo::Documentation => "handbook",
             Demo::Studio => "atrium",
         }
     }
@@ -251,6 +255,7 @@ impl Demo {
     pub fn label(self) -> &'static str {
         match self {
             Demo::Academy => "Online academy",
+            Demo::Documentation => "Documentation",
             Demo::Studio => "Wellness studio",
         }
     }
@@ -258,6 +263,7 @@ impl Demo {
     pub fn hint(self) -> &'static str {
         match self {
             Demo::Academy => "Seven complete courses with lessons, quizzes, students and reviews, paid courses in the store, plus a learning journal, pages and menu.",
+            Demo::Documentation => "Fifteen guides in six ordered sections, an About page and navigation for the Handbook theme.",
             Demo::Studio => "A booking business: eight services, a team of four with weekly hours, two weeks of bookings, a wellness journal, About and Visit pages, menu and the theme's settings.",
         }
     }
@@ -268,6 +274,7 @@ impl Demo {
         let mut set = |kind: Kind, n: u32| counts[Kind::ALL.iter().position(|k| *k == kind).unwrap_or(0)] = n;
         match self {
             Demo::Academy => set(Kind::Courses, SAMPLE_COURSES),
+            Demo::Documentation => {}
             Demo::Studio => set(Kind::Services, SAMPLE_SERVICES),
         }
         set(Kind::Navigation, 1);

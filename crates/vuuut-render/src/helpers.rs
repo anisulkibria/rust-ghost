@@ -2647,8 +2647,13 @@ impl SplitHelper {
         if sep.is_empty() {
             return s.chars().map(|c| Value::String(c.to_string())).collect();
         }
+        let trim = hash_flag(h, "trim");
+        let unique = hash_flag(h, "unique");
+        let mut seen = std::collections::HashSet::new();
         s.split(sep.as_str())
+            .map(|p| if trim { p.trim() } else { p })
             .filter(|p| !p.is_empty())
+            .filter(|p| !unique || seen.insert(*p))
             .map(|p| Value::String(p.to_string()))
             .collect()
     }

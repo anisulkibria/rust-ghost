@@ -331,6 +331,61 @@
   // Theme-declared custom image fields keep their URL input and add uploads.
   if(/\/customizations\/$/.test(location.pathname)) {
     document.querySelectorAll('[data-theme-image]').forEach(function(control){var file=el('input',null,control.parentNode);file.type='file';file.accept='image/*';file.setAttribute('aria-label','Upload '+control.name);file.onchange=async function(){if(!file.files.length)return;var form=new FormData();form.append('file',file.files[0]);file.disabled=true;try{var response=await fetch(api+'images/upload/',{method:'POST',body:form,credentials:'same-origin'});var result=await response.json();if(!response.ok)throw new Error(result.errors[0].message);control.value=result.images[0].url;control.dispatchEvent(new Event('input',{bubbles:true}));notice('Image uploaded. Save design to apply it.');}catch(error){notice(error.message);}finally{file.disabled=false;}};});
-    var form=document.querySelector('form[action$="/customizations/"]');if(form){var panel=el('details',null,form.parentNode);panel.className='card padded';el('summary','Live site preview',panel);var frame=el('iframe',null,panel);frame.title='Theme preview';frame.src=base.replace(/ghost\/$/,'');frame.style.cssText='width:100%;height:70vh;border:0;border-radius:16px;margin-top:16px';var timer;form.addEventListener('input',function(){clearTimeout(timer);timer=setTimeout(async function(){var values={};new FormData(form).forEach(function(value,key){if(typeof value==='string')values[key]=value;});try{var response=await fetch(base+'customizations/preview/',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(values),credentials:'same-origin'});if(!response.ok)return;frame.srcdoc=await response.text();}catch(error){/* Keep the current preview while the server is unreachable. */}},500);});}
+    var form = document.getElementById('design-form');
+    var panel = document.getElementById('design-preview');
+    if (form && panel) {
+      var frame = panel.querySelector('iframe');
+      var status = panel.querySelector('[role="status"]');
+      var endpoint = new URL('preview/', form.action);
+      var baseTag = document.createElement('base');
+      baseTag.href = new URL(panel.dataset.home, location.origin).href;
+      var timer, pending, dirty = true;
+      async function renderPreview() {
+        if (!panel.open || !dirty) return;
+        if (pending) pending.abort();
+        var controller = new AbortController();
+        pending = controller;
+        if (!frame.hasAttribute('srcdoc')) {
+          status.textContent = 'Loading preview…';
+          status.hidden = false;
+        }
+        try {
+          var values = Object.fromEntries(new FormData(form));
+          var response = await fetch(endpoint, {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify(values),
+            credentials: 'same-origin',
+            signal: controller.signal
+          });
+          if (!response.ok) throw new Error('Preview request failed');
+          var preview = await response.json();
+          if (controller.signal.aborted) return;
+          var head = /<head(?:\s[^>]*)?>/i;
+          frame.srcdoc = head.test(preview.html)
+            ? preview.html.replace(head, function (tag) { return tag + baseTag.outerHTML; })
+            : preview.html.replace(/^(\s*<!doctype[^>]*>)?/i, function (tag) { return tag + baseTag.outerHTML; });
+          status.hidden = true;
+          dirty = false;
+        } catch (error) {
+          if (controller.signal.aborted) return;
+          status.textContent = 'Could not load the homepage preview.';
+          status.hidden = false;
+        } finally {
+          if (pending === controller) pending = null;
+        }
+      }
+      panel.addEventListener('toggle', function () {
+        if (panel.open) renderPreview();
+        else if (pending) pending.abort();
+      });
+      form.addEventListener('input', function () {
+        dirty = true;
+        if (pending) pending.abort();
+        clearTimeout(timer);
+        timer = setTimeout(renderPreview, 500);
+      });
+      renderPreview();
+    }
   }
 })();

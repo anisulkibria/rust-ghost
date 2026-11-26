@@ -54,6 +54,10 @@ impl Fixture {
 }
 
 async fn fixture() -> Fixture {
+    fixture_with_theme("atrium").await
+}
+
+async fn fixture_with_theme(theme: &str) -> Fixture {
     let test_db = vuuut_db::pool::connect_test().await.unwrap();
     let db = test_db.pool();
     vuuut_db::seed::seed_if_empty(&db).await.unwrap();
@@ -75,8 +79,8 @@ async fn fixture() -> Fixture {
     )
     .unwrap();
     let router = Arc::new(vuuut_routing::RouterTree::build(&routes).unwrap());
-    let theme_dir =
-        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../content/themes/source");
+    let theme_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../content/themes").join(theme);
     let deps = vuuut_render::HelperDeps {
         pool: Arc::new(db.clone()),
         runtime: tokio::runtime::Handle::current(),
@@ -201,6 +205,94 @@ async fn batch_id(f: &Fixture, kind: &str) -> String {
 }
 
 #[tokio::test]
+async fn podcast_and_portfolio_samples_load_from_dummy_content() {
+    let f = fixture().await;
+    let cookie = f.session().await;
+    let page = send(&f.state, "GET", BASE, Some(&cookie), None, None).await;
+    assert_eq!(page.status, StatusCode::OK);
+    for sample in ["podcast", "portfolio-personal", "portfolio-studio"] {
+        assert!(page.body.contains(&format!(r#"name="sample" value="{sample}""#)));
+    }
+
+    let forbidden = send(&f.state, "POST", "/dummies/sample/", Some(&cookie), Some("https://other.test"), Some(&[("sample", "podcast")])).await;
+    assert_eq!(forbidden.status, StatusCode::FORBIDDEN);
+    let invalid = submit(&f, &cookie, "sample", &[("sample", "unknown")]).await;
+    assert!(invalid.flash().contains("Choose a podcast or portfolio sample"));
+
+    let podcast = &[("sample", "podcast")];
+    let loaded = submit(&f, &cookie, "sample", podcast).await;
+    assert!(loaded.location.starts_with("/ghost/dummies/?ok="), "{}", loaded.location);
+    assert!(loaded.flash().contains("11 episodes"));
+    assert!(f.state.settings.get_bool(vuuut_core::podcast::SETTING_ENABLED));
+    let shows = vuuut_db::repos::podcast::shows(&f.state.db, false).await;
+    assert_eq!(shows.len(), 1);
+    assert_eq!(shows[0].title, "Open Workshop");
+    assert!(submit(&f, &cookie, "sample", podcast).await.flash().contains("already"));
+
+    for (f, sample, name) in [(f, "portfolio-personal", "Lena Hart"), (fixture().await, "portfolio-studio", "Harbour Lane")] {
+        let cookie = f.session().await;
+        let fields = &[("sample", sample)];
+        let loaded = submit(&f, &cookie, "sample", fields).await;
+        assert!(loaded.location.starts_with("/ghost/dummies/?ok="), "{}", loaded.location);
+        assert!(loaded.flash().contains("6 projects"));
+        assert!(f.state.settings.get_bool(vuuut_core::portfolio::SETTING_ENABLED));
+        assert_eq!(f.state.settings.get_str(vuuut_core::portfolio::SETTING_NAME).as_deref(), Some(name));
+        assert!(submit(&f, &cookie, "sample", fields).await.flash().contains("already"));
+    }
+}
+
+#[tokio::test]
+async fn handbook_demo_renders_reuses_existing_content_and_can_be_removed() {
+    use serde_json::json;
+    use vuuut_core::dummies::Kind;
+    use vuuut_db::repos::{dummies, posts, tags};
+
+    let f = fixture_with_theme("handbook").await;
+    let db = &f.state.db;
+    let cookie = f.session().await;
+    let page = send(&f.state, "GET", BASE, Some(&cookie), None, None).await;
+    assert!(page.body.contains(r#"name="demo" value="documentation""#));
+
+    let nav = json!([{"label":"Home","url":"/"}]);
+    f.state.settings.set(db, "navigation", &nav).await.unwrap();
+    f.state.settings.set(db, "custom_theme_settings", &json!({"handbook":{"hero_heading":"Welcome"}})).await.unwrap();
+    let publishing = tags::insert(db, &tags::NewTag { name: "Publishing".into(), ..Default::default() }).await.unwrap();
+
+    let demo = &[("demo", "documentation")];
+    let generated = submit(&f, &cookie, "demo", demo).await;
+    assert_eq!(generated.flash(), "Generated 5 tags, 15 posts, 1 page and 2 menu links.");
+    let batches = dummies::batches(db).await;
+    assert_eq!(batches.len(), 1);
+    assert_eq!(batches[0].label, "demo:documentation");
+    assert!(batches[0].remaining.contains(&(Kind::Posts, 15)));
+    let custom = f.state.settings.get("custom_theme_settings").unwrap();
+    assert_eq!(custom["handbook"]["hero_heading"], "Welcome");
+    assert_eq!(custom["handbook"]["sections"], "getting-started,publishing,customization,reference,support,troubleshooting");
+
+    let public = vuuut_front::site_router(f.state.clone())
+        .oneshot(Request::get("/").body(Body::empty()).unwrap()).await.unwrap();
+    assert_eq!(public.status(), StatusCode::OK);
+    let body = to_bytes(public.into_body(), 1_000_000).await.unwrap();
+    let html = std::str::from_utf8(&body).unwrap();
+    assert!(html.contains("Browse by section"));
+    assert!(html.contains(r#"data-section="getting-started""#));
+    assert!(html.find("Create your publication").unwrap() < html.find("Plan your handbook").unwrap());
+    assert!(html.contains("/about-handbook/"));
+
+    assert!(submit(&f, &cookie, "demo", demo).await.flash().contains("Nothing new"));
+    assert_eq!(dummies::batches(db).await.len(), 1);
+    sqlx::query("UPDATE posts SET title = 'My own publishing guide' WHERE slug = 'write-a-step-by-step-guide'")
+        .execute(db).await.unwrap();
+    let removed = submit(&f, &cookie, "remove", &[("batch", &batches[0].id)]).await;
+    assert!(removed.flash().contains("Kept 1"), "{}", removed.flash());
+    assert!(dummies::batches(db).await.is_empty());
+    assert!(posts::find_by_slug(db, "create-your-publication", "post", true).await.unwrap().is_none());
+    assert!(posts::find_by_slug(db, "write-a-step-by-step-guide", "post", true).await.unwrap().is_some());
+    assert_eq!(tags::find_by_slug(db, "publishing").await.unwrap().unwrap().id, publishing.id);
+    assert_eq!(f.state.settings.get("navigation"), Some(nav));
+}
+
+#[tokio::test]
 async fn full_demo_generates_every_kind_and_removes_only_its_own_content() {
     use vuuut_core::dummies::Kind;
     let f = fixture().await;
@@ -232,15 +324,19 @@ async fn full_demo_generates_every_kind_and_removes_only_its_own_content() {
     );
     let counts = vuuut_db::repos::dummies::totals(db).await;
     for kind in Kind::ALL {
+        let actual = counts.iter().find(|(k, _)| *k == kind);
+        if kind == Kind::Tags {
+            // The shuffled selection reuses News if it picks the seeded tag.
+            let new_tags = actual.unwrap().1;
+            assert!((i64::from(kind.full()) - 1..=i64::from(kind.full())).contains(&new_tags));
+            continue;
+        }
         let expected = match kind {
             Kind::Pages => 4,      // The installation already has an About page.
             Kind::Navigation => 6, // The five demo pages across both menus, and Places.
             _ => i64::from(kind.full()),
         };
-        assert_eq!(
-            counts.iter().find(|(k, _)| *k == kind),
-            Some(&(kind, expected))
-        );
+        assert_eq!(actual.map_or(0, |(_, count)| *count), expected, "{kind:?}");
     }
     let has_images: i64 = sqlx::query_scalar(
         "SELECT COUNT(*) FROM posts WHERE feature_image LIKE 'https://images.unsplash.com/%'",
@@ -277,6 +373,7 @@ async fn full_demo_generates_every_kind_and_removes_only_its_own_content() {
     .await
     .unwrap();
     assert_eq!(original_pages, 2);
+    assert!(vuuut_db::repos::tags::find_by_slug(db, "news").await.unwrap().is_some());
 }
 
 #[tokio::test]

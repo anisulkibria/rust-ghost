@@ -4,6 +4,7 @@
 //!
 //! * [`Demo::Studio`] dresses Atrium as a wellness studio in Bath.
 //! * [`Demo::Academy`] dresses Lantern as an online academy.
+//! * [`Demo::Documentation`] gives Handbook an ordered set of guides.
 //!
 //! Everything made here is recorded in the same batch as the courses or
 //! services, so the demo is removed as one. Theme settings are only filled
@@ -12,6 +13,8 @@
 
 use super::*;
 use vuuut_core::dummies::{document, Block, Block::*, Demo};
+
+mod handbook;
 
 const IMG: &str = "https://images.unsplash.com/photo-";
 
@@ -43,14 +46,7 @@ struct Set {
     theme_settings: &'static [(&'static str, &'static str)],
 }
 
-fn set(demo: Demo) -> &'static Set {
-    match demo {
-        Demo::Studio => &STUDIO,
-        Demo::Academy => &ACADEMY,
-    }
-}
-
-/// Make the demo's journal, pages and settings, record them in `batch`, and
+/// Make the demo's content, pages and settings, record them in `batch`, and
 /// add their menu links to `menu`. Returns what was made, by kind.
 pub(super) async fn extras(
     db: &vuuut_db::Db,
@@ -61,7 +57,11 @@ pub(super) async fn extras(
     images: bool,
     menu: &mut Vec<(Menu, String, String)>,
 ) -> vuuut_core::Result<Vec<(Kind, i64)>> {
-    let s = set(demo);
+    let s = match demo {
+        Demo::Studio => &STUDIO,
+        Demo::Academy => &ACADEMY,
+        Demo::Documentation => return handbook::generate(db, settings, batch, user_id, menu).await,
+    };
     let mut made = Vec::new();
 
     // Tags: an existing public tag is used, not duplicated.
@@ -135,28 +135,28 @@ pub(super) async fn extras(
     }
     made.push((Kind::Pages, n));
 
-    // The theme's settings, where the owner has not set them.
-    if !s.theme_settings.is_empty() {
-        let theme = demo.theme();
-        let mut all = match settings.get("custom_theme_settings") {
-            Some(serde_json::Value::Object(m)) => m,
-            _ => serde_json::Map::new(),
-        };
-        let mut mine = all.get(theme).and_then(|v| v.as_object().cloned()).unwrap_or_default();
-        let mut changed = false;
-        for (key, value) in s.theme_settings {
-            let empty = mine.get(*key).is_none_or(|v| v.is_null() || v.as_str() == Some(""));
-            if empty {
-                mine.insert(key.to_string(), serde_json::json!(value));
-                changed = true;
-            }
-        }
-        if changed {
-            all.insert(theme.to_string(), serde_json::Value::Object(mine));
-            settings.set(db, "custom_theme_settings", &serde_json::Value::Object(all)).await?;
+    fill_theme_settings(db, settings, demo.theme(), s.theme_settings).await?;
+    Ok(made)
+}
+
+async fn fill_theme_settings(db: &vuuut_db::Db, settings: &vuuut_db::SettingsCache, theme: &str, fields: &[(&str, &str)]) -> vuuut_core::Result<()> {
+    let mut all = match settings.get("custom_theme_settings") {
+        Some(serde_json::Value::Object(m)) => m,
+        _ => serde_json::Map::new(),
+    };
+    let mut mine = all.get(theme).and_then(|v| v.as_object().cloned()).unwrap_or_default();
+    let mut changed = false;
+    for (key, value) in fields {
+        if mine.get(*key).is_none_or(|v| v.is_null() || v.as_str() == Some("")) {
+            mine.insert(key.to_string(), serde_json::json!(value));
+            changed = true;
         }
     }
-    Ok(made)
+    if changed {
+        all.insert(theme.to_string(), serde_json::Value::Object(mine));
+        settings.set(db, "custom_theme_settings", &serde_json::Value::Object(all)).await?;
+    }
+    Ok(())
 }
 
 // ---------------------------------------------------------------------------

@@ -117,6 +117,8 @@ pub(crate) async fn sample_load(State(state): State<AppState>, headers: HeaderMa
 
 /// Also the `vuuut seed-podcast` command. Does nothing when a show exists.
 pub async fn seed_sample_podcast(db: &vuuut_db::Db, settings: &vuuut_db::SettingsCache) -> vuuut_core::Result<usize> {
+    static SAMPLE_WRITE: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+    let _write = SAMPLE_WRITE.lock().await;
     if !repo::shows(db, false).await.is_empty() {
         return Ok(0);
     }
