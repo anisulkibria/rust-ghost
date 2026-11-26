@@ -1,0 +1,17 @@
+{{#get "posts" filter=journal_filter limit="3" include="tags" as |journal|}}
+    {{#if journal}}
+        <section class="atlas-section atlas-picks" aria-labelledby="journal-heading">
+            <div class="wrap">
+                <header class="atlas-section-head">
+                    <h2 id="journal-heading">From the journal</h2>
+                    {{#if @custom.journal_tag}}
+                        {{#get "tags" slug=@custom.journal_tag as |journal_tags|}}
+                            {{#foreach journal_tags}}<a class="more" href="{{url}}">All journal articles {{> "icons/arrow"}}</a>{{/foreach}}
+                        {{/get}}
+                    {{/if}}
+                </header>
+                <div class="post-grid">{{#foreach journal}}{{> "post-card"}}{{/foreach}}</div>
+            </div>
+        </section>
+    {{/if}}
+{{/get}}

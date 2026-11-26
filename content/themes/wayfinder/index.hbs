@@ -14,64 +14,37 @@
         <section class="hero" aria-labelledby="hero-title">
             <div class="hero-inner wrap">
                 <div class="hero-search">
-                    <h1 class="visually-hidden" id="hero-title">{{@site.title}}</h1>
-                    {{> "dir-finder"}}
+                    <h1 class="hero-title" id="hero-title">
+                        <span class="w-places">{{t "Find somewhere worth going."}}</span>
+                        <span class="w-posts">{{@site.title}}</span>
+                    </h1>
                     {{#if @site.description}}<p class="hero-text">{{@site.description}}</p>{{/if}}
+                    {{> "dir-finder"}}
                 </div>
 
-                {{!-- The picture: a featured place from the directory, else a featured #listing post, else any featured post, else the newest post with an image. CSS shows only the first. --}}
-                {{#get "listings" filter="featured:true" limit="1" as |picks|}}
-                    {{#foreach picks}}
-                        {{#if feature_image}}
-                            <a class="postcard" href="{{url}}">
-                                <img src="{{feature_image}}" alt="" fetchpriority="high">
-                                <span class="postcard-label">
-                                    <span class="postcard-title">{{title}}</span>
-                                    {{#if category}}<span class="postcard-where">{{category.name}}{{#if location}} {{t "in"}} {{location}}{{/if}}</span>{{/if}}
-                                </span>
-                            </a>
-                        {{/if}}
-                    {{/foreach}}
-                {{/get}}
-                {{#get "posts" filter="tag:hash-listing+featured:true" limit="1" include="tags"}}
-                    {{#foreach posts}}
-                        {{#if feature_image}}
-                            <a class="postcard" href="{{url}}">
-                                <img src="{{img_url feature_image size="l"}}" alt="" fetchpriority="high">
-                                <span class="postcard-label">
-                                    <span class="postcard-title">{{title}}</span>
-                                    {{#if primary_tag}}<span class="postcard-where">{{primary_tag.name}}{{#has tag="#listing"}}{{#foreach tags from="2" to="2"}} {{t "in"}} {{name}}{{/foreach}}{{/has}}</span>{{/if}}
-                                </span>
-                            </a>
-                        {{/if}}
-                    {{/foreach}}
-                {{/get}}
-                {{#get "posts" filter="featured:true" limit="3" include="tags"}}
-                    {{#foreach posts}}
-                        {{#if feature_image}}
-                            <a class="postcard" href="{{url}}">
-                                <img src="{{img_url feature_image size="l"}}" alt="" fetchpriority="high">
-                                <span class="postcard-label">
-                                    <span class="postcard-title">{{title}}</span>
-                                    {{#if primary_tag}}<span class="postcard-where">{{primary_tag.name}}{{#has tag="#listing"}}{{#foreach tags from="2" to="2"}} {{t "in"}} {{name}}{{/foreach}}{{/has}}</span>{{/if}}
-                                </span>
-                            </a>
-                        {{/if}}
-                    {{/foreach}}
-                {{/get}}
-                {{#get "posts" limit="6" include="tags"}}
-                    {{#foreach posts}}
-                        {{#if feature_image}}
-                            <a class="postcard" href="{{url}}">
-                                <img src="{{img_url feature_image size="l"}}" alt="" fetchpriority="high">
-                                <span class="postcard-label">
-                                    <span class="postcard-title">{{title}}</span>
-                                    {{#if primary_tag}}<span class="postcard-where">{{primary_tag.name}}{{#has tag="#listing"}}{{#foreach tags from="2" to="2"}} {{t "in"}} {{name}}{{/foreach}}{{/has}}</span>{{/if}}
-                                </span>
-                            </a>
-                        {{/if}}
-                    {{/foreach}}
-                {{/get}}
+                {{!-- The first available photo in editorial order gets the spotlight. --}}
+                <div class="hero-visual">
+                    {{#get "listings" filter="featured:true" limit="6" as |picks|}}
+                        {{#foreach picks}}{{> "postcard-listing"}}{{/foreach}}
+                    {{/get}}
+                    {{#get "posts" filter="tag:hash-listing+featured:true" limit="3" include="tags"}}
+                        {{#foreach posts}}{{> "postcard-post"}}{{/foreach}}
+                    {{/get}}
+                    {{#get "listings" order="newest" limit="6" as |latest|}}
+                        {{#foreach latest}}{{> "postcard-listing"}}{{/foreach}}
+                    {{/get}}
+                    {{#get "posts" filter="featured:true" limit="3" include="tags"}}
+                        {{#foreach posts}}{{> "postcard-post"}}{{/foreach}}
+                    {{/get}}
+                    {{#get "posts" limit="6" include="tags"}}
+                        {{#foreach posts}}{{> "postcard-post"}}{{/foreach}}
+                    {{/get}}
+                    {{#if @site.cover_image}}
+                        <figure class="postcard">
+                            <img src="{{img_url @site.cover_image size="l"}}" alt="">
+                        </figure>
+                    {{/if}}
+                </div>
             </div>
         </section>
 
@@ -80,7 +53,7 @@
         {{#if @custom.show_featured}}
             {{#get "listings" filter="featured:true" limit="6" as |dpicks|}}
                 {{#if dpicks}}
-                    <section class="band" aria-labelledby="dfeatured-heading">
+                    <section class="band featured-places" aria-labelledby="dfeatured-heading">
                         <header class="section-head wrap">
                             <h2 class="section-title" id="dfeatured-heading">{{t "Worth the trip"}}</h2>
                             {{#foreach dpicks limit="1"}}<a class="section-link" href="{{directory_url}}">{{t "See every place"}}</a>{{/foreach}}
@@ -93,7 +66,7 @@
             {{/get}}
             {{#get "posts" filter="tag:hash-listing+featured:true" limit="6" include="tags" as |picks|}}
                 {{#if picks}}
-                    <section class="band" aria-labelledby="featured-heading">
+                    <section class="band featured-places" aria-labelledby="featured-heading">
                         <header class="section-head wrap">
                             <h2 class="section-title" id="featured-heading">{{t "Worth the trip"}}</h2>
                             <a class="section-link" href="{{#if @custom.directory_page}}{{@custom.directory_page}}{{else}}/places/{{/if}}">{{t "See every place"}}</a>

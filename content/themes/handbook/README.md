@@ -3,8 +3,15 @@
 A free documentation and knowledge-base theme for Vuuut. Sections and
 articles are numbered like a manual — section 2, article 2.3 — and the
 number follows the article everywhere: the contents tree, breadcrumbs, the
-large numeral above the title, section pages and previous/next links. Readers
+label above the title, section pages and previous/next links. Readers
 can tell each other "see 2.3".
+
+## Sample content
+
+Import [handbook-demo.json](demo/handbook-demo.json) on a test publication
+using **Settings → Advanced → Import content**. It includes 15 guides in
+six sections and an About page. To see the intended reading order, set
+**Sections** to `getting-started,publishing,customization,reference,support,troubleshooting`.
 
 ## How it is organised
 
@@ -19,7 +26,7 @@ can tell each other "see 2.3".
 
 | Template | Used for |
 |---|---|
-| `index.hbs` | Heading and search, a card per section (number, summary, first five articles), recently updated, support |
+| `index.hbs` | Illustrated cover and search, a card per section (number, summary, first five articles), recently updated, support |
 | `post.hbs` | Contents tree (left), article, "On this page" (right), "Was this page helpful?", previous/next within the section |
 | `tag.hbs` | A section: its number, summary and every article in reading order |
 | `page.hbs`, `author.hbs`, `error-404.hbs`, `error.hbs` | As usual; the 404 offers search and the contents |
@@ -39,7 +46,9 @@ full width with their own type.
 ## Theme settings
 
 - **Sections**: which tags are sections, and their order.
-- **Hero heading**: defaults to "How can we help?".
+- **Hero heading** sets the homepage title. The default is “How can we help?”
+- **Hero image** replaces the bundled cover artwork. A landscape image crops
+  well across desktop and mobile.
 - **Support URL**: a contact page or `mailto:` link. Adds "Contact support"
   to the header, the homepage and the feedback answer. Empty hides them.
 - **Color scheme**: follows the reader's device by default.
@@ -54,7 +63,8 @@ full width with their own type.
 
 ## Fonts
 
-IBM Plex Sans and IBM Plex Mono (SIL Open Font License), bundled as latin
-subsets. Mono is used for code only.
+Instrument Serif, IBM Plex Sans, and IBM Plex Mono are bundled as Latin
+subsets under the SIL Open Font License. Plex Mono is used for code,
+shortcuts, and manual numbers.
 
 Design system: [DESIGN.md](DESIGN.md).

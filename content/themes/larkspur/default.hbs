@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="{{@site.locale}}">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>{{meta_title}}</title>
+    <link rel="preload" as="font" type="font/woff2" href="{{asset "fonts/instrument-serif.woff2"}}" crossorigin>
+    <style>
+        @font-face{font-family:"Instrument Serif";src:url("{{asset "fonts/instrument-serif.woff2"}}") format("woff2");font-style:normal;font-weight:400;font-display:swap}
+        @font-face{font-family:"Instrument Serif";src:url("{{asset "fonts/instrument-serif-italic.woff2"}}") format("woff2");font-style:italic;font-weight:400;font-display:swap}
+        @font-face{font-family:"Instrument Sans";src:url("{{asset "fonts/instrument-sans.woff2"}}") format("woff2");font-style:normal;font-weight:400 700;font-display:swap}
+    </style>
+    <link rel="stylesheet" href="{{asset "css/screen.css"}}">
+    {{ghost_head}}
+</head>
+<body class="{{body_class}}">
+    <a class="skip-link" href="#main">Skip to content</a>
+    {{> "header"}}
+    {{{body}}}
+    {{> "footer"}}
+    <script src="{{asset "js/larkspur.js"}}" defer></script>
+    {{ghost_foot}}
+</body>
+</html>

@@ -1,0 +1,19 @@
+{{!< default}}
+<main id="main" class="sl-main">
+{{#service}}
+<header class="sl-wrap sl-page-head">
+<a class="sl-back" href="{{../portfolio.services_url}}">{{> "icon" name="left" size="15"}} All services</a>
+<h1 class="sl-h1">{{name}}</h1>
+{{#if summary}}<p class="sl-lede">{{summary}}</p>{{/if}}
+</header>
+<div class="sl-wrap sl-service">
+<div class="sl-prose">{{{description}}}</div>
+<aside class="sl-panel">
+{{#if price_label}}<p class="sl-eyebrow">Investment</p><p class="sl-price">{{price_label}}</p>{{#if price_note}}<p class="sl-muted">{{price_note}}</p>{{/if}}{{/if}}
+{{#if deliverables}}<p class="sl-eyebrow">What you get</p><ul class="sl-ticks">{{#foreach deliverables}}<li>{{this}}</li>{{/foreach}}</ul>{{/if}}
+{{#if ../portfolio.contact_url}}<a class="sl-btn sl-btn-block" href="{{../portfolio.contact_url}}?service={{slug}}">Enquire about {{name}}</a>{{/if}}
+</aside>
+</div>
+{{/service}}
+{{#if projects}}<section class="sl-wrap sl-block"><div class="sl-block-head"><h2 class="sl-h2">Examples</h2></div><div class="sl-grid">{{#foreach projects}}{{> "project-card"}}{{/foreach}}</div></section>{{/if}}
+</main>

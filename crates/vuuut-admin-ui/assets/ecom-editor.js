@@ -18,7 +18,7 @@
   function text(s) { var d = document.createElement('div'); d.textContent = s == null ? '' : String(s); return d.innerHTML; }
 
   ready(function () {
-    var form = $('ec-product') || $('dr-listing') || $('lm-course') || $('lm-lesson') || $('bk-service') || $('bk-staff') || $('bk-booking') || $('bk-booking-new') || $('ec-collection') || $('ec-customer');
+    var form = $('ec-product') || $('dr-listing') || $('lm-course') || $('lm-lesson') || $('bk-service') || $('bk-staff') || $('bk-booking') || $('bk-booking-new') || $('ec-collection') || $('ec-customer') || $('pc-episode') || $('pc-show') || $('pc-person') || $('pf-project') || $('pf-service') || $('pf-member') || $('pf-testimonial');
     var dirty = false;
     var state = $('ec-save-state');
     function markDirty() {

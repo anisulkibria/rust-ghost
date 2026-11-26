@@ -1,0 +1,657 @@
+{
+ "db": [
+  {
+   "meta": {
+    "exported_on": 1795000000000,
+    "version": "6.0.0"
+   },
+   "data": {
+    "users": [
+     {
+      "id": "4dd28084128dd7ed899917b7",
+      "name": "Handbook editors",
+      "slug": "handbook-editors",
+      "email": "handbook.editors@example.com",
+      "profile_image": null,
+      "cover_image": null,
+      "bio": "The team behind the sample guides in Handbook.",
+      "website": null,
+      "location": null,
+      "status": "active",
+      "visibility": "public",
+      "created_at": "2026-11-25T09:00:00.000Z",
+      "updated_at": "2026-11-25T09:00:00.000Z"
+     }
+    ],
+    "tags": [
+     {
+      "id": "d9c4f3db27a099b596205c48",
+      "name": "Getting started",
+      "slug": "getting-started",
+      "description": "Set up your publication and get your first issue out the door.",
+      "feature_image": null,
+      "visibility": "public",
+      "created_at": "2026-11-25T09:00:00.000Z",
+      "updated_at": "2026-11-25T09:00:00.000Z"
+     },
+     {
+      "id": "d045cacb6574221fdd3d6804",
+      "name": "Publishing",
+      "slug": "publishing",
+      "description": "Write, review, and maintain guides readers can follow.",
+      "feature_image": null,
+      "visibility": "public",
+      "created_at": "2026-11-25T09:00:00.000Z",
+      "updated_at": "2026-11-25T09:00:00.000Z"
+     },
+     {
+      "id": "1385b64743ab1e49d3ab2ee0",
+      "name": "Customization",
+      "slug": "customization",
+      "description": "Make the handbook fit your publication’s identity.",
+      "feature_image": null,
+      "visibility": "public",
+      "created_at": "2026-11-25T09:00:00.000Z",
+      "updated_at": "2026-11-25T09:00:00.000Z"
+     },
+     {
+      "id": "1e72a3caff352e6bc0733e01",
+      "name": "Reference",
+      "slug": "reference",
+      "description": "Find the conventions used throughout the handbook.",
+      "feature_image": null,
+      "visibility": "public",
+      "created_at": "2026-11-25T09:00:00.000Z",
+      "updated_at": "2026-11-25T09:00:00.000Z"
+     },
+     {
+      "id": "28fd753b07284e9607ae7fff",
+      "name": "Support",
+      "slug": "support",
+      "description": "Give readers a clear way to ask for help or report an issue.",
+      "feature_image": null,
+      "visibility": "public",
+      "created_at": "2026-11-25T09:00:00.000Z",
+      "updated_at": "2026-11-25T09:00:00.000Z"
+     },
+     {
+      "id": "e2d02a6d80df0df4531d9751",
+      "name": "Troubleshooting",
+      "slug": "troubleshooting",
+      "description": "Check the usual causes of missing articles and navigation.",
+      "feature_image": null,
+      "visibility": "public",
+      "created_at": "2026-11-25T09:00:00.000Z",
+      "updated_at": "2026-11-25T09:00:00.000Z"
+     }
+    ],
+    "posts": [
+     {
+      "id": "514ef8a85ad9c2b2927c0b18",
+      "uuid": "542ae836-ec6e-4a50-a737-7678aa1be954",
+      "title": "Create your publication",
+      "slug": "create-your-publication",
+      "type": "post",
+      "lexical": "{\"root\": {\"children\": [{\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"Set the title, audience, and identity for your new publication.\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"paragraph\", \"version\": 1}, {\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"Choose a publication name\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"extended-heading\", \"version\": 1, \"tag\": \"h2\"}, {\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"Use the name readers will recognize on the site and in their inbox. Add a one-sentence description that says what you publish and who it is for.\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"paragraph\", \"version\": 1}, {\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"Check your address\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"extended-heading\", \"version\": 1, \"tag\": \"h3\"}, {\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"Open the public URL in a private window. Use that address wherever you link to the publication.\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"paragraph\", \"version\": 1}, {\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"Create your first draft\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"extended-heading\", \"version\": 1, \"tag\": \"h2\"}, {\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"Outline one useful idea. Give it a descriptive title, add a short introduction, and split the body into sections a reader can scan.\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"paragraph\", \"version\": 1}, {\"children\": [{\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"Use a title you can say aloud.\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"listitem\", \"version\": 1, \"value\": 1}, {\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"Describe what readers will learn.\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"listitem\", \"version\": 1, \"value\": 2}, {\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"Open your publication on a small screen.\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"listitem\", \"version\": 1, \"value\": 3}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"list\", \"version\": 1, \"listType\": \"bullet\", \"start\": 1, \"tag\": \"ul\"}, {\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"Review and publish\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"extended-heading\", \"version\": 1, \"tag\": \"h2\"}, {\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"Read the draft aloud, check its links, and preview it at the width your readers are likely to use.\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"paragraph\", \"version\": 1}, {\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"Send the public link to one trusted reader and ask them to follow the guide from start to finish.\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"extended-quote\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"root\", \"version\": 1}}",
+      "mobiledoc": null,
+      "html": "<p>Set the title, audience, and identity for your new publication.</p><h2 id=\"choose-a-publication-name\">Choose a publication name</h2><p>Use the name readers will recognize on the site and in their inbox. Add a one-sentence description that says what you publish and who it is for.</p><h3 id=\"check-your-address\">Check your address</h3><p>Open the public URL in a private window. Use that address wherever you link to the publication.</p><h2 id=\"create-your-first-draft\">Create your first draft</h2><p>Outline one useful idea. Give it a descriptive title, add a short introduction, and split the body into sections a reader can scan.</p><ul><li>Use a title you can say aloud.</li><li>Describe what readers will learn.</li><li>Open your publication on a small screen.</li></ul><h2 id=\"review-and-publish\">Review and publish</h2><p>Read the draft aloud, check its links, and preview it at the width your readers are likely to use.</p><blockquote>Send the public link to one trusted reader and ask them to follow the guide from start to finish.</blockquote>",
+      "plaintext": "Set the title, audience, and identity for your new publication.\n\nChoose a publication name\n\nUse the name readers will recognize on the site and in their inbox. Add a one-sentence description that says what you publish and who it is for.\n\nCheck your address\n\nOpen the public URL in a private window. Use that address wherever you link to the publication.\n\nCreate your first draft\n\nOutline one useful idea. Give it a descriptive title, add a short introduction, and split the body into sections a reader can scan.\n\nUse a title you can say aloud.\nDescribe what readers will learn.\nOpen your publication on a small screen.\n\nReview and publish\n\nRead the draft aloud, check its links, and preview it at the width your readers are likely to use.\n\nSend the public link to one trusted reader and ask them to follow the guide from start to finish.",
+      "feature_image": null,
+      "featured": 0,
+      "status": "published",
+      "visibility": "public",
+      "custom_excerpt": "Set the title, audience, and identity for your new publication.",
+      "locale": null,
+      "email_recipient_filter": "all",
+      "reading_time": 1,
+      "created_at": "2026-11-01T21:52:00.000Z",
+      "updated_at": "2026-11-01T21:52:00.000Z",
+      "published_at": "2026-11-01T21:52:00.000Z"
+     },
+     {
+      "id": "0b275bf8dd3c7c495e5d7703",
+      "uuid": "1135a933-c737-4fe5-a6f3-bf68e64298b7",
+      "title": "Plan your handbook",
+      "slug": "plan-your-handbook",
+      "type": "post",
+      "lexical": "{\"root\": {\"children\": [{\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"Turn recurring reader questions into a short list of guides.\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"paragraph\", \"version\": 1}, {\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"Start with reader tasks\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"extended-heading\", \"version\": 1, \"tag\": \"h2\"}, {\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"Collect recent questions and group them by the task a reader is trying to finish.\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"paragraph\", \"version\": 1}, {\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"Name the sections\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"extended-heading\", \"version\": 1, \"tag\": \"h3\"}, {\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"Choose familiar labels. A label such as Publishing is easier to recognize than a label based on how your team is organized.\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"paragraph\", \"version\": 1}, {\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"Write a short introduction\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"extended-heading\", \"version\": 1, \"tag\": \"h2\"}, {\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"Explain who the handbook is for and link to the first guide most readers need.\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"paragraph\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"root\", \"version\": 1}}",
+      "mobiledoc": null,
+      "html": "<p>Turn recurring reader questions into a short list of guides.</p><h2 id=\"start-with-reader-tasks\">Start with reader tasks</h2><p>Collect recent questions and group them by the task a reader is trying to finish.</p><h3 id=\"name-the-sections\">Name the sections</h3><p>Choose familiar labels. A label such as Publishing is easier to recognize than a label based on how your team is organized.</p><h2 id=\"write-a-short-introduction\">Write a short introduction</h2><p>Explain who the handbook is for and link to the first guide most readers need.</p>",
+      "plaintext": "Turn recurring reader questions into a short list of guides.\n\nStart with reader tasks\n\nCollect recent questions and group them by the task a reader is trying to finish.\n\nName the sections\n\nChoose familiar labels. A label such as Publishing is easier to recognize than a label based on how your team is organized.\n\nWrite a short introduction\n\nExplain who the handbook is for and link to the first guide most readers need.",
+      "feature_image": null,
+      "featured": 0,
+      "status": "published",
+      "visibility": "public",
+      "custom_excerpt": "Turn recurring reader questions into a short list of guides.",
+      "locale": null,
+      "email_recipient_filter": "all",
+      "reading_time": 1,
+      "created_at": "2026-11-03T20:45:00.000Z",
+      "updated_at": "2026-11-03T20:45:00.000Z",
+      "published_at": "2026-11-03T20:45:00.000Z"
+     },
+     {
+      "id": "442d51f335b575ff224c779a",
+      "uuid": "f785de2f-f4a6-448b-ab4c-c96e2f9a50d8",
+      "title": "Publish your first guide",
+      "slug": "publish-your-first-guide",
+      "type": "post",
+      "lexical": "{\"root\": {\"children\": [{\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"Prepare a small, useful article and verify the public version.\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"paragraph\", \"version\": 1}, {\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"Write a clear outcome\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"extended-heading\", \"version\": 1, \"tag\": \"h2\"}, {\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"Tell readers what they will be able to do by the end of the guide.\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"paragraph\", \"version\": 1}, {\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"Assign its section\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"extended-heading\", \"version\": 1, \"tag\": \"h3\"}, {\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"Use the guide\\u2019s main topic as the primary tag. Handbook uses that tag to place it in the contents tree.\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"paragraph\", \"version\": 1}, {\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"Review the public view\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"extended-heading\", \"version\": 1, \"tag\": \"h2\"}, {\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"Check headings, numbered steps, and links in preview. Open the public URL after publishing.\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"paragraph\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"root\", \"version\": 1}}",
+      "mobiledoc": null,
+      "html": "<p>Prepare a small, useful article and verify the public version.</p><h2 id=\"write-a-clear-outcome\">Write a clear outcome</h2><p>Tell readers what they will be able to do by the end of the guide.</p><h3 id=\"assign-its-section\">Assign its section</h3><p>Use the guide’s main topic as the primary tag. Handbook uses that tag to place it in the contents tree.</p><h2 id=\"review-the-public-view\">Review the public view</h2><p>Check headings, numbered steps, and links in preview. Open the public URL after publishing.</p>",
+      "plaintext": "Prepare a small, useful article and verify the public version.\n\nWrite a clear outcome\n\nTell readers what they will be able to do by the end of the guide.\n\nAssign its section\n\nUse the guide’s main topic as the primary tag. Handbook uses that tag to place it in the contents tree.\n\nReview the public view\n\nCheck headings, numbered steps, and links in preview. Open the public URL after publishing.",
+      "feature_image": null,
+      "featured": 0,
+      "status": "published",
+      "visibility": "public",
+      "custom_excerpt": "Prepare a small, useful article and verify the public version.",
+      "locale": null,
+      "email_recipient_filter": "all",
+      "reading_time": 1,
+      "created_at": "2026-11-05T19:38:00.000Z",
+      "updated_at": "2026-11-05T19:38:00.000Z",
+      "published_at": "2026-11-05T19:38:00.000Z"
+     },
+     {
+      "id": "f10740e1f04e9424e4c59e1a",
+      "uuid": "7596ac85-2f47-4b66-af83-31c45ef7e403",
+      "title": "Set your article order",
+      "slug": "set-your-article-order",
+      "type": "post",
+      "lexical": "{\"root\": {\"children\": [{\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"Put prerequisites before the guides that depend on them.\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"paragraph\", \"version\": 1}, {\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"Outline the sequence\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"extended-heading\", \"version\": 1, \"tag\": \"h2\"}, {\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"List the articles in the order a new reader should follow.\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"paragraph\", \"version\": 1}, {\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"Set publication dates\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"extended-heading\", \"version\": 1, \"tag\": \"h3\"}, {\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"Handbook reads each section from its oldest article to its newest. The first guide in the sequence needs the earliest date.\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"paragraph\", \"version\": 1}, {\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"Check the contents tree\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"extended-heading\", \"version\": 1, \"tag\": \"h2\"}, {\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"Open two consecutive articles and confirm their addresses and previous and next links agree.\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"paragraph\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"root\", \"version\": 1}}",
+      "mobiledoc": null,
+      "html": "<p>Put prerequisites before the guides that depend on them.</p><h2 id=\"outline-the-sequence\">Outline the sequence</h2><p>List the articles in the order a new reader should follow.</p><h3 id=\"set-publication-dates\">Set publication dates</h3><p>Handbook reads each section from its oldest article to its newest. The first guide in the sequence needs the earliest date.</p><h2 id=\"check-the-contents-tree\">Check the contents tree</h2><p>Open two consecutive articles and confirm their addresses and previous and next links agree.</p>",
+      "plaintext": "Put prerequisites before the guides that depend on them.\n\nOutline the sequence\n\nList the articles in the order a new reader should follow.\n\nSet publication dates\n\nHandbook reads each section from its oldest article to its newest. The first guide in the sequence needs the earliest date.\n\nCheck the contents tree\n\nOpen two consecutive articles and confirm their addresses and previous and next links agree.",
+      "feature_image": null,
+      "featured": 0,
+      "status": "published",
+      "visibility": "public",
+      "custom_excerpt": "Put prerequisites before the guides that depend on them.",
+      "locale": null,
+      "email_recipient_filter": "all",
+      "reading_time": 1,
+      "created_at": "2026-11-07T18:31:00.000Z",
+      "updated_at": "2026-11-07T18:31:00.000Z",
+      "published_at": "2026-11-07T18:31:00.000Z"
+     },
+     {
+      "id": "c1eb5eccf0ebf96caabfb805",
+      "uuid": "b5a20861-1b24-44c0-ab43-8c9ffe8ead9d",
+      "title": "Write a step-by-step guide",
+      "slug": "write-a-step-by-step-guide",
+      "type": "post",
+      "lexical": "{\"root\": {\"children\": [{\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"Structure instructions around the task a reader wants to complete.\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"paragraph\", \"version\": 1}, {\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"State what readers need\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"extended-heading\", \"version\": 1, \"tag\": \"h2\"}, {\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"List any access, materials, or earlier steps a reader needs before starting.\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"paragraph\", \"version\": 1}, {\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"Write one action per step\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"extended-heading\", \"version\": 1, \"tag\": \"h3\"}, {\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"Start with a verb, name the control or location, and describe the result when it helps readers verify their progress.\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"paragraph\", \"version\": 1}, {\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"Describe the result\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"extended-heading\", \"version\": 1, \"tag\": \"h2\"}, {\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"End by showing what success looks like and where the reader can go next.\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"paragraph\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"root\", \"version\": 1}}",
+      "mobiledoc": null,
+      "html": "<p>Structure instructions around the task a reader wants to complete.</p><h2 id=\"state-what-readers-need\">State what readers need</h2><p>List any access, materials, or earlier steps a reader needs before starting.</p><h3 id=\"write-one-action-per-step\">Write one action per step</h3><p>Start with a verb, name the control or location, and describe the result when it helps readers verify their progress.</p><h2 id=\"describe-the-result\">Describe the result</h2><p>End by showing what success looks like and where the reader can go next.</p>",
+      "plaintext": "Structure instructions around the task a reader wants to complete.\n\nState what readers need\n\nList any access, materials, or earlier steps a reader needs before starting.\n\nWrite one action per step\n\nStart with a verb, name the control or location, and describe the result when it helps readers verify their progress.\n\nDescribe the result\n\nEnd by showing what success looks like and where the reader can go next.",
+      "feature_image": null,
+      "featured": 0,
+      "status": "published",
+      "visibility": "public",
+      "custom_excerpt": "Structure instructions around the task a reader wants to complete.",
+      "locale": null,
+      "email_recipient_filter": "all",
+      "reading_time": 1,
+      "created_at": "2026-11-04T17:24:00.000Z",
+      "updated_at": "2026-11-04T17:24:00.000Z",
+      "published_at": "2026-11-04T17:24:00.000Z"
+     },
+     {
+      "id": "92f51ef8a7fc27c1f6c3cd68",
+      "uuid": "c38beaa6-f401-4020-afa8-1836cd783b08",
+      "title": "Make screenshots easier to follow",
+      "slug": "make-screenshots-easier-to-follow",
+      "type": "post",
+      "lexical": "{\"root\": {\"children\": [{\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"Choose screenshots that clarify an unfamiliar step.\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"paragraph\", \"version\": 1}, {\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"Capture the relevant area\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"extended-heading\", \"version\": 1, \"tag\": \"h2\"}, {\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"Keep enough context to identify the screen and crop unrelated content.\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"paragraph\", \"version\": 1}, {\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"Add a useful caption\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"extended-heading\", \"version\": 1, \"tag\": \"h3\"}, {\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"Tell readers which control to find or what state they should see.\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"paragraph\", \"version\": 1}, {\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"Check the mobile view\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"extended-heading\", \"version\": 1, \"tag\": \"h2\"}, {\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"Open the guide on a narrow screen. Make sure the instruction can be followed from the surrounding text when the image is small.\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"paragraph\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"root\", \"version\": 1}}",
+      "mobiledoc": null,
+      "html": "<p>Choose screenshots that clarify an unfamiliar step.</p><h2 id=\"capture-the-relevant-area\">Capture the relevant area</h2><p>Keep enough context to identify the screen and crop unrelated content.</p><h3 id=\"add-a-useful-caption\">Add a useful caption</h3><p>Tell readers which control to find or what state they should see.</p><h2 id=\"check-the-mobile-view\">Check the mobile view</h2><p>Open the guide on a narrow screen. Make sure the instruction can be followed from the surrounding text when the image is small.</p>",
+      "plaintext": "Choose screenshots that clarify an unfamiliar step.\n\nCapture the relevant area\n\nKeep enough context to identify the screen and crop unrelated content.\n\nAdd a useful caption\n\nTell readers which control to find or what state they should see.\n\nCheck the mobile view\n\nOpen the guide on a narrow screen. Make sure the instruction can be followed from the surrounding text when the image is small.",
+      "feature_image": null,
+      "featured": 0,
+      "status": "published",
+      "visibility": "public",
+      "custom_excerpt": "Choose screenshots that clarify an unfamiliar step.",
+      "locale": null,
+      "email_recipient_filter": "all",
+      "reading_time": 1,
+      "created_at": "2026-11-06T16:17:00.000Z",
+      "updated_at": "2026-11-06T16:17:00.000Z",
+      "published_at": "2026-11-06T16:17:00.000Z"
+     },
+     {
+      "id": "829da40438519996752bd1f9",
+      "uuid": "8ffbb13f-cec9-4711-a66c-199c3970e9fd",
+      "title": "Update an existing guide",
+      "slug": "update-an-existing-guide",
+      "type": "post",
+      "lexical": "{\"root\": {\"children\": [{\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"Keep a guide current while preserving its public address.\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"paragraph\", \"version\": 1}, {\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"Confirm the new workflow\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"extended-heading\", \"version\": 1, \"tag\": \"h2\"}, {\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"Repeat the task and note which labels, steps, and prerequisites changed.\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"paragraph\", \"version\": 1}, {\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"Revise the affected steps\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"extended-heading\", \"version\": 1, \"tag\": \"h3\"}, {\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"Update screenshots and examples alongside the instructions they support.\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"paragraph\", \"version\": 1}, {\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"Verify incoming links\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"extended-heading\", \"version\": 1, \"tag\": \"h2\"}, {\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"Keep the article slug and existing heading anchors in place when possible. Check links from related guides.\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"paragraph\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"root\", \"version\": 1}}",
+      "mobiledoc": null,
+      "html": "<p>Keep a guide current while preserving its public address.</p><h2 id=\"confirm-the-new-workflow\">Confirm the new workflow</h2><p>Repeat the task and note which labels, steps, and prerequisites changed.</p><h3 id=\"revise-the-affected-steps\">Revise the affected steps</h3><p>Update screenshots and examples alongside the instructions they support.</p><h2 id=\"verify-incoming-links\">Verify incoming links</h2><p>Keep the article slug and existing heading anchors in place when possible. Check links from related guides.</p>",
+      "plaintext": "Keep a guide current while preserving its public address.\n\nConfirm the new workflow\n\nRepeat the task and note which labels, steps, and prerequisites changed.\n\nRevise the affected steps\n\nUpdate screenshots and examples alongside the instructions they support.\n\nVerify incoming links\n\nKeep the article slug and existing heading anchors in place when possible. Check links from related guides.",
+      "feature_image": null,
+      "featured": 0,
+      "status": "published",
+      "visibility": "public",
+      "custom_excerpt": "Keep a guide current while preserving its public address.",
+      "locale": null,
+      "email_recipient_filter": "all",
+      "reading_time": 1,
+      "created_at": "2026-11-08T15:10:00.000Z",
+      "updated_at": "2026-11-08T15:10:00.000Z",
+      "published_at": "2026-11-08T15:10:00.000Z"
+     },
+     {
+      "id": "e8c0306c9ead73fec5f101ab",
+      "uuid": "4d375914-54b6-4710-a5b1-144e00f5fd55",
+      "title": "Customize the homepage",
+      "slug": "customize-the-homepage",
+      "type": "post",
+      "lexical": "{\"root\": {\"children\": [{\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"Set a concise heading, a helpful description, and a cover image.\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"paragraph\", \"version\": 1}, {\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"Write the homepage heading\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"extended-heading\", \"version\": 1, \"tag\": \"h2\"}, {\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"Set Hero heading in the theme settings. Use a short line that gives visitors a clear sense of where they are.\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"paragraph\", \"version\": 1}, {\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"Choose a cover image\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"extended-heading\", \"version\": 1, \"tag\": \"h3\"}, {\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"Upload a landscape image in Hero image. Place important details near the center so they survive the mobile crop.\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"paragraph\", \"version\": 1}, {\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"Preview both color schemes\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"extended-heading\", \"version\": 1, \"tag\": \"h2\"}, {\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"Use the color scheme button to check contrast, image tone, and wrapping.\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"paragraph\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"root\", \"version\": 1}}",
+      "mobiledoc": null,
+      "html": "<p>Set a concise heading, a helpful description, and a cover image.</p><h2 id=\"write-the-homepage-heading\">Write the homepage heading</h2><p>Set Hero heading in the theme settings. Use a short line that gives visitors a clear sense of where they are.</p><h3 id=\"choose-a-cover-image\">Choose a cover image</h3><p>Upload a landscape image in Hero image. Place important details near the center so they survive the mobile crop.</p><h2 id=\"preview-both-color-schemes\">Preview both color schemes</h2><p>Use the color scheme button to check contrast, image tone, and wrapping.</p>",
+      "plaintext": "Set a concise heading, a helpful description, and a cover image.\n\nWrite the homepage heading\n\nSet Hero heading in the theme settings. Use a short line that gives visitors a clear sense of where they are.\n\nChoose a cover image\n\nUpload a landscape image in Hero image. Place important details near the center so they survive the mobile crop.\n\nPreview both color schemes\n\nUse the color scheme button to check contrast, image tone, and wrapping.",
+      "feature_image": null,
+      "featured": 0,
+      "status": "published",
+      "visibility": "public",
+      "custom_excerpt": "Set a concise heading, a helpful description, and a cover image.",
+      "locale": null,
+      "email_recipient_filter": "all",
+      "reading_time": 1,
+      "created_at": "2026-11-07T14:03:00.000Z",
+      "updated_at": "2026-11-07T14:03:00.000Z",
+      "published_at": "2026-11-07T14:03:00.000Z"
+     },
+     {
+      "id": "f1f2c42d59d148d50b056ea7",
+      "uuid": "3c6c7f61-abb9-4630-a6a8-5d85708c2d18",
+      "title": "Organize the section index",
+      "slug": "organize-the-section-index",
+      "type": "post",
+      "lexical": "{\"root\": {\"children\": [{\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"Decide which topics appear and set their reading order.\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"paragraph\", \"version\": 1}, {\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"Choose a primary tag\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"extended-heading\", \"version\": 1, \"tag\": \"h2\"}, {\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"Make each guide\\u2019s main topic its primary public tag. Add a short tag description for the section card.\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"paragraph\", \"version\": 1}, {\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"Set the section sequence\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"extended-heading\", \"version\": 1, \"tag\": \"h3\"}, {\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"Enter the tag slugs in the Sections setting, separated by commas. List the first section you want readers to see first.\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"paragraph\", \"version\": 1}, {\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"Check the section cards\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"extended-heading\", \"version\": 1, \"tag\": \"h2\"}, {\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"Open the homepage and confirm each card points to the expected section and starter guides.\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"paragraph\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"root\", \"version\": 1}}",
+      "mobiledoc": null,
+      "html": "<p>Decide which topics appear and set their reading order.</p><h2 id=\"choose-a-primary-tag\">Choose a primary tag</h2><p>Make each guide’s main topic its primary public tag. Add a short tag description for the section card.</p><h3 id=\"set-the-section-sequence\">Set the section sequence</h3><p>Enter the tag slugs in the Sections setting, separated by commas. List the first section you want readers to see first.</p><h2 id=\"check-the-section-cards\">Check the section cards</h2><p>Open the homepage and confirm each card points to the expected section and starter guides.</p>",
+      "plaintext": "Decide which topics appear and set their reading order.\n\nChoose a primary tag\n\nMake each guide’s main topic its primary public tag. Add a short tag description for the section card.\n\nSet the section sequence\n\nEnter the tag slugs in the Sections setting, separated by commas. List the first section you want readers to see first.\n\nCheck the section cards\n\nOpen the homepage and confirm each card points to the expected section and starter guides.",
+      "feature_image": null,
+      "featured": 0,
+      "status": "published",
+      "visibility": "public",
+      "custom_excerpt": "Decide which topics appear and set their reading order.",
+      "locale": null,
+      "email_recipient_filter": "all",
+      "reading_time": 1,
+      "created_at": "2026-11-09T13:56:00.000Z",
+      "updated_at": "2026-11-09T13:56:00.000Z",
+      "published_at": "2026-11-09T13:56:00.000Z"
+     },
+     {
+      "id": "8af96075cf5ceeee3428f243",
+      "uuid": "9c01785e-2fdd-48d3-aa88-76b535ab2e75",
+      "title": "Link to a specific heading",
+      "slug": "link-to-a-specific-heading",
+      "type": "post",
+      "lexical": "{\"root\": {\"children\": [{\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"Send a reader straight to the relevant part of a guide.\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"paragraph\", \"version\": 1}, {\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"Find the heading\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"extended-heading\", \"version\": 1, \"tag\": \"h2\"}, {\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"Open the guide and use the page outline to locate the right section.\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"paragraph\", \"version\": 1}, {\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"Copy the heading address\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"extended-heading\", \"version\": 1, \"tag\": \"h3\"}, {\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"Focus or hover over the heading to reveal its link. Copy that address for your message or related guide.\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"paragraph\", \"version\": 1}, {\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"Verify the link\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"extended-heading\", \"version\": 1, \"tag\": \"h2\"}, {\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"Open the copied address in a new tab and check that it lands on the intended heading.\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"paragraph\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"root\", \"version\": 1}}",
+      "mobiledoc": null,
+      "html": "<p>Send a reader straight to the relevant part of a guide.</p><h2 id=\"find-the-heading\">Find the heading</h2><p>Open the guide and use the page outline to locate the right section.</p><h3 id=\"copy-the-heading-address\">Copy the heading address</h3><p>Focus or hover over the heading to reveal its link. Copy that address for your message or related guide.</p><h2 id=\"verify-the-link\">Verify the link</h2><p>Open the copied address in a new tab and check that it lands on the intended heading.</p>",
+      "plaintext": "Send a reader straight to the relevant part of a guide.\n\nFind the heading\n\nOpen the guide and use the page outline to locate the right section.\n\nCopy the heading address\n\nFocus or hover over the heading to reveal its link. Copy that address for your message or related guide.\n\nVerify the link\n\nOpen the copied address in a new tab and check that it lands on the intended heading.",
+      "feature_image": null,
+      "featured": 0,
+      "status": "published",
+      "visibility": "public",
+      "custom_excerpt": "Send a reader straight to the relevant part of a guide.",
+      "locale": null,
+      "email_recipient_filter": "all",
+      "reading_time": 1,
+      "created_at": "2026-11-10T12:49:00.000Z",
+      "updated_at": "2026-11-10T12:49:00.000Z",
+      "published_at": "2026-11-10T12:49:00.000Z"
+     },
+     {
+      "id": "0b08d521c53e8c3b1f5dcb36",
+      "uuid": "141a0a96-e41a-4695-a67b-50f7ae159594",
+      "title": "Use section and article numbers",
+      "slug": "use-section-and-article-numbers",
+      "type": "post",
+      "lexical": "{\"root\": {\"children\": [{\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"Refer to guides with the same addresses readers see in the contents tree.\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"paragraph\", \"version\": 1}, {\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"Read an article number\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"extended-heading\", \"version\": 1, \"tag\": \"h2\"}, {\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"An address such as 2.3 means the third guide in the second section.\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"paragraph\", \"version\": 1}, {\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"Pair numbers with titles\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"extended-heading\", \"version\": 1, \"tag\": \"h3\"}, {\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"Use the article title or link alongside its number so readers can find it quickly.\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"paragraph\", \"version\": 1}, {\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"Check after reordering\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"extended-heading\", \"version\": 1, \"tag\": \"h2\"}, {\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"Section and article numbers follow the current reading order. Update references in any material that quotes the old numbers.\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"paragraph\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"root\", \"version\": 1}}",
+      "mobiledoc": null,
+      "html": "<p>Refer to guides with the same addresses readers see in the contents tree.</p><h2 id=\"read-an-article-number\">Read an article number</h2><p>An address such as 2.3 means the third guide in the second section.</p><h3 id=\"pair-numbers-with-titles\">Pair numbers with titles</h3><p>Use the article title or link alongside its number so readers can find it quickly.</p><h2 id=\"check-after-reordering\">Check after reordering</h2><p>Section and article numbers follow the current reading order. Update references in any material that quotes the old numbers.</p>",
+      "plaintext": "Refer to guides with the same addresses readers see in the contents tree.\n\nRead an article number\n\nAn address such as 2.3 means the third guide in the second section.\n\nPair numbers with titles\n\nUse the article title or link alongside its number so readers can find it quickly.\n\nCheck after reordering\n\nSection and article numbers follow the current reading order. Update references in any material that quotes the old numbers.",
+      "feature_image": null,
+      "featured": 0,
+      "status": "published",
+      "visibility": "public",
+      "custom_excerpt": "Refer to guides with the same addresses readers see in the contents tree.",
+      "locale": null,
+      "email_recipient_filter": "all",
+      "reading_time": 1,
+      "created_at": "2026-11-12T11:42:00.000Z",
+      "updated_at": "2026-11-12T11:42:00.000Z",
+      "published_at": "2026-11-12T11:42:00.000Z"
+     },
+     {
+      "id": "ed4c843fe9d6d0551d2ea45a",
+      "uuid": "bec6834e-4ecf-441f-a03a-e7ec31aeb1b8",
+      "title": "Format names and examples",
+      "slug": "format-names-and-examples",
+      "type": "post",
+      "lexical": "{\"root\": {\"children\": [{\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"Make a guide easier to scan with consistent presentation.\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"paragraph\", \"version\": 1}, {\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"Match interface labels\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"extended-heading\", \"version\": 1, \"tag\": \"h2\"}, {\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"Spell control names exactly as they appear on screen.\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"paragraph\", \"version\": 1}, {\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"Mark literal values\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"extended-heading\", \"version\": 1, \"tag\": \"h3\"}, {\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"Use inline code for filenames, settings keys, and other values readers should enter as written.\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"paragraph\", \"version\": 1}, {\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"Introduce longer examples\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"extended-heading\", \"version\": 1, \"tag\": \"h2\"}, {\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"Use a code block when readers need to copy multiple lines. Explain where it belongs and what it should produce.\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"paragraph\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"root\", \"version\": 1}}",
+      "mobiledoc": null,
+      "html": "<p>Make a guide easier to scan with consistent presentation.</p><h2 id=\"match-interface-labels\">Match interface labels</h2><p>Spell control names exactly as they appear on screen.</p><h3 id=\"mark-literal-values\">Mark literal values</h3><p>Use inline code for filenames, settings keys, and other values readers should enter as written.</p><h2 id=\"introduce-longer-examples\">Introduce longer examples</h2><p>Use a code block when readers need to copy multiple lines. Explain where it belongs and what it should produce.</p>",
+      "plaintext": "Make a guide easier to scan with consistent presentation.\n\nMatch interface labels\n\nSpell control names exactly as they appear on screen.\n\nMark literal values\n\nUse inline code for filenames, settings keys, and other values readers should enter as written.\n\nIntroduce longer examples\n\nUse a code block when readers need to copy multiple lines. Explain where it belongs and what it should produce.",
+      "feature_image": null,
+      "featured": 0,
+      "status": "published",
+      "visibility": "public",
+      "custom_excerpt": "Make a guide easier to scan with consistent presentation.",
+      "locale": null,
+      "email_recipient_filter": "all",
+      "reading_time": 1,
+      "created_at": "2026-11-14T10:35:00.000Z",
+      "updated_at": "2026-11-14T10:35:00.000Z",
+      "published_at": "2026-11-14T10:35:00.000Z"
+     },
+     {
+      "id": "48620861bc5ccad2bb2cd941",
+      "uuid": "e5dbc48b-5d6d-4f95-a0f4-27b61c0e9de9",
+      "title": "Write a helpful issue report",
+      "slug": "write-a-helpful-issue-report",
+      "type": "post",
+      "lexical": "{\"root\": {\"children\": [{\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"Share enough context for someone else to follow what happened.\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"paragraph\", \"version\": 1}, {\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"Summarize the problem\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"extended-heading\", \"version\": 1, \"tag\": \"h2\"}, {\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"Name the page or task and describe the result you expected.\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"paragraph\", \"version\": 1}, {\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"List what you tried\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"extended-heading\", \"version\": 1, \"tag\": \"h3\"}, {\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"Write the steps in order and include the exact message you saw. Remove private data from any screenshots.\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"paragraph\", \"version\": 1}, {\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"Share the guide address\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"extended-heading\", \"version\": 1, \"tag\": \"h2\"}, {\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"Copy the article or heading link so the person responding can find the same instructions.\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"paragraph\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"root\", \"version\": 1}}",
+      "mobiledoc": null,
+      "html": "<p>Share enough context for someone else to follow what happened.</p><h2 id=\"summarize-the-problem\">Summarize the problem</h2><p>Name the page or task and describe the result you expected.</p><h3 id=\"list-what-you-tried\">List what you tried</h3><p>Write the steps in order and include the exact message you saw. Remove private data from any screenshots.</p><h2 id=\"share-the-guide-address\">Share the guide address</h2><p>Copy the article or heading link so the person responding can find the same instructions.</p>",
+      "plaintext": "Share enough context for someone else to follow what happened.\n\nSummarize the problem\n\nName the page or task and describe the result you expected.\n\nList what you tried\n\nWrite the steps in order and include the exact message you saw. Remove private data from any screenshots.\n\nShare the guide address\n\nCopy the article or heading link so the person responding can find the same instructions.",
+      "feature_image": null,
+      "featured": 0,
+      "status": "published",
+      "visibility": "public",
+      "custom_excerpt": "Share enough context for someone else to follow what happened.",
+      "locale": null,
+      "email_recipient_filter": "all",
+      "reading_time": 1,
+      "created_at": "2026-11-13T09:28:00.000Z",
+      "updated_at": "2026-11-13T09:28:00.000Z",
+      "published_at": "2026-11-13T09:28:00.000Z"
+     },
+     {
+      "id": "20de4a7cabba83141a2488f3",
+      "uuid": "5ce27f5b-a5dd-433b-a38d-0de72990db3d",
+      "title": "Set up a support link",
+      "slug": "set-up-a-support-link",
+      "type": "post",
+      "lexical": "{\"root\": {\"children\": [{\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"Give readers a destination when a guide does not answer their question.\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"paragraph\", \"version\": 1}, {\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"Choose a contact destination\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"extended-heading\", \"version\": 1, \"tag\": \"h2\"}, {\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"Use a contact page that explains how to get help or an email address your team checks.\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"paragraph\", \"version\": 1}, {\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"Set the Support URL\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"extended-heading\", \"version\": 1, \"tag\": \"h3\"}, {\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"Add the destination in the theme settings. Handbook uses it in the header, on the homepage, and after a negative feedback answer.\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"paragraph\", \"version\": 1}, {\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"Test the destination\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"extended-heading\", \"version\": 1, \"tag\": \"h2\"}, {\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"Open the support link as a reader and confirm it reaches the intended page or email address.\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"paragraph\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"root\", \"version\": 1}}",
+      "mobiledoc": null,
+      "html": "<p>Give readers a destination when a guide does not answer their question.</p><h2 id=\"choose-a-contact-destination\">Choose a contact destination</h2><p>Use a contact page that explains how to get help or an email address your team checks.</p><h3 id=\"set-the-support-url\">Set the Support URL</h3><p>Add the destination in the theme settings. Handbook uses it in the header, on the homepage, and after a negative feedback answer.</p><h2 id=\"test-the-destination\">Test the destination</h2><p>Open the support link as a reader and confirm it reaches the intended page or email address.</p>",
+      "plaintext": "Give readers a destination when a guide does not answer their question.\n\nChoose a contact destination\n\nUse a contact page that explains how to get help or an email address your team checks.\n\nSet the Support URL\n\nAdd the destination in the theme settings. Handbook uses it in the header, on the homepage, and after a negative feedback answer.\n\nTest the destination\n\nOpen the support link as a reader and confirm it reaches the intended page or email address.",
+      "feature_image": null,
+      "featured": 0,
+      "status": "published",
+      "visibility": "public",
+      "custom_excerpt": "Give readers a destination when a guide does not answer their question.",
+      "locale": null,
+      "email_recipient_filter": "all",
+      "reading_time": 1,
+      "created_at": "2026-11-15T08:21:00.000Z",
+      "updated_at": "2026-11-15T08:21:00.000Z",
+      "published_at": "2026-11-15T08:21:00.000Z"
+     },
+     {
+      "id": "bbcef51a20e5db504ef4a54e",
+      "uuid": "e2a0f1ee-2937-4c4f-a2fb-b3998c82959f",
+      "title": "Find a guide missing from the index",
+      "slug": "find-a-guide-missing-from-the-index",
+      "type": "post",
+      "lexical": "{\"root\": {\"children\": [{\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"Check publication status, tags, and the theme\\u2019s section list.\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"paragraph\", \"version\": 1}, {\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"Confirm the guide is public\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"extended-heading\", \"version\": 1, \"tag\": \"h2\"}, {\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"Open its public address in a private browser window and confirm it is available to the intended audience.\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"paragraph\", \"version\": 1}, {\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"Check the primary tag\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"extended-heading\", \"version\": 1, \"tag\": \"h3\"}, {\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"Make sure the first tag is the public section you want the guide to appear under.\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"paragraph\", \"version\": 1}, {\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"Review the Sections setting\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"extended-heading\", \"version\": 1, \"tag\": \"h2\"}, {\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"If the list is configured, confirm it includes the exact slug of the guide\\u2019s primary tag.\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"paragraph\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"root\", \"version\": 1}}",
+      "mobiledoc": null,
+      "html": "<p>Check publication status, tags, and the theme’s section list.</p><h2 id=\"confirm-the-guide-is-public\">Confirm the guide is public</h2><p>Open its public address in a private browser window and confirm it is available to the intended audience.</p><h3 id=\"check-the-primary-tag\">Check the primary tag</h3><p>Make sure the first tag is the public section you want the guide to appear under.</p><h2 id=\"review-the-sections-setting\">Review the Sections setting</h2><p>If the list is configured, confirm it includes the exact slug of the guide’s primary tag.</p>",
+      "plaintext": "Check publication status, tags, and the theme’s section list.\n\nConfirm the guide is public\n\nOpen its public address in a private browser window and confirm it is available to the intended audience.\n\nCheck the primary tag\n\nMake sure the first tag is the public section you want the guide to appear under.\n\nReview the Sections setting\n\nIf the list is configured, confirm it includes the exact slug of the guide’s primary tag.",
+      "feature_image": null,
+      "featured": 0,
+      "status": "published",
+      "visibility": "public",
+      "custom_excerpt": "Check publication status, tags, and the theme’s section list.",
+      "locale": null,
+      "email_recipient_filter": "all",
+      "reading_time": 1,
+      "created_at": "2026-11-16T07:14:00.000Z",
+      "updated_at": "2026-11-16T07:14:00.000Z",
+      "published_at": "2026-11-16T07:14:00.000Z"
+     },
+     {
+      "id": "a510a66bd40e6ac49856c199",
+      "uuid": "c0b54f12-c747-49d6-acb9-4421fe924ef8",
+      "title": "About the handbook",
+      "slug": "about-handbook",
+      "type": "page",
+      "lexical": "{\"root\": {\"children\": [{\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"This sample publication demonstrates the Handbook theme.\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"paragraph\", \"version\": 1}, {\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"Using this reference\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"extended-heading\", \"version\": 1, \"tag\": \"h2\"}, {\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"Start at the documentation index or use search to find a guide. Every article has an address based on its place in the handbook.\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"paragraph\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"root\", \"version\": 1}}",
+      "mobiledoc": null,
+      "html": "<p>This sample publication demonstrates the Handbook theme.</p><h2 id=\"using-this-reference\">Using this reference</h2><p>Start at the documentation index or use search to find a guide. Every article has an address based on its place in the handbook.</p>",
+      "plaintext": "This sample publication demonstrates the Handbook theme.\n\nUsing this reference\n\nStart at the documentation index or use search to find a guide. Every article has an address based on its place in the handbook.",
+      "feature_image": null,
+      "featured": 0,
+      "status": "published",
+      "visibility": "public",
+      "custom_excerpt": "An introduction to the sample documentation.",
+      "locale": null,
+      "email_recipient_filter": "all",
+      "reading_time": 1,
+      "created_at": "2026-10-15T06:07:00.000Z",
+      "updated_at": "2026-10-15T06:07:00.000Z",
+      "published_at": "2026-10-15T06:07:00.000Z"
+     }
+    ],
+    "posts_tags": [
+     {
+      "id": "7f0895e9d6e65a64e9e254b3",
+      "post_id": "514ef8a85ad9c2b2927c0b18",
+      "tag_id": "d9c4f3db27a099b596205c48",
+      "sort_order": 0
+     },
+     {
+      "id": "76ae097d36403ba6b2713988",
+      "post_id": "0b275bf8dd3c7c495e5d7703",
+      "tag_id": "d9c4f3db27a099b596205c48",
+      "sort_order": 0
+     },
+     {
+      "id": "14c51f11a637d3212c286b90",
+      "post_id": "442d51f335b575ff224c779a",
+      "tag_id": "d9c4f3db27a099b596205c48",
+      "sort_order": 0
+     },
+     {
+      "id": "a6077789ef397a56cce9d5ff",
+      "post_id": "f10740e1f04e9424e4c59e1a",
+      "tag_id": "d9c4f3db27a099b596205c48",
+      "sort_order": 0
+     },
+     {
+      "id": "0cf7666efe8247c926120353",
+      "post_id": "c1eb5eccf0ebf96caabfb805",
+      "tag_id": "d045cacb6574221fdd3d6804",
+      "sort_order": 0
+     },
+     {
+      "id": "c9f11e0e56766a982669a2ce",
+      "post_id": "92f51ef8a7fc27c1f6c3cd68",
+      "tag_id": "d045cacb6574221fdd3d6804",
+      "sort_order": 0
+     },
+     {
+      "id": "731286d94cba1b97b5342966",
+      "post_id": "829da40438519996752bd1f9",
+      "tag_id": "d045cacb6574221fdd3d6804",
+      "sort_order": 0
+     },
+     {
+      "id": "4fd4f848d659f854149c96a5",
+      "post_id": "e8c0306c9ead73fec5f101ab",
+      "tag_id": "1385b64743ab1e49d3ab2ee0",
+      "sort_order": 0
+     },
+     {
+      "id": "443b7bd1946cad92bba24e23",
+      "post_id": "f1f2c42d59d148d50b056ea7",
+      "tag_id": "1385b64743ab1e49d3ab2ee0",
+      "sort_order": 0
+     },
+     {
+      "id": "3229ffecd5b2a148478a1adb",
+      "post_id": "8af96075cf5ceeee3428f243",
+      "tag_id": "1e72a3caff352e6bc0733e01",
+      "sort_order": 0
+     },
+     {
+      "id": "b5c4fa729da640857217566b",
+      "post_id": "0b08d521c53e8c3b1f5dcb36",
+      "tag_id": "1e72a3caff352e6bc0733e01",
+      "sort_order": 0
+     },
+     {
+      "id": "ddac05b621cd75b815a13b5f",
+      "post_id": "ed4c843fe9d6d0551d2ea45a",
+      "tag_id": "1e72a3caff352e6bc0733e01",
+      "sort_order": 0
+     },
+     {
+      "id": "9ac7b6caf1cf9a8a5605405d",
+      "post_id": "48620861bc5ccad2bb2cd941",
+      "tag_id": "28fd753b07284e9607ae7fff",
+      "sort_order": 0
+     },
+     {
+      "id": "8ce70c5d8f9b58fd00f36d06",
+      "post_id": "20de4a7cabba83141a2488f3",
+      "tag_id": "28fd753b07284e9607ae7fff",
+      "sort_order": 0
+     },
+     {
+      "id": "98055ae1cec611ce574c8483",
+      "post_id": "bbcef51a20e5db504ef4a54e",
+      "tag_id": "e2d02a6d80df0df4531d9751",
+      "sort_order": 0
+     }
+    ],
+    "posts_authors": [
+     {
+      "id": "574e96a2cbdfbb5b7ae71467",
+      "post_id": "514ef8a85ad9c2b2927c0b18",
+      "author_id": "4dd28084128dd7ed899917b7",
+      "sort_order": 0
+     },
+     {
+      "id": "123b0391a68f622ac7c683dc",
+      "post_id": "0b275bf8dd3c7c495e5d7703",
+      "author_id": "4dd28084128dd7ed899917b7",
+      "sort_order": 0
+     },
+     {
+      "id": "76e177bb12d934347b12190e",
+      "post_id": "442d51f335b575ff224c779a",
+      "author_id": "4dd28084128dd7ed899917b7",
+      "sort_order": 0
+     },
+     {
+      "id": "5ebcb76c61b4c76f2a35624a",
+      "post_id": "f10740e1f04e9424e4c59e1a",
+      "author_id": "4dd28084128dd7ed899917b7",
+      "sort_order": 0
+     },
+     {
+      "id": "363d744a0df7a18d9825407b",
+      "post_id": "c1eb5eccf0ebf96caabfb805",
+      "author_id": "4dd28084128dd7ed899917b7",
+      "sort_order": 0
+     },
+     {
+      "id": "c98e6969cd8bf04bcace1190",
+      "post_id": "92f51ef8a7fc27c1f6c3cd68",
+      "author_id": "4dd28084128dd7ed899917b7",
+      "sort_order": 0
+     },
+     {
+      "id": "0d90c60a260823043b7b6646",
+      "post_id": "829da40438519996752bd1f9",
+      "author_id": "4dd28084128dd7ed899917b7",
+      "sort_order": 0
+     },
+     {
+      "id": "ed6ea480799babf2984a02a7",
+      "post_id": "e8c0306c9ead73fec5f101ab",
+      "author_id": "4dd28084128dd7ed899917b7",
+      "sort_order": 0
+     },
+     {
+      "id": "08f568a1c3140e009b257fa3",
+      "post_id": "f1f2c42d59d148d50b056ea7",
+      "author_id": "4dd28084128dd7ed899917b7",
+      "sort_order": 0
+     },
+     {
+      "id": "41b827dfdbb07e237d7bc440",
+      "post_id": "8af96075cf5ceeee3428f243",
+      "author_id": "4dd28084128dd7ed899917b7",
+      "sort_order": 0
+     },
+     {
+      "id": "96c425093c093e5845de39e2",
+      "post_id": "0b08d521c53e8c3b1f5dcb36",
+      "author_id": "4dd28084128dd7ed899917b7",
+      "sort_order": 0
+     },
+     {
+      "id": "c8381f455dd97974fca2b9df",
+      "post_id": "ed4c843fe9d6d0551d2ea45a",
+      "author_id": "4dd28084128dd7ed899917b7",
+      "sort_order": 0
+     },
+     {
+      "id": "a56b7f2e318050c7c29e0b69",
+      "post_id": "48620861bc5ccad2bb2cd941",
+      "author_id": "4dd28084128dd7ed899917b7",
+      "sort_order": 0
+     },
+     {
+      "id": "fded401e462669d777ada8b1",
+      "post_id": "20de4a7cabba83141a2488f3",
+      "author_id": "4dd28084128dd7ed899917b7",
+      "sort_order": 0
+     },
+     {
+      "id": "92d1db1175820c3ef842d312",
+      "post_id": "bbcef51a20e5db504ef4a54e",
+      "author_id": "4dd28084128dd7ed899917b7",
+      "sort_order": 0
+     },
+     {
+      "id": "ea15f9f577e5a042f86a8cc3",
+      "post_id": "a510a66bd40e6ac49856c199",
+      "author_id": "4dd28084128dd7ed899917b7",
+      "sort_order": 0
+     }
+    ],
+    "posts_meta": [],
+    "settings": [
+     {
+      "id": "1bef14055da2403893156f4b",
+      "group": "site",
+      "key": "navigation",
+      "value": "[{\"label\": \"Documentation\", \"url\": \"/\"}, {\"label\": \"About\", \"url\": \"/about-handbook/\"}]",
+      "type": "array",
+      "created_at": "2026-11-25T09:00:00.000Z",
+      "updated_at": "2026-11-25T09:00:00.000Z"
+     },
+     {
+      "id": "08059c8c77a533bb0dca9bcd",
+      "group": "site",
+      "key": "secondary_navigation",
+      "value": "[{\"label\": \"Support guides\", \"url\": \"/tag/support/\"}]",
+      "type": "array",
+      "created_at": "2026-11-25T09:00:00.000Z",
+      "updated_at": "2026-11-25T09:00:00.000Z"
+     }
+    ],
+    "products": []
+   }
+  }
+ ]
+}

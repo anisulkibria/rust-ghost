@@ -90,8 +90,12 @@ pub(crate) const TOOLS: &[Tool] = &[
     // Owner only, and never grantable — see `crate::permissions::UNGRANTABLE`.
     Tool { key: "permissions", title: "Permissions", href: "/ghost/permissions/", icon: "person", tint: "slate",
         description: "What each staff role may reach: tools, settings and content." },
+    Tool { key: "podcast", title: "Podcast", href: "/ghost/podcast/", icon: "mic", tint: "purple",
+        description: "Host a podcast: shows, episodes, an Apple- and Spotify-ready feed, player, chapters, transcripts, members-only episodes and download stats." },
     Tool { key: "popups", title: "Popups & Lead Generation", href: "/ghost/popups/", icon: "panel-show", tint: "pink",
         description: "Modals, slide-ins and bars that ask readers for an address." },
+    Tool { key: "portfolio", title: "Portfolio", href: "/ghost/portfolio/", icon: "work", tint: "blue",
+        description: "Show your work: case studies, galleries, services, clients, testimonials, a résumé or a team, and a project-brief form." },
     Tool { key: "redirects", title: "Redirects", href: "/ghost/redirects/", icon: "link", tint: "blue",
         description: "Send old addresses to new ones, rule by rule, and test any URL." },
     Tool { key: "routes", title: "Routes", href: "/ghost/routes/", icon: "layout", tint: "green",

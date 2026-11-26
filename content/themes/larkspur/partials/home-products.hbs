@@ -1,0 +1,7 @@
+<section class="wrap section{{#if curated}} curated-section{{else}} arrivals-section{{/if}}" aria-labelledby="{{#if curated}}shop-edit{{else}}new-arrivals{{/if}}">
+    <header class="section-head">
+        <h2 id="{{#if curated}}shop-edit{{else}}new-arrivals{{/if}}">{{#if curated}}The shop edit{{else}}New arrivals{{/if}}</h2>
+        <a class="more" href="{{catalog}}">Shop all {{> "icon" name="arrow"}}</a>
+    </header>
+    <div class="product-grid{{#if curated}} edit-grid{{else}} arrivals-grid{{/if}}">{{#foreach items}}{{> "product-card"}}{{/foreach}}</div>
+</section>

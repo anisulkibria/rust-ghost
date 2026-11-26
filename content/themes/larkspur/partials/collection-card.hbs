@@ -1,0 +1,6 @@
+<a class="collection-card" href="{{url}}">
+    <span class="collection-art" aria-hidden="true">
+        {{#if feature_image}}<img src="{{feature_image}}" alt="" loading="lazy">{{else}}{{> "icon" name="mark"}}{{/if}}
+    </span>
+    <span class="collection-info"><span><strong>{{title}}</strong><small>{{plural product_count empty="Coming soon" singular="% product" plural="% products"}}</small></span>{{> "icon" name="arrow"}}</span>
+</a>

@@ -1,0 +1,14 @@
+{{#if @site.members_enabled}}{{#unless @member}}
+<section class="ea-wrap ea-sub" aria-labelledby="ea-sub-h">
+<div class="ea-sub-in">
+<div class="ea-sub-copy">
+<h2 id="ea-sub-h">{{@custom.subscribe_title}}</h2>
+<p>Get new episodes and show notes in your inbox.</p>
+</div>
+<form class="ea-sub-form" data-members-form="signup">
+<input type="email" data-members-email required placeholder="you@example.com" aria-label="Email address">
+<button class="ea-btn" type="submit"><span class="ea-sub-idle">Subscribe</span><span class="ea-sub-busy">Sending…</span><span class="ea-sub-ok">Check your inbox ✓</span></button>
+</form>
+</div>
+</section>
+{{/unless}}{{/if}}

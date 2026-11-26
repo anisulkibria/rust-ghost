@@ -373,6 +373,12 @@ mod tests {
 
 }
 
+/// The visitor's two-letter country, from a proxy header or the optional
+/// MMDB, for counters outside page analytics (podcast downloads).
+pub(crate) fn visitor_country(state: &AppState, headers: &HeaderMap, peer: &str) -> Option<String> {
+    country_of(headers).or_else(|| country_from_database(state, peer))
+}
+
 /// Optional host-provided MMDB, loaded once. IP addresses never leave the server.
 fn country_from_database(state:&AppState,peer:&str)->Option<String>{
     type Readers=std::collections::HashMap<std::path::PathBuf,std::sync::Arc<maxminddb::Reader<Vec<u8>>>>;

@@ -1,0 +1,63 @@
+{{!< default}}
+<main id="main" class="wrap product-page">
+    <nav class="crumbs" aria-label="Breadcrumb">
+        <a href="{{shop.url}}">Shop</a>
+        {{#if collection}}<span aria-hidden="true">/</span><a href="{{collection.url}}">{{collection.title}}</a>{{/if}}
+    </nav>
+    <div class="product-layout">
+        <div class="gallery">
+            <div class="product-main-art">
+                {{#if product.variant.feature_image}}<img id="vs-main-img" src="{{product.variant.feature_image}}" alt="{{product.title}}" fetchpriority="high">
+                {{else if product.feature_image}}<img id="vs-main-img" src="{{product.feature_image}}" alt="{{product.title}}" fetchpriority="high">
+                {{else}}{{> "icon" name="mark"}}{{/if}}
+            </div>
+            {{#if product.images.[1]}}
+                <div class="thumbnails">
+                    {{#foreach product.images}}<button class="vs-thumb{{#if @first}} on{{/if}}" type="button" data-src="{{this}}" aria-label="Show photo {{@number}}"><img src="{{this}}" alt="" loading="lazy"></button>{{/foreach}}
+                </div>
+            {{/if}}
+        </div>
+        <div class="product-details">
+            {{#if product.product_type}}<p class="eyebrow">{{product.product_type}}</p>{{/if}}
+            <h1>{{product.title}}</h1>
+            <div class="detail-price" id="vs-price-row"><span class="vs-price">{{#if product.free}}Free{{else}}{{lookup product.variant "price"}}{{/if}}</span>{{#if product.variant.compare_at}} <s>{{product.variant.compare_at}}</s>{{/if}}</div>
+            {{#if shop.tax_note}}<p class="muted">{{shop.tax_note}}</p>{{/if}}
+            {{#if product.excerpt}}<p class="product-lead">{{product.excerpt}}</p>{{/if}}
+            {{#if product.purchase_url}}
+                <a class="button buy-button" href="{{product.purchase_url}}" rel="noopener">{{#if product.free}}Get it free{{else}}Buy now{{/if}} {{> "icon" name="arrow"}}</a>
+            {{else}}
+                <form class="vs-buy purchase-form" method="post" action="{{shop.add_url}}" data-variants="{{product.variants_json}}">
+                    {{#foreach product.options}}
+                        <fieldset class="vs-opt options" data-index="{{index}}">
+                            <legend>{{name}} <span data-chosen>{{chosen}}</span></legend>
+                            <div class="option-values">
+                                {{#foreach values}}<label class="vs-pill option"><input type="radio" name="{{input}}" value="{{value}}"{{#if selected}} checked{{/if}}><span>{{value}}</span></label>{{/foreach}}
+                            </div>
+                        </fieldset>
+                    {{/foreach}}
+                    <label class="variant-select"{{#unless product.has_variants}} hidden{{/unless}}>Option
+                        <select name="variant_id" id="vs-variant">
+                            {{#foreach product.variants}}<option value="{{id}}"{{#if selected}} selected{{/if}}{{#unless available}} disabled{{/unless}}>{{title}} · {{lookup this "price"}}{{#unless available}} (sold out){{/unless}}</option>{{/foreach}}
+                        </select>
+                    </label>
+                    <p class="stock muted" id="vs-stock" aria-live="polite">{{product.variant.stock_line}}</p>
+                    <div class="buy-row">
+                        {{#if product.free}}<input type="hidden" name="qty" value="1">{{else}}<label class="quantity">Quantity <input type="number" name="qty" min="1" max="{{product.max_quantity}}" value="1" inputmode="numeric"></label>{{/if}}
+                        {{#if product.get_free}}<input type="hidden" name="back" value="checkout">{{/if}}
+                        <button class="button buy-button" id="vs-add" type="submit"{{#unless product.available}} disabled{{/unless}}>{{product.button_label}}</button>
+                    </div>
+                </form>
+            {{/if}}
+            {{#if product.added}}<p class="cart-notice" role="status">Added to your cart. <a href="{{shop.cart_url}}">View cart</a></p>{{/if}}
+            {{#if product.demo_url}}<p><a class="more" href="{{product.demo_url}}" rel="noopener">See the demo {{> "icon" name="arrow"}}</a></p>{{/if}}
+            <div class="product-information">
+                {{#if product.description}}<details open><summary>Details</summary><div class="prose">{{{product.description}}}</div></details>{{/if}}
+                {{#if product.digital}}<details><summary>Files included</summary><ul>{{#foreach product.files}}<li>{{name}} · {{size}}</li>{{/foreach}}</ul></details>{{/if}}
+                {{#if shop.policies}}<details><summary>Shipping and returns</summary><ul>{{#foreach shop.policies}}<li><a href="{{url}}">{{title}}</a></li>{{/foreach}}</ul></details>{{/if}}
+            </div>
+        </div>
+    </div>
+    {{#if related}}<section class="section related" aria-labelledby="related-products"><header class="section-head"><h2 id="related-products">You may also like</h2></header><div class="product-grid">{{#foreach related}}{{> "product-card"}}{{/foreach}}</div></section>{{/if}}
+</main>
+<script type="application/ld+json">{{{product.schema}}}</script>
+<script src="{{shop.script_url}}" defer></script>

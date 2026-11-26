@@ -1,10 +1,12 @@
 <p class="byline">
     {{#if featured}}<span class="byline-flag">{{t "Featured"}}</span>{{/if}}
-    {{#unless @custom.show_dates_in_margin}}
+    {{#if is_cover_story}}
         <time datetime="{{date format="YYYY-MM-DD"}}">{{date format="D MMMM YYYY"}}</time>
-    {{/unless}}
+    {{else unless @custom.show_dates_in_margin}}
+        <time datetime="{{date format="YYYY-MM-DD"}}">{{date format="D MMMM YYYY"}}</time>
+    {{/if}}
     {{#if authors}}<span>{{t "By"}} {{authors}}</span>{{/if}}
-    {{#if primary_tag}}<span>{{t "in"}} <a href="{{primary_tag.url}}">{{primary_tag.name}}</a></span>{{/if}}
+    {{#unless is_cover_story}}{{#if primary_tag}}<span>{{t "in"}} <a href="{{primary_tag.url}}">{{primary_tag.name}}</a></span>{{/if}}{{/unless}}
     {{#if reading_time}}<span class="byline-time">{{reading_time minute=(t "1 min read") minutes=(t "% min read")}}</span>{{/if}}
     {{#match visibility "!=" "public"}}<span class="byline-access">{{#match visibility "paid"}}{{t "Paid subscribers"}}{{else match visibility "members"}}{{t "Members"}}{{else}}{{t "Selected tiers"}}{{/match}}</span>{{/match}}
 </p>

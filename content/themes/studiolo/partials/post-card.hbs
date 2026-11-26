@@ -1,0 +1,6 @@
+<article class="sl-post {{post_class}}">
+{{#if feature_image}}<a class="sl-post-img" href="{{url}}" tabindex="-1"><img src="{{img_url feature_image size="m"}}" alt="" loading="lazy"></a>{{/if}}
+<p class="sl-card-meta">{{#if primary_tag}}<span>{{primary_tag.name}}</span>{{/if}}<span>{{date format="D MMM YYYY"}}</span></p>
+<h3 class="sl-post-title"><a href="{{url}}">{{title}}</a></h3>
+<p class="sl-post-ex">{{excerpt words="22"}}</p>
+</article>

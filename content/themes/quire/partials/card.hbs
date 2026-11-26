@@ -7,7 +7,7 @@
                 sizes="{{#match size "wide"}}(max-width: 900px) 100vw, 760px{{else}}(max-width: 640px) 100vw, 400px{{/match}}"
                 src="{{img_url feature_image size="m"}}"
                 alt=""
-                loading="lazy">
+                {{#match size "wide"}}fetchpriority="high"{{else}}loading="lazy"{{/match}}>
         </a>
     {{/if}}
 

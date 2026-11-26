@@ -11,7 +11,7 @@
                     sizes="{{#match size "lead"}}(max-width: 1000px) 100vw, 820px{{else match size "row"}}160px{{else}}(max-width: 640px) 100vw, 400px{{/match}}"
                     src="{{img_url feature_image size="m"}}"
                     alt=""
-                    {{#match size "!=" "lead"}}loading="lazy"{{/match}}>
+                    {{#if front}}fetchpriority="high"{{else}}{{#match size "!=" "lead"}}loading="lazy"{{/match}}{{/if}}>
             </a>
         {{/if}}
     {{/match}}
@@ -23,7 +23,8 @@
             {{#match visibility "!=" "public"}}<span class="card-access" title="{{#match visibility "paid"}}{{t "For paid subscribers"}}{{else}}{{t "For members"}}{{/match}}">{{> "icons/lock"}}<span class="visually-hidden">{{#match visibility "paid"}}{{t "For paid subscribers"}}{{else}}{{t "For members"}}{{/match}}</span></span>{{/match}}
         </p>
         {{#match size "lead"}}
-            <h2 class="card-title"><a href="{{url}}">{{title}}</a></h2>
+            {{#if front}}<h3 class="card-title"><a href="{{url}}">{{title}}</a></h3>
+            {{else}}<h2 class="card-title"><a href="{{url}}">{{title}}</a></h2>{{/if}}
         {{else}}
             <h3 class="card-title"><a href="{{url}}">{{title}}</a></h3>
         {{/match}}

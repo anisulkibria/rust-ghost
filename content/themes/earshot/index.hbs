@@ -1,0 +1,5 @@
+{{!< default}}
+<main id="main" class="ea-main">
+<header class="ea-wrap ea-page-head"><p class="ea-eyebrow">{{@site.title}}</p><h1 class="ea-h1">{{#if @custom.posts_label}}{{@custom.posts_label}}{{else}}Notebook{{/if}}</h1></header>
+<section class="ea-wrap ea-block ea-block-top"><div class="ea-posts">{{#foreach posts}}{{> "post-card"}}{{/foreach}}</div>{{> "pager"}}</section>
+</main>

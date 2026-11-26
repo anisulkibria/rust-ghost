@@ -1,0 +1,28 @@
+<div class="layout wrap home-layout">
+    <div class="layout-main home-reading">
+        {{#if after_cover}}
+            {{#if posts}}<h2 class="home-feed-title">{{t "Latest writing"}}</h2>{{/if}}
+        {{else}}
+            <h1 class="home-feed-title">{{t "Latest writing"}}</h1>
+        {{/if}}
+
+        <div class="feed">
+            {{#if after_cover}}
+                {{#foreach posts from="2"}}{{> "entry" compact=true}}{{/foreach}}
+                {{#unless posts}}
+                    <h1 class="home-feed-title">{{t "Latest writing"}}</h1>
+                    <p class="empty-note">{{t "Nothing has been published yet. New posts will appear here."}}</p>
+                {{/unless}}
+            {{else}}
+                {{#foreach posts}}
+                    {{#if ../full}}{{> "entry" full=true}}{{else}}{{> "entry" compact=true}}{{/if}}
+                {{else}}
+                    <p class="empty-note">{{t "Nothing has been published yet. New posts will appear here."}}</p>
+                {{/foreach}}
+            {{/if}}
+        </div>
+
+        {{pagination}}
+    </div>
+    {{> "sidebar"}}
+</div>

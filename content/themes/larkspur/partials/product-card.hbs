@@ -1,0 +1,15 @@
+<article class="product-card">
+    <a href="{{url}}" class="card-link">
+        <span class="product-art">
+            {{#if feature_image}}<img src="{{feature_image}}" alt="" loading="lazy" width="800" height="800">
+            {{else}}{{> "icon" name="mark"}}{{/if}}
+            {{#if sold_out}}<span class="badge">Sold out</span>{{else}}{{#if save_percent}}<span class="badge">Save {{save_percent}}%</span>{{/if}}{{/if}}
+        </span>
+        <span class="card-info">
+            {{#if product_type}}<span class="eyebrow">{{product_type}}</span>{{/if}}
+            <span class="card-title">{{title}}</span>
+            <span class="card-price">{{#if compare_at}}<s>{{compare_at}}</s>{{/if}} {{lookup this "price"}}</span>
+            <span class="card-arrow">{{> "icon" name="arrow"}}</span>
+        </span>
+    </a>
+</article>

@@ -4,10 +4,13 @@
     // Mobile menu
     var toggle = document.querySelector('.menu-toggle');
     var masthead = document.querySelector('.masthead');
-    if (toggle && masthead) {
+    var menu = document.getElementById('site-menu');
+    if (toggle && masthead && menu) {
         toggle.addEventListener('click', function () {
             var open = masthead.classList.toggle('is-open');
             toggle.setAttribute('aria-expanded', open ? 'true' : 'false');
+            var firstLink = menu.querySelector('a[href]');
+            if (open && firstLink) firstLink.focus();
         });
         document.addEventListener('keydown', function (e) {
             if (e.key === 'Escape' && masthead.classList.contains('is-open')) {

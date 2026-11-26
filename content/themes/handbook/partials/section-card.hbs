@@ -1,11 +1,22 @@
 {{!-- A section on the homepage: number, name, what it covers, its first five articles. --}}
 <li class="section-card" data-section="{{slug}}">
-    <h3 class="section-card-name"><a href="{{url}}"><span class="num" data-num></span>{{name}}</a></h3>
-    {{#if description}}<p class="section-card-dek">{{description}}</p>{{/if}}
-    {{#get "posts" filter="primary_tag:{{slug}}" order="published_at asc" limit="5" as |articles|}}
-        <ol class="section-card-list" role="list">
-            {{#foreach articles}}<li><a href="{{url}}">{{title}}</a></li>{{/foreach}}
-        </ol>
-    {{/get}}
-    <a class="section-card-all" href="{{url}}">{{plural count.posts empty=(t "No articles yet") singular=(t "1 article") plural=(t "All % articles")}}</a>
+    <div class="section-card-head">
+        <h3 class="section-card-name">
+            <a href="{{url}}">
+                <span class="section-card-mark">{{> "icons/book"}}<span class="num" data-num></span></span>
+                <span>{{name}}</span>
+            </a>
+        </h3>
+        {{#if description}}<p class="section-card-dek">{{description}}</p>{{/if}}
+    </div>
+    <div class="section-card-body">
+        {{#get "posts" filter="primary_tag:{{slug}}" order="published_at asc" limit="5" as |articles|}}
+            {{#if articles}}
+                <ol class="section-card-list" role="list">
+                    {{#foreach articles}}<li><a href="{{url}}">{{title}}{{> "icons/chevron"}}</a></li>{{/foreach}}
+                </ol>
+            {{/if}}
+        {{/get}}
+        <a class="section-card-all" href="{{url}}">{{plural count.posts empty=(t "No articles yet") singular=(t "1 article") plural=(t "All % articles")}}{{> "icons/arrow"}}</a>
+    </div>
 </li>

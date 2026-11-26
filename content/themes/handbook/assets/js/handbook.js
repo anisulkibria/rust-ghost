@@ -40,21 +40,21 @@
         if (trigger) { e.preventDefault(); trigger.click(); }
     });
 
-    // Section order and manual numbering. The Sections setting gives the
-    // order; sections not named there follow alphabetically. Every section
-    // gets a number (2) and every article in it a number (2.3), taken from
-    // the contents tree, so the same address appears wherever it is shown.
+    // Derive every section and article number from the same ordered tree.
     var order = (body.getAttribute('data-sections') || '').split(',').map(function (s) { return s.trim(); }).filter(Boolean);
-    function rank(el) {
-        var i = order.indexOf(el.getAttribute('data-section'));
-        return i === -1 ? order.length : i;
-    }
     function sortSections(list) {
-        var items = Array.prototype.slice.call(list.children).filter(function (li) { return li.hasAttribute('data-section'); });
-        items.map(function (li, i) { return { li: li, r: rank(li), i: i }; })
-            .sort(function (a, b) { return a.r - b.r || a.i - b.i; })
-            .forEach(function (x) { list.appendChild(x.li); });
-        return Array.prototype.slice.call(list.children).filter(function (li) { return li.hasAttribute('data-section'); });
+        var items = Array.from(list.children);
+        if (!order.length) return items;
+
+        var bySlug = new Map();
+        items.forEach(function (item) {
+            var slug = item.getAttribute('data-section');
+            if (order.includes(slug)) bySlug.set(slug, item);
+            else item.remove();
+        });
+        var sections = Array.from(new Set(order)).map(function (slug) { return bySlug.get(slug); }).filter(Boolean);
+        sections.forEach(function (section) { list.appendChild(section); });
+        return sections;
     }
 
     var numbers = {};
@@ -100,6 +100,7 @@
     // Contents button on small screens.
     var contentsToggle = document.querySelector('[data-contents-toggle]');
     if (contentsToggle) {
+        body.classList.add('is-contents-ready');
         contentsToggle.addEventListener('click', function () {
             var open = contentsToggle.getAttribute('aria-expanded') !== 'true';
             contentsToggle.setAttribute('aria-expanded', String(open));
@@ -107,47 +108,66 @@
         });
     }
 
-    // On this page: the article's h2 and h3, with the one being read marked.
+    // Build both responsive outlines from the same headings and targets.
     var docContent = document.querySelector('[data-doc-content]');
-    var toc = document.querySelector('[data-toc]');
+    var outlines = document.querySelectorAll('[data-toc]');
     if (docContent) {
-        var heads = Array.prototype.slice.call(docContent.querySelectorAll(':scope > h2, :scope > h3'));
-        heads.forEach(function (h, i) {
-            if (!h.id) h.id = 'section-' + (i + 1);
-            var a = document.createElement('a');
-            a.className = 'anchor';
-            a.href = '#' + h.id;
-            a.setAttribute('aria-label', docContent.getAttribute('data-label-anchor') || '');
-            a.textContent = '#';
-            h.appendChild(a);
-        });
-        if (toc && heads.length >= 2) {
-            var list = toc.querySelector('.toc-list');
-            var links = {};
-            heads.forEach(function (h) {
-                var li = document.createElement('li');
-                li.className = h.tagName === 'H3' ? 'toc-sub' : '';
-                var a = document.createElement('a');
-                a.href = '#' + h.id;
-                a.textContent = h.firstChild ? h.childNodes[0].textContent.trim() : h.textContent;
-                li.appendChild(a);
-                list.appendChild(li);
-                links[h.id] = a;
-            });
-            toc.hidden = false;
-            if ('IntersectionObserver' in window) {
-                var visible = {};
-                var mark = function () {
-                    var first = heads.filter(function (h) { return visible[h.id]; })[0];
-                    if (!first) return;
-                    Object.keys(links).forEach(function (id) { links[id].classList.toggle('is-current', id === first.id); });
-                };
-                var io = new IntersectionObserver(function (entries) {
-                    entries.forEach(function (en) { visible[en.target.id] = en.isIntersecting; });
-                    mark();
-                }, { rootMargin: '0px 0px -65% 0px' });
-                heads.forEach(function (h) { io.observe(h); });
+        var heads = Array.from(docContent.querySelectorAll(':scope > h2, :scope > h3'));
+        var links = heads.map(function (heading, index) {
+            if (!heading.id) {
+                var base = 'section-' + (index + 1);
+                var id = base;
+                var suffix = 2;
+                while (document.getElementById(id)) id = base + '-' + suffix++;
+                heading.id = id;
             }
+            var title = heading.textContent.trim();
+            var fragment = '#' + encodeURIComponent(heading.id);
+            var anchor = document.createElement('a');
+            anchor.className = 'anchor';
+            anchor.href = fragment;
+            anchor.setAttribute('aria-label', docContent.getAttribute('data-label-anchor') || '');
+            anchor.textContent = '#';
+            heading.appendChild(anchor);
+
+            return Array.from(outlines, function (outline) {
+                var item = document.createElement('li');
+                if (heading.tagName === 'H3') item.className = 'toc-sub';
+                var link = document.createElement('a');
+                link.href = fragment;
+                link.textContent = title;
+                item.appendChild(link);
+                outline.querySelector('.toc-list').appendChild(item);
+                outline.hidden = false;
+                return link;
+            });
+        });
+
+        if (heads.length && outlines.length) {
+            var currentHeading = -1;
+            var header = document.querySelector('.site-header');
+            var markHeading = function () {
+                var readingLine = (header ? header.getBoundingClientRect().bottom : 0) + 36;
+                var active = currentHeading;
+                while (active >= 0 && heads[active].getBoundingClientRect().top > readingLine) active--;
+                while (active + 1 < heads.length && heads[active + 1].getBoundingClientRect().top <= readingLine) active++;
+                if (active === currentHeading) return;
+                links[currentHeading]?.forEach(function (link) { link.removeAttribute('aria-current'); });
+                links[active]?.forEach(function (link) { link.setAttribute('aria-current', 'location'); });
+                currentHeading = active;
+            };
+            var queued = false;
+            var queueMark = function () {
+                if (queued) return;
+                queued = true;
+                requestAnimationFrame(function () {
+                    queued = false;
+                    markHeading();
+                });
+            };
+            window.addEventListener('scroll', queueMark, { passive: true });
+            window.addEventListener('resize', queueMark);
+            markHeading();
         }
     }
 

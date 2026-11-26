@@ -1,0 +1,3 @@
+{{!-- A round play button for the episode in context; a lock that links to
+     the episode when the visitor may not listen. --}}
+{{#if audio_url}}<button class="ea-play" type="button" data-vp-play data-id="{{id}}" data-src="{{audio_url}}?s=web" data-title="{{title}}" data-show="{{show.title}}" data-art="{{artwork}}" data-url="{{url}}" data-dur="{{duration}}" aria-label="Play {{title}}">{{> "icon" name="play" size="22"}}{{> "eq"}}</button>{{else}}{{#if can_listen}}<a class="ea-play" href="{{url}}" aria-label="Episode details — {{title}}">{{> "icon" name="arrow" size="18"}}</a>{{else}}<a class="ea-play ea-play-lock" href="{{url}}" aria-label="Members only — {{title}}">{{> "icon" name="lock" size="20"}}</a>{{/if}}{{/if}}

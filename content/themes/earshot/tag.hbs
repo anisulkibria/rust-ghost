@@ -1,0 +1,5 @@
+{{!< default}}
+<main id="main" class="ea-main">
+{{#tag}}<header class="ea-wrap ea-page-head"><p class="ea-eyebrow">Topic</p><h1 class="ea-h1">{{name}}</h1>{{#if description}}<p class="ea-lede">{{description}}</p>{{/if}}</header>{{/tag}}
+<section class="ea-wrap ea-block ea-block-top"><div class="ea-posts">{{#foreach posts}}{{> "post-card"}}{{/foreach}}</div>{{> "pager"}}</section>
+</main>

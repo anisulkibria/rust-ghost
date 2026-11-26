@@ -17,25 +17,29 @@
         {{#if posts}}
             {{#if @custom.show_topics}}{{> "topics" topic_limit="5"}}{{/if}}
 
-            <section class="lead wrap" aria-labelledby="lead-heading">
-                <h2 class="visually-hidden" id="lead-heading">{{t "Latest stories"}}</h2>
-                <div class="lead-main">
-                    {{#foreach posts limit="1"}}{{> "card" size="wide"}}{{/foreach}}
-                </div>
-                {{#match posts.length ">" 1}}
-                    <div class="lead-side">
-                        {{#foreach posts from="2" to="4"}}{{> "card" size="side"}}{{/foreach}}
+            <section class="front wrap" aria-labelledby="lead-heading">
+                <header class="section-head front-head">
+                    <h2 class="section-title" id="lead-heading">{{t "Latest stories"}}</h2>
+                </header>
+                <div class="lead">
+                    <div class="lead-main">
+                        {{#foreach posts limit="1"}}{{> "card" size="wide"}}{{/foreach}}
                     </div>
-                {{/match}}
+                    {{#match posts.length ">" 1}}
+                        <div class="lead-side">
+                            {{#foreach posts from="2" to="5"}}{{> "card" size="side"}}{{/foreach}}
+                        </div>
+                    {{/match}}
+                </div>
             </section>
 
-            {{#match posts.length ">" 4}}
+            {{#match posts.length ">" 5}}
                 <section class="recent" aria-labelledby="recent-heading">
                     <header class="section-head wrap">
                         <h2 class="section-title" id="recent-heading">{{t "Recent stories"}}</h2>
                     </header>
                     <div class="grid wrap">
-                        {{#foreach posts from="5"}}{{> "card"}}{{/foreach}}
+                        {{#foreach posts from="6"}}{{> "card"}}{{/foreach}}
                     </div>
                 </section>
             {{/match}}

@@ -1,0 +1,10 @@
+<section class="sl-wrap sl-block sl-home-journal" aria-labelledby="sl-j-h">
+    <div class="sl-block-head"><h2 class="sl-h2" id="sl-j-h">{{@custom.journal_label}}</h2></div>
+    <div class="sl-posts">
+        {{#if preview}}
+            {{#foreach entries limit="3"}}{{> "post-card"}}{{/foreach}}
+        {{else}}
+            {{#foreach entries}}{{> "post-card"}}{{/foreach}}
+        {{/if}}
+    </div>
+</section>

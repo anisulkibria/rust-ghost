@@ -1,0 +1,11 @@
+<footer class="sl-foot">
+<div class="sl-wrap">
+<div class="sl-foot-grid">
+<div class="sl-foot-brand"><a class="sl-logo" href="{{@site.url}}">{{#if portfolio.name}}{{portfolio.name}}{{else}}{{@site.title}}{{/if}}</a>{{#if portfolio.location}}<p>{{> "icon" name="pin" size="14"}} {{portfolio.location}}</p>{{/if}}</div>
+{{#if portfolio}}<div class="sl-foot-col"><h2>Work</h2><a href="{{portfolio.url}}">All projects</a><a href="{{portfolio.services_url}}">Services</a><a href="{{portfolio.about_url}}">{{#if portfolio.studio}}Studio{{else}}About{{/if}}</a>{{#if portfolio.personal}}<a href="{{portfolio.resume_page_url}}">Résumé</a>{{/if}}</div>{{/if}}
+{{#if portfolio.socials}}<div class="sl-foot-col"><h2>Elsewhere</h2>{{#foreach portfolio.socials}}<a href="{{url}}" target="_blank" rel="me noopener">{{label}}</a>{{/foreach}}</div>{{/if}}
+{{#if @site.secondary_navigation}}<div class="sl-foot-col"><h2>Site</h2>{{#foreach @site.secondary_navigation}}<a href="{{url absolute="true"}}">{{label}}</a>{{/foreach}}</div>{{/if}}
+</div>
+<div class="sl-foot-bar"><span>© {{date format="YYYY"}} {{@site.title}}</span><span>Powered by <a href="https://vuuut.com" rel="noopener">Vuuut</a></span></div>
+</div>
+</footer>

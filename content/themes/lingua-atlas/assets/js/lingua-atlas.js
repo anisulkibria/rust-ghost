@@ -29,6 +29,35 @@
       });
     }
 
+    // Arabic examples sit inside English explanations. Isolate each phrase
+    // for direction and pronunciation, preserving any markup from the author.
+    var arabicPhrase = /\p{Script=Arabic}[\p{Script=Arabic}\p{M}]*(?: +\p{Script=Arabic}[\p{Script=Arabic}\p{M}]*)*/gu;
+    document.querySelectorAll('[data-atlas-arabic]').forEach(function (content) {
+      var walker = document.createTreeWalker(content, NodeFilter.SHOW_TEXT);
+      var textNodes = [];
+      while (walker.nextNode()) textNodes.push(walker.currentNode);
+      textNodes.forEach(function (node) {
+        var marked = node.parentElement.closest('[lang], [dir], code, pre, script, style');
+        if (marked && content.contains(marked)) return;
+        var text = node.nodeValue;
+        var matches = Array.from(text.matchAll(arabicPhrase));
+        if (!matches.length) return;
+        var result = document.createDocumentFragment();
+        var offset = 0;
+        matches.forEach(function (match) {
+          result.append(text.slice(offset, match.index));
+          var phrase = document.createElement('bdi');
+          phrase.lang = 'ar';
+          phrase.dir = 'rtl';
+          phrase.textContent = match[0];
+          result.append(phrase);
+          offset = match.index + match[0].length;
+        });
+        result.append(text.slice(offset));
+        node.replaceWith(result);
+      });
+    });
+
     // Instructor page: courses, students and the average rating, from the cards.
     var stats = document.querySelector('[data-ins-stats]');
     var cards = document.querySelectorAll('[data-ins-courses] .ins-card');
@@ -46,13 +75,18 @@
     }
 
     var expand = document.querySelector('[data-expand-all]');
-    if (expand) {
+    var sections = Array.from(document.querySelectorAll('.syl'));
+    if (expand && sections.length > 1) {
+      function anyClosed() { return sections.some(function (section) { return !section.open; }); }
+      function updateLabel() { expand.textContent = anyClosed() ? 'Expand all' : 'Collapse all'; }
+      sections.forEach(function (section) { section.addEventListener('toggle', updateLabel); });
       expand.addEventListener('click', function () {
-        var all = document.querySelectorAll('.syl');
-        var open = Array.prototype.some.call(all, function (d) { return !d.open; });
-        all.forEach(function (d) { d.open = open; });
-        expand.textContent = open ? 'Collapse all' : 'Expand all';
+        var open = anyClosed();
+        sections.forEach(function (section) { section.open = open; });
+        updateLabel();
       });
+      updateLabel();
+      expand.hidden = false;
     }
   });
 })();

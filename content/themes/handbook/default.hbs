@@ -8,7 +8,9 @@
     <title>{{meta_title page=(t " (Page %)")}}</title>
 
     <link rel="preload" as="font" type="font/woff2" href="{{asset "fonts/plex-sans-roman.woff2"}}" crossorigin>
+    <link rel="preload" as="font" type="font/woff2" href="{{asset "fonts/instrument-serif.woff2"}}" crossorigin>
     <style>
+        @font-face { font-family: "Instrument Serif"; font-style: normal; font-weight: 400; font-display: swap; src: url("{{asset "fonts/instrument-serif.woff2"}}") format("woff2"); }
         @font-face { font-family: "IBM Plex Sans"; font-style: normal; font-weight: 100 700; font-display: swap; src: url("{{asset "fonts/plex-sans-roman.woff2"}}") format("woff2"); }
         @font-face { font-family: "IBM Plex Sans"; font-style: italic; font-weight: 100 700; font-display: swap; src: url("{{asset "fonts/plex-sans-italic.woff2"}}") format("woff2"); }
         @font-face { font-family: "IBM Plex Mono"; font-style: normal; font-weight: 400; font-display: swap; src: url("{{asset "fonts/plex-mono-400.woff2"}}") format("woff2"); }

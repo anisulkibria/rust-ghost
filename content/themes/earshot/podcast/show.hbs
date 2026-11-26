@@ -1,0 +1,47 @@
+{{!< default}}
+<main id="main" class="ea-main">
+{{#show}}
+<section class="ea-hero ea-hero-show">
+{{#if banner}}<img class="ea-show-banner" src="{{banner}}" alt="">{{/if}}
+<div class="ea-wrap ea-show-head">
+<div class="ea-show-cover">{{> "art" class="ea-show-cover-img" priority=true}}</div>
+<div class="ea-hero-copy">
+<p class="ea-eyebrow"><span class="ea-live"></span>{{#if category_label}}{{category_label}}{{else}}Podcast{{/if}}{{#if complete}} · Complete series{{/if}}</p>
+<h1 class="ea-hero-title">{{title}}</h1>
+{{#if this.author}}<p class="ea-by">by {{this.author}}</p>{{/if}}
+{{#if subtitle}}<p class="ea-hero-sub">{{subtitle}}</p>{{/if}}
+{{> "listen"}}
+<div class="ea-show-actions">
+{{#if ../latest.audio_url}}{{#with ../latest}}<button class="ea-btn" type="button" data-vp-play data-id="{{id}}" data-src="{{audio_url}}?s=web" data-title="{{title}}" data-show="{{show.title}}" data-art="{{artwork}}" data-url="{{url}}" data-dur="{{duration}}">{{> "icon" name="play" size="16"}} Play latest</button>{{/with}}{{/if}}
+{{#if ../trailer.audio_url}}{{#with ../trailer}}<button class="ea-btn ea-btn-ghost" type="button" data-vp-play data-id="{{id}}" data-src="{{audio_url}}?s=web" data-title="{{title}}" data-show="{{show.title}}" data-art="{{artwork}}" data-url="{{url}}" data-dur="{{duration}}">Trailer · {{duration_label}}</button>{{/with}}{{/if}}
+{{#if funding}}<a class="ea-btn ea-btn-ghost" href="{{funding.url}}" target="_blank" rel="noopener">{{> "icon" name="heart" size="16"}} {{funding.label}}</a>{{/if}}
+</div>
+</div>
+</div>
+</section>
+{{/show}}
+
+<div class="ea-wrap ea-show-grid">
+<section class="ea-show-main" id="episodes" aria-labelledby="ea-eps-h">
+<div class="ea-block-head"><h2 class="ea-h2" id="ea-eps-h">Episodes <span class="ea-count">{{pagination.total}}</span></h2>
+{{#if seasons}}<nav class="ea-seasons" aria-label="Seasons"><a class="ea-chip" href="{{show.url}}#episodes">All</a>{{#foreach seasons}}<a class="ea-chip{{#if current}} on{{/if}}" href="{{url}}">Season {{number}}</a>{{/foreach}}</nav>{{/if}}
+</div>
+<div class="ea-list">{{#foreach episodes}}{{> "episode-row"}}{{/foreach}}</div>
+{{#match pagination.pages ">" 1}}<nav class="ea-pager">{{#if pagination.prev}}<a class="ea-pill" href="{{pagination.prev}}#episodes">← Newer</a>{{else}}<span></span>{{/if}}<span>Page {{pagination.page}} of {{pagination.pages}}</span>{{#if pagination.next}}<a class="ea-pill" href="{{pagination.next}}#episodes">Older →</a>{{else}}<span></span>{{/if}}</nav>{{/match}}
+</section>
+<aside class="ea-show-side">
+{{#show}}
+{{#if description_html}}<div class="ea-panel"><h2 class="ea-h3">About the show</h2><div class="ea-prose">{{{description_html}}}</div></div>{{/if}}
+{{#if hosts}}<div class="ea-panel"><h2 class="ea-h3">Hosts</h2><div class="ea-people ea-people-col">{{#foreach hosts}}{{> "person"}}{{/foreach}}</div></div>{{/if}}
+{{/show}}
+{{#if reviews}}<div class="ea-panel"><h2 class="ea-h3">Listeners say</h2>{{#foreach reviews limit="4"}}<figure class="ea-review"><span class="ea-stars" aria-label="{{rating}} out of 5">{{stars}}</span>{{#if title}}<b>{{title}}</b>{{/if}}<blockquote>{{body}}</blockquote><figcaption>{{this.author}} · {{source}}</figcaption></figure>{{/foreach}}</div>{{/if}}
+<div class="ea-panel ea-panel-cta">
+<h2 class="ea-h3">Get every episode</h2>
+<p>Follow in your podcast app, or copy the feed address.</p>
+{{#show}}<button class="ea-pill ea-pill-wide" type="button" data-vp-copy="{{feed_url}}">{{> "icon" name="rss" size="15"}} Copy RSS feed</button>{{/show}}
+{{#if private_url}}<a class="ea-pill ea-pill-wide" href="{{private_url}}">{{> "icon" name="lock" size="15"}} Your private members feed</a>{{/if}}
+{{#if contact_url}}<a class="ea-pill ea-pill-wide" href="{{contact_url}}">{{> "icon" name="mic" size="15"}} Be on the show / ask a question</a>{{/if}}
+</div>
+</aside>
+</div>
+</main>

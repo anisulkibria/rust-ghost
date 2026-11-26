@@ -14,7 +14,7 @@
             <div class="site-footer-social">{{social_accounts}}</div>
         </div>
 
-        {{#get "tags" limit="10" include="count.posts" order="count.posts desc" filter="visibility:public" as |topics|}}
+        {{#get "tags" limit="5" include="count.posts" order="count.posts desc" filter="visibility:public" as |topics|}}
             {{#if topics}}
                 <nav class="site-footer-col" aria-labelledby="footer-topics">
                     <h2 class="site-footer-heading" id="footer-topics">{{t "Topics"}}</h2>

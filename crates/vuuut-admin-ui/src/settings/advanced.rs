@@ -1135,6 +1135,14 @@ pub(crate) const SITE_TABLES: &[&str] = &[
     // Page Builder: history and layouts (which go with their posts), then
     // the saved templates.
     "builder_revisions", "builder_layouts", "builder_templates",
+    // The podcast: downloads, credits, links and what listeners sent, then
+    // episodes, people, sponsors and shows. The signing secret stays.
+    "podcast_downloads", "podcast_requests", "podcast_reviews", "podcast_episode_sponsors", "podcast_credits",
+    "podcast_episodes", "podcast_people", "podcast_sponsors", "podcast_shows",
+    // The portfolio: enquiries (visitors' details) and links, then the rest.
+    "portfolio_enquiries", "portfolio_project_categories", "portfolio_project_services", "portfolio_projects",
+    "portfolio_categories", "portfolio_services", "portfolio_clients", "portfolio_testimonials", "portfolio_team",
+    "portfolio_entries", "portfolio_skills",
     // The CDN connection, credentials included.
     "cdn_config",
     // Which rows were generated as dummy content (the rows themselves are

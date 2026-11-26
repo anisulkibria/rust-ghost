@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="{{@site.locale}}">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{meta_title}}</title>
+<link rel="preload" href="{{asset "fonts/instrument-serif.woff2"}}" as="font" type="font/woff2" crossorigin>
+{{#if podcast}}<link rel="stylesheet" href="{{podcast.style_url}}">{{/if}}
+<link rel="stylesheet" href="{{asset "css/screen.css"}}">
+{{ghost_head}}
+</head>
+<body class="{{body_class}} ea-{{#match @custom.color_scheme "Light"}}light{{else}}dark{{/match}}">
+<a class="ea-skip" href="#main">Skip to content</a>
+{{> "header"}}
+{{{body}}}
+{{> "subscribe"}}
+{{> "footer"}}
+{{#if podcast}}<script src="{{podcast.script_url}}" defer></script>{{/if}}
+<script src="{{asset "js/earshot.js"}}" defer></script>
+{{ghost_foot}}
+</body>
+</html>

@@ -1,0 +1,39 @@
+<header class="sl-head">
+    <div class="sl-wrap sl-head-in">
+        <a class="sl-logo" href="{{@site.url}}">
+            {{#if @site.logo}}<img src="{{@site.logo}}" alt="{{@site.title}}">
+            {{else}}{{#if portfolio.name}}{{portfolio.name}}{{else}}{{@site.title}}{{/if}}{{/if}}
+        </a>
+        <nav class="sl-nav" aria-label="Main">
+            {{#if portfolio}}
+                <ul class="nav">
+                    <li><a href="{{portfolio.url}}">Work</a></li>
+                    <li><a href="{{portfolio.about_url}}">{{#if portfolio.studio}}Studio{{else}}About{{/if}}</a></li>
+                    <li><a href="{{portfolio.services_url}}">Services</a></li>
+                </ul>
+            {{/if}}
+            {{navigation}}
+        </nav>
+        <div class="sl-head-end">
+            <button class="sl-icon-btn" type="button" data-ghost-search aria-label="Search">{{> "icon" name="search"}}</button>
+            {{#if portfolio.contact_url}}
+                <a class="sl-btn sl-btn-sm sl-hide-s" href="{{portfolio.contact_url}}">Let’s talk {{> "icon" name="arrow" size="15"}}</a>
+            {{else}}
+                {{#if @site.members_enabled}}{{#unless @member}}<a class="sl-btn sl-btn-sm sl-hide-s" href="#/portal/signup">Subscribe</a>{{/unless}}{{/if}}
+            {{/if}}
+            <button class="sl-icon-btn sl-burger" type="button" aria-label="Menu" aria-expanded="false" aria-controls="sl-menu" data-sl-burger>{{> "icon" name="menu" size="22"}}</button>
+        </div>
+    </div>
+</header>
+<dialog class="sl-drawer" id="sl-menu" aria-label="Site menu" data-sl-drawer>
+    <button class="sl-icon-btn sl-drawer-close" type="button" aria-label="Close" data-sl-drawer-close>{{> "icon" name="close" size="24"}}</button>
+    <nav aria-label="Main">
+        {{#if portfolio}}
+            <a href="{{portfolio.url}}">Work</a>
+            <a href="{{portfolio.about_url}}">{{#if portfolio.studio}}Studio{{else}}About{{/if}}</a>
+            <a href="{{portfolio.services_url}}">Services</a>
+            {{#if portfolio.contact_url}}<a href="{{portfolio.contact_url}}">Let’s talk</a>{{/if}}
+        {{/if}}
+        {{#foreach @site.navigation}}<a href="{{url absolute="true"}}">{{label}}</a>{{/foreach}}
+    </nav>
+</dialog>

@@ -11,12 +11,19 @@
                     <a class="more" href="{{> "catalog-url"}}?price=free">Find free courses {{> "icons/arrow"}}</a>
                 </div>
             </div>
-            <div class="phrase-board">
-                <div class="phrase-board-heading"><span>Ways to say hello</span>{{> "icons/globe"}}</div>
-                <div class="phrase-sheet">
-                    <p><span>Arabic</span><strong lang="ar" dir="rtl">مَرْحَبًا</strong></p>
-                    <p><span>English</span><strong lang="en">Hello</strong></p>
-                    <p><span>French</span><strong lang="fr">Bonjour</strong></p>
+            <div class="atlas-scene">
+                {{#if @custom.hero_image}}
+                    <img class="atlas-photo" src="{{img_url @custom.hero_image size="l"}}" alt="" fetchpriority="high">
+                {{else}}
+                    <img class="atlas-photo" src="{{asset "images/phrasebook.webp"}}" alt="" width="960" height="1200" fetchpriority="high">
+                {{/if}}
+                <div class="phrase-board">
+                    <div class="phrase-board-heading"><span>Ways to say hello</span>{{> "icons/globe"}}</div>
+                    <ul class="phrase-sheet" role="list">
+                        <li><span>Arabic</span><strong lang="ar" dir="rtl">مَرْحَبًا</strong></li>
+                        <li><span>English</span><strong lang="en">Hello</strong></li>
+                        <li><span>French</span><strong lang="fr">Bonjour</strong></li>
+                    </ul>
                 </div>
             </div>
         </div>
@@ -41,6 +48,17 @@
     {{/get}}
     {{/if}}
 
+    {{#get "courses" filter="featured:true+free:true+category.slug:[arabic,english,french]" limit="3" as |featured|}}
+    {{#if featured}}
+    <section class="atlas-section atlas-picks" aria-labelledby="featured-heading">
+        <div class="wrap">
+            <header class="atlas-section-head"><h2 id="featured-heading">Start for free</h2><a class="more" href="{{> "catalog-url"}}?price=free">Browse free courses {{> "icons/arrow"}}</a></header>
+            <div class="course-grid">{{#foreach featured}}{{> "course-card"}}{{/foreach}}</div>
+        </div>
+    </section>
+    {{/if}}
+    {{/get}}
+
     {{#get "courses" filter="access:paid+free:false+category.slug:[arabic,english,french]" limit="3" as |paid_courses|}}
     {{#if paid_courses}}
     <section class="atlas-section atlas-paid" aria-labelledby="paid-heading">
@@ -50,17 +68,6 @@
                 <a class="more" href="{{> "catalog-url"}}?price=paid">Browse paid courses {{> "icons/arrow"}}</a>
             </header>
             <div class="course-grid">{{#foreach paid_courses}}{{> "course-card"}}{{/foreach}}</div>
-        </div>
-    </section>
-    {{/if}}
-    {{/get}}
-
-    {{#get "courses" filter="featured:true+free:true+category.slug:[arabic,english,french]" limit="3" as |featured|}}
-    {{#if featured}}
-    <section class="atlas-section atlas-picks" aria-labelledby="featured-heading">
-        <div class="wrap">
-            <header class="atlas-section-head"><h2 id="featured-heading">Start for free</h2><a class="more" href="{{> "catalog-url"}}?price=free">Browse free courses {{> "icons/arrow"}}</a></header>
-            <div class="course-grid">{{#foreach featured}}{{> "course-card"}}{{/foreach}}</div>
         </div>
     </section>
     {{/if}}
@@ -78,16 +85,11 @@
     {{/get}}
 
     {{#if @custom.show_journal}}
-    {{#get "posts" limit="3" include="tags" as |journal|}}
-    {{#if journal}}
-    <section class="atlas-section atlas-picks" aria-labelledby="journal-heading">
-        <div class="wrap">
-            <header class="atlas-section-head"><h2 id="journal-heading">From the journal</h2></header>
-            <div class="post-grid">{{#foreach journal}}{{> "post-card"}}{{/foreach}}</div>
-        </div>
-    </section>
-    {{/if}}
-    {{/get}}
+        {{#if @custom.journal_tag}}
+            {{> "home-journal" journal_filter=(concat "tag:" @custom.journal_tag)}}
+        {{else}}
+            {{> "home-journal"}}
+        {{/if}}
     {{/if}}
 
     <section class="atlas-cta" aria-labelledby="start-title">

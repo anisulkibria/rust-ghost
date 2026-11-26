@@ -77,6 +77,11 @@
                 "type": "text",
                 "description": "Optional introduction below the homepage headline."
             },
+            "hero_image": {
+                "type": "image",
+                "description": "Optional replacement for the homepage phrasebook photograph.",
+                "group": "homepage"
+            },
             "show_categories": {
                 "type": "boolean",
                 "default": true,
@@ -87,6 +92,11 @@
                 "type": "boolean",
                 "default": false,
                 "description": "Shows your latest posts on the homepage.",
+                "group": "homepage"
+            },
+            "journal_tag": {
+                "type": "text",
+                "description": "Optional tag slug for the homepage journal, such as language-journal. Blank shows the latest posts.",
                 "group": "homepage"
             },
             "cta_heading": {

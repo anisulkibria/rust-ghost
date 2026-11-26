@@ -1,0 +1,22 @@
+{{!< default}}
+<main id="main" class="sl-main">
+<section class="sl-wrap sl-contact">
+<div class="sl-contact-copy">
+<p class="sl-eyebrow">{{#if portfolio.availability_label}}<span class="sl-avail sl-avail-{{portfolio.availability}}"><i></i>{{portfolio.availability_label}}</span>{{else}}Contact{{/if}}</p>
+<h1 class="sl-h1">Tell {{#if portfolio.studio}}us{{else}}me{{/if}} about your <em>project</em></h1>
+<p class="sl-lede">{{#if portfolio.availability_note}}{{portfolio.availability_note}}. {{/if}}A few lines is plenty — {{#if portfolio.studio}}we{{else}}I{{/if}} reply within two working days.</p>
+<dl class="sl-contact-facts">
+{{#if portfolio.email}}<div><dt>Email</dt><dd><a href="mailto:{{portfolio.email}}">{{portfolio.email}}</a></dd></div>{{/if}}
+{{#if portfolio.phone}}<div><dt>Phone</dt><dd>{{portfolio.phone}}</dd></div>{{/if}}
+{{#if portfolio.location}}<div><dt>Studio</dt><dd>{{portfolio.location}}</dd></div>{{/if}}
+{{#if portfolio.socials}}<div><dt>Elsewhere</dt><dd>{{#foreach portfolio.socials}}<a href="{{url}}" target="_blank" rel="me noopener">{{label}}</a>{{#unless @last}}, {{/unless}}{{/foreach}}</dd></div>{{/if}}
+</dl>
+</div>
+<div class="sl-contact-form">
+{{#if forms.sent}}<div class="sl-sent"><h2 class="sl-h2">Thank you.</h2><p>Your message is in. {{#if portfolio.studio}}We’ll{{else}}I’ll{{/if}} be in touch soon.</p></div>{{else}}
+{{#if forms.error}}<p class="sl-error-note">{{forms.error}}</p>{{/if}}
+{{{forms.contact}}}
+{{/if}}
+</div>
+</section>
+</main>

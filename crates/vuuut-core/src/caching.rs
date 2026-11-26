@@ -203,7 +203,9 @@ impl Bypass {
 /// Cookies that mean the visitor sees something an anonymous reader does
 /// not: a member, staff, a private-site pass.
 // `vuuut-cart`: a visitor with a cart sees its count on every store page.
-pub const PERSONAL_COOKIES: [&str; 6] = ["vuuut-members-ssr", "vuuut-admin-session", "ghost-private", "ghost-members-ssr", "ghost-admin-api-session", "vuuut-cart"];
+/// `vuuut-portfolio-unlock` opens password-protected case studies, so a page
+/// read with it must never be stored and served to somebody without it.
+pub const PERSONAL_COOKIES: [&str; 7] = ["vuuut-members-ssr", "vuuut-admin-session", "ghost-private", "ghost-members-ssr", "ghost-admin-api-session", "vuuut-cart", "vuuut-portfolio-unlock"];
 
 /// Parameters that only say where a reader came from.
 fn tracking(param: &str) -> bool {
@@ -213,11 +215,13 @@ fn tracking(param: &str) -> bool {
 /// Paths that are never pages: the admin, APIs, previews, members, feeds of
 /// per-request data.
 fn system(path: &str) -> bool {
-    const PREFIXES: [&str; 18] = [
+    const PREFIXES: [&str; 20] = [
         "/ghost", "/members/", "/p/", "/.ghost/", "/.well-known/", "/webmentions/",
         "/cookies/api/", "/search/api/", "/ads/api/", "/popups/api/", "/forms/", "/unsubscribe",
         // The store's personal pages: a cart, a checkout, one buyer's order.
         "/shop/cart/", "/shop/checkout/", "/shop/orders/", "/shop/account/", "/shop/downloads/", "/shop/dashboard/",
+        // A member's private podcast feed, and the download counter.
+        "/podcast/private/", "/podcast/play/",
     ];
     PREFIXES.iter().any(|p| path.starts_with(p))
 }

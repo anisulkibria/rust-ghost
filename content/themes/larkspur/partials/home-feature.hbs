@@ -1,0 +1,23 @@
+<a class="collection-feature" href="{{url}}">
+    <span class="collection-feature-art" aria-hidden="true">
+        {{#if feature_image}}<img src="{{feature_image}}" alt="" loading="lazy">
+        {{else}}
+            {{#if spotlight}}{{> "icon" name="mark"}}
+            {{else}}<img src="{{asset "images/studio.webp"}}" alt="" loading="lazy">{{/if}}
+        {{/if}}
+    </span>
+    <span class="collection-feature-copy">
+        {{#if spotlight}}
+            {{#if product_type}}<small class="eyebrow">{{product_type}}</small>{{/if}}
+        {{else}}<small class="eyebrow">{{plural product_count empty="Collection" singular="% product" plural="% products"}}</small>{{/if}}
+        <strong>{{title}}</strong>
+        {{#if spotlight}}
+            <span>{{lookup this "price"}}</span>
+            {{#if excerpt}}<span>{{excerpt}}</span>{{/if}}
+            <span class="more">View product {{> "icon" name="arrow"}}</span>
+        {{else}}
+            {{#if description}}<span>{{description}}</span>{{/if}}
+            <span class="more">Explore the collection {{> "icon" name="arrow"}}</span>
+        {{/if}}
+    </span>
+</a>

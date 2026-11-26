@@ -1,0 +1,13 @@
+{{#unless forms.contact}}
+<section class="sl-wrap sl-cta" aria-labelledby="sl-cta-h">
+<div class="sl-cta-inner">
+<p class="sl-eyebrow">{{#if portfolio.availability_label}}<span class="sl-avail sl-avail-{{portfolio.availability}}"><i></i>{{portfolio.availability_label}}{{#if portfolio.availability_note}} — {{portfolio.availability_note}}{{/if}}</span>{{else}}Contact{{/if}}</p>
+<h2 class="sl-cta-title" id="sl-cta-h">{{@custom.cta_title}}</h2>
+<div class="sl-cta-row">
+{{#if portfolio.contact_url}}<a class="sl-btn sl-btn-lg" href="{{portfolio.contact_url}}">Start a project {{> "icon" name="arrow" size="20"}}</a>{{/if}}
+{{#if portfolio.email}}<a class="sl-cta-mail" href="mailto:{{portfolio.email}}">{{portfolio.email}}</a>{{/if}}
+{{#unless portfolio}}{{#if @site.members_enabled}}<a class="sl-btn sl-btn-lg" href="#/portal/signup">Subscribe {{> "icon" name="arrow" size="20"}}</a>{{/if}}{{/unless}}
+</div>
+</div>
+</section>
+{{/unless}}

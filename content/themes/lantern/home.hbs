@@ -66,22 +66,22 @@
     </section>
 
     {{#if @custom.show_categories}}
-    {{#get "course_categories" limit="12" as |cats|}}
+    {{#get "course_categories" filter="count:>0" limit="5" as |cats|}}
     <section class="band wrap">
         <header class="band-head"><div><p class="eyebrow">Explore</p><h2>Choose a subject</h2></div><a class="more" href="{{#if @custom.catalog_address}}{{@custom.catalog_address}}{{else}}/courses/{{/if}}">All courses {{> "icons/arrow"}}</a></header>
         <div class="subjects">
-            {{#foreach cats}}{{#if count}}
+            {{#foreach cats}}
             <a class="subject tint-{{tint}}" href="{{url}}">
                 {{#if feature_image}}<img src="{{feature_image}}" alt="" loading="lazy">{{/if}}
                 <span class="subject-body"><b>{{name}}</b><span>{{count}} course{{#match count "!=" 1}}s{{/match}}</span></span>
             </a>
-            {{/if}}{{/foreach}}
+            {{/foreach}}
         </div>
     </section>
     {{/get}}
     {{/if}}
 
-    {{#get "courses" filter="featured:true" limit="3" as |featured|}}
+    {{#get "courses" filter="featured:true" limit="4" as |featured|}}
     <section class="band wrap">
         <header class="band-head"><div><p class="eyebrow">Hand-picked</p><h2>Featured courses</h2></div></header>
         <div class="course-grid">{{#foreach featured}}{{> "course-card"}}{{/foreach}}</div>

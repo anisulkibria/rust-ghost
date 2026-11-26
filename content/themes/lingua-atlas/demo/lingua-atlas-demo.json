@@ -1,0 +1,377 @@
+{
+ "db": [
+  {
+   "meta": {
+    "exported_on": 1795000000000,
+    "version": "6.0.0"
+   },
+   "data": {
+    "users": [
+     {
+      "id": "9c0a88ead97425b02382d6e8",
+      "name": "Lingua Atlas editors",
+      "slug": "lingua-atlas-editors",
+      "email": "lingua.atlas.editors@example.com",
+      "profile_image": null,
+      "cover_image": null,
+      "bio": "Writes the sample language-learning journal.",
+      "website": null,
+      "location": null,
+      "status": "active",
+      "visibility": "public",
+      "created_at": "2026-11-25T09:00:00.000Z",
+      "updated_at": "2026-11-25T09:00:00.000Z"
+     }
+    ],
+    "tags": [
+     {
+      "id": "ae3da2dac439692a82713a35",
+      "name": "Language Journal",
+      "slug": "language-journal",
+      "description": "Short reads and practical exercises for Arabic, English, and French learners.",
+      "feature_image": null,
+      "visibility": "public",
+      "created_at": "2026-11-25T09:00:00.000Z",
+      "updated_at": "2026-11-25T09:00:00.000Z"
+     },
+     {
+      "id": "1e6b0e9ca6bdfe8bb637f32f",
+      "name": "Arabic",
+      "slug": "arabic",
+      "description": null,
+      "feature_image": null,
+      "visibility": "public",
+      "created_at": "2026-11-25T09:00:00.000Z",
+      "updated_at": "2026-11-25T09:00:00.000Z"
+     },
+     {
+      "id": "63e85431c5ee6fa63a44a8dc",
+      "name": "English",
+      "slug": "english",
+      "description": null,
+      "feature_image": null,
+      "visibility": "public",
+      "created_at": "2026-11-25T09:00:00.000Z",
+      "updated_at": "2026-11-25T09:00:00.000Z"
+     },
+     {
+      "id": "387b9f4dedfdbcfd8c0bb3a5",
+      "name": "French",
+      "slug": "french",
+      "description": null,
+      "feature_image": null,
+      "visibility": "public",
+      "created_at": "2026-11-25T09:00:00.000Z",
+      "updated_at": "2026-11-25T09:00:00.000Z"
+     },
+     {
+      "id": "d081954ee2ac37cc03e283b9",
+      "name": "Study habits",
+      "slug": "study-habits",
+      "description": null,
+      "feature_image": null,
+      "visibility": "public",
+      "created_at": "2026-11-25T09:00:00.000Z",
+      "updated_at": "2026-11-25T09:00:00.000Z"
+     }
+    ],
+    "posts": [
+     {
+      "id": "4cecf30609cb3cc038583df1",
+      "uuid": "1d27240f-7ffd-4f24-ac47-3e93fa139011",
+      "title": "Three Arabic greetings to try aloud",
+      "slug": "three-arabic-greetings-to-try-aloud",
+      "type": "post",
+      "lexical": "{\"root\": {\"children\": [{\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"Practice two greetings and a reply in Modern Standard Arabic.\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"paragraph\", \"version\": 1}, {\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"Start with mar\\u1e25aban\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"extended-heading\", \"version\": 1, \"tag\": \"h2\"}, {\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"\\u0645\\u064e\\u0631\\u0652\\u062d\\u064e\\u0628\\u064b\\u0627 (mar\\u1e25aban) means \\u201chello.\\u201d Say it slowly once, then say it at a pace that feels natural. The \\u1e25 represents a stronger breath sound than the English h.\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"paragraph\", \"version\": 1}, {\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"Try a traditional greeting\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"extended-heading\", \"version\": 1, \"tag\": \"h2\"}, {\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"\\u0627\\u0644\\u0633\\u064e\\u0651\\u0644\\u064e\\u0627\\u0645\\u064f \\u0639\\u064e\\u0644\\u064e\\u064a\\u0652\\u0643\\u064f\\u0645\\u0652 (as-sal\\u0101mu \\u02bfalaykum) means \\u201cpeace be upon you.\\u201d A customary reply is \\u0648\\u064e\\u0639\\u064e\\u0644\\u064e\\u064a\\u0652\\u0643\\u064f\\u0645\\u064f \\u0627\\u0644\\u0633\\u064e\\u0651\\u0644\\u064e\\u0627\\u0645\\u064f (wa \\u02bfalaykumu s-sal\\u0101m), meaning \\u201cand peace be upon you.\\u201d\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"paragraph\", \"version\": 1}, {\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"Practice both parts\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"extended-heading\", \"version\": 1, \"tag\": \"h2\"}, {\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"Write the greeting on one card and the reply on another. Turn over the first card and try to answer before looking at the second.\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"paragraph\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"root\", \"version\": 1}}",
+      "mobiledoc": null,
+      "html": "<p>Practice two greetings and a reply in Modern Standard Arabic.</p><h2 id=\"start-with-marḥaban\">Start with marḥaban</h2><p>مَرْحَبًا (marḥaban) means “hello.” Say it slowly once, then say it at a pace that feels natural. The ḥ represents a stronger breath sound than the English h.</p><h2 id=\"try-a-traditional-greeting\">Try a traditional greeting</h2><p>السَّلَامُ عَلَيْكُمْ (as-salāmu ʿalaykum) means “peace be upon you.” A customary reply is وَعَلَيْكُمُ السَّلَامُ (wa ʿalaykumu s-salām), meaning “and peace be upon you.”</p><h2 id=\"practice-both-parts\">Practice both parts</h2><p>Write the greeting on one card and the reply on another. Turn over the first card and try to answer before looking at the second.</p>",
+      "plaintext": "Practice two greetings and a reply in Modern Standard Arabic.\n\nStart with marḥaban\n\nمَرْحَبًا (marḥaban) means “hello.” Say it slowly once, then say it at a pace that feels natural. The ḥ represents a stronger breath sound than the English h.\n\nTry a traditional greeting\n\nالسَّلَامُ عَلَيْكُمْ (as-salāmu ʿalaykum) means “peace be upon you.” A customary reply is وَعَلَيْكُمُ السَّلَامُ (wa ʿalaykumu s-salām), meaning “and peace be upon you.”\n\nPractice both parts\n\nWrite the greeting on one card and the reply on another. Turn over the first card and try to answer before looking at the second.",
+      "feature_image": null,
+      "featured": 0,
+      "status": "published",
+      "visibility": "public",
+      "custom_excerpt": "Practice two greetings and a reply in Modern Standard Arabic.",
+      "locale": null,
+      "email_recipient_filter": "all",
+      "reading_time": 1,
+      "created_at": "2026-11-24T21:52:00.000Z",
+      "updated_at": "2026-11-24T21:52:00.000Z",
+      "published_at": "2026-11-24T21:52:00.000Z"
+     },
+     {
+      "id": "b58b43040c6e0de08dfb0d8c",
+      "uuid": "b78d407f-f3b4-46ef-a130-1c672ba53747",
+      "title": "What to say when you miss a word",
+      "slug": "what-to-say-when-you-miss-a-word",
+      "type": "post",
+      "lexical": "{\"root\": {\"children\": [{\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"Three phrases for keeping an English conversation going.\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"paragraph\", \"version\": 1}, {\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"Ask for a repeat\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"extended-heading\", \"version\": 1, \"tag\": \"h2\"}, {\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"Try \\u201cCould you say that again?\\u201d when you missed a complete sentence. If one part went by too quickly, try \\u201cCould you say the last part more slowly?\\u201d\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"paragraph\", \"version\": 1}, {\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"Check what you heard\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"extended-heading\", \"version\": 1, \"tag\": \"h2\"}, {\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"Repeat the key detail as a question. If someone says they arrive at fifteen past six, you can ask \\u201cDid you say six fifteen?\\u201d\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"paragraph\", \"version\": 1}, {\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"Rehearse a short exchange\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"extended-heading\", \"version\": 1, \"tag\": \"h2\"}, {\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"Ask a partner to give you a time or a street name. Request a repeat, confirm the detail, and thank them. Swap roles and try a new detail.\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"paragraph\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"root\", \"version\": 1}}",
+      "mobiledoc": null,
+      "html": "<p>Three phrases for keeping an English conversation going.</p><h2 id=\"ask-for-a-repeat\">Ask for a repeat</h2><p>Try “Could you say that again?” when you missed a complete sentence. If one part went by too quickly, try “Could you say the last part more slowly?”</p><h2 id=\"check-what-you-heard\">Check what you heard</h2><p>Repeat the key detail as a question. If someone says they arrive at fifteen past six, you can ask “Did you say six fifteen?”</p><h2 id=\"rehearse-a-short-exchange\">Rehearse a short exchange</h2><p>Ask a partner to give you a time or a street name. Request a repeat, confirm the detail, and thank them. Swap roles and try a new detail.</p>",
+      "plaintext": "Three phrases for keeping an English conversation going.\n\nAsk for a repeat\n\nTry “Could you say that again?” when you missed a complete sentence. If one part went by too quickly, try “Could you say the last part more slowly?”\n\nCheck what you heard\n\nRepeat the key detail as a question. If someone says they arrive at fifteen past six, you can ask “Did you say six fifteen?”\n\nRehearse a short exchange\n\nAsk a partner to give you a time or a street name. Request a repeat, confirm the detail, and thank them. Swap roles and try a new detail.",
+      "feature_image": null,
+      "featured": 0,
+      "status": "published",
+      "visibility": "public",
+      "custom_excerpt": "Three phrases for keeping an English conversation going.",
+      "locale": null,
+      "email_recipient_filter": "all",
+      "reading_time": 1,
+      "created_at": "2026-11-23T20:45:00.000Z",
+      "updated_at": "2026-11-23T20:45:00.000Z",
+      "published_at": "2026-11-23T20:45:00.000Z"
+     },
+     {
+      "id": "32a82abeae3d3264e6d50775",
+      "uuid": "3cdf4bda-4b10-4efe-ab0d-70153429cf8c",
+      "title": "Order your first coffee in French",
+      "slug": "order-your-first-coffee-in-french",
+      "type": "post",
+      "lexical": "{\"root\": {\"children\": [{\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"Build a short caf\\u00e9 exchange from a greeting, an order, and a thank-you.\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"paragraph\", \"version\": 1}, {\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"Open with a greeting\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"extended-heading\", \"version\": 1, \"tag\": \"h2\"}, {\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"Say \\u201cBonjour\\u201d when you approach the counter during the day. Then try \\u201cUn caf\\u00e9, s\\u2019il vous pla\\u00eet\\u201d for a simple order.\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"paragraph\", \"version\": 1}, {\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"Choose here or to go\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"extended-heading\", \"version\": 1, \"tag\": \"h2\"}, {\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"You may hear \\u201cSur place ou \\u00e0 emporter ?\\u201d A short answer works here. Say \\u201cSur place, merci\\u201d to stay or \\u201c\\u00c0 emporter, merci\\u201d to take it away.\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"paragraph\", \"version\": 1}, {\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"Change one detail\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"extended-heading\", \"version\": 1, \"tag\": \"h2\"}, {\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"Practice the exchange again with \\u201cUn th\\u00e9, s\\u2019il vous pla\\u00eet.\\u201d Keep the greeting and reply the same so you can concentrate on the new word.\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"paragraph\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"root\", \"version\": 1}}",
+      "mobiledoc": null,
+      "html": "<p>Build a short café exchange from a greeting, an order, and a thank-you.</p><h2 id=\"open-with-a-greeting\">Open with a greeting</h2><p>Say “Bonjour” when you approach the counter during the day. Then try “Un café, s’il vous plaît” for a simple order.</p><h2 id=\"choose-here-or-to-go\">Choose here or to go</h2><p>You may hear “Sur place ou à emporter ?” A short answer works here. Say “Sur place, merci” to stay or “À emporter, merci” to take it away.</p><h2 id=\"change-one-detail\">Change one detail</h2><p>Practice the exchange again with “Un thé, s’il vous plaît.” Keep the greeting and reply the same so you can concentrate on the new word.</p>",
+      "plaintext": "Build a short café exchange from a greeting, an order, and a thank-you.\n\nOpen with a greeting\n\nSay “Bonjour” when you approach the counter during the day. Then try “Un café, s’il vous plaît” for a simple order.\n\nChoose here or to go\n\nYou may hear “Sur place ou à emporter ?” A short answer works here. Say “Sur place, merci” to stay or “À emporter, merci” to take it away.\n\nChange one detail\n\nPractice the exchange again with “Un thé, s’il vous plaît.” Keep the greeting and reply the same so you can concentrate on the new word.",
+      "feature_image": null,
+      "featured": 0,
+      "status": "published",
+      "visibility": "public",
+      "custom_excerpt": "Build a short café exchange from a greeting, an order, and a thank-you.",
+      "locale": null,
+      "email_recipient_filter": "all",
+      "reading_time": 1,
+      "created_at": "2026-11-22T19:38:00.000Z",
+      "updated_at": "2026-11-22T19:38:00.000Z",
+      "published_at": "2026-11-22T19:38:00.000Z"
+     },
+     {
+      "id": "c88be15f77d15c1102d7ba36",
+      "uuid": "24af1dd6-b072-4209-a9a6-93c107681ec1",
+      "title": "Build a ten-minute language habit",
+      "slug": "build-a-ten-minute-language-habit",
+      "type": "post",
+      "lexical": "{\"root\": {\"children\": [{\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"A small routine for fitting listening, recall, and speaking into your day.\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"paragraph\", \"version\": 1}, {\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"Choose one useful phrase\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"extended-heading\", \"version\": 1, \"tag\": \"h2\"}, {\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"Pick a phrase that fits a situation you might encounter this week. Read it, then listen to it if you have a recording.\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"paragraph\", \"version\": 1}, {\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"Recall it without looking\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"extended-heading\", \"version\": 1, \"tag\": \"h2\"}, {\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"Hide the phrase and say it aloud. Check it, then change one detail. For an introduction, try replacing the name or city.\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"paragraph\", \"version\": 1}, {\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"Make the next session easy\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"extended-heading\", \"version\": 1, \"tag\": \"h2\"}, {\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"Leave the phrase and its example where you will find them tomorrow. Begin the next session by recalling the same phrase before choosing another.\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"paragraph\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"root\", \"version\": 1}}",
+      "mobiledoc": null,
+      "html": "<p>A small routine for fitting listening, recall, and speaking into your day.</p><h2 id=\"choose-one-useful-phrase\">Choose one useful phrase</h2><p>Pick a phrase that fits a situation you might encounter this week. Read it, then listen to it if you have a recording.</p><h2 id=\"recall-it-without-looking\">Recall it without looking</h2><p>Hide the phrase and say it aloud. Check it, then change one detail. For an introduction, try replacing the name or city.</p><h2 id=\"make-the-next-session-easy\">Make the next session easy</h2><p>Leave the phrase and its example where you will find them tomorrow. Begin the next session by recalling the same phrase before choosing another.</p>",
+      "plaintext": "A small routine for fitting listening, recall, and speaking into your day.\n\nChoose one useful phrase\n\nPick a phrase that fits a situation you might encounter this week. Read it, then listen to it if you have a recording.\n\nRecall it without looking\n\nHide the phrase and say it aloud. Check it, then change one detail. For an introduction, try replacing the name or city.\n\nMake the next session easy\n\nLeave the phrase and its example where you will find them tomorrow. Begin the next session by recalling the same phrase before choosing another.",
+      "feature_image": null,
+      "featured": 0,
+      "status": "published",
+      "visibility": "public",
+      "custom_excerpt": "A small routine for fitting listening, recall, and speaking into your day.",
+      "locale": null,
+      "email_recipient_filter": "all",
+      "reading_time": 1,
+      "created_at": "2026-11-21T18:31:00.000Z",
+      "updated_at": "2026-11-21T18:31:00.000Z",
+      "published_at": "2026-11-21T18:31:00.000Z"
+     },
+     {
+      "id": "5f7fc07b4ae1048ce0753195",
+      "uuid": "0ba3755a-6656-4b0c-a845-a7760243c6de",
+      "title": "Start reading from the right",
+      "slug": "start-reading-from-the-right",
+      "type": "post",
+      "lexical": "{\"root\": {\"children\": [{\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"Use a short word to practice the direction and shape of Arabic script.\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"paragraph\", \"version\": 1}, {\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"Find the first letter\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"extended-heading\", \"version\": 1, \"tag\": \"h2\"}, {\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"In \\u0628\\u064e\\u0627\\u0628 (b\\u0101b, \\u201cdoor\\u201d), start on the right with \\u0628. The middle letter \\u0627 represents the long \\u0101 in this word.\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"paragraph\", \"version\": 1}, {\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"Notice the connection\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"extended-heading\", \"version\": 1, \"tag\": \"h2\"}, {\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"The initial \\u0628 joins to the following \\u0627. The \\u0627 does not join to the letter after it, so the final \\u0628 is separated.\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"paragraph\", \"version\": 1}, {\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"Say it and copy it\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"extended-heading\", \"version\": 1, \"tag\": \"h2\"}, {\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"Say b\\u0101b, then copy it twice from right to left. Look for the dot below each \\u0628 when you compare your version with the model.\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"paragraph\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"root\", \"version\": 1}}",
+      "mobiledoc": null,
+      "html": "<p>Use a short word to practice the direction and shape of Arabic script.</p><h2 id=\"find-the-first-letter\">Find the first letter</h2><p>In بَاب (bāb, “door”), start on the right with ب. The middle letter ا represents the long ā in this word.</p><h2 id=\"notice-the-connection\">Notice the connection</h2><p>The initial ب joins to the following ا. The ا does not join to the letter after it, so the final ب is separated.</p><h2 id=\"say-it-and-copy-it\">Say it and copy it</h2><p>Say bāb, then copy it twice from right to left. Look for the dot below each ب when you compare your version with the model.</p>",
+      "plaintext": "Use a short word to practice the direction and shape of Arabic script.\n\nFind the first letter\n\nIn بَاب (bāb, “door”), start on the right with ب. The middle letter ا represents the long ā in this word.\n\nNotice the connection\n\nThe initial ب joins to the following ا. The ا does not join to the letter after it, so the final ب is separated.\n\nSay it and copy it\n\nSay bāb, then copy it twice from right to left. Look for the dot below each ب when you compare your version with the model.",
+      "feature_image": null,
+      "featured": 0,
+      "status": "published",
+      "visibility": "public",
+      "custom_excerpt": "Use a short word to practice the direction and shape of Arabic script.",
+      "locale": null,
+      "email_recipient_filter": "all",
+      "reading_time": 1,
+      "created_at": "2026-11-20T17:24:00.000Z",
+      "updated_at": "2026-11-20T17:24:00.000Z",
+      "published_at": "2026-11-20T17:24:00.000Z"
+     },
+     {
+      "id": "59aeb774a1e178551e5a79b6",
+      "uuid": "6274d694-a92f-4121-a36e-77d7d8eb015f",
+      "title": "Ask where something is in French",
+      "slug": "ask-where-something-is-in-french",
+      "type": "post",
+      "lexical": "{\"root\": {\"children\": [{\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"Practice a question you can reuse while finding your way around.\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"paragraph\", \"version\": 1}, {\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"Learn one complete question\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"extended-heading\", \"version\": 1, \"tag\": \"h2\"}, {\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"\\u201cO\\u00f9 est la gare, s\\u2019il vous pla\\u00eet ?\\u201d means \\u201cWhere is the train station, please?\\u201d Say it aloud as a full phrase.\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"paragraph\", \"version\": 1}, {\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"Change the destination\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"extended-heading\", \"version\": 1, \"tag\": \"h2\"}, {\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"Try \\u201cO\\u00f9 est la pharmacie ?\\u201d for the pharmacy or \\u201cO\\u00f9 est le mus\\u00e9e ?\\u201d for the museum. Practice the article together with the place name.\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"paragraph\", \"version\": 1}, {\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"Listen for a direction\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"extended-heading\", \"version\": 1, \"tag\": \"h2\"}, {\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"Practice recognizing \\u201c\\u00e0 gauche\\u201d for left, \\u201c\\u00e0 droite\\u201d for right, and \\u201ctout droit\\u201d for straight ahead. Give a friend a destination and ask them to choose one of the three replies.\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"paragraph\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"root\", \"version\": 1}}",
+      "mobiledoc": null,
+      "html": "<p>Practice a question you can reuse while finding your way around.</p><h2 id=\"learn-one-complete-question\">Learn one complete question</h2><p>“Où est la gare, s’il vous plaît ?” means “Where is the train station, please?” Say it aloud as a full phrase.</p><h2 id=\"change-the-destination\">Change the destination</h2><p>Try “Où est la pharmacie ?” for the pharmacy or “Où est le musée ?” for the museum. Practice the article together with the place name.</p><h2 id=\"listen-for-a-direction\">Listen for a direction</h2><p>Practice recognizing “à gauche” for left, “à droite” for right, and “tout droit” for straight ahead. Give a friend a destination and ask them to choose one of the three replies.</p>",
+      "plaintext": "Practice a question you can reuse while finding your way around.\n\nLearn one complete question\n\n“Où est la gare, s’il vous plaît ?” means “Where is the train station, please?” Say it aloud as a full phrase.\n\nChange the destination\n\nTry “Où est la pharmacie ?” for the pharmacy or “Où est le musée ?” for the museum. Practice the article together with the place name.\n\nListen for a direction\n\nPractice recognizing “à gauche” for left, “à droite” for right, and “tout droit” for straight ahead. Give a friend a destination and ask them to choose one of the three replies.",
+      "feature_image": null,
+      "featured": 0,
+      "status": "published",
+      "visibility": "public",
+      "custom_excerpt": "Practice a question you can reuse while finding your way around.",
+      "locale": null,
+      "email_recipient_filter": "all",
+      "reading_time": 1,
+      "created_at": "2026-11-19T16:17:00.000Z",
+      "updated_at": "2026-11-19T16:17:00.000Z",
+      "published_at": "2026-11-19T16:17:00.000Z"
+     },
+     {
+      "id": "ab7737a29dc98d9579fe5348",
+      "uuid": "68a4cf31-4c31-4165-a78d-f2958f5f756a",
+      "title": "About Lingua Atlas",
+      "slug": "about-lingua-atlas",
+      "type": "page",
+      "lexical": "{\"root\": {\"children\": [{\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"Lingua Atlas is a sample language school for Arabic, English, and French. The catalogue pairs beginner courses with short practice sessions and intermediate courses.\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"paragraph\", \"version\": 1}, {\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"Start with a situation\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"extended-heading\", \"version\": 1, \"tag\": \"h2\"}, {\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"Choose something you would like to do, such as introduce yourself, ask for directions, or order in a caf\\u00e9. Pick a course that helps you practice that situation.\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"paragraph\", \"version\": 1}, {\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"Take a small lesson with you\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"extended-heading\", \"version\": 1, \"tag\": \"h2\"}, {\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"Use the journal for one phrase or exercise to try between lessons. Keep a note of what you can already say and what you want to practice next.\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"paragraph\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"root\", \"version\": 1}}",
+      "mobiledoc": null,
+      "html": "<p>Lingua Atlas is a sample language school for Arabic, English, and French. The catalogue pairs beginner courses with short practice sessions and intermediate courses.</p><h2 id=\"start-with-a-situation\">Start with a situation</h2><p>Choose something you would like to do, such as introduce yourself, ask for directions, or order in a café. Pick a course that helps you practice that situation.</p><h2 id=\"take-a-small-lesson-with-you\">Take a small lesson with you</h2><p>Use the journal for one phrase or exercise to try between lessons. Keep a note of what you can already say and what you want to practice next.</p>",
+      "plaintext": "Lingua Atlas is a sample language school for Arabic, English, and French. The catalogue pairs beginner courses with short practice sessions and intermediate courses.\n\nStart with a situation\n\nChoose something you would like to do, such as introduce yourself, ask for directions, or order in a café. Pick a course that helps you practice that situation.\n\nTake a small lesson with you\n\nUse the journal for one phrase or exercise to try between lessons. Keep a note of what you can already say and what you want to practice next.",
+      "feature_image": null,
+      "featured": 0,
+      "status": "published",
+      "visibility": "public",
+      "custom_excerpt": "How to use the sample Lingua Atlas school and journal.",
+      "locale": null,
+      "email_recipient_filter": "all",
+      "reading_time": 1,
+      "created_at": "2026-10-15T15:10:00.000Z",
+      "updated_at": "2026-10-15T15:10:00.000Z",
+      "published_at": "2026-10-15T15:10:00.000Z"
+     }
+    ],
+    "posts_tags": [
+     {
+      "id": "3f38355890d2dde6348b5ba7",
+      "post_id": "4cecf30609cb3cc038583df1",
+      "tag_id": "1e6b0e9ca6bdfe8bb637f32f",
+      "sort_order": 0
+     },
+     {
+      "id": "91435d156b2ebc9fc2b36ef8",
+      "post_id": "4cecf30609cb3cc038583df1",
+      "tag_id": "ae3da2dac439692a82713a35",
+      "sort_order": 1
+     },
+     {
+      "id": "61a08f8283d1997a281e9bdd",
+      "post_id": "b58b43040c6e0de08dfb0d8c",
+      "tag_id": "63e85431c5ee6fa63a44a8dc",
+      "sort_order": 0
+     },
+     {
+      "id": "581d775577c1c196d91a909a",
+      "post_id": "b58b43040c6e0de08dfb0d8c",
+      "tag_id": "ae3da2dac439692a82713a35",
+      "sort_order": 1
+     },
+     {
+      "id": "34c84f3f339a4994562ffef8",
+      "post_id": "32a82abeae3d3264e6d50775",
+      "tag_id": "387b9f4dedfdbcfd8c0bb3a5",
+      "sort_order": 0
+     },
+     {
+      "id": "d7177a4826f95a17ebd5725b",
+      "post_id": "32a82abeae3d3264e6d50775",
+      "tag_id": "ae3da2dac439692a82713a35",
+      "sort_order": 1
+     },
+     {
+      "id": "4d2dc2c3f37a7accf45f5b73",
+      "post_id": "c88be15f77d15c1102d7ba36",
+      "tag_id": "d081954ee2ac37cc03e283b9",
+      "sort_order": 0
+     },
+     {
+      "id": "8e2ed2a1801566c4a2b10e9e",
+      "post_id": "c88be15f77d15c1102d7ba36",
+      "tag_id": "ae3da2dac439692a82713a35",
+      "sort_order": 1
+     },
+     {
+      "id": "3d46c2be93e329d0402e62cf",
+      "post_id": "5f7fc07b4ae1048ce0753195",
+      "tag_id": "1e6b0e9ca6bdfe8bb637f32f",
+      "sort_order": 0
+     },
+     {
+      "id": "4f90b90ce2e41c5af7abd1bf",
+      "post_id": "5f7fc07b4ae1048ce0753195",
+      "tag_id": "ae3da2dac439692a82713a35",
+      "sort_order": 1
+     },
+     {
+      "id": "1b237f3d04093802fb5d7da4",
+      "post_id": "59aeb774a1e178551e5a79b6",
+      "tag_id": "387b9f4dedfdbcfd8c0bb3a5",
+      "sort_order": 0
+     },
+     {
+      "id": "c81683f1e11a1ab895d8f1ca",
+      "post_id": "59aeb774a1e178551e5a79b6",
+      "tag_id": "ae3da2dac439692a82713a35",
+      "sort_order": 1
+     }
+    ],
+    "posts_authors": [
+     {
+      "id": "4bac39e4287b0bfccdf1f408",
+      "post_id": "4cecf30609cb3cc038583df1",
+      "author_id": "9c0a88ead97425b02382d6e8",
+      "sort_order": 0
+     },
+     {
+      "id": "c6f20c961ed470bbcbedf0c1",
+      "post_id": "b58b43040c6e0de08dfb0d8c",
+      "author_id": "9c0a88ead97425b02382d6e8",
+      "sort_order": 0
+     },
+     {
+      "id": "60ec314bfc580c3ec60d536a",
+      "post_id": "32a82abeae3d3264e6d50775",
+      "author_id": "9c0a88ead97425b02382d6e8",
+      "sort_order": 0
+     },
+     {
+      "id": "953618ca4655335d5896eb0b",
+      "post_id": "c88be15f77d15c1102d7ba36",
+      "author_id": "9c0a88ead97425b02382d6e8",
+      "sort_order": 0
+     },
+     {
+      "id": "d28c67722777176ee031e41a",
+      "post_id": "5f7fc07b4ae1048ce0753195",
+      "author_id": "9c0a88ead97425b02382d6e8",
+      "sort_order": 0
+     },
+     {
+      "id": "46470962d3a3a26cbafaccea",
+      "post_id": "59aeb774a1e178551e5a79b6",
+      "author_id": "9c0a88ead97425b02382d6e8",
+      "sort_order": 0
+     },
+     {
+      "id": "f07fa929132d688281dab7a1",
+      "post_id": "ab7737a29dc98d9579fe5348",
+      "author_id": "9c0a88ead97425b02382d6e8",
+      "sort_order": 0
+     }
+    ],
+    "posts_meta": [],
+    "settings": [
+     {
+      "id": "500224154e1aedb86be61eeb",
+      "group": "site",
+      "key": "navigation",
+      "value": "[{\"label\": \"Journal\", \"url\": \"/tag/language-journal/\"}, {\"label\": \"About\", \"url\": \"/about-lingua-atlas/\"}]",
+      "type": "array",
+      "created_at": "2026-11-25T09:00:00.000Z",
+      "updated_at": "2026-11-25T09:00:00.000Z"
+     },
+     {
+      "id": "2b809d90d41f41b316cc963e",
+      "group": "site",
+      "key": "secondary_navigation",
+      "value": "[{\"label\": \"About Lingua Atlas\", \"url\": \"/about-lingua-atlas/\"}, {\"label\": \"Language Journal\", \"url\": \"/tag/language-journal/\"}]",
+      "type": "array",
+      "created_at": "2026-11-25T09:00:00.000Z",
+      "updated_at": "2026-11-25T09:00:00.000Z"
+     }
+    ],
+    "products": []
+   }
+  }
+ ]
+}

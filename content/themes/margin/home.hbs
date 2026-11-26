@@ -1,0 +1,14 @@
+{{!< default}}
+
+<main class="home" id="main">
+    {{#match @custom.homepage_entries "Full post"}}
+        {{> "home-feed" full=true}}
+    {{else}}
+        {{#if @custom.show_cover_story}}
+            {{#foreach posts limit="1"}}{{> "cover-story"}}{{/foreach}}
+            {{> "home-feed" after_cover=true}}
+        {{else}}
+            {{> "home-feed"}}
+        {{/if}}
+    {{/match}}
+</main>

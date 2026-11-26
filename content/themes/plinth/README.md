@@ -10,16 +10,16 @@ finished before its photography is done.
 
 | Block | Comes from |
 | --- | --- |
-| Category circles, **Shop by category**, the header's category menu and search | published collections, in their admin order |
-| Hero slides | the first three collections: title, description (the line above the title), image |
-| New arrivals | the ten newest active products |
+| **Shop by category** | published collections with products, in their admin order |
+| Cover | the first three collections with products, with manual slide controls and a bundled showroom photo when the first collection has no photograph |
+| New arrivals | the ten newest active products in one scrolling row |
 | Flash sale band | Design → `sale_ends` and `sale_text`; hidden when `sale_ends` is empty or past |
-| Four tall picks; Shop the look hotspots | products marked **Feature on the store's home** |
+| Shop the look hotspots | products marked **Feature on the store's home** |
 | Featured collection | the first collection that has products, with four of its pieces |
-| Get inspired by spaces | your newest posts |
+| Get inspired by spaces | your newest posts, with theme image settings for the first two cards |
 | Two banners | the fourth and fifth collections |
 | Shop our offers | products with a compare-at price above their price |
-| The studio | Design → `about_title`, `about_text`, the site cover image, and a link to the page with slug `about` |
+| The studio | Design → `about_title`, `about_text`, an optional studio image, and a link to the page with slug `about` |
 | Yellow quote band | Design → `quote`, `quote_name`; hidden when empty |
 | Deal block | the five lowest-priced products in stock, titled by `deal_title` |
 | Instagram band | Design → `gram_handle`; hidden when empty |

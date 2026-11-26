@@ -1,0 +1,11 @@
+{{!< default}}
+<main id="main" class="sl-main">
+<section class="sl-wrap sl-resume">
+<header class="sl-resume-head">
+<div>{{#portfolio}}<p class="sl-eyebrow">Résumé</p><h1 class="sl-h1">{{name}}</h1>{{#if headline}}<p class="sl-lede">{{headline}}</p>{{/if}}<p class="sl-resume-contact">{{#if location}}<span>{{location}}</span>{{/if}}{{#if email}}<a href="mailto:{{email}}">{{email}}</a>{{/if}}{{#if phone}}<span>{{phone}}</span>{{/if}}{{#foreach socials}}<a href="{{url}}" rel="me noopener">{{label}}</a>{{/foreach}}</p>{{/portfolio}}</div>
+<div class="sl-resume-actions"><button class="sl-btn" type="button" data-vf-print>{{> "icon" name="print"}} Print / PDF</button>{{#if portfolio.resume_url}}<a class="sl-link" href="{{portfolio.resume_url}}">Download CV</a>{{/if}}</div>
+</header>
+{{#if entries}}<div class="sl-entries sl-entries-cv">{{#foreach entries}}<div class="sl-entry"><span class="sl-entry-when">{{span}}</span><div><b>{{title}}</b>{{#if organisation}}<span> — {{organisation}}</span>{{/if}}{{#if location}}<small> · {{location}}</small>{{/if}}{{#if description}}<p>{{description}}</p>{{/if}}</div><span class="sl-entry-kind">{{kind_label}}</span></div>{{/foreach}}</div>{{else}}<p class="sl-lede">Nothing listed yet.</p>{{/if}}
+{{#if skills}}<div class="sl-block-head sl-cv-skills-head"><h2 class="sl-h2">Skills</h2></div><div class="sl-skills">{{#foreach skills}}<div class="sl-skill"><span>{{name}}{{#if group}} <small>{{group}}</small>{{/if}}</span>{{#if level}}<i style="--l:{{level}}%"></i>{{/if}}</div>{{/foreach}}</div>{{/if}}
+</section>
+</main>

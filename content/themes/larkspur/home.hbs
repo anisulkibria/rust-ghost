@@ -1,0 +1,86 @@
+{{!< default}}
+<main id="main">
+    <section class="wrap home-intro" aria-labelledby="home-title">
+        <div class="home-copy">
+            {{#if shop.url}}<a class="eyebrow hero-shop" href="{{shop.collections_url}}">The shop {{> "icon" name="arrow"}}</a>{{/if}}
+            <h1 id="home-title">{{#if @custom.hero_heading}}{{@custom.hero_heading}}{{else}}Objects for <em>everyday rituals.</em>{{/if}}</h1>
+            {{#if @custom.hero_text}}<p>{{@custom.hero_text}}</p>{{else}}<p>Considered pieces for the table, the home, and the moments in between.</p>{{/if}}
+            {{#if shop.url}}<a class="button" href="{{shop.url}}">Explore the shop {{> "icon" name="arrow"}}</a>{{/if}}
+        </div>
+        <div class="hero-art">
+            {{#if @custom.hero_image}}<img src="{{img_url @custom.hero_image size="l"}}" alt="" fetchpriority="high">
+            {{else}}<img src="{{asset "images/studio.webp"}}" alt="" width="1360" height="1020" fetchpriority="high">{{/if}}
+        </div>
+    </section>
+
+    {{#get "products" filter="featured:true" limit="3" as |picks|}}
+        {{#if picks}}{{> "home-products" items=picks curated=true catalog=../shop.url}}{{/if}}
+    {{/get}}
+
+    {{#if @custom.show_collections}}
+        {{#get "collections" filter="product_count:>0" limit="4" as |edits|}}
+            {{#if edits}}
+                <section class="home-collections" aria-labelledby="home-collections">
+                    <div class="wrap">
+                        <header class="section-head">
+                            <h2 id="home-collections">Explore the collections</h2>
+                            <a class="more" href="{{../shop.collections_url}}">All collections {{> "icon" name="arrow"}}</a>
+                        </header>
+                        {{#foreach edits limit="1"}}{{> "home-feature"}}{{/foreach}}
+                        {{#if edits.[1]}}<div class="collection-grid home-collection-grid">{{#foreach edits from="2"}}{{> "collection-card"}}{{/foreach}}</div>{{/if}}
+                    </div>
+                </section>
+            {{else}}
+                {{!-- The fifth eligible arrival is outside the four shown in the arrivals shelf. --}}
+                {{#get "products" filter="featured:false+on_sale:false" order="newest" limit="1" page=5 as |spotlights|}}
+                    {{#foreach spotlights}}
+                        <section class="home-collections" aria-labelledby="home-spotlight">
+                            <div class="wrap">
+                                <header class="section-head"><h2 id="home-spotlight">Product spotlight</h2></header>
+                                {{> "home-feature" spotlight=true}}
+                            </div>
+                        </section>
+                    {{/foreach}}
+                {{/get}}
+            {{/if}}
+        {{/get}}
+    {{/if}}
+
+    {{#get "products" filter="featured:false+on_sale:false" order="newest" limit="4" as |arrivals|}}
+        {{#if arrivals}}{{> "home-products" items=arrivals catalog=../shop.url}}{{/if}}
+    {{/get}}
+
+    {{#get "products" filter="on_sale:true+sold_out:false" limit="4" as |offers|}}
+        {{#if offers}}
+            <section class="home-offers" aria-labelledby="offers-title">
+                <div class="wrap offers-inner">
+                    <header>
+                        <h2 id="offers-title">Current offers</h2>
+                        <p>Explore pieces at their current sale prices.</p>
+                        <a class="more" href="{{../shop.url}}">Shop all {{> "icon" name="arrow"}}</a>
+                    </header>
+                    <div class="offer-list">
+                        {{#foreach offers}}
+                            <a class="offer-row" href="{{url}}">
+                                <span class="offer-art">{{#if feature_image}}<img src="{{feature_image}}" alt="" loading="lazy">{{else}}{{> "icon" name="mark"}}{{/if}}</span>
+                                <span class="offer-info"><strong>{{title}}</strong><span class="card-price">{{#if compare_at}}<s>{{compare_at}}</s>{{/if}} {{lookup this "price"}}</span></span>
+                                {{> "icon" name="arrow"}}
+                            </a>
+                        {{/foreach}}
+                    </div>
+                </div>
+            </section>
+        {{/if}}
+    {{/get}}
+
+    {{#if @custom.show_journal}}
+        {{#get "posts" limit="3" as |notes|}}
+            {{#if notes}}
+                <section class="wrap section" aria-labelledby="home-journal">
+                    <header class="section-head"><h2 id="home-journal">From the journal</h2></header>
+                    <div class="story-grid">{{#foreach notes}}{{> "story-card"}}{{/foreach}}</div>
+                </section>
+            {{/if}}
+        {{/get}}
+    {{/if}}
+</main>

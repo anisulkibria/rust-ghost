@@ -1,0 +1,10 @@
+{{#if feature_image}}
+    <a class="postcard" href="{{url}}">
+        <img src="{{feature_image}}" alt="" loading="lazy">
+        <span class="postcard-label">
+            <span class="postcard-title">{{title}}</span>
+            {{#if location}}<span class="postcard-where">{{location}}</span>
+            {{else}}{{#if category}}<span class="postcard-where">{{category.name}}</span>{{/if}}{{/if}}
+        </span>
+    </a>
+{{/if}}

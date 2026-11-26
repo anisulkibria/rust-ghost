@@ -21,6 +21,9 @@ pub enum Command {
     SeedDirectory,
     SeedLms,
     SeedBooking,
+    SeedPodcast,
+    /// `seed-portfolio [--studio]`: a personal (default) or studio portfolio.
+    SeedPortfolio(bool),
     /// `seed-theme-demo --demo academy|studio`: a theme demo from Tools → Dummy content.
     SeedThemeDemo(String),
     SeedLanguages,
@@ -84,6 +87,8 @@ pub fn parse() -> Command {
         "seed-directory" => Command::SeedDirectory,
         "seed-lms" => Command::SeedLms,
         "seed-booking" => Command::SeedBooking,
+        "seed-podcast" => Command::SeedPodcast,
+        "seed-portfolio" => Command::SeedPortfolio(args.get("studio").is_some()),
         "seed-theme-demo" => Command::SeedThemeDemo(args.get("demo").unwrap_or("studio").to_string()),
         "seed-languages" => Command::SeedLanguages,
         "import-content" => {
@@ -115,6 +120,8 @@ COMMANDS
     seed-directory   Add the directory demo (places, categories, photos), then exit
     seed-lms         Add the sample academy (courses, lessons, quizzes, students), then exit
     seed-booking     Add the sample business (services, staff, hours, bookings), then exit
+    seed-podcast     Add the sample show (hosts, guests, episodes, downloads), then exit
+    seed-portfolio   Add a sample portfolio (--studio for a design studio), then exit
     seed-theme-demo  --demo studio|academy: the Atrium or Lantern theme demo, removable from Tools → Dummy content
     seed-languages   Add the Arabic, English and French sample courses, then exit
     import-content FILE  Import a Ghost export (e.g. a theme's demo/*.json); --with-settings also loads its menus

@@ -1,0 +1,12 @@
+{{!< default}}
+{{#post}}
+<main id="main" class="ea-main">
+<article class="ea-article">
+{{#match @page.show_title_and_feature_image}}
+<header class="ea-narrow ea-article-head"><h1 class="ea-h1">{{title}}</h1>{{#if custom_excerpt}}<p class="ea-lede">{{custom_excerpt}}</p>{{/if}}</header>
+{{#if feature_image}}<figure class="ea-wrap ea-article-img"><img src="{{img_url feature_image size="l"}}" alt="{{title}}"></figure>{{/if}}
+{{/match}}
+<div class="ea-content gh-content">{{content}}</div>
+</article>
+</main>
+{{/post}}

@@ -36,7 +36,7 @@ async fn main() {
             }
             return;
         }
-        cli::Command::Doctor | cli::Command::SeedDemo | cli::Command::SeedDirectory | cli::Command::SeedLms | cli::Command::SeedLanguages | cli::Command::SeedBooking | cli::Command::SeedThemeDemo(_) | cli::Command::ImportContent(_) | cli::Command::Start => {}
+        cli::Command::Doctor | cli::Command::SeedDemo | cli::Command::SeedDirectory | cli::Command::SeedLms | cli::Command::SeedLanguages | cli::Command::SeedBooking | cli::Command::SeedPodcast | cli::Command::SeedPortfolio(_) | cli::Command::SeedThemeDemo(_) | cli::Command::ImportContent(_) | cli::Command::Start => {}
     }
 
     tracing_subscriber::fmt()
@@ -191,6 +191,32 @@ async fn main() {
             Ok(made) => tracing::info!("theme demo seeded: {}", vuuut_core::dummies::join_and(&made)),
             Err(e) => {
                 tracing::error!("theme demo failed: {}", e.message());
+                std::process::exit(1);
+            }
+        }
+        return;
+    }
+
+    // `vuuut seed-podcast`: the sample show for Tools → Podcast.
+    if matches!(command, cli::Command::SeedPodcast) {
+        let settings = vuuut_db::SettingsCache::load(&db).await.expect("settings");
+        match vuuut_admin_ui::podcast::seed_sample_podcast(&db, &settings).await {
+            Ok(n) => tracing::info!("sample podcast seeded: {n} episodes"),
+            Err(e) => {
+                tracing::error!("podcast seeding failed: {}", e.message());
+                std::process::exit(1);
+            }
+        }
+        return;
+    }
+
+    // `vuuut seed-portfolio [--studio]`: a sample for Tools → Portfolio.
+    if let cli::Command::SeedPortfolio(studio) = command {
+        let settings = vuuut_db::SettingsCache::load(&db).await.expect("settings");
+        match vuuut_admin_ui::portfolio::seed_sample_portfolio(&db, &settings, studio).await {
+            Ok(n) => tracing::info!("sample portfolio seeded: {n} projects"),
+            Err(e) => {
+                tracing::error!("portfolio seeding failed: {}", e.message());
                 std::process::exit(1);
             }
         }

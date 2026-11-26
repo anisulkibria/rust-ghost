@@ -1,0 +1,25 @@
+{
+    "name": "studiolo",
+    "description": "A portfolio theme for Tools → Portfolio, for one person or a whole studio: a statement homepage, case studies in each project's own colour, an index of all work, services, clients, a printable résumé and an enquiry form.",
+    "version": "1.0.0",
+    "engines": { "ghost": ">=5.0.0" },
+    "license": "MIT",
+    "author": { "name": "Vuuut", "email": "themes@vuuut.com", "url": "https://vuuut.com" },
+    "keywords": ["vuuut", "vuuut-theme", "ghost-theme", "portfolio", "agency", "studio", "personal"],
+    "config": {
+        "posts_per_page": 9,
+        "image_sizes": { "xs": { "width": 160 }, "s": { "width": 400 }, "m": { "width": 720 }, "l": { "width": 1200 }, "xl": { "width": 2000 } },
+        "card_assets": true,
+        "custom": {
+            "paper": { "type": "select", "options": ["Warm", "White", "Ink"], "default": "Warm", "description": "The page colour. Ink is a dark version." },
+            "work_label": { "type": "text", "default": "Selected work", "group": "homepage" },
+            "index_label": { "type": "text", "default": "Index", "group": "homepage", "description": "The list of every project under the selected work." },
+            "show_index": { "type": "boolean", "default": true, "group": "homepage" },
+            "show_services": { "type": "boolean", "default": true, "group": "homepage" },
+            "show_clients": { "type": "boolean", "default": true, "group": "homepage" },
+            "show_posts": { "type": "boolean", "default": true, "group": "homepage", "description": "Journal posts near the bottom of the homepage." },
+            "journal_label": { "type": "text", "default": "Journal", "group": "homepage" },
+            "cta_title": { "type": "text", "default": "Have a project in mind?", "description": "The big line above the footer." }
+        }
+    }
+}

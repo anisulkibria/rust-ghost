@@ -1,0 +1,414 @@
+{
+ "db": [
+  {
+   "meta": {
+    "exported_on": 1795000000000,
+    "version": "6.0.0"
+   },
+   "data": {
+    "users": [
+     {
+      "id": "8e9a655b422e36d33f76187c",
+      "name": "Nora Vale",
+      "slug": "nora-vale",
+      "email": "nora.vale@example.com",
+      "profile_image": null,
+      "cover_image": null,
+      "bio": "Writes essays, reading notes, and observations from everyday places.",
+      "website": null,
+      "location": null,
+      "status": "active",
+      "visibility": "public",
+      "created_at": "2026-11-25T09:00:00.000Z",
+      "updated_at": "2026-11-25T09:00:00.000Z"
+     }
+    ],
+    "tags": [
+     {
+      "id": "0009cea30e8649b9bb7b15de",
+      "name": "Essays",
+      "slug": "essays",
+      "description": null,
+      "feature_image": null,
+      "visibility": "public",
+      "created_at": "2026-11-25T09:00:00.000Z",
+      "updated_at": "2026-11-25T09:00:00.000Z"
+     },
+     {
+      "id": "c6b3992ad40192fe9cf7a3f8",
+      "name": "Field notes",
+      "slug": "field-notes",
+      "description": null,
+      "feature_image": null,
+      "visibility": "public",
+      "created_at": "2026-11-25T09:00:00.000Z",
+      "updated_at": "2026-11-25T09:00:00.000Z"
+     },
+     {
+      "id": "8d416f35cd8987b4075d8325",
+      "name": "Books",
+      "slug": "books",
+      "description": null,
+      "feature_image": null,
+      "visibility": "public",
+      "created_at": "2026-11-25T09:00:00.000Z",
+      "updated_at": "2026-11-25T09:00:00.000Z"
+     }
+    ],
+    "posts": [
+     {
+      "id": "8dbd57d79d927fc24775d364",
+      "uuid": "d953e742-a94d-46a8-aa3e-6a2e44dfcd65",
+      "title": "A room to read in",
+      "slug": "a-room-to-read-in",
+      "type": "post",
+      "lexical": "{\"root\": {\"children\": [{\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"Begin with the window\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"extended-heading\", \"version\": 1, \"tag\": \"h2\"}, {\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"The rain made the garden look loosely drawn. At the window the branches shook, and the book on the table stayed open where I had left it. I read the same page twice because I liked where the sentence put me.\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"paragraph\", \"version\": 1}, {\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"Make room for a return\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"extended-heading\", \"version\": 1, \"tag\": \"h2\"}, {\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"The best place to read may be somewhere you can leave a book open and return to it. I keep a pencil nearby. A line in the margin tells me what I noticed last time.\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"paragraph\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"root\", \"version\": 1}}",
+      "mobiledoc": null,
+      "html": "<h2 id=\"begin-with-the-window\">Begin with the window</h2><p>The rain made the garden look loosely drawn. At the window the branches shook, and the book on the table stayed open where I had left it. I read the same page twice because I liked where the sentence put me.</p><h2 id=\"make-room-for-a-return\">Make room for a return</h2><p>The best place to read may be somewhere you can leave a book open and return to it. I keep a pencil nearby. A line in the margin tells me what I noticed last time.</p>",
+      "plaintext": "Begin with the window\n\nThe rain made the garden look loosely drawn. At the window the branches shook, and the book on the table stayed open where I had left it. I read the same page twice because I liked where the sentence put me.\n\nMake room for a return\n\nThe best place to read may be somewhere you can leave a book open and return to it. I keep a pencil nearby. A line in the margin tells me what I noticed last time.",
+      "feature_image": null,
+      "featured": 0,
+      "status": "published",
+      "visibility": "public",
+      "custom_excerpt": "On returning to a book, a room, and the pleasure of an unhurried afternoon.",
+      "locale": null,
+      "email_recipient_filter": "all",
+      "reading_time": 1,
+      "created_at": "2026-11-24T21:52:00.000Z",
+      "updated_at": "2026-11-24T21:52:00.000Z",
+      "published_at": "2026-11-24T21:52:00.000Z"
+     },
+     {
+      "id": "c24a388339b29ada97ff3435",
+      "uuid": "cff4cc03-782f-44a4-a367-5af11c81df21",
+      "title": "The long way home",
+      "slug": "the-long-way-home",
+      "type": "post",
+      "lexical": "{\"root\": {\"children\": [{\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"A small diversion\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"extended-heading\", \"version\": 1, \"tag\": \"h2\"}, {\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"I went past the station and took the lane behind the houses. Someone had painted their gate the blue of an old enamel pot. I had never looked down that lane from the pavement.\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"paragraph\", \"version\": 1}, {\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"Build a collection of routes\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"extended-heading\", \"version\": 1, \"tag\": \"h2\"}, {\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"Choose a corner where you always turn and go straight once. Write down one detail you would have missed on your usual route.\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"paragraph\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"root\", \"version\": 1}}",
+      "mobiledoc": null,
+      "html": "<h2 id=\"a-small-diversion\">A small diversion</h2><p>I went past the station and took the lane behind the houses. Someone had painted their gate the blue of an old enamel pot. I had never looked down that lane from the pavement.</p><h2 id=\"build-a-collection-of-routes\">Build a collection of routes</h2><p>Choose a corner where you always turn and go straight once. Write down one detail you would have missed on your usual route.</p>",
+      "plaintext": "A small diversion\n\nI went past the station and took the lane behind the houses. Someone had painted their gate the blue of an old enamel pot. I had never looked down that lane from the pavement.\n\nBuild a collection of routes\n\nChoose a corner where you always turn and go straight once. Write down one detail you would have missed on your usual route.",
+      "feature_image": null,
+      "featured": 0,
+      "status": "published",
+      "visibility": "public",
+      "custom_excerpt": "What changes when the familiar walk takes ten minutes longer.",
+      "locale": null,
+      "email_recipient_filter": "all",
+      "reading_time": 1,
+      "created_at": "2026-11-23T20:45:00.000Z",
+      "updated_at": "2026-11-23T20:45:00.000Z",
+      "published_at": "2026-11-23T20:45:00.000Z"
+     },
+     {
+      "id": "6ad26bc3a0ba92951db49d04",
+      "uuid": "a8aadbcd-0e74-418e-a93a-a132f23a708e",
+      "title": "What we leave in the margins",
+      "slug": "what-we-leave-in-the-margins",
+      "type": "post",
+      "lexical": "{\"root\": {\"children\": [{\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"The pencilled line\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"extended-heading\", \"version\": 1, \"tag\": \"h2\"}, {\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"In a borrowed book I found a sentence underlined in two colours. The second reader had stopped halfway through. I wanted to know what they had decided about the rest.\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"paragraph\", \"version\": 1}, {\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"Write a note to your future self\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"extended-heading\", \"version\": 1, \"tag\": \"h2\"}, {\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"Record the question a passage raises for you. When you read it again, your old question can become a second voice in the room.\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"paragraph\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"root\", \"version\": 1}}",
+      "mobiledoc": null,
+      "html": "<h2 id=\"the-pencilled-line\">The pencilled line</h2><p>In a borrowed book I found a sentence underlined in two colours. The second reader had stopped halfway through. I wanted to know what they had decided about the rest.</p><h2 id=\"write-a-note-to-your-future-self\">Write a note to your future self</h2><p>Record the question a passage raises for you. When you read it again, your old question can become a second voice in the room.</p>",
+      "plaintext": "The pencilled line\n\nIn a borrowed book I found a sentence underlined in two colours. The second reader had stopped halfway through. I wanted to know what they had decided about the rest.\n\nWrite a note to your future self\n\nRecord the question a passage raises for you. When you read it again, your old question can become a second voice in the room.",
+      "feature_image": null,
+      "featured": 0,
+      "status": "published",
+      "visibility": "public",
+      "custom_excerpt": "Old underlines and the company they offer on a second reading.",
+      "locale": null,
+      "email_recipient_filter": "all",
+      "reading_time": 1,
+      "created_at": "2026-11-22T19:38:00.000Z",
+      "updated_at": "2026-11-22T19:38:00.000Z",
+      "published_at": "2026-11-22T19:38:00.000Z"
+     },
+     {
+      "id": "7089fc528722d5d9f60bedf4",
+      "uuid": "b09c9f0a-434c-4a61-a245-c06ffa0a845a",
+      "title": "Somewhere between useful and beautiful",
+      "slug": "somewhere-between-useful-and-beautiful",
+      "type": "post",
+      "lexical": "{\"root\": {\"children\": [{\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"A cup from the back of the shelf\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"extended-heading\", \"version\": 1, \"tag\": \"h2\"}, {\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"The handle of my favourite cup is too small for two fingers. I pick it up with my whole hand and wait a moment before the first sip.\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"paragraph\", \"version\": 1}, {\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"A better measure\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"extended-heading\", \"version\": 1, \"tag\": \"h2\"}, {\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"I used to sort objects by how often I used them. Some earn their place slowly. They make one ordinary action feel like a choice.\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"paragraph\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"root\", \"version\": 1}}",
+      "mobiledoc": null,
+      "html": "<h2 id=\"a-cup-from-the-back-of-the-shelf\">A cup from the back of the shelf</h2><p>The handle of my favourite cup is too small for two fingers. I pick it up with my whole hand and wait a moment before the first sip.</p><h2 id=\"a-better-measure\">A better measure</h2><p>I used to sort objects by how often I used them. Some earn their place slowly. They make one ordinary action feel like a choice.</p>",
+      "plaintext": "A cup from the back of the shelf\n\nThe handle of my favourite cup is too small for two fingers. I pick it up with my whole hand and wait a moment before the first sip.\n\nA better measure\n\nI used to sort objects by how often I used them. Some earn their place slowly. They make one ordinary action feel like a choice.",
+      "feature_image": null,
+      "featured": 0,
+      "status": "published",
+      "visibility": "public",
+      "custom_excerpt": "A few things we keep because our hands remember them.",
+      "locale": null,
+      "email_recipient_filter": "all",
+      "reading_time": 1,
+      "created_at": "2026-11-21T18:31:00.000Z",
+      "updated_at": "2026-11-21T18:31:00.000Z",
+      "published_at": "2026-11-21T18:31:00.000Z"
+     },
+     {
+      "id": "eeb582813fe6b1b5b537eb8b",
+      "uuid": "761d092d-7d42-4622-a639-4ecd76205894",
+      "title": "A morning at the market",
+      "slug": "a-morning-at-the-market",
+      "type": "post",
+      "lexical": "{\"root\": {\"children\": [{\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"At the first stall\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"extended-heading\", \"version\": 1, \"tag\": \"h2\"}, {\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"There were pears in shallow wooden trays and green tomatoes wrapped in old newspaper. The seller could tell which pears I meant by the way I reached.\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"paragraph\", \"version\": 1}, {\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"Bring the season home\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"extended-heading\", \"version\": 1, \"tag\": \"h2\"}, {\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"I bought what smelled good and asked when it would be ripe. Back home, I wrote both answers down.\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"paragraph\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"root\", \"version\": 1}}",
+      "mobiledoc": null,
+      "html": "<h2 id=\"at-the-first-stall\">At the first stall</h2><p>There were pears in shallow wooden trays and green tomatoes wrapped in old newspaper. The seller could tell which pears I meant by the way I reached.</p><h2 id=\"bring-the-season-home\">Bring the season home</h2><p>I bought what smelled good and asked when it would be ripe. Back home, I wrote both answers down.</p>",
+      "plaintext": "At the first stall\n\nThere were pears in shallow wooden trays and green tomatoes wrapped in old newspaper. The seller could tell which pears I meant by the way I reached.\n\nBring the season home\n\nI bought what smelled good and asked when it would be ripe. Back home, I wrote both answers down.",
+      "feature_image": null,
+      "featured": 0,
+      "status": "published",
+      "visibility": "public",
+      "custom_excerpt": "A notebook entry on the things that come into season all at once.",
+      "locale": null,
+      "email_recipient_filter": "all",
+      "reading_time": 1,
+      "created_at": "2026-11-20T17:24:00.000Z",
+      "updated_at": "2026-11-20T17:24:00.000Z",
+      "published_at": "2026-11-20T17:24:00.000Z"
+     },
+     {
+      "id": "34038122ba55002f552827c9",
+      "uuid": "d97239c6-0ac6-4b99-ae83-9ddf0916f802",
+      "title": "Reading the same page twice",
+      "slug": "reading-the-same-page-twice",
+      "type": "post",
+      "lexical": "{\"root\": {\"children\": [{\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"A slower pass\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"extended-heading\", \"version\": 1, \"tag\": \"h2\"}, {\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"On the first reading I wanted to know what happened. On the second I heard how the middle sentence changed the pace.\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"paragraph\", \"version\": 1}, {\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"Try it with a paragraph\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"extended-heading\", \"version\": 1, \"tag\": \"h2\"}, {\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"Go back to a page you remember liking. Read it aloud and notice where you take a breath. A clause you hurried past may have been holding the paragraph together.\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"paragraph\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"root\", \"version\": 1}}",
+      "mobiledoc": null,
+      "html": "<h2 id=\"a-slower-pass\">A slower pass</h2><p>On the first reading I wanted to know what happened. On the second I heard how the middle sentence changed the pace.</p><h2 id=\"try-it-with-a-paragraph\">Try it with a paragraph</h2><p>Go back to a page you remember liking. Read it aloud and notice where you take a breath. A clause you hurried past may have been holding the paragraph together.</p>",
+      "plaintext": "A slower pass\n\nOn the first reading I wanted to know what happened. On the second I heard how the middle sentence changed the pace.\n\nTry it with a paragraph\n\nGo back to a page you remember liking. Read it aloud and notice where you take a breath. A clause you hurried past may have been holding the paragraph together.",
+      "feature_image": null,
+      "featured": 0,
+      "status": "published",
+      "visibility": "public",
+      "custom_excerpt": "The details a good paragraph keeps for a second visit.",
+      "locale": null,
+      "email_recipient_filter": "all",
+      "reading_time": 1,
+      "created_at": "2026-11-19T16:17:00.000Z",
+      "updated_at": "2026-11-19T16:17:00.000Z",
+      "published_at": "2026-11-19T16:17:00.000Z"
+     },
+     {
+      "id": "1093b4ea3ad745b90908a86a",
+      "uuid": "1bff3719-ac7a-454e-a90c-fb8fa28e72f3",
+      "title": "An ordinary kind of attention",
+      "slug": "an-ordinary-kind-of-attention",
+      "type": "post",
+      "lexical": "{\"root\": {\"children\": [{\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"One detail at breakfast\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"extended-heading\", \"version\": 1, \"tag\": \"h2\"}, {\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"The light crossed the table as slowly as the butter softened. I wrote that down while I could still see both changes happening together.\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"paragraph\", \"version\": 1}, {\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"Keep notes close to the thing\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"extended-heading\", \"version\": 1, \"tag\": \"h2\"}, {\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"A line about a morning can start with the glass, the floor, or the sound from the street. Concrete details give you somewhere to begin.\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"paragraph\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"root\", \"version\": 1}}",
+      "mobiledoc": null,
+      "html": "<h2 id=\"one-detail-at-breakfast\">One detail at breakfast</h2><p>The light crossed the table as slowly as the butter softened. I wrote that down while I could still see both changes happening together.</p><h2 id=\"keep-notes-close-to-the-thing\">Keep notes close to the thing</h2><p>A line about a morning can start with the glass, the floor, or the sound from the street. Concrete details give you somewhere to begin.</p>",
+      "plaintext": "One detail at breakfast\n\nThe light crossed the table as slowly as the butter softened. I wrote that down while I could still see both changes happening together.\n\nKeep notes close to the thing\n\nA line about a morning can start with the glass, the floor, or the sound from the street. Concrete details give you somewhere to begin.",
+      "feature_image": null,
+      "featured": 0,
+      "status": "published",
+      "visibility": "public",
+      "custom_excerpt": "Watching the day take shape around the small things we notice.",
+      "locale": null,
+      "email_recipient_filter": "all",
+      "reading_time": 1,
+      "created_at": "2026-11-18T15:10:00.000Z",
+      "updated_at": "2026-11-18T15:10:00.000Z",
+      "published_at": "2026-11-18T15:10:00.000Z"
+     },
+     {
+      "id": "292c70016bf2498cbcd6c11a",
+      "uuid": "d4351780-19ac-4c21-a21d-28e8c44d5788",
+      "title": "Letters from the edge of town",
+      "slug": "letters-from-the-edge-of-town",
+      "type": "post",
+      "lexical": "{\"root\": {\"children\": [{\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"Past the last house\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"extended-heading\", \"version\": 1, \"tag\": \"h2\"}, {\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"The pavement ended beside a linden tree. For a few steps the path was narrow enough that the long grass touched both ankles.\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"paragraph\", \"version\": 1}, {\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"Return in another season\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"extended-heading\", \"version\": 1, \"tag\": \"h2\"}, {\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"I plan to walk the same path when the branches are bare. A place I know in summer can still surprise me in winter.\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"paragraph\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"root\", \"version\": 1}}",
+      "mobiledoc": null,
+      "html": "<h2 id=\"past-the-last-house\">Past the last house</h2><p>The pavement ended beside a linden tree. For a few steps the path was narrow enough that the long grass touched both ankles.</p><h2 id=\"return-in-another-season\">Return in another season</h2><p>I plan to walk the same path when the branches are bare. A place I know in summer can still surprise me in winter.</p>",
+      "plaintext": "Past the last house\n\nThe pavement ended beside a linden tree. For a few steps the path was narrow enough that the long grass touched both ankles.\n\nReturn in another season\n\nI plan to walk the same path when the branches are bare. A place I know in summer can still surprise me in winter.",
+      "feature_image": null,
+      "featured": 0,
+      "status": "published",
+      "visibility": "public",
+      "custom_excerpt": "A short walk at the point where the street gives way to the field.",
+      "locale": null,
+      "email_recipient_filter": "all",
+      "reading_time": 1,
+      "created_at": "2026-11-17T14:03:00.000Z",
+      "updated_at": "2026-11-17T14:03:00.000Z",
+      "published_at": "2026-11-17T14:03:00.000Z"
+     },
+     {
+      "id": "38a713243e4657ff8db544ed",
+      "uuid": "d9d7bcd3-5802-48d4-aac3-072b75978c60",
+      "title": "A shelf of beginnings",
+      "slug": "a-shelf-of-beginnings",
+      "type": "post",
+      "lexical": "{\"root\": {\"children\": [{\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"Leave a little space\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"extended-heading\", \"version\": 1, \"tag\": \"h2\"}, {\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"I cleared one shelf for books I have been meaning to start. I put the shortest one at eye level and opened it while the kettle boiled.\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"paragraph\", \"version\": 1}, {\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"Let a first page be enough\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"extended-heading\", \"version\": 1, \"tag\": \"h2\"}, {\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"Some evenings I only read the opening page. That is still a way of finding the book I want to spend time with next.\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"paragraph\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"root\", \"version\": 1}}",
+      "mobiledoc": null,
+      "html": "<h2 id=\"leave-a-little-space\">Leave a little space</h2><p>I cleared one shelf for books I have been meaning to start. I put the shortest one at eye level and opened it while the kettle boiled.</p><h2 id=\"let-a-first-page-be-enough\">Let a first page be enough</h2><p>Some evenings I only read the opening page. That is still a way of finding the book I want to spend time with next.</p>",
+      "plaintext": "Leave a little space\n\nI cleared one shelf for books I have been meaning to start. I put the shortest one at eye level and opened it while the kettle boiled.\n\nLet a first page be enough\n\nSome evenings I only read the opening page. That is still a way of finding the book I want to spend time with next.",
+      "feature_image": null,
+      "featured": 0,
+      "status": "published",
+      "visibility": "public",
+      "custom_excerpt": "On keeping one shelf for books you have yet to open.",
+      "locale": null,
+      "email_recipient_filter": "all",
+      "reading_time": 1,
+      "created_at": "2026-11-16T13:56:00.000Z",
+      "updated_at": "2026-11-16T13:56:00.000Z",
+      "published_at": "2026-11-16T13:56:00.000Z"
+     },
+     {
+      "id": "94edfdef0b62077b11936274",
+      "uuid": "5cea0de7-ca4e-4bc4-ae62-53d7933b458d",
+      "title": "About Margin",
+      "slug": "about-margin",
+      "type": "page",
+      "lexical": "{\"root\": {\"children\": [{\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"Margin is a sample journal about reading, daily habits, and the places we return to.\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"paragraph\", \"version\": 1}, {\"children\": [{\"detail\": 0, \"format\": 0, \"mode\": \"normal\", \"style\": \"\", \"text\": \"Browse the essays, field notes, and book entries from the homepage, or follow the journal by email or RSS.\", \"type\": \"extended-text\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"paragraph\", \"version\": 1}], \"direction\": \"ltr\", \"format\": \"\", \"indent\": 0, \"type\": \"root\", \"version\": 1}}",
+      "mobiledoc": null,
+      "html": "<p>Margin is a sample journal about reading, daily habits, and the places we return to.</p><p>Browse the essays, field notes, and book entries from the homepage, or follow the journal by email or RSS.</p>",
+      "plaintext": "Margin is a sample journal about reading, daily habits, and the places we return to.\n\nBrowse the essays, field notes, and book entries from the homepage, or follow the journal by email or RSS.",
+      "feature_image": null,
+      "featured": 0,
+      "status": "published",
+      "visibility": "public",
+      "custom_excerpt": "About the sample publication.",
+      "locale": null,
+      "email_recipient_filter": "all",
+      "reading_time": 1,
+      "created_at": "2026-10-15T12:49:00.000Z",
+      "updated_at": "2026-10-15T12:49:00.000Z",
+      "published_at": "2026-10-15T12:49:00.000Z"
+     }
+    ],
+    "posts_tags": [
+     {
+      "id": "128fb24addbdcdfdc19d5979",
+      "post_id": "8dbd57d79d927fc24775d364",
+      "tag_id": "0009cea30e8649b9bb7b15de",
+      "sort_order": 0
+     },
+     {
+      "id": "1f007d95b28ffe8a4725852d",
+      "post_id": "c24a388339b29ada97ff3435",
+      "tag_id": "c6b3992ad40192fe9cf7a3f8",
+      "sort_order": 0
+     },
+     {
+      "id": "e9ae5c1f0ab0563228674e86",
+      "post_id": "6ad26bc3a0ba92951db49d04",
+      "tag_id": "8d416f35cd8987b4075d8325",
+      "sort_order": 0
+     },
+     {
+      "id": "1a380100a1f0527fc8563645",
+      "post_id": "7089fc528722d5d9f60bedf4",
+      "tag_id": "0009cea30e8649b9bb7b15de",
+      "sort_order": 0
+     },
+     {
+      "id": "12189095852c830795730c11",
+      "post_id": "eeb582813fe6b1b5b537eb8b",
+      "tag_id": "c6b3992ad40192fe9cf7a3f8",
+      "sort_order": 0
+     },
+     {
+      "id": "43eeaa1912b04c21c9dc0bcf",
+      "post_id": "34038122ba55002f552827c9",
+      "tag_id": "8d416f35cd8987b4075d8325",
+      "sort_order": 0
+     },
+     {
+      "id": "08c43c06a8d06c7d1a97aa01",
+      "post_id": "1093b4ea3ad745b90908a86a",
+      "tag_id": "0009cea30e8649b9bb7b15de",
+      "sort_order": 0
+     },
+     {
+      "id": "00d6d67f484d8e056e132d60",
+      "post_id": "292c70016bf2498cbcd6c11a",
+      "tag_id": "c6b3992ad40192fe9cf7a3f8",
+      "sort_order": 0
+     },
+     {
+      "id": "9147e10572a4122f86a2a14c",
+      "post_id": "38a713243e4657ff8db544ed",
+      "tag_id": "8d416f35cd8987b4075d8325",
+      "sort_order": 0
+     }
+    ],
+    "posts_authors": [
+     {
+      "id": "cec6e5d214de7db8813c0a53",
+      "post_id": "8dbd57d79d927fc24775d364",
+      "author_id": "8e9a655b422e36d33f76187c",
+      "sort_order": 0
+     },
+     {
+      "id": "44a9af2e5246cf51150e0288",
+      "post_id": "c24a388339b29ada97ff3435",
+      "author_id": "8e9a655b422e36d33f76187c",
+      "sort_order": 0
+     },
+     {
+      "id": "f1670551f5ad76b6aea12dfb",
+      "post_id": "6ad26bc3a0ba92951db49d04",
+      "author_id": "8e9a655b422e36d33f76187c",
+      "sort_order": 0
+     },
+     {
+      "id": "3adc7f1a49c5f0080e10095f",
+      "post_id": "7089fc528722d5d9f60bedf4",
+      "author_id": "8e9a655b422e36d33f76187c",
+      "sort_order": 0
+     },
+     {
+      "id": "ca1878720f4dc1b3e120721e",
+      "post_id": "eeb582813fe6b1b5b537eb8b",
+      "author_id": "8e9a655b422e36d33f76187c",
+      "sort_order": 0
+     },
+     {
+      "id": "582ab9d82d75d6ce1a932422",
+      "post_id": "34038122ba55002f552827c9",
+      "author_id": "8e9a655b422e36d33f76187c",
+      "sort_order": 0
+     },
+     {
+      "id": "41269f26a81eb3c32d1ea843",
+      "post_id": "1093b4ea3ad745b90908a86a",
+      "author_id": "8e9a655b422e36d33f76187c",
+      "sort_order": 0
+     },
+     {
+      "id": "b932dc22da427a21d8a50bb6",
+      "post_id": "292c70016bf2498cbcd6c11a",
+      "author_id": "8e9a655b422e36d33f76187c",
+      "sort_order": 0
+     },
+     {
+      "id": "009ed581a6e2755521789c98",
+      "post_id": "38a713243e4657ff8db544ed",
+      "author_id": "8e9a655b422e36d33f76187c",
+      "sort_order": 0
+     },
+     {
+      "id": "c0e14ab3e641d851a88a2b40",
+      "post_id": "94edfdef0b62077b11936274",
+      "author_id": "8e9a655b422e36d33f76187c",
+      "sort_order": 0
+     }
+    ],
+    "posts_meta": [],
+    "settings": [
+     {
+      "id": "8c2037fba3108fa80eca61f2",
+      "group": "site",
+      "key": "navigation",
+      "value": "[{\"label\": \"Home\", \"url\": \"/\"}, {\"label\": \"Essays\", \"url\": \"/tag/essays/\"}, {\"label\": \"Field notes\", \"url\": \"/tag/field-notes/\"}, {\"label\": \"Books\", \"url\": \"/tag/books/\"}, {\"label\": \"About\", \"url\": \"/about-margin/\"}]",
+      "type": "array",
+      "created_at": "2026-11-25T09:00:00.000Z",
+      "updated_at": "2026-11-25T09:00:00.000Z"
+     }
+    ],
+    "products": []
+   }
+  }
+ ]
+}

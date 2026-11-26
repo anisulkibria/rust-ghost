@@ -1,0 +1,9 @@
+{{#if feature_image}}
+    <a class="postcard" href="{{url}}">
+        <img src="{{img_url feature_image size="l"}}" alt="" loading="lazy">
+        <span class="postcard-label">
+            <span class="postcard-title">{{title}}</span>
+            {{#if primary_tag}}<span class="postcard-where">{{primary_tag.name}}{{#has tag="#listing"}}{{#foreach tags from="2" to="2"}} {{t "in"}} {{name}}{{/foreach}}{{/has}}</span>{{/if}}
+        </span>
+    </a>
+{{/if}}

@@ -7,13 +7,14 @@ people write about many things.
 The homepage opens with your topics, biggest first, set as one sentence:
 *Stories on Design⁴, Engineering⁴, Culture³ and News¹.* Pointing at a topic,
 or tabbing to it, sweeps a highlighter across it and shows its newest story
-beside the sentence.
+beside the sentence. The navy opener keeps the active topic marked in gold,
+and the preview is available on phones and through the keyboard.
 
 ## Templates
 
 | Template | Used for |
 |---|---|
-| `index.hbs` | Homepage: topic sentence, lead story with three more, recent stories, editors' picks, writers |
+| `index.hbs` | Homepage with the topic sentence, a lead story and up to four companions, recent stories, editors' picks, and writer cards |
 | `post.hbs` | Posts: topic, title, standfirst, byline with every author, wide feature image |
 | `page.hbs` | Pages, honouring the "show title and feature image" toggle |
 | `custom-all-topics.hbs` | Page template **All topics**: every topic with its newest three stories |

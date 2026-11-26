@@ -1,0 +1,27 @@
+{{!< default}}
+<main id="main" class="sl-main">
+{{#portfolio}}
+<section class="sl-wrap sl-about">
+<div class="sl-about-copy">
+<p class="sl-eyebrow">{{#if studio}}The studio{{else}}About{{/if}}</p>
+<h1 class="sl-h1">{{#if headline}}{{headline}}{{else}}{{name}}{{/if}}</h1>
+<div class="sl-prose sl-about-text">{{#if about_html}}{{{about_html}}}{{else}}<p>{{intro}}</p>{{/if}}</div>
+<div class="sl-hero-actions">{{#if resume_url}}<a class="sl-btn" href="{{resume_url}}" target="_blank" rel="noopener">Download CV {{> "icon" name="arrow"}}</a>{{/if}}{{#if personal}}<a class="sl-link" href="{{resume_page_url}}">Résumé</a>{{/if}}{{#foreach socials}}<a class="sl-link" href="{{url}}" target="_blank" rel="me noopener">{{label}}</a>{{/foreach}}</div>
+</div>
+{{#if portrait}}<figure class="sl-about-pic"><img src="{{portrait}}" alt="{{name}}"></figure>{{/if}}
+</section>
+{{/portfolio}}
+<section class="sl-wrap sl-stats">
+{{#if stats.years}}<div><b>{{stats.years}}</b><span>years</span></div>{{/if}}
+<div><b>{{stats.projects}}</b><span>projects</span></div>
+<div><b>{{stats.clients}}</b><span>clients</span></div>
+{{#if portfolio.location}}<div><b class="sl-stat-text">{{portfolio.location}}</b><span>based in</span></div>{{/if}}
+</section>
+{{#if team}}<section class="sl-wrap sl-block"><div class="sl-block-head"><h2 class="sl-h2">The people</h2><span class="sl-count">({{length team}})</span></div>
+<div class="sl-team">{{#foreach team}}<a class="sl-member" href="{{url}}">{{#if photo}}<img src="{{photo}}" alt="" loading="lazy">{{else}}<span class="sl-initials">{{initials}}</span>{{/if}}<b>{{name}}</b><small>{{role}}</small></a>{{/foreach}}</div></section>{{/if}}
+{{#if entries}}<section class="sl-wrap sl-block"><div class="sl-block-head"><h2 class="sl-h2">{{#if portfolio.studio}}Recognition{{else}}Experience{{/if}}</h2></div>
+<div class="sl-entries">{{#foreach entries}}<div class="sl-entry"><span class="sl-entry-when">{{span}}</span><div><b>{{title}}</b>{{#if organisation}}<span> — {{organisation}}</span>{{/if}}{{#if description}}<p>{{description}}</p>{{/if}}</div><span class="sl-entry-kind">{{kind_label}}</span></div>{{/foreach}}</div></section>{{/if}}
+{{#if skills}}<section class="sl-wrap sl-block"><div class="sl-block-head"><h2 class="sl-h2">Skills</h2></div><div class="sl-skills">{{#foreach skills}}<div class="sl-skill"><span>{{name}}</span>{{#if level}}<i style="--l:{{level}}%"></i>{{/if}}</div>{{/foreach}}</div></section>{{/if}}
+{{#if clients}}<section class="sl-wrap sl-block"><div class="sl-block-head"><h2 class="sl-h2">Clients</h2></div><ul class="sl-clients">{{#foreach clients}}<li>{{#if logo}}<img src="{{logo}}" alt="{{name}}">{{else}}<span>{{name}}</span>{{/if}}{{#if industry}}<small>{{industry}}</small>{{/if}}</li>{{/foreach}}</ul></section>{{/if}}
+{{#if testimonials}}<section class="sl-wrap sl-block sl-quotes">{{#foreach testimonials limit="4"}}{{> "testimonial"}}{{/foreach}}</section>{{/if}}
+</main>

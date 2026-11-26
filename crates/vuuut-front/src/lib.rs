@@ -7,6 +7,8 @@ pub mod builder_site;
 mod directory;
 mod lms;
 mod booking;
+mod podcast;
+mod portfolio;
 // The online store (Tools → E-commerce & Online Stores).
 mod shop;
 mod images;
@@ -46,7 +48,9 @@ pub fn site_router(state: AppState) -> Router {
         .layer(axum::middleware::from_fn_with_state(state.clone(), shop::addresses))
         .layer(axum::middleware::from_fn_with_state(state.clone(), directory::addresses))
         .layer(axum::middleware::from_fn_with_state(state.clone(), lms::addresses))
-        .layer(axum::middleware::from_fn_with_state(state, booking::addresses))
+        .layer(axum::middleware::from_fn_with_state(state.clone(), booking::addresses))
+        .layer(axum::middleware::from_fn_with_state(state.clone(), podcast::addresses))
+        .layer(axum::middleware::from_fn_with_state(state, portfolio::addresses))
 }
 
 fn site_routes(state: AppState) -> Router {
@@ -67,6 +71,10 @@ fn site_routes(state: AppState) -> Router {
         .merge(lms::router())
         // Tools → Booking & Appointment Scheduling: /book/.
         .merge(booking::router())
+        // Tools → Podcast: shows, episodes and feeds at /podcast/.
+        .merge(podcast::router())
+        // Tools → Portfolio: projects, case studies and the CV at /portfolio/.
+        .merge(portfolio::router())
         // Tools → E-commerce & Online Stores: the storefront at /shop/.
         .merge(shop::router())
         .route("/assets/{*path}", get(routes::theme_asset))

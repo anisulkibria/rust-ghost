@@ -30,7 +30,7 @@ impl GetHelper {
 ///
 /// And the directory's `listings`, `listing_categories` and `listing_places`
 /// (see [`browse_directory`]).
-const RESOURCES: &[&str] = &["posts", "pages", "tags", "authors", "tiers", "newsletters", "products", "collections", "listings", "listing_categories", "listing_places", "courses", "course_categories", "services", "service_categories", "booking_staff"];
+const RESOURCES: &[&str] = &["posts", "pages", "tags", "authors", "tiers", "newsletters", "products", "collections", "listings", "listing_categories", "listing_places", "courses", "course_categories", "services", "service_categories", "booking_staff", "podcasts", "episodes", "podcast_people", "projects", "project_categories", "portfolio_services", "clients", "testimonials", "team_members", "resume", "skills"];
 
 /// Ghost's `optimization:maxLimit`. Since 6.x `limit="all"` is capped here too
 /// rather than fetching the whole table.
@@ -125,9 +125,10 @@ impl HelperDef for GetHelper {
         let lang = page_language(rc, ctx).filter(|_| {
             !is_read && !filter.as_deref().is_some_and(|f| f.contains("locale"))
         });
+        let member_status: Option<String> = ctx.data().get("member").and_then(|m| m.get("status")).and_then(Value::as_str).map(str::to_string);
         let runtime = deps.runtime.clone();
         let result: Result<(Value, Value), String> = runtime.block_on(async move {
-            run_get(&deps, &resource_for_query, &filter, &limit_for_query, page, order.as_deref(), include.as_deref(), lang.as_ref())
+            run_get(&deps, &resource_for_query, &filter, &limit_for_query, page, order.as_deref(), include.as_deref(), lang.as_ref(), member_status.as_deref())
                 .await
                 .map_err(|e| e.message())
         });
@@ -377,6 +378,7 @@ async fn run_get(
     order: Option<&str>,
     include: Option<&str>,
     lang: Option<&PageLanguage>,
+    member_status: Option<&str>,
 ) -> vuuut_core::Result<(Value, Value)> {
     use vuuut_db::repos;
 
@@ -492,6 +494,8 @@ async fn run_get(
         "listings" | "listing_categories" | "listing_places" => browse_directory(deps, resource, filter_expr.as_ref(), order, limit, page).await,
         "courses" | "course_categories" => browse_courses(deps, resource, filter_expr.as_ref(), order, limit, page).await,
         "services" | "service_categories" | "booking_staff" => browse_booking(deps, resource, filter_expr.as_ref(), limit, page).await,
+        "podcasts" | "episodes" | "podcast_people" => browse_podcast(deps, resource, filter_expr.as_ref(), order, limit, page, member_status).await,
+        "projects" | "project_categories" | "portfolio_services" | "clients" | "testimonials" | "team_members" | "resume" | "skills" => browse_portfolio(deps, resource, filter_expr.as_ref(), order, limit, page).await,
         _ => Ok((Value::Array(vec![]), vuuut_core::models::pagination_json(1, limit.max(1), 0))),
     }
 }
@@ -741,6 +745,114 @@ async fn browse_booking(deps: &HelperDeps, resource: &str, filter: Option<&vuuut
     Ok((Value::Array(items), vuuut_core::models::pagination_json(page, per_page, total)))
 }
 
+fn page_of(items: Vec<Value>, filter: Option<&vuuut_nql::Expr>, limit: i64, page: i64) -> (Value, Value) {
+    let per_page = if limit > 0 { limit } else { 15 };
+    let mut items = items;
+    if let Some(f) = filter {
+        items.retain(|i| vuuut_nql::evaluate(f, i));
+    }
+    let total = items.len() as i64;
+    let items: Vec<Value> = if limit < 0 { items } else { items.into_iter().skip(((page.max(1) - 1) * per_page) as usize).take(per_page as usize).collect() };
+    (Value::Array(items), vuuut_core::models::pagination_json(page, per_page, total))
+}
+
+/// The podcast for themes. Nothing while the tool is off.
+///
+/// * `podcasts` — live shows as `vuuut_db::repos::podcast::show_json`
+///   (`title`, `url`, `feed_url`, `artwork`, `subtitle`, `author`, `links`,
+///   `hosts`, `episode_count`, …).
+/// * `episodes` — published episodes, newest first, as `episode_json`
+///   (`title`, `url`, `label`, `season`, `number`, `artwork`, `audio_url` —
+///   only when the visitor may listen — `duration_label`, `date_label`,
+///   `members_only`, `show.slug`, …). `order`: `oldest`, `popular`.
+///   Filter e.g. `show.slug:my-show`, `featured:true`, `season:2`.
+/// * `podcast_people` — hosts and guests with an episode: `name`, `url`,
+///   `photo`, `title`.
+async fn browse_podcast(deps: &HelperDeps, resource: &str, filter: Option<&vuuut_nql::Expr>, order: Option<&str>, limit: i64, page: i64, member_status: Option<&str>) -> vuuut_core::Result<(Value, Value)> {
+    use vuuut_db::repos::podcast as repo;
+    let stored: std::collections::HashMap<String, String> =
+        vuuut_db::repos::settings::all(&deps.pool).await?.into_iter().map(|s| (s.key, s.value)).collect();
+    let s = vuuut_core::podcast::Settings::read(|k| stored.get(k).cloned());
+    if !s.enabled {
+        return Ok((Value::Array(vec![]), vuuut_core::models::pagination_json(1, limit.max(1), 0)));
+    }
+    let shows = repo::shows(&deps.pool, true).await;
+    let items: Vec<Value> = match resource {
+        "podcasts" => {
+            let counts = repo::episode_counts(&deps.pool).await;
+            let mut v = Vec::new();
+            for sh in &shows {
+                let hosts = repo::credits(&deps.pool, "show", &sh.id).await;
+                v.push(repo::show_json(&s, sh, &hosts, counts.get(&sh.id).map(|c| c.0).unwrap_or(0)));
+            }
+            v
+        }
+        "podcast_people" => {
+            let credited = repo::all_credits(&deps.pool, "episode").await;
+            let hosting = repo::all_credits(&deps.pool, "show").await;
+            repo::people(&deps.pool).await.iter()
+                .filter(|p| credited.values().chain(hosting.values()).any(|v| v.iter().any(|(pid, _)| pid == &p.id)))
+                .map(|p| repo::person_json(&s, p, None)).collect()
+        }
+        _ => {
+            let sort = match order.unwrap_or("").trim().to_ascii_lowercase().as_str() {
+                "oldest" | "published_at asc" => "oldest",
+                "popular" | "downloads desc" => "popular",
+                _ => "newest",
+            };
+            let (eps, _) = repo::episodes(&deps.pool, &repo::EpisodeQuery { live: true, order: sort, limit: 1000, ..Default::default() }).await;
+            eps.iter().filter_map(|e| shows.iter().find(|sh| sh.id == e.show_id).map(|sh| repo::episode_json(&s, sh, e, &[], &[], e.access().allows(member_status)))).collect()
+        }
+    };
+    Ok(page_of(items, filter, limit, page))
+}
+
+/// The portfolio for themes. Nothing while the tool is off.
+///
+/// * `projects` — listed projects as `vuuut_db::repos::portfolio::project_json`
+///   (`title`, `url`, `cover`, `summary`, `client`, `year`, `categories`,
+///   `category_slugs`, `tools`, `featured`, `locked`, …). A protected
+///   project never carries its body or gallery here. `order`: `newest`,
+///   `popular`, `title`, `year`; default is the order set in the admin.
+///   Filter e.g. `featured:true`, `primary_category:Branding`.
+/// * `project_categories` — disciplines with `count`.
+/// * `portfolio_services`, `clients`, `testimonials`, `team_members`,
+///   `resume` (experience, education, awards… — filter `kind:work`), `skills`.
+async fn browse_portfolio(deps: &HelperDeps, resource: &str, filter: Option<&vuuut_nql::Expr>, order: Option<&str>, limit: i64, page: i64) -> vuuut_core::Result<(Value, Value)> {
+    use vuuut_db::repos::portfolio as repo;
+    let stored: std::collections::HashMap<String, String> =
+        vuuut_db::repos::settings::all(&deps.pool).await?.into_iter().map(|s| (s.key, s.value)).collect();
+    let s = vuuut_core::portfolio::Settings::read(|k| stored.get(k).cloned());
+    if !s.enabled {
+        return Ok((Value::Array(vec![]), vuuut_core::models::pagination_json(1, limit.max(1), 0)));
+    }
+    let items: Vec<Value> = match resource {
+        "project_categories" => {
+            let counts = repo::category_counts(&deps.pool).await;
+            repo::categories(&deps.pool).await.iter().map(|c| repo::category_json(&s, c, counts.get(&c.id).copied().unwrap_or(0))).collect()
+        }
+        "portfolio_services" => repo::services(&deps.pool, true).await.iter().map(|v| repo::service_json(&s, v)).collect(),
+        "clients" => repo::clients(&deps.pool).await.iter().map(repo::client_json).collect(),
+        "testimonials" => repo::testimonials(&deps.pool).await.iter().map(repo::testimonial_json).collect(),
+        "team_members" => repo::team(&deps.pool, true).await.iter().map(|m| repo::member_json(&s, m)).collect(),
+        "resume" => repo::entries(&deps.pool).await.iter().map(repo::entry_json).collect(),
+        "skills" => repo::skills(&deps.pool).await.iter().map(repo::skill_json).collect(),
+        _ => {
+            let sort = match order.unwrap_or("").trim().to_ascii_lowercase().as_str() {
+                "newest" | "published_at desc" => "newest",
+                "popular" | "views desc" => "popular",
+                "title" | "title asc" => "title",
+                "year" | "year desc" => "year",
+                _ => "",
+            };
+            let x = repo::Lookup::load(&deps.pool).await;
+            let (rows, _) = repo::projects(&deps.pool, &repo::ProjectQuery { listed: true, order: sort, limit: 1000, ..Default::default() }).await;
+            rows.iter().map(|p| repo::project_json(&s, p, &x, !p.protected())).collect()
+        }
+    };
+    Ok(page_of(items, filter, limit, page))
+}
+
 /// The LMS catalogue for themes. Nothing while the LMS is off.
 ///
 /// * `courses` — published courses as `vuuut_db::repos::lms::course_json`
@@ -890,7 +1002,7 @@ impl HelperDef for PrevNextPost {
         let lang = page_language(rc, ctx);
         let found: Option<Value> = runtime.block_on(async move {
             let (items, _) =
-                run_get(&deps, "posts", &Some(filter), "1", 1, Some(order), Some("authors,tags"), lang.as_ref()).await.ok()?;
+                run_get(&deps, "posts", &Some(filter), "1", 1, Some(order), Some("authors,tags"), lang.as_ref(), None).await.ok()?;
             items.as_array().and_then(|a| a.first().cloned())
         });
 
@@ -957,7 +1069,7 @@ impl HelperDef for CollectionHelper {
         let runtime = deps.runtime.clone();
         let lang = page_language(rc, ctx);
         let result: Result<(Value, Value), String> = runtime.block_on(async move {
-            run_get(&deps, "posts", &None, &limit.to_string(), 1, None, Some("authors,tags"), lang.as_ref())
+            run_get(&deps, "posts", &None, &limit.to_string(), 1, None, Some("authors,tags"), lang.as_ref(), None)
                 .await
                 .map_err(|e| e.message())
         });

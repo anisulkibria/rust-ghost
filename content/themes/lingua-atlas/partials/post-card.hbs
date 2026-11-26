@@ -1,5 +1,11 @@
 <a class="post-card" href="{{url}}">
-    {{#if feature_image}}<span class="pc-art"><img src="{{img_url feature_image size="m"}}" alt="" loading="lazy"></span>{{/if}}
+    {{#if feature_image}}
+        <span class="pc-art"><img src="{{img_url feature_image size="m"}}" alt="" loading="lazy"></span>
+    {{else}}
+        <span class="pc-art pc-art-type language-{{primary_tag.slug}}" aria-hidden="true">
+            {{#if primary_tag}}{{> "language-word" primary_tag}}{{else}}{{> "icons/book"}}{{/if}}
+        </span>
+    {{/if}}
     <span class="pc-body">
         {{#primary_tag}}<span class="pc-tag">{{name}}</span>{{/primary_tag}}
         <span class="pc-title">{{title}}</span>

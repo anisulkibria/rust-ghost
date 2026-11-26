@@ -1,0 +1,21 @@
+<section class="wrap cover-wrap" aria-labelledby="cover-title">
+    <article class="cover-story {{post_class}}">
+        {{#if @custom.show_feature_images_in_list}}
+            <a class="cover-picture" href="{{url}}" aria-hidden="true" tabindex="-1">
+                {{#if feature_image}}
+                    <img srcset="{{img_url feature_image size="m"}} 720w, {{img_url feature_image size="l"}} 1080w, {{img_url feature_image size="xl"}} 1600w"
+                         sizes="(max-width: 760px) 100vw, 60vw" src="{{img_url feature_image size="l"}}" alt="" fetchpriority="high">
+                {{else}}
+                    <img class="cover-fallback" src="{{asset "images/reading-room.webp"}}" alt="" width="1320" height="990" fetchpriority="high">
+                {{/if}}
+            </a>
+        {{/if}}
+        <div class="cover-copy">
+            <p class="cover-kicker">{{#if primary_tag}}<a href="{{primary_tag.url}}">{{primary_tag.name}}</a>{{else}}{{t "Latest story"}}{{/if}}</p>
+            <h1 class="cover-title" id="cover-title"><a href="{{url}}">{{title}}</a></h1>
+            {{#if excerpt}}<p class="cover-excerpt">{{excerpt words="34"}}</p>{{/if}}
+            {{> "byline" is_cover_story=true}}
+            <a class="cover-link" href="{{url}}">{{t "Continue reading"}}<span class="visually-hidden"> {{title}}</span>{{> "icons/arrow"}}</a>
+        </div>
+    </article>
+</section>

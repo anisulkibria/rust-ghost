@@ -237,7 +237,7 @@ impl Paths {
         }
         let clean = crate::ecom::clean_address(base)?;
         let first = clean.split('/').next().unwrap_or_default();
-        if matches!(first, "shop" | "directory") {
+        if matches!(first, "shop" | "directory" | "book" | "podcast" | "portfolio") {
             return None;
         }
         Some(Paths { base: clean })

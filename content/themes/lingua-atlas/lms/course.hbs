@@ -35,7 +35,7 @@
                     {{/if}}
                     <div class="bc-cta">{{{../forms.cta}}}</div>
                     <ul class="bc-includes">
-                        <li>{{> "icons/book"}}{{lessons}} lessons{{#if duration}} · {{duration}} of learning{{/if}}</li>
+                        <li>{{> "icons/book"}}{{lessons}} lesson{{#match lessons "!=" 1}}s{{/match}}{{#if duration}} · {{duration}} of learning{{/if}}</li>
                         <li>{{> "icons/clock"}}Learn at your own pace</li>
                         <li>{{> "icons/globe"}}Any device, anywhere</li>
                         {{#if certificate}}<li>{{> "icons/award"}}Certificate of completion</li>{{/if}}
@@ -52,11 +52,11 @@
             {{/if}}
 
             <section class="panel" id="curriculum">
-                <header class="panel-head"><h2>Course content</h2><p>{{sections_count}} sections · {{lessons}} lessons{{#if duration}} · {{duration}}{{/if}}</p><button class="link-btn" type="button" data-expand-all>Expand all</button></header>
+                <header class="panel-head"><h2>Course content</h2><p>{{sections_count}} section{{#match sections_count "!=" 1}}s{{/match}} · {{lessons}} lesson{{#match lessons "!=" 1}}s{{/match}}{{#if duration}} · {{duration}}{{/if}}</p><button class="link-btn" type="button" data-expand-all hidden>Expand all</button></header>
                 <div class="syllabus">
                 {{#foreach curriculum}}
                     <details class="syl"{{#if @first}} open{{/if}}>
-                        <summary><span class="syl-n">{{@number}}</span><span class="syl-t">{{title}}</span><span class="syl-m">{{count}} lessons{{#if duration}} · {{duration}}{{/if}}</span></summary>
+                        <summary><span class="syl-n">{{@number}}</span><span class="syl-t">{{title}}</span><span class="syl-m">{{count}} lesson{{#match count "!=" 1}}s{{/match}}{{#if duration}} · {{duration}}{{/if}}</span></summary>
                         <ol>{{#foreach lessons}}
                             <li class="syl-item{{#if done}} is-done{{/if}}{{#if locked}} is-locked{{/if}}">
                                 {{#if locked}}<span class="syl-row">{{else}}<a class="syl-row" href="{{url}}">{{/if}}

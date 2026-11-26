@@ -1,0 +1,14 @@
+{{!< default}}
+<main id="main" class="wrap catalog">
+    <header class="catalog-head">
+        <div class="catalog-heading">
+            <nav class="crumbs" aria-label="Breadcrumb"><a href="{{shop.url}}">Shop</a></nav>
+            <h1>Collections</h1>
+        </div>
+    </header>
+    {{#if collections}}
+        <div class="collection-grid">{{#foreach collections}}{{> "collection-card"}}{{/foreach}}</div>
+    {{else}}
+        <div class="empty"><h2>No collections yet.</h2><a class="button" href="{{shop.url}}">Browse the shop</a></div>
+    {{/if}}
+</main>

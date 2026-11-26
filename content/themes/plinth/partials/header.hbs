@@ -43,6 +43,14 @@
 </div>
 </div>
 <a class="pl-nav-link" href="{{shop.url}}">Shop all</a>
+{{#is "home"}}
+    {{#if shop.url}}
+        <a class="pl-nav-link" href="{{shop.collections_url}}">Collections</a>
+        {{#get "products" limit="1" as |items|}}{{#if items}}<a class="pl-nav-link" href="#pl-new-h">New arrivals</a>{{/if}}{{/get}}
+    {{/if}}
+    {{#get "posts" limit="1" as |stories|}}{{#if stories}}<a class="pl-nav-link" href="#pl-spaces-h">Journal</a>{{/if}}{{/get}}
+    <a class="pl-nav-link" href="#pl-about-h">Our studio</a>
+{{/is}}
 {{navigation}}
 <a class="pl-nav-link pl-nav-sale" href="{{> "sale-url" fallback=shop.url}}">On sale</a>
 </div>

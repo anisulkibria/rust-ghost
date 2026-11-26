@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="{{@site.locale}}">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{meta_title}}</title>
+<link rel="preload" href="{{asset "fonts/instrument-serif.woff2"}}" as="font" type="font/woff2" crossorigin>
+{{#if portfolio}}<link rel="stylesheet" href="{{portfolio.style_url}}">{{/if}}
+<link rel="stylesheet" href="{{asset "css/screen.css"}}">
+{{ghost_head}}
+</head>
+<body class="{{body_class}} sl-{{#match @custom.paper "Ink"}}ink{{else}}{{#match @custom.paper "White"}}white{{else}}warm{{/match}}{{/match}}">
+<a class="sl-skip" href="#main">Skip to content</a>
+{{> "header"}}
+{{{body}}}
+{{> "cta"}}
+{{> "footer"}}
+{{#if portfolio}}<script src="{{portfolio.script_url}}" defer></script>{{/if}}
+<script src="{{asset "js/studiolo.js"}}" defer></script>
+{{ghost_foot}}
+</body>
+</html>

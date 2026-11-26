@@ -1,0 +1,15 @@
+<footer class="ea-foot">
+<div class="ea-wrap">
+<div class="ea-foot-top">
+<div class="ea-foot-brand">
+<a class="ea-logo" href="{{@site.url}}"><span class="ea-logo-mark" aria-hidden="true"><i></i><i></i><i></i><i></i></span>{{@site.title}}</a>
+{{#if @site.description}}<p>{{@site.description}}</p>{{/if}}
+</div>
+{{#get "podcasts" limit="1" as |shows|}}{{#foreach shows}}
+<div class="ea-foot-col"><h2>Listen on</h2>{{#foreach links limit="6"}}<a href="{{url}}" target="_blank" rel="noopener">{{label}}</a>{{/foreach}}<a href="{{feed_url}}">RSS feed</a></div>
+{{/foreach}}{{/get}}
+{{#if @site.secondary_navigation}}<div class="ea-foot-col"><h2>More</h2>{{#foreach @site.secondary_navigation}}<a href="{{url absolute="true"}}">{{label}}</a>{{/foreach}}</div>{{/if}}
+</div>
+<div class="ea-foot-bar"><span>© {{date format="YYYY"}} {{@site.title}}</span><span>Powered by <a href="https://vuuut.com" rel="noopener">Vuuut</a></span></div>
+</div>
+</footer>

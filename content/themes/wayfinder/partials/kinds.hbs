@@ -1,9 +1,9 @@
 {{!-- Categories: every public tag with posts that is not a place, biggest first. --}}
 {{!-- This engine cannot filter tags by a list of slugs, so every public tag is fetched and the Places setting sorts them: a tag whose slug appears in it is a place, anything else is a category. --}}
 {{#get "tags" limit="60" include="count.posts" order="count.posts desc" filter="visibility:public" as |all|}}
-    <nav class="kinds" aria-labelledby="kinds-heading">
+    <nav class="kinds" data-tag-kinds aria-labelledby="kinds-heading">
         <div class="wrap">
-            <h2 class="visually-hidden" id="kinds-heading">{{t "Categories"}}</h2>
+            <h2 class="kinds-heading" id="kinds-heading">{{t "Categories"}}</h2>
             <ul class="kinds-list" role="list">
                 {{#foreach all}}
                     {{#if count.posts}}

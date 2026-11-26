@@ -1,0 +1,18 @@
+{{!< default}}
+<main id="main" class="ea-main">
+{{#person}}
+<section class="ea-hero ea-hero-person">
+<div class="ea-wrap ea-person-head">
+{{#if photo}}<img class="ea-person-photo" src="{{photo}}" alt="">{{else}}<span class="ea-person-photo ea-face">{{initials}}</span>{{/if}}
+<div>
+<p class="ea-eyebrow">{{#if title}}{{title}}{{else}}On the show{{/if}}</p>
+<h1 class="ea-hero-title">{{name}}</h1>
+{{#if bio}}<p class="ea-hero-sub">{{bio}}</p>{{/if}}
+<div class="ea-listen">{{#if website}}<a class="ea-pill" href="{{website}}" rel="noopener" target="_blank">Website</a>{{/if}}{{#foreach links}}<a class="ea-pill" href="{{url}}" rel="noopener" target="_blank">{{label}}</a>{{/foreach}}</div>
+</div>
+</div>
+</section>
+{{/person}}
+{{#if shows}}<section class="ea-wrap ea-block"><div class="ea-block-head"><h2 class="ea-h2">Hosts</h2></div><div class="ea-shows">{{#foreach shows}}<a class="ea-show" href="{{url}}">{{> "art" class="ea-show-img"}}<span class="ea-show-body"><b>{{title}}</b>{{#if subtitle}}<span>{{subtitle}}</span>{{/if}}</span></a>{{/foreach}}</div></section>{{/if}}
+{{#if episodes}}<section class="ea-wrap ea-block"><div class="ea-block-head"><h2 class="ea-h2">Episodes</h2></div><div class="ea-list">{{#foreach episodes}}{{> "episode-row"}}{{/foreach}}</div></section>{{/if}}
+</main>

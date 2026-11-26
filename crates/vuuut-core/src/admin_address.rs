@@ -16,7 +16,7 @@ pub fn clean(value: &str) -> Option<&str> {
 }
 
 const RESERVED: &[&str] = &[
-    "ghost", "shop", "directory", "courses", "book", "members", "assets", "content", "public", "p", "private",
+    "ghost", "shop", "directory", "courses", "book", "podcast", "portfolio", "members", "assets", "content", "public", "p", "private",
     "tag", "author", "rss", "page", "email", "webmentions", "unsubscribe", "r", "search",
     "forms", "cookies", "ads", "popups",
 ];

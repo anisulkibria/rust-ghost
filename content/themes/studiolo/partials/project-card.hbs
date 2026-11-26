@@ -1,0 +1,12 @@
+<article class="sl-card vf-card" data-cats="{{category_slugs}}" style="{{#if accent}}--sl-tint:{{accent}}{{/if}}">
+<a class="sl-card-media" href="{{url}}" tabindex="-1" aria-hidden="true">
+{{#if feature_image}}<img src="{{feature_image}}" alt="" loading="lazy">{{else}}<span class="sl-card-blank">{{title}}</span>{{/if}}
+{{#if locked}}<span class="sl-card-lock">{{> "icon" name="lock" size="14"}} Private</span>{{/if}}
+<span class="sl-card-go" aria-hidden="true">{{> "icon" name="arrow" size="22"}}</span>
+</a>
+<div class="sl-card-body">
+<h3 class="sl-card-title"><a href="{{url}}">{{title}}{{#if locked}}<span class="sl-visually-hidden"> (Private)</span>{{/if}}</a></h3>
+<p class="sl-card-meta">{{#if client}}<span>{{client}}</span>{{/if}}{{#foreach categories limit="2"}}<span>{{name}}</span>{{/foreach}}{{#if year}}<span>{{year}}</span>{{/if}}</p>
+{{#if summary}}{{#if showsum}}<p class="sl-card-sum">{{summary}}</p>{{/if}}{{/if}}
+</div>
+</article>

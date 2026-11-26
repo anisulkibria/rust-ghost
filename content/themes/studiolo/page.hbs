@@ -1,0 +1,12 @@
+{{!< default}}
+{{#post}}
+<main id="main" class="sl-main">
+<article class="sl-article">
+{{#match @page.show_title_and_feature_image}}
+<header class="sl-narrow sl-article-head"><h1 class="sl-h1">{{title}}</h1>{{#if custom_excerpt}}<p class="sl-lede">{{custom_excerpt}}</p>{{/if}}</header>
+{{#if feature_image}}<figure class="sl-wrap sl-article-img"><img src="{{img_url feature_image size="l"}}" alt="{{title}}"></figure>{{/if}}
+{{/match}}
+<div class="sl-content gh-content">{{content}}</div>
+</article>
+</main>
+{{/post}}

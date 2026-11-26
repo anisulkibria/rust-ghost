@@ -1,18 +1,13 @@
 <header class="site-header">
-    <div class="site-header-inner">
+    <div class="wrap site-header-inner">
         <a class="site-brand" href="{{@site.url}}">
             {{#if @site.logo}}
                 <img class="site-logo" src="{{img_url @site.logo size="s"}}" alt="{{@site.title}}">
             {{else}}
+                <span class="site-mark">{{> "icons/book"}}</span>
                 <span class="site-title">{{@site.title}}</span>
             {{/if}}
         </a>
-
-        <button class="search-field" type="button" data-ghost-search>
-            {{> "icons/search"}}
-            <span class="search-field-text">{{t "Search"}}</span>
-            <kbd class="search-key" aria-hidden="true">/</kbd>
-        </button>
 
         <nav class="site-nav" id="site-nav" aria-label="{{t "Main"}}">
             {{navigation}}
@@ -29,6 +24,11 @@
         </nav>
 
         <div class="site-actions">
+            <button class="search-field header-search" type="button" data-ghost-search>
+                {{> "icons/search"}}
+                <span class="search-field-text">{{t "Search"}}</span>
+                <kbd class="search-key" aria-hidden="true">/</kbd>
+            </button>
             {{> "scheme-toggle"}}
             <button class="icon-button menu-toggle" type="button" aria-label="{{t "Menu"}}" aria-expanded="false" aria-controls="site-nav">
                 <span class="menu-open">{{> "icons/menu"}}</span>

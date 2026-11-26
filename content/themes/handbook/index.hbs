@@ -11,15 +11,25 @@
             {{pagination}}
         </div>
     {{else}}
-        <section class="hero">
-            <div class="wrap hero-inner">
-                <h1 class="hero-title">{{#if @custom.hero_heading}}{{@custom.hero_heading}}{{else}}{{t "How can we help?"}}{{/if}}</h1>
-                {{#if @site.description}}<p class="hero-text">{{@site.description}}</p>{{/if}}
-                <button class="search-field search-field-big" type="button" data-ghost-search>
-                    {{> "icons/search"}}
-                    <span class="search-field-text">{{t "Search articles"}}</span>
-                    <kbd class="search-key" aria-hidden="true">/</kbd>
-                </button>
+        <section class="wrap home-cover">
+            <div class="cover-inner">
+                <div class="cover-copy">
+                    <p class="cover-label">{{t "Documentation"}}</p>
+                    <h1 class="hero-title">{{#if @custom.hero_heading}}{{@custom.hero_heading}}{{else}}{{t "How can we help?"}}{{/if}}</h1>
+                    {{#if @site.description}}<p class="hero-text">{{@site.description}}</p>{{/if}}
+                    <button class="search-field search-field-big" type="button" data-ghost-search>
+                        {{> "icons/search"}}
+                        <span class="search-field-text">{{t "Search articles"}}</span>
+                        <kbd class="search-key" aria-hidden="true">/</kbd>
+                    </button>
+                </div>
+                <div class="cover-art">
+                    {{#if @custom.hero_image}}
+                        <img src="{{img_url @custom.hero_image size="l"}}" alt="" fetchpriority="high">
+                    {{else}}
+                        <img src="{{asset "images/handbook-cover.webp"}}" alt="" width="1200" height="800" fetchpriority="high">
+                    {{/if}}
+                </div>
             </div>
         </section>
 
@@ -44,10 +54,12 @@
             {{#get "posts" order="updated_at desc" limit="6" include="tags" as |recent|}}
                 {{#if recent}}
                     <section class="recent wrap" aria-labelledby="recent-heading">
-                        <h2 class="section-title" id="recent-heading">{{t "Recently updated"}}</h2>
-                        <ol class="article-list" role="list">
-                            {{#foreach recent}}{{> "article-row" updated=true}}{{/foreach}}
-                        </ol>
+                        <div class="recent-inner">
+                            <h2 class="section-title" id="recent-heading">{{t "Recently updated"}}</h2>
+                            <ol class="article-list" role="list">
+                                {{#foreach recent}}{{> "article-row" updated=true}}{{/foreach}}
+                            </ol>
+                        </div>
                     </section>
                 {{/if}}
             {{/get}}
@@ -55,7 +67,8 @@
 
         {{> "support"}}
 
-        {{!-- The contents tree, unseen, so numbers on this page match the rest of the handbook. --}}
-        <div hidden>{{> "tree"}}</div>
     {{/is}}
+
+    {{!-- Number article links from the same contents tree as the sidebar. --}}
+    <div hidden>{{> "tree"}}</div>
 </main>

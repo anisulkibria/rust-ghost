@@ -1,0 +1,120 @@
+{{!< default}}
+
+<main id="main" class="ea-main ea-home">
+    {{#if podcast}}
+        {{#get "podcasts" limit="4" as |shows|}}
+            {{#if shows}}
+                {{#get "episodes" limit="1" as |newest|}}
+                    <section class="ea-wrap ea-cover" aria-labelledby="ea-home-title">
+                        <div class="ea-cover-grid{{#if shows.[1]}} ea-cover-network{{/if}}">
+                            <div class="ea-cover-copy">
+                                {{#if shows.[1]}}
+                                    <p class="ea-eyebrow">Podcast network</p>
+                                    <h1 class="ea-hero-title" id="ea-home-title">{{#if ../../podcast.title}}{{../../podcast.title}}{{else}}{{@site.title}}{{/if}}</h1>
+                                    {{#if ../../podcast.intro}}<p class="ea-hero-sub">{{../../podcast.intro}}</p>{{/if}}
+                                    <div class="ea-cover-actions"><a class="ea-btn" href="{{../../podcast.url}}">Browse the shows {{> "icon" name="arrow" size="16"}}</a></div>
+                                {{else}}
+                                    {{#foreach shows}}
+                                        <div class="ea-cover-heading">
+                                            <p class="ea-eyebrow">{{#if category_label}}{{category_label}}{{else}}Podcast{{/if}}{{#if episode_count}} <span aria-hidden="true">·</span> {{plural episode_count empty="" singular="1 episode" plural="% episodes"}}{{/if}}</p>
+                                            <h1 class="ea-hero-title" id="ea-home-title">{{title}}</h1>
+                                        </div>
+                                        {{#if subtitle}}<p class="ea-hero-sub">{{subtitle}}</p>{{/if}}
+                                        <div class="ea-cover-actions">
+                                            {{#foreach newest}}{{> "cover-play"}}{{/foreach}}
+                                            <a class="ea-more" href="{{url}}#episodes">Browse episodes {{> "icon" name="arrow" size="16"}}</a>
+                                        </div>
+                                        {{#if hosts}}
+                                            <p class="ea-hosted">
+                                                <span class="ea-faces" aria-hidden="true">{{#foreach hosts limit="3"}}{{#if photo}}<img src="{{photo}}" width="36" height="36" alt="">{{else}}<i>{{initials}}</i>{{/if}}{{/foreach}}</span>
+                                                <span>Hosted by {{#foreach hosts limit="3"}}<a href="{{url}}">{{name}}</a>{{#unless @last}}, {{/unless}}{{/foreach}}</span>
+                                            </p>
+                                        {{/if}}
+                                        {{> "listen"}}
+                                    {{/foreach}}
+                                {{/if}}
+                            </div>
+                            <div class="ea-cover-visual{{#if shows.[1]}} ea-cover-multiple{{/if}}">
+                                {{#foreach shows}}
+                                    <a class="ea-cover-art" href="{{url}}" aria-label="{{title}}">
+                                        {{> "art" class="ea-cover-image" priority=@first}}
+                                        <span>{{title}}</span>
+                                    </a>
+                                {{/foreach}}
+                            </div>
+                        </div>
+
+                        {{#foreach newest}}
+                            <article class="ea-now" aria-labelledby="ea-newest-title">
+                                <div class="ea-now-copy">
+                                    <p class="ea-eyebrow">{{@custom.hero_label}}</p>
+                                    <h2 class="ea-now-title" id="ea-newest-title"><a href="{{url}}">{{title}}</a></h2>
+                                    {{#if summary}}<p class="ea-now-sum">{{summary}}</p>{{/if}}
+                                    {{> "meta"}}
+                                </div>
+                                {{> "stage" details=true}}
+                            </article>
+                        {{/foreach}}
+                    </section>
+                {{/get}}
+
+                {{#get "episodes" limit="7" as |recent|}}
+                    {{#if recent.[1]}}
+                        <div class="ea-wrap ea-block ea-discover">
+                            <section aria-labelledby="ea-recent-h">
+                                <div class="ea-block-head">
+                                    <h2 class="ea-h2" id="ea-recent-h">{{@custom.episodes_label}}</h2>
+                                    <a class="ea-more" href="{{../../podcast.url}}">All episodes {{> "icon" name="arrow" size="16"}}</a>
+                                </div>
+                                <div class="ea-list">{{#foreach recent from="2"}}{{> "episode-row"}}{{/foreach}}</div>
+                            </section>
+                            {{#if @custom.show_popular}}
+                                {{#get "episodes" order="popular" limit="4" as |top|}}
+                                    {{#if top}}
+                                        <section class="ea-popular" aria-labelledby="ea-top-h">
+                                            <h2 class="ea-h2" id="ea-top-h">{{@custom.popular_label}}</h2>
+                                            <ol class="ea-rank-list" role="list">
+                                                {{#foreach top}}
+                                                    <li>
+                                                        <div class="ea-ranked">
+                                                            <a class="ea-ranked-title" href="{{url}}">{{title}}</a>
+                                                            {{#if duration}}<span class="ea-ranked-time">{{duration_label}}</span>{{/if}}
+                                                        </div>
+                                                        {{> "play"}}
+                                                    </li>
+                                                {{/foreach}}
+                                            </ol>
+                                        </section>
+                                    {{/if}}
+                                {{/get}}
+                            {{/if}}
+                        </div>
+                    {{/if}}
+                {{/get}}
+            {{else}}
+                {{> "home-intro" profile=../podcast}}
+            {{/if}}
+        {{/get}}
+
+        {{#get "podcast_people" limit="10" as |people|}}
+            {{#if people}}
+                <section class="ea-people-band" aria-labelledby="ea-people-h">
+                    <div class="ea-wrap">
+                        <div class="ea-block-head"><h2 class="ea-h2" id="ea-people-h">Hosts &amp; guests</h2></div>
+                        <div class="ea-people">{{#foreach people}}{{> "person"}}{{/foreach}}</div>
+                    </div>
+                </section>
+            {{/if}}
+        {{/get}}
+    {{else}}
+        {{> "home-intro"}}
+    {{/if}}
+
+    {{#if posts}}
+        {{#if podcast}}
+            {{#if @custom.show_posts}}{{> "home-journal" entries=posts preview=true}}{{/if}}
+        {{else}}
+            {{> "home-journal" entries=posts}}
+        {{/if}}
+    {{/if}}
+</main>

@@ -1,0 +1,14 @@
+{{!< default}}
+<main id="main" class="sl-main">
+<header class="sl-wrap sl-page-head">
+<p class="sl-eyebrow">{{#if category}}Discipline{{else}}Work{{/if}} <span class="sl-count">({{#if category}}{{category.count}}{{else}}{{length projects}}{{/if}})</span></p>
+<h1 class="sl-h1">{{#if category}}{{category.name}}{{else}}{{#if portfolio.title}}{{portfolio.title}}{{else}}Projects{{/if}}{{/if}}</h1>
+{{#if category.description}}<p class="sl-lede">{{category.description}}</p>{{else}}{{#unless category}}{{#if portfolio.intro}}<p class="sl-lede">{{portfolio.intro}}</p>{{/if}}{{/unless}}{{/if}}
+</header>
+<section class="sl-wrap sl-block sl-block-top">
+{{#if categories}}<nav class="sl-filters" aria-label="Disciplines"><a class="sl-chip vf-chip{{#unless category}} on{{/unless}}" data-filter="" href="{{portfolio.url}}">All</a>{{#foreach categories}}<a class="sl-chip vf-chip{{#if current}} on{{/if}}" data-filter="{{slug}}" href="{{url}}">{{name}} <sup>{{count}}</sup></a>{{/foreach}}</nav>{{/if}}
+<div class="sl-grid" data-vf-grid>{{#foreach projects}}{{> "project-card"}}{{/foreach}}</div>
+{{#unless projects}}<p class="sl-lede">No projects here yet.</p>{{/unless}}
+</section>
+{{#if testimonials}}<section class="sl-wrap sl-block sl-quotes" aria-label="What clients say">{{#foreach testimonials limit="2"}}{{> "testimonial"}}{{/foreach}}</section>{{/if}}
+</main>

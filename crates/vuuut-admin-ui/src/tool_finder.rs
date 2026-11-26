@@ -32,6 +32,8 @@ pub(crate) const CONTENT: &[(&str, &[&str])] = &[
     ("caching", &["Page cache", "Purge everything", "Cached pages", "Hit rate", "Response time", "Slowest pages", "Cache-Control", "max-age", "s-maxage", "ETag", "304 Not Modified", "gzip", "Compression", "Lazy-load images", "Speculation rules", "Prerender", "Preconnect", "Cloudflare", "CDN", "Purge cache", "Performance", "Speed", "TTFB"]),
     ("ecom", &["Store", "Shop", "Products", "Variants", "Options", "Inventory", "Stock", "SKU", "Collections", "Smart collections", "Orders", "Fulfil", "Refund", "Customers", "Discount codes", "Coupons", "Shipping rates", "Taxes", "VAT", "Checkout", "Cart", "Abandoned checkouts", "Payments", "Bank transfer", "Cash on delivery", "Stripe", "Packing slip", "Refund policy", "Digital downloads", "Downloadable files", "Download limit", "Revoke downloads"]),
     ("directories", &["Directory", "Classifieds", "Listings", "Business listings", "For sale", "Wanted", "Jobs", "Categories", "Waiting for review", "Approve", "Reject", "Featured", "Expiry", "Renew", "Submit a listing", "Visitor submissions", "Price", "Location", "Contact details"]),
+    ("portfolio", &["Portfolio", "Projects", "Case studies", "Work", "Gallery", "Lightbox", "Disciplines", "Categories", "Services", "Pricing", "Clients", "Logo wall", "Testimonials", "Team", "Résumé", "Resume", "CV", "Experience", "Education", "Awards", "Press", "Skills", "Availability", "Hire me", "Contact form", "Project brief", "Budget", "Enquiries", "Leads", "Password-protected project", "NDA", "Results", "Credits", "Personal portfolio", "Studio", "Agency", "Behance", "Dribbble"]),
+    ("podcast", &["Podcast", "Shows", "Episodes", "Audio", "MP3", "RSS feed", "Apple Podcasts", "Spotify", "YouTube Music", "Seasons", "Trailer", "Bonus episode", "Show notes", "Chapters", "Transcript", "Hosts", "Guests", "Sponsors", "Promo code", "Downloads", "Listening apps", "Members-only episodes", "Private feed", "Guest requests", "Listener questions", "Reviews", "Import feed", "Transistor", "Buzzsprout", "Captivate", "Podbean", "Libsyn", "Podcasting 2.0", "Explicit"]),
     ("booking", &["Bookings", "Appointments", "Scheduling", "Calendar", "Services", "Staff", "Working hours", "Business hours", "Time off", "Holidays", "Availability", "Buffers", "Group classes", "Approve bookings", "Reschedule", "Cancel booking", "Reminders", "Deposits", "Pay online", "Customers", "No-show", "Calendly", "Acuity", "Cal.com", "Bookly", "Amelia", "SimplyBook", "Square Appointments"]),
     ("lms", &["Courses", "Online courses", "Lessons", "Curriculum", "Sections", "Quizzes", "Questions", "Assignments", "Grading", "Students", "Enrolments", "Enrol a student", "Progress", "Drip content", "Free preview", "Certificates", "Course reviews", "Ratings", "Instructor", "Pass mark", "Sell courses", "LearnDash", "LifterLMS", "Tutor LMS", "LearnPress", "Sensei", "E-learning", "My learning"]),
     ("dummies", &["Dummy content", "Demo content", "Sample content", "Demo site", "Placeholder posts", "Lorem ipsum", "Generate posts", "Generate members", "Test data", "Remove dummy content"]),
@@ -185,6 +187,24 @@ pub(crate) async fn former_module_states(state: &AppState) -> Vec<(&'static str,
         (_, n) if n > 0 => format!("{} to approve · {services} services", plural(n, "request", "requests")),
         (true, _) => format!("Open · {}", plural(services, "service", "services")),
         (false, _) => format!("Closed · {}", plural(services, "service", "services")),
+    })));
+
+    let fs = crate::portfolio::portfolio_settings(state);
+    let projects = count("SELECT COUNT(*) FROM portfolio_projects WHERE status IN ('published', 'protected')").await;
+    let leads = count("SELECT COUNT(*) FROM portfolio_enquiries WHERE status = 'new'").await;
+    out.push(("portfolio", (fs.enabled, match (fs.enabled, leads) {
+        (_, n) if n > 0 => format!("{} · {}", plural(n, "new enquiry", "new enquiries"), plural(projects, "project", "projects")),
+        (true, _) => format!("Live · {}", plural(projects, "project", "projects")),
+        (false, _) => format!("Not public · {}", plural(projects, "project", "projects")),
+    })));
+
+    let ps = crate::podcast::podcast_settings(state);
+    let episodes = count("SELECT COUNT(*) FROM podcast_episodes WHERE status = 'published'").await;
+    let inbox = count("SELECT COUNT(*) FROM podcast_requests WHERE status = 'new'").await;
+    out.push(("podcast", (ps.enabled, match (ps.enabled, inbox) {
+        (_, n) if n > 0 => format!("{} in the inbox · {}", plural(n, "message", "messages"), plural(episodes, "episode", "episodes")),
+        (true, _) => format!("Live · {}", plural(episodes, "episode", "episodes")),
+        (false, _) => format!("Not public · {}", plural(episodes, "episode", "episodes")),
     })));
 
     let ls = crate::lms::lms_settings(state);

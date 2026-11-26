@@ -1,0 +1,141 @@
+{{!< default}}
+
+<main id="main" class="sl-main sl-home">
+    {{#if portfolio}}
+        {{#get "projects" limit="4" as |picks|}}
+            <section class="sl-wrap sl-hero" aria-labelledby="sl-hero-title">
+                <div class="sl-hero-grid{{#unless picks}}{{#unless ../portfolio.portrait}} sl-hero-text-only{{/unless}}{{/unless}}">
+                    <div class="sl-hero-copy">
+                        <p class="sl-eyebrow">
+                            <span>{{../portfolio.name}}</span>
+                            {{#if ../portfolio.location}}<span class="sl-hero-location">{{../portfolio.location}}</span>{{/if}}
+                        </p>
+                        <h1 class="sl-hero-title" id="sl-hero-title">{{#if ../portfolio.headline}}{{../portfolio.headline}}{{else}}{{../portfolio.name}}{{/if}}</h1>
+                        {{#if ../portfolio.intro}}<p class="sl-hero-intro">{{../portfolio.intro}}</p>{{/if}}
+                        <div class="sl-hero-actions">
+                            <a class="sl-btn" href="{{../portfolio.url}}">Explore the work {{> "icon" name="arrow"}}</a>
+                            <a class="sl-link" href="{{../portfolio.about_url}}">{{#if ../portfolio.studio}}About the studio{{else}}About me{{/if}}</a>
+                        </div>
+                    </div>
+
+                    {{#foreach picks limit="1"}}
+                        <a class="sl-spotlight" href="{{url}}" style="{{#if accent}}--sl-tint:{{accent}}{{/if}}">
+                            <div class="sl-spotlight-media">
+                                {{#if feature_image}}<img src="{{feature_image}}" alt="" fetchpriority="high">
+                                {{else}}<span class="sl-card-blank" aria-hidden="true">{{title}}</span>{{/if}}
+                            </div>
+                            <div class="sl-spotlight-caption">
+                                <span>
+                                    <span class="sl-eyebrow">{{#if featured}}Featured project{{else}}From the portfolio{{/if}}{{#if locked}} · Private{{/if}}</span>
+                                    <strong>{{title}}</strong>
+                                </span>
+                                <span class="sl-spotlight-arrow">{{> "icon" name="arrow" size="21"}}</span>
+                            </div>
+                        </a>
+                    {{/foreach}}
+                    {{#unless picks}}{{#if ../portfolio.portrait}}
+                        <figure class="sl-spotlight">
+                            <div class="sl-spotlight-media"><img src="{{../portfolio.portrait}}" alt="" fetchpriority="high"></div>
+                        </figure>
+                    {{/if}}{{/unless}}
+                </div>
+            </section>
+
+            {{#if picks.[1]}}
+                <section class="sl-wrap sl-block sl-selected" aria-labelledby="sl-work-h">
+                    <div class="sl-block-head">
+                        <h2 class="sl-h2" id="sl-work-h">{{@custom.work_label}}</h2>
+                        <a class="sl-link sl-push" href="{{../portfolio.url}}">All projects {{> "icon" name="arrow" size="16"}}</a>
+                    </div>
+                    <div class="sl-feature">{{#foreach picks from="2"}}{{> "project-card" showsum=true}}{{/foreach}}</div>
+                </section>
+            {{/if}}
+        {{/get}}
+
+        {{#if @custom.show_index}}
+            {{#get "projects" order="year" limit="100" as |all pagination|}}
+                {{#if all}}
+                    <section class="sl-home-index" aria-labelledby="sl-ix-h">
+                        <div class="sl-wrap sl-index-inner">
+                            <div class="sl-block-head">
+                                <h2 class="sl-h2" id="sl-ix-h">{{@custom.index_label}}</h2>
+                                <span class="sl-count">({{pagination.total}})</span>
+                                <a class="sl-link sl-push" href="{{../portfolio.url}}">Browse work {{> "icon" name="arrow" size="16"}}</a>
+                            </div>
+                            <div class="sl-ix" data-sl-index>
+                                <div class="sl-ix-row sl-ix-head" aria-hidden="true"><span>Year</span><span>Project</span><span>Client</span><span>Discipline</span><span></span></div>
+                                {{#foreach all}}{{> "index-row"}}{{/foreach}}
+                                <img class="sl-ix-peek" alt="" data-sl-peek hidden>
+                            </div>
+                        </div>
+                    </section>
+                {{/if}}
+            {{/get}}
+        {{/if}}
+
+        {{#if @custom.show_services}}
+            {{#get "portfolio_services" limit="6" as |services|}}
+                {{#if services}}
+                    <section class="sl-wrap sl-block sl-home-services" aria-labelledby="sl-svc-h">
+                        <div class="sl-block-head">
+                            <h2 class="sl-h2" id="sl-svc-h">What {{#if ../portfolio.studio}}we{{else}}I{{/if}} do</h2>
+                            <a class="sl-link sl-push" href="{{../portfolio.services_url}}">All services {{> "icon" name="arrow" size="16"}}</a>
+                        </div>
+                        <div class="sl-svc-cards">
+                            {{#foreach services}}
+                                <a class="sl-svc-card" href="{{url}}">
+                                    <h3>{{name}}</h3>
+                                    {{#if summary}}<p>{{summary}}</p>{{/if}}
+                                    <span class="sl-svc-foot"><b>{{price_label}}</b>{{> "icon" name="arrow"}}</span>
+                                </a>
+                            {{/foreach}}
+                        </div>
+                    </section>
+                {{/if}}
+            {{/get}}
+        {{/if}}
+
+        {{#if @custom.show_clients}}
+            {{#get "clients" limit="100" as |clients|}}
+                {{#if clients}}
+                    <section class="sl-wrap sl-block sl-home-clients" aria-labelledby="sl-cl-h">
+                        <div class="sl-block-head"><h2 class="sl-h2" id="sl-cl-h">Selected clients</h2></div>
+                        <ul class="sl-clients">
+                            {{#foreach clients}}
+                                <li>{{#if logo}}<img src="{{logo}}" alt="{{name}}" loading="lazy">{{else}}<span>{{name}}</span>{{/if}}{{#if industry}}<small>{{industry}}</small>{{/if}}</li>
+                            {{/foreach}}
+                        </ul>
+                    </section>
+                {{/if}}
+            {{/get}}
+        {{/if}}
+
+        {{#get "testimonials" filter="featured:true" limit="3" as |kind|}}
+            {{#if kind}}
+                <section class="sl-wrap sl-block sl-home-quotes" aria-labelledby="sl-quotes-h">
+                    <div class="sl-block-head"><h2 class="sl-h2" id="sl-quotes-h">What clients say</h2></div>
+                    <div class="sl-quotes">{{#foreach kind}}{{> "testimonial"}}{{/foreach}}</div>
+                </section>
+            {{/if}}
+        {{/get}}
+    {{else}}
+        <section class="sl-wrap sl-hero" aria-labelledby="sl-hero-title">
+            <div class="sl-hero-grid{{#unless @site.cover_image}} sl-hero-text-only{{/unless}}">
+                <div class="sl-hero-copy">
+                    <h1 class="sl-hero-title" id="sl-hero-title">{{@site.title}}</h1>
+                    {{#if @site.description}}<p class="sl-hero-intro">{{@site.description}}</p>{{/if}}
+                </div>
+                {{#if @site.cover_image}}<figure class="sl-spotlight"><div class="sl-spotlight-media"><img src="{{img_url @site.cover_image size="xl"}}" alt="" fetchpriority="high"></div></figure>{{/if}}
+            </div>
+        </section>
+    {{/if}}
+
+    {{#if posts}}
+        {{#if portfolio}}
+            {{#if @custom.show_posts}}{{> "home-journal" entries=posts preview=true}}{{/if}}
+        {{else}}
+            {{> "home-journal" entries=posts}}
+            <div class="sl-wrap">{{> "pager"}}</div>
+        {{/if}}
+    {{/if}}
+</main>

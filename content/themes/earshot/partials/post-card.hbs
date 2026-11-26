@@ -1,0 +1,6 @@
+<article class="ea-post {{post_class}}">
+{{#if feature_image}}<a class="ea-post-img" href="{{url}}" tabindex="-1"><img src="{{img_url feature_image size="m"}}" alt="" loading="lazy"></a>{{/if}}
+<div class="ea-meta">{{#if primary_tag}}<span class="ea-tag">{{primary_tag.name}}</span>{{/if}}<span>{{date format="D MMM YYYY"}}</span><span>{{reading_time minute="1 min" minutes="% min"}}</span></div>
+<h3 class="ea-post-title"><a href="{{url}}">{{title}}</a></h3>
+<p class="ea-post-ex">{{excerpt words="24"}}</p>
+</article>

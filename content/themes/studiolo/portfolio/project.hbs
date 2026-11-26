@@ -1,0 +1,48 @@
+{{!< default}}
+<main id="main" class="sl-main">
+{{#project}}
+<article class="sl-case" style="{{#if accent}}--sl-tint:{{accent}}{{/if}}">
+<header class="sl-wrap sl-case-head">
+<a class="sl-back" href="{{../portfolio.url}}">{{> "icon" name="left" size="15"}} All work</a>
+<p class="sl-card-meta">{{#foreach categories}}<a href="{{url}}">{{name}}</a>{{/foreach}}{{#if year}}<span>{{year}}</span>{{/if}}</p>
+<h1 class="sl-case-title">{{title}}</h1>
+{{#if subtitle}}<p class="sl-case-sub">{{subtitle}}</p>{{/if}}
+<dl class="sl-facts">
+{{#if client}}<div><dt>Client</dt><dd>{{#if client_url}}<a href="{{client_url}}" target="_blank" rel="noopener">{{client}}</a>{{else}}{{client}}{{/if}}</dd></div>{{/if}}
+{{#if role}}<div><dt>Role</dt><dd>{{role}}</dd></div>{{/if}}
+{{#if duration}}<div><dt>Timeline</dt><dd>{{duration}}</dd></div>{{/if}}
+{{#if industry}}<div><dt>Industry</dt><dd>{{industry}}</dd></div>{{/if}}
+{{#if location}}<div><dt>Location</dt><dd>{{location}}</dd></div>{{/if}}
+{{#if tools}}<div><dt>Tools</dt><dd>{{#foreach tools}}{{this}}{{#unless @last}}, {{/unless}}{{/foreach}}</dd></div>{{/if}}
+</dl>
+{{#if live_url}}<div class="sl-case-links"><a class="sl-btn" href="{{live_url}}" target="_blank" rel="noopener">Visit the live site {{> "icon" name="arrow"}}</a>{{#if repo_url}}<a class="sl-link" href="{{repo_url}}" target="_blank" rel="noopener">Source code</a>{{/if}}</div>{{else}}{{#if repo_url}}<div class="sl-case-links"><a class="sl-btn" href="{{repo_url}}" target="_blank" rel="noopener">Source code {{> "icon" name="arrow"}}</a></div>{{/if}}{{/if}}
+</header>
+{{#if feature_image}}<figure class="sl-case-cover"><div class="sl-case-cover-in"><img src="{{feature_image}}" alt="{{title}}"></div></figure>{{/if}}
+
+{{#if locked}}
+<section class="sl-wrap sl-locked">
+<span class="sl-locked-icon">{{> "icon" name="lock" size="26"}}</span>
+<h2 class="sl-h2">This case study is private</h2>
+<p class="sl-lede">{{#if summary}}{{summary}} {{/if}}Enter the password you were given to read it.</p>
+<div class="sl-unlock">{{{../forms.unlock}}}</div>
+</section>
+{{else}}
+{{#if summary}}<section class="sl-wrap sl-case-intro"><p class="sl-eyebrow">Overview</p><p class="sl-case-summary">{{summary}}</p></section>{{/if}}
+{{#if metrics}}<section class="sl-metrics"><div class="sl-wrap sl-metrics-in">{{#foreach metrics}}<div><b>{{value}}</b><span>{{label}}</span></div>{{/foreach}}</div></section>{{/if}}
+{{#if body}}<div class="sl-content gh-content">{{{body}}}</div>{{/if}}
+{{#if video_embed}}<div class="sl-wrap sl-video">{{{video_embed.iframe}}}</div>{{/if}}
+{{#if gallery}}<section class="sl-wrap sl-gallery" data-vf-gallery aria-label="Gallery">{{#foreach gallery}}<a href="{{this}}" data-vf-zoom><img src="{{this}}" alt="" loading="lazy"></a>{{/foreach}}</section>{{/if}}
+{{#if testimonial}}{{#with testimonial}}<section class="sl-wrap sl-block sl-quotes sl-quotes-one">{{> "testimonial"}}</section>{{/with}}{{/if}}
+{{#if credits}}<section class="sl-wrap sl-credits"><p class="sl-eyebrow">Credits</p><ul>{{#foreach credits}}<li><span>{{role}}</span>{{#if url}}<a href="{{url}}" target="_blank" rel="noopener">{{name}}</a>{{else}}<b>{{name}}</b>{{/if}}</li>{{/foreach}}</ul></section>{{/if}}
+{{/if}}
+</article>
+{{/project}}
+
+{{#if next}}{{#with next}}
+<a class="sl-next" href="{{url}}" style="{{#if accent}}--sl-tint:{{accent}}{{/if}}">
+<div class="sl-wrap sl-next-in"><span class="sl-eyebrow">Next project</span><span class="sl-next-title">{{title}} {{> "icon" name="right" size="48"}}</span>{{#if client}}<span class="sl-next-client">{{client}}</span>{{/if}}</div>
+{{#if feature_image}}<img src="{{feature_image}}" alt="" loading="lazy">{{/if}}
+</a>
+{{/with}}{{/if}}
+{{#if related}}<section class="sl-wrap sl-block"><div class="sl-block-head"><h2 class="sl-h2">Related work</h2></div><div class="sl-grid">{{#foreach related limit="3"}}{{> "project-card"}}{{/foreach}}</div></section>{{/if}}
+</main>

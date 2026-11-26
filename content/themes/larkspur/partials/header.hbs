@@ -1,0 +1,24 @@
+<header class="site-header">
+    <div class="wrap header-inner">
+        <a class="brand" href="{{@site.url}}">
+            {{#if @site.logo}}<img src="{{img_url @site.logo size="s"}}" alt="{{@site.title}}">
+            {{else}}{{> "icon" name="mark"}}<span>{{@site.title}}</span>{{/if}}
+        </a>
+        <nav class="site-nav" id="site-nav" aria-label="Main">
+            {{#if shop.url}}
+                <a href="{{shop.url}}">Shop</a>
+                <a href="{{shop.collections_url}}">Collections</a>
+            {{/if}}
+            {{navigation}}
+        </nav>
+        <div class="header-actions">
+            {{#if shop.url}}
+                <a class="icon-link" href="{{shop.url}}#shop-search" aria-label="Search products">{{> "icon" name="search"}}</a>
+                <a class="cart-link" href="{{shop.cart_url}}">{{> "icon" name="bag"}}<span>Cart{{#if shop.cart_count}} ({{shop.cart_count}}){{/if}}</span></a>
+            {{else}}
+                <button class="icon-link" type="button" data-ghost-search aria-label="Search">{{> "icon" name="search"}}</button>
+            {{/if}}
+            <button class="icon-link menu-toggle" type="button" aria-label="Menu" aria-controls="site-nav" aria-expanded="false" hidden>{{> "icon" name="menu"}}</button>
+        </div>
+    </div>
+</header>

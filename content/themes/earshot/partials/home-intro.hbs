@@ -1,0 +1,6 @@
+<section class="ea-wrap ea-cover" aria-labelledby="ea-home-title">
+    <div class="ea-cover-copy ea-cover-fallback">
+        <h1 class="ea-hero-title" id="ea-home-title">{{#if profile.title}}{{profile.title}}{{else}}{{@site.title}}{{/if}}</h1>
+        {{#if profile.intro}}<p class="ea-hero-sub">{{profile.intro}}</p>{{else}}{{#if @site.description}}<p class="ea-hero-sub">{{@site.description}}</p>{{/if}}{{/if}}
+    </div>
+</section>

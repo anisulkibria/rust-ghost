@@ -1,0 +1,5 @@
+{{!< default}}
+<main id="main" class="sl-main">
+{{> "page-head" eyebrow=@site.title heading=@custom.journal_label}}
+<section class="sl-wrap sl-block sl-block-top"><div class="sl-posts">{{#foreach posts}}{{> "post-card"}}{{/foreach}}</div>{{> "pager"}}</section>
+</main>

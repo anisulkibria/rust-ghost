@@ -6,33 +6,35 @@
 --}}
 {{#get "tags" limit=topic_limit include="count.posts" order="count.posts desc" filter="visibility:public" as |topics|}}
     {{#if topics}}
-        <section class="topics" aria-labelledby="topics-heading">
-            <div class="topics-inner wrap">
-                <h2 class="visually-hidden" id="topics-heading">{{t "Topics"}}</h2>
-                <p class="topics-sentence" data-topics>
-                    <span class="topics-intro">{{#if @custom.topics_intro}}{{@custom.topics_intro}}{{else}}{{t "Stories on"}}{{/if}}</span>
-                    {{#foreach topics}}
-                        {{#if count.posts}}
-                            <span class="topic" data-and="{{t "and"}}"><a class="topic-link{{#if @first}} is-current{{/if}}" href="{{url}}" data-topic="{{slug}}"><span class="topic-name">{{name}}</span><sup class="topic-count" aria-hidden="true">{{count.posts}}</sup><span class="visually-hidden">, {{plural count.posts empty=(t "No stories yet") singular=(t "1 story") plural=(t "% stories")}}</span></a></span>
-                        {{/if}}
-                    {{/foreach}}
-                </p>
+        <section class="topics wrap" aria-labelledby="topics-heading">
+            <div class="topics-inner">
+                <div class="topics-main">
+                    <h2 class="topics-label" id="topics-heading">{{t "Topics"}}</h2>
+                    <p class="topics-sentence" data-topics>
+                        <span class="topics-intro">{{#if @custom.topics_intro}}{{@custom.topics_intro}}{{else}}{{t "Stories on"}}{{/if}}</span>
+                        {{#foreach topics}}
+                            {{#if count.posts}}
+                                <span class="topic" data-and="{{t "and"}}"><a class="topic-link{{#if @first}} is-current{{/if}}" href="{{url}}" data-topic="{{slug}}"><span class="topic-name">{{name}}</span><sup class="topic-count" aria-hidden="true">{{count.posts}}</sup><span class="visually-hidden">, {{plural count.posts empty=(t "No stories yet") singular=(t "1 story") plural=(t "% stories")}}</span></a></span>
+                            {{/if}}
+                        {{/foreach}}
+                    </p>
+                </div>
 
-                <div class="topics-peek" aria-hidden="true">
-                    {{#foreach topics}}
+                <div class="topics-peek">
+                    {{#foreach topics as |preview_topic|}}
                         {{#if count.posts}}
                             <div class="peek{{#if @first}} is-shown{{/if}}" data-peek="{{slug}}">
-                                <p class="peek-label">{{t "Newest in"}} {{name}}</p>
                                 {{#get "posts" filter="tags:{{slug}}" limit="1" include="authors"}}
                                     {{#foreach posts}}
-                                        <a class="peek-link" href="{{url}}" tabindex="-1">
+                                        <a class="peek-link" href="{{url}}">
                                             {{#if feature_image}}
                                                 <img class="peek-image" src="{{img_url feature_image size="m"}}" alt="" loading="lazy">
-                                            {{else}}
-                                                <span class="peek-image peek-plain">{{title}}</span>
                                             {{/if}}
-                                            <span class="peek-title">{{title}}</span>
-                                            <span class="peek-meta">{{#if authors}}{{authors separator=" & " autolink="false"}}, {{/if}}{{date format="D MMM YYYY"}}</span>
+                                            <span class="peek-copy">
+                                                <span class="peek-label">{{t "Newest in"}} {{preview_topic.name}}</span>
+                                                <span class="peek-title">{{title}}</span>
+                                                <span class="peek-meta">{{#if authors}}{{authors separator=" & " autolink="false"}}, {{/if}}{{date format="D MMM YYYY"}}</span>
+                                            </span>
                                         </a>
                                     {{/foreach}}
                                 {{/get}}

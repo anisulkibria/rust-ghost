@@ -1,0 +1,4 @@
+{{#if posts}}
+    <div class="story-grid">{{#foreach posts}}{{> "story-card"}}{{/foreach}}</div>
+    {{pagination}}
+{{else}}<p class="muted">No articles yet.</p>{{/if}}

@@ -1,0 +1,16 @@
+{{!< default}}
+<main id="main" class="sl-main">
+<header class="sl-wrap sl-page-head"><p class="sl-eyebrow">Services <span class="sl-count">({{length services}})</span></p><h1 class="sl-h1">How {{#if portfolio.studio}}we{{else}}I{{/if}} can <em>help</em></h1>{{#if portfolio.intro}}<p class="sl-lede">{{portfolio.intro}}</p>{{/if}}</header>
+<section class="sl-wrap sl-block sl-block-top">
+<div class="sl-svc-cards">{{#foreach services}}
+<a class="sl-svc-card" href="{{url}}">
+<span class="sl-svc-n">{{#match @number "<" 10}}0{{/match}}{{@number}}</span>
+{{#if feature_image}}<img src="{{feature_image}}" alt="" loading="lazy">{{/if}}
+<h2>{{name}}</h2>
+<p>{{summary}}</p>
+{{#if deliverables}}<ul>{{#foreach deliverables limit="5"}}<li>{{this}}</li>{{/foreach}}</ul>{{/if}}
+<span class="sl-svc-foot"><b>{{price_label}}</b>{{> "icon" name="arrow"}}</span>
+</a>
+{{/foreach}}</div>
+</section>
+</main>

@@ -1,0 +1,5 @@
+{{!< default}}
+<main id="main" class="sl-main">
+{{#tag}}<header class="sl-wrap sl-page-head"><p class="sl-eyebrow">Topic</p><h1 class="sl-h1">{{name}}</h1>{{#if description}}<p class="sl-lede">{{description}}</p>{{/if}}</header>{{/tag}}
+<section class="sl-wrap sl-block sl-block-top"><div class="sl-posts">{{#foreach posts}}{{> "post-card"}}{{/foreach}}</div>{{> "pager"}}</section>
+</main>

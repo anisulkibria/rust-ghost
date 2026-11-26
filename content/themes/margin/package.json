@@ -1,6 +1,6 @@
 {
     "name": "margin",
-    "description": "A classic blog theme for Vuuut: dated entries, a working sidebar, archives and full-post reading.",
+    "description": "A literary blog theme for Vuuut with a cover story, dated entries, a flexible sidebar and full-post reading.",
     "version": "1.0.0",
     "engines": {
         "ghost": ">=5.0.0"
@@ -80,6 +80,12 @@
             "show_feature_images_in_list": {
                 "type": "boolean",
                 "default": true,
+                "group": "homepage"
+            },
+            "show_cover_story": {
+                "type": "boolean",
+                "default": true,
+                "description": "Promotes the newest post to a cover story on the first homepage in Excerpt mode.",
                 "group": "homepage"
             },
             "show_about_in_sidebar": {

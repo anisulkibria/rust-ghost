@@ -30,8 +30,8 @@
     --radius-l: 32px;
     --shadow: 0 1px 2px rgba(27,36,32,.05), 0 14px 36px -24px rgba(27,36,32,.35);
     --shadow-l: 0 2px 4px rgba(27,36,32,.05), 0 30px 70px -34px rgba(27,36,32,.45);
-    --serif: "Instrument Serif", "Iowan Old Style", Georgia, serif;
-    --sans: "Manrope", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+    --serif: var(--gh-font-heading, "Instrument Serif"), "Iowan Old Style", Georgia, serif;
+    --sans: var(--gh-font-body, "Manrope"), ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
     --wrap: 1200px;
     --ease: cubic-bezier(.2,.7,.2,1);
     color-scheme: light;

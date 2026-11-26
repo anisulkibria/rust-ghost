@@ -5,78 +5,84 @@
      left out. Theme settings (Design → Homepage) hold the words. --}}
 <main id="main" class="pl-home">
 
-{{!-- 1. Category circles ------------------------------------------------ --}}
-<section class="pl-wrap pl-strip" aria-label="Categories">
-<div class="pl-strip-track" data-pl-drag>
-<a class="pl-circle pl-circle-sale" href="{{> "sale-url" fallback=shop.url}}"><span class="pl-circle-art"><span class="pl-sale-dot">Sale</span></span><span class="pl-circle-name">On sale</span></a>
-{{#get "collections" limit="12"}}{{#foreach collections}}{{> "collection-circle"}}{{/foreach}}{{/get}}
-<a class="pl-circle pl-circle-new" href="{{shop.url}}?sort=newest"><span class="pl-circle-art"><span class="pl-sale-dot">New</span></span><span class="pl-circle-name">New in</span></a>
-{{#get "products" filter="featured:true" limit="4" as |picks|}}{{#foreach picks}}
-<a class="pl-circle" href="{{url}}"><span class="pl-circle-art">{{#if feature_image}}<img src="{{feature_image}}" alt="" loading="lazy">{{else}}{{#if meta.shape}}{{> "art" kind=meta.shape}}{{else}}{{> "art" kind=(concat product_type " " title)}}{{/if}}{{/if}}</span><span class="pl-circle-name">{{title}}</span></a>
-{{/foreach}}{{/get}}
-<a class="pl-circle pl-circle-all" href="{{shop.url}}"><span class="pl-circle-art">{{> "icon" name="arrow" size="28"}}</span><span class="pl-circle-name">Shop all</span></a>
-</div>
-</section>
-
-{{!-- 2. Hero: one slide per collection (the first three) --------------- --}}
-{{#get "collections" limit="3" as |slides|}}
+{{!-- The cover leads with the first collection, or with the shop itself. --}}
+{{#get "collections" limit="3" filter="product_count:>0" as |slides|}}
+{{#if slides}}
 <section class="pl-wrap pl-hero" aria-roledescription="carousel" aria-label="Featured collections" data-pl-slider>
 <div class="pl-hero-track">
 {{#foreach slides}}
-<article class="pl-hero-slide{{#if @first}} is-on{{/if}}{{#unless feature_image}} is-drawn{{/unless}}" aria-roledescription="slide" aria-label="{{@number}} of {{../slides.length}}">
+<article class="pl-hero-slide{{#if @first}} is-on{{/if}}" aria-roledescription="slide" aria-label="{{title}}"{{#unless @first}} aria-hidden="true" inert{{/unless}}>
+<div class="pl-cover-media">
 {{#if feature_image}}
-<img class="pl-hero-img" src="{{feature_image}}" alt=""{{#unless @first}} loading="lazy"{{/unless}}>
+<img class="pl-hero-img" src="{{feature_image}}" alt=""{{#if @first}} fetchpriority="high"{{else}} loading="lazy"{{/if}}>
+{{else match slug "~" "dining"}}
+<img class="pl-hero-img" src="{{asset "images/dining-room.webp"}}" alt="" width="1360" height="1020"{{#if @first}} fetchpriority="high"{{else}} loading="lazy"{{/if}}>
+{{else if @first}}
+<img class="pl-hero-img" src="{{asset "images/showroom.webp"}}" alt="" width="1360" height="1020" fetchpriority="high">
 {{else}}
 <div class="pl-hero-room" aria-hidden="true">
-<span class="pl-hero-window"></span><span class="pl-hero-floor"></span>
-<span class="pl-hero-piece">{{> "art" kind=title}}</span>
-<span class="pl-hero-lamp">{{> "art" kind="lamp"}}</span>
+<span class="pl-hero-window"></span><span class="pl-hero-floor"></span><span class="pl-hero-piece">{{> "art" kind=title}}</span>
 </div>
 {{/if}}
+</div>
 <div class="pl-hero-copy">
-<p class="pl-hero-kicker">{{#if description}}{{description}}{{else}}{{plural product_count empty="New collection" singular="% piece to choose from" plural="% pieces to choose from"}}{{/if}}</p>
-<h1 class="pl-hero-title">{{title}}</h1>
-<a class="pl-btn pl-btn-light" href="{{url}}">Shop the collection {{> "icon" name="arrow" size="16"}}</a>
+<p class="pl-hero-kicker">Featured collection</p>
+{{#if @first}}<h1 class="pl-hero-title">{{title}}</h1>{{else}}<h2 class="pl-hero-title">{{title}}</h2>{{/if}}
+<p class="pl-hero-dek">{{#if description}}{{description}}{{else}}{{plural product_count empty="Browse the collection" singular="% piece" plural="% pieces"}} in this collection.{{/if}}</p>
+<a class="pl-btn pl-btn-ink pl-hero-action" href="{{url}}">Shop the collection {{> "icon" name="arrow" size="18"}}</a>
 </div>
 </article>
 {{/foreach}}
 </div>
-<div class="pl-hero-dots" role="tablist" aria-label="Slides">
-{{#foreach slides}}<button type="button" class="pl-dot{{#if @first}} is-on{{/if}}" aria-label="Slide {{@number}}" data-pl-go="{{@index}}"></button>{{/foreach}}
+{{#if slides.[1]}}
+<div class="pl-hero-dots" role="group" aria-label="Choose a collection">
+{{#foreach slides}}<button type="button" class="pl-dot{{#if @first}} is-on{{/if}}" aria-label="{{title}}" aria-pressed="{{#if @first}}true{{else}}false{{/if}}" data-pl-go="{{@index}}"></button>{{/foreach}}
 </div>
+{{/if}}
 </section>
 {{else}}
 <section class="pl-wrap pl-hero pl-hero-empty">
-<article class="pl-hero-slide is-on is-drawn">
-<div class="pl-hero-room" aria-hidden="true"><span class="pl-hero-window"></span><span class="pl-hero-floor"></span><span class="pl-hero-piece">{{> "art" kind="sofa"}}</span><span class="pl-hero-lamp">{{> "art" kind="lamp"}}</span></div>
+<article class="pl-hero-slide is-on">
+<div class="pl-cover-media"><img class="pl-hero-img" src="{{asset "images/showroom.webp"}}" alt="" width="1360" height="1020" fetchpriority="high"></div>
 <div class="pl-hero-copy">
-<p class="pl-hero-kicker">{{@site.description}}</p>
 <h1 class="pl-hero-title">{{@site.title}}</h1>
-<a class="pl-btn pl-btn-light" href="{{shop.url}}">Shop everything {{> "icon" name="arrow" size="16"}}</a>
+{{#if @site.description}}<p class="pl-hero-dek">{{@site.description}}</p>{{/if}}
+{{#if ../shop.url}}<a class="pl-btn pl-btn-ink pl-hero-action" href="{{../shop.url}}">Shop everything {{> "icon" name="arrow" size="18"}}</a>{{/if}}
 </div>
 </article>
 </section>
+{{/if}}
+{{/get}}
+
+{{!-- 6. Shop by categories --------------------------------------------- --}}
+{{#get "collections" limit="10" filter="product_count:>0" as |cats|}}
+{{#if cats}}
+<section class="pl-wrap pl-section pl-home-category" aria-labelledby="pl-cat-h">
+<div class="pl-head">
+<div><h2 id="pl-cat-h" class="pl-h2">Shop by category</h2></div>
+<a class="pl-more" href="{{../shop.collections_url}}">Every collection</a>
+</div>
+<div class="pl-cats">
+<a class="pl-circle pl-circle-sale" href="{{> "sale-url" fallback=../shop.url}}"><span class="pl-circle-art"><span class="pl-sale-dot">Sale</span></span><span class="pl-circle-name">On sale</span></a>
+{{#foreach cats}}{{> "collection-circle" count=true}}{{/foreach}}
+</div>
+</section>
+{{/if}}
 {{/get}}
 
 {{!-- 3. New arrivals ---------------------------------------------------- --}}
-{{#get "products" limit="10" as |arrivals|}}
-<section class="pl-wrap pl-section" aria-labelledby="pl-new-h">
+{{#get "products" order="newest" limit="10" as |arrivals|}}
+{{#if arrivals}}
+<section class="pl-wrap pl-section pl-arrivals-section" aria-labelledby="pl-new-h">
 <div class="pl-head">
-<div><h2 id="pl-new-h" class="pl-h2">New arrivals</h2><p class="pl-sub">Just in from the workshops, ready to ship.</p></div>
+<div><h2 id="pl-new-h" class="pl-h2">New arrivals</h2>{{#if @custom.promo_title}}<p class="pl-sub">{{@custom.promo_title}}</p>{{/if}}</div>
 <div class="pl-head-end"><a class="pl-more" href="{{../shop.url}}?sort=newest">View all</a>{{> "rail-buttons"}}</div>
 </div>
-<div class="pl-arrivals">
-<a class="pl-promo" href="{{../shop.url}}">
-<span class="pl-promo-kicker">New season</span>
-<span class="pl-promo-title">{{@custom.promo_title}}</span>
-<span class="pl-promo-art">{{> "art" kind="lamp"}}</span>
-<span class="pl-btn pl-btn-ink">Shop now</span>
-</a>
-<div class="pl-rail" data-pl-rail>
+<div class="pl-rail pl-arrivals" data-pl-rail aria-label="New arrivals">
 {{#foreach arrivals}}{{> "product-card"}}{{/foreach}}
 </div>
-</div>
 </section>
+{{/if}}
 {{/get}}
 
 {{!-- 4. Flash sale band ------------------------------------------------ --}}
@@ -94,38 +100,6 @@
 </div>
 </section>
 {{/if}}
-
-{{!-- 5. Four tall picks: featured products ------------------------------ --}}
-{{#get "products" filter="featured:true" limit="4" as |picks|}}
-<section class="pl-wrap pl-section" aria-label="Our picks">
-<div class="pl-tiles">
-{{#foreach picks}}
-<a class="pl-tile" href="{{url}}">
-{{#if feature_image}}<img src="{{feature_image}}" alt="" loading="lazy">{{else}}<span class="pl-tile-art">{{#if meta.shape}}{{> "art" kind=meta.shape}}{{else}}{{> "art" kind=(concat product_type " " title)}}{{/if}}</span>{{/if}}
-<span class="pl-tile-copy">
-<small>{{#if product_type}}{{product_type}}{{else}}Our pick{{/if}}</small>
-<b>{{title}}</b>
-<span class="pl-tile-foot"><span class="pl-tile-price">{{lookup this "price"}}</span><span class="pl-btn pl-btn-small pl-btn-light">Shop</span></span>
-</span>
-</a>
-{{/foreach}}
-</div>
-</section>
-{{/get}}
-
-{{!-- 6. Shop by categories --------------------------------------------- --}}
-{{#get "collections" limit="12" as |cats|}}
-<section class="pl-wrap pl-section" aria-labelledby="pl-cat-h">
-<div class="pl-head">
-<div><h2 id="pl-cat-h" class="pl-h2">Shop by category</h2></div>
-<a class="pl-more" href="{{../shop.collections_url}}">Every collection</a>
-</div>
-<div class="pl-cats">
-<a class="pl-circle pl-circle-sale" href="{{> "sale-url" fallback=../shop.url}}"><span class="pl-circle-art"><span class="pl-sale-dot">Sale</span></span><span class="pl-circle-name">On sale</span></a>
-{{#foreach cats}}{{> "collection-circle" count=true}}{{/foreach}}
-</div>
-</section>
-{{/get}}
 
 {{!-- 7. Featured collection: the first collection's pieces ------------- --}}
 {{#get "collections" limit="1" filter="product_count:>0" as |lead|}}
@@ -152,8 +126,9 @@
 
 {{!-- 8. Lookbook with hotspots: the two newest featured products ------- --}}
 {{#get "products" filter="featured:true" limit="2" as |spots|}}
+{{#if spots}}
 <section class="pl-look" aria-labelledby="pl-look-h">
-<div class="pl-look-scene" aria-hidden="false">
+<div class="pl-look-scene">
 <div class="pl-hero-room pl-room-warm" aria-hidden="true"><span class="pl-hero-window"></span><span class="pl-hero-floor"></span><span class="pl-hero-piece">{{> "art" kind="armchair"}}</span><span class="pl-hero-lamp">{{> "art" kind="lamp"}}</span></div>
 {{#foreach spots}}
 <div class="pl-spot pl-spot-{{@number}}">
@@ -168,14 +143,16 @@
 <div class="pl-look-side">
 <p class="pl-kicker">Shop the look</p>
 <h2 id="pl-look-h" class="pl-display">A room, <em>piece by piece</em></h2>
-<p class="pl-sub">Tap a dot to see what is in the picture, then take it home.</p>
+<p class="pl-sub">Select a marker to browse the featured pieces.</p>
 <a class="pl-btn pl-btn-ink" href="{{../shop.url}}">Shop all pieces {{> "icon" name="arrow" size="16"}}</a>
 </div>
 </section>
+{{/if}}
 {{/get}}
 
 {{!-- 9. Inspired by spaces: journal posts ------------------------------- --}}
 {{#get "posts" limit="6" include="tags" as |spaces|}}
+{{#if spaces}}
 <section class="pl-wrap pl-section" aria-labelledby="pl-spaces-h">
 <div class="pl-head">
 <div><h2 id="pl-spaces-h" class="pl-h2">Get inspired by spaces</h2><p class="pl-sub">Rooms, makers and notes from the journal.</p></div>
@@ -184,17 +161,26 @@
 <div class="pl-rail pl-rail-wide" data-pl-rail>
 {{#foreach spaces}}
 <a class="pl-space" href="{{url}}">
-{{#if feature_image}}<img src="{{img_url feature_image size="l"}}" alt="" loading="lazy">{{else}}<span class="pl-hero-room pl-room-soft"><span class="pl-hero-window"></span><span class="pl-hero-floor"></span></span>{{/if}}
-<span class="pl-space-copy">{{#if primary_tag}}<small>{{primary_tag.name}}</small>{{/if}}<b>{{title}}</b></span>
-<span class="pl-space-go" aria-hidden="true">{{> "icon" name="arrow" size="18"}}</span>
+<span class="pl-space-art">
+{{#match @index 0}}
+    {{#if @custom.journal_first_image}}<img src="{{img_url @custom.journal_first_image size="l"}}" alt="" loading="lazy">{{else}}<img src="{{asset "images/journal-reading-corner.webp"}}" alt="" width="880" height="660" loading="lazy">{{/if}}
+{{else match @index 1}}
+    {{#if @custom.journal_second_image}}<img src="{{img_url @custom.journal_second_image size="l"}}" alt="" loading="lazy">{{else}}<img src="{{asset "images/journal-sideboard.webp"}}" alt="" width="880" height="660" loading="lazy">{{/if}}
+{{else}}
+    {{#if feature_image}}<img src="{{img_url feature_image size="l"}}" alt="" loading="lazy">{{else}}<span class="pl-hero-room pl-room-soft" aria-hidden="true"><span class="pl-hero-window"></span><span class="pl-hero-floor"></span></span>{{/if}}
+{{/match}}
+</span>
+<span class="pl-space-copy"><span>{{#if primary_tag}}<small>{{primary_tag.name}}</small>{{/if}}<b>{{title}}</b></span><span class="pl-space-go">{{> "icon" name="arrow" size="18"}}</span></span>
 </a>
 {{/foreach}}
 </div>
 </section>
+{{/if}}
 {{/get}}
 
 {{!-- 10. Two banners: the fourth and fifth collections ------------------ --}}
 {{#get "collections" limit="5" as |banners|}}
+{{#if banners.[3]}}
 <section class="pl-wrap pl-section pl-banners" aria-label="Collections">
 {{#foreach banners from="4" to="5"}}
 <a class="pl-banner{{#if @last}} pl-banner-2{{/if}}" href="{{url}}">
@@ -203,20 +189,12 @@
 </a>
 {{/foreach}}
 </section>
-{{/get}}
-
-{{!-- 11. Marquee of collections ---------------------------------------- --}}
-{{#get "collections" limit="10" as |words|}}
-<div class="pl-marquee" aria-hidden="true">
-<div class="pl-marquee-track">
-{{#foreach words}}<span class="pl-mq-item"><span class="pl-mq-ic">{{> "art" kind=title}}</span>{{title}}</span>{{/foreach}}
-{{#foreach words}}<span class="pl-mq-item"><span class="pl-mq-ic">{{> "art" kind=title}}</span>{{title}}</span>{{/foreach}}
-</div>
-</div>
+{{/if}}
 {{/get}}
 
 {{!-- 12. Offers: pieces on sale -------------------------------------- --}}
 {{#get "products" filter="on_sale:true" limit="10" as |offers|}}
+{{#if offers}}
 <section class="pl-wrap pl-section" aria-labelledby="pl-offers-h">
 <div class="pl-head">
 <div><h2 id="pl-offers-h" class="pl-h2">Shop our offers</h2><p class="pl-sub">Marked down while they last.</p></div>
@@ -226,21 +204,22 @@
 {{#foreach offers}}{{> "product-card"}}{{/foreach}}
 </div>
 </section>
+{{/if}}
 {{/get}}
 
 {{!-- 13. About the studio ------------------------------------------------ --}}
 <section class="pl-wrap pl-section pl-about" aria-labelledby="pl-about-h">
 <div class="pl-about-art">
-{{#if @site.cover_image}}<img src="{{img_url @site.cover_image size="xl"}}" alt="" loading="lazy">{{else}}<span class="pl-hero-room pl-room-studio" aria-hidden="true"><span class="pl-hero-window"></span><span class="pl-hero-floor"></span><span class="pl-hero-piece">{{> "art" kind="desk"}}</span><span class="pl-hero-lamp">{{> "art" kind="stool"}}</span></span>{{/if}}
-<span class="pl-badge-ring" aria-hidden="true">
-<svg viewBox="0 0 120 120"><defs><path id="pl-ring" d="M60 60m-44 0a44 44 0 1 1 88 0a44 44 0 1 1-88 0"/></defs><text><textPath href="#pl-ring">MADE SLOWLY · MADE WELL · MADE TO LAST · </textPath></text></svg>
-<span class="pl-badge-core">{{> "icon" name="spark" size="26"}}</span>
-</span>
+{{#if @custom.studio_image}}
+    <img src="{{img_url @custom.studio_image size="xl"}}" alt="" loading="lazy">
+{{else}}
+    <img src="{{asset "images/workshop.webp"}}" alt="" width="1200" height="900" loading="lazy">
+{{/if}}
 </div>
 <div class="pl-about-copy">
 <p class="pl-kicker">Our studio</p>
 <h2 id="pl-about-h" class="pl-display">{{@custom.about_title}}</h2>
-<p class="pl-sub">{{@custom.about_text}}</p>
+{{#if @custom.about_text}}<p class="pl-sub">{{@custom.about_text}}</p>{{/if}}
 {{#get "pages" filter="slug:about" limit="1" as |about|}}{{#foreach about}}<a class="pl-btn pl-btn-line" href="{{url}}">Read our story {{> "icon" name="arrow" size="16"}}</a>{{/foreach}}{{/get}}
 </div>
 </section>
@@ -258,6 +237,7 @@
 
 {{!-- 15. The deal: lowest-priced pieces --------------------------------- --}}
 {{#get "products" order="price asc" filter="price_cents:>0+sold_out:false" limit="5" as |deal|}}
+{{#if deal}}
 <section class="pl-wrap pl-section pl-deal" aria-labelledby="pl-deal-h">
 {{#foreach deal limit="1"}}
 <a class="pl-deal-lead" href="{{url}}">
@@ -279,16 +259,7 @@
 {{/foreach}}
 </div>
 </section>
-{{/get}}
-
-{{!-- 16. Big type marquee -------------------------------------------- --}}
-{{#get "collections" limit="6" as |big|}}
-<div class="pl-bigtype" aria-hidden="true">
-<div class="pl-marquee-track">
-{{#foreach big}}<span>{{title}}</span><i>{{> "art" kind=title}}</i>{{/foreach}}
-{{#foreach big}}<span>{{title}}</span><i>{{> "art" kind=title}}</i>{{/foreach}}
-</div>
-</div>
+{{/if}}
 {{/get}}
 
 {{!-- 17. Promises ------------------------------------------------------- --}}

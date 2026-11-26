@@ -1,0 +1,12 @@
+{{#if @site.members_enabled}}
+    <div class="member-links">
+        {{#if @member}}
+            <a class="button button-quiet" href="#/portal/account" data-portal="account">{{t "Your account"}}</a>
+        {{else}}
+            <a class="text-link" href="#/portal/signin" data-portal="signin">{{t "Sign in"}}</a>
+            {{#unless @site.members_invite_only}}
+                <a class="button" href="#/portal/signup" data-portal="signup">{{t "Subscribe"}}</a>
+            {{/unless}}
+        {{/if}}
+    </div>
+{{/if}}

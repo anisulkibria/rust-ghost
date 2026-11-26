@@ -48,7 +48,7 @@
                 "type": "text",
                 "default": "Soft forms, slow living",
                 "group": "homepage",
-                "description": "The card beside New arrivals."
+                "description": "Optional subtitle above the New arrivals row."
             },
             "sale_ends": {
                 "type": "text",
@@ -76,6 +76,21 @@
                 "type": "text",
                 "default": "We work with a handful of small workshops, choose every material ourselves and keep each design in production for years, not seasons.",
                 "group": "homepage"
+            },
+            "studio_image": {
+                "type": "image",
+                "group": "homepage",
+                "description": "Replaces the bundled workshop photograph in Our studio."
+            },
+            "journal_first_image": {
+                "type": "image",
+                "group": "homepage",
+                "description": "Replaces the first photograph in the homepage journal."
+            },
+            "journal_second_image": {
+                "type": "image",
+                "group": "homepage",
+                "description": "Replaces the second photograph in the homepage journal."
             },
             "quote": {
                 "type": "text",

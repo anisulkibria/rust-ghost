@@ -2,12 +2,7 @@
 
 {{#post}}
 <main class="site-main doc-layout" id="main">
-    <aside class="doc-side" aria-label="{{t "Contents"}}">
-        <button class="contents-toggle" type="button" aria-expanded="false" aria-controls="doc-tree" data-contents-toggle>
-            {{> "icons/contents"}}<span>{{t "Contents"}}</span>
-        </button>
-        <div class="doc-tree" id="doc-tree">{{> "tree"}}</div>
-    </aside>
+    {{> "doc-sidebar"}}
 
     <article class="doc {{post_class}}">
         <nav class="crumbs" aria-label="{{t "Breadcrumb"}}">
@@ -27,6 +22,11 @@
                 {{reading_time minute=(t "1 min read") minutes=(t "% min read")}}
             </p>
         </header>
+
+        <details class="toc-inline" data-toc hidden>
+            <summary class="nav-heading">{{t "On this page"}}</summary>
+            <ol class="toc-list" role="list"></ol>
+        </details>
 
         <div class="content gh-content" data-doc-content data-label-anchor="{{t "Link to this section"}}">
             {{content}}
@@ -50,13 +50,13 @@
         <nav class="pager-docs" aria-label="{{t "Previous and next"}}">
             {{#prev_post in="primary_tag"}}
                 <a class="pager-doc pager-prev" href="{{url}}" rel="prev">
-                    <span class="pager-label">{{t "Previous"}}</span>
+                    <span class="pager-label">{{> "icons/arrow"}}{{t "Previous"}}</span>
                     <span class="pager-title"><span class="num" data-num-for="{{url}}"></span>{{title}}</span>
                 </a>
             {{/prev_post}}
             {{#next_post in="primary_tag"}}
                 <a class="pager-doc pager-next" href="{{url}}" rel="next">
-                    <span class="pager-label">{{t "Next"}}</span>
+                    <span class="pager-label">{{t "Next"}}{{> "icons/arrow"}}</span>
                     <span class="pager-title"><span class="num" data-num-for="{{url}}"></span>{{title}}</span>
                 </a>
             {{/next_post}}
@@ -68,7 +68,7 @@
     </article>
 
     <aside class="doc-toc" aria-labelledby="toc-heading" data-toc hidden>
-        <h2 class="toc-heading" id="toc-heading">{{t "On this page"}}</h2>
+        <h2 class="nav-heading" id="toc-heading">{{t "On this page"}}</h2>
         <ol class="toc-list" role="list"></ol>
         <a class="toc-top" href="#main">{{t "Back to top"}}</a>
     </aside>

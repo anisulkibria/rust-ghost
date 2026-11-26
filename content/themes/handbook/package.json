@@ -51,6 +51,11 @@
                 "type": "text",
                 "description": "Homepage heading. Defaults to \"How can we help?\"."
             },
+            "hero_image": {
+                "type": "image",
+                "description": "Replaces the Handbook cover artwork on the homepage.",
+                "group": "homepage"
+            },
             "support_url": {
                 "type": "text",
                 "description": "Where readers get help: a contact page or email link. Empty hides support links."

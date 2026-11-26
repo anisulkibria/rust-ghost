@@ -14,6 +14,7 @@
             var open = toggle.getAttribute('aria-expanded') !== 'true';
             toggle.setAttribute('aria-expanded', String(open));
             document.body.classList.toggle('is-menu-open', open);
+            if (open) nav.querySelector('a[href]')?.focus();
         });
         document.addEventListener('keydown', function (e) {
             if (e.key === 'Escape' && document.body.classList.contains('is-menu-open')) {
@@ -46,6 +47,13 @@
             link.addEventListener('mouseenter', function () { show(link); });
             link.addEventListener('focus', function () { show(link); });
         });
+    });
+
+    // Keep story previews readable when a publication's image is unavailable.
+    document.querySelectorAll('.peek-image, .card-image img').forEach(function (image) {
+        var removeImage = function () { (image.closest('.card-image') || image).remove(); };
+        if (image.complete && !image.naturalWidth) removeImage();
+        else image.addEventListener('error', removeImage, { once: true });
     });
 
     // Copy link button at the end of a post.

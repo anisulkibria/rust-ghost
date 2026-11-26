@@ -1,0 +1,48 @@
+{{!< default}}
+<main id="main" class="ea-main">
+{{#episode}}
+<section class="ea-hero ea-hero-ep">
+<div class="ea-wrap ea-ep-head">
+<div class="ea-now-art">{{> "art" class="ea-now-img" priority=true}}</div>
+<div class="ea-now-body">
+<a class="ea-back" href="{{show.url}}">{{> "icon" name="back" size="15"}} {{show.title}}</a>
+{{> "meta"}}
+<h1 class="ea-ep-title">{{title}}</h1>
+{{#if summary}}<p class="ea-now-sum">{{summary}}</p>{{/if}}
+{{> "stage"}}
+{{#if can_listen}}<div class="ea-ep-tools">
+<button class="ea-pill" type="button" data-vp-share>{{> "icon" name="share" size="14"}} Share from here</button>
+{{#if transcript_url}}<a class="ea-pill" href="#transcript" data-vp-open-transcript>{{> "icon" name="text" size="14"}} Transcript</a>{{/if}}
+{{#if chapters}}<a class="ea-pill" href="#chapters">{{> "icon" name="list" size="14"}} {{length chapters}} chapters</a>{{/if}}
+</div>{{/if}}
+</div>
+</div>
+</section>
+
+<div class="ea-wrap ea-ep-grid">
+<div class="ea-ep-main">
+{{#if video_embed}}<div class="ea-video">{{{video_embed.iframe}}}</div>{{/if}}
+{{#if notes}}<section class="ea-notes gh-content" aria-label="Show notes"><h2 class="ea-h2">Show notes</h2>{{{notes}}}</section>{{/if}}
+{{#if transcript}}
+<details class="vp-transcript ea-transcript" id="transcript">
+<summary><span>{{> "icon" name="text" size="18"}} Transcript</span><small>Search, or tap a time to jump there</small></summary>
+<div class="ea-transcript-tools"><input type="search" placeholder="Search the transcript" data-vp-filter aria-label="Search the transcript">{{#if transcript_url}}<a href="{{transcript_url}}" download>Download .txt</a>{{/if}}</div>
+<div class="ea-cues">{{#foreach transcript}}<p class="vp-cue">{{#if time}}<button type="button" data-vp-seek="{{start}}">{{time}}</button>{{/if}}{{#if speaker}}<b>{{speaker}}</b>{{/if}}<span>{{text}}</span></p>{{/foreach}}</div>
+</details>
+{{/if}}
+</div>
+<aside class="ea-ep-side">
+{{#if chapters}}<div class="ea-panel" id="chapters"><h2 class="ea-h3">Chapters</h2><ol class="vp-chapters ea-chapters">{{#foreach chapters}}<li><button type="button" data-vp-seek="{{start}}"><span class="ea-mono">{{time}}</span><span>{{title}}</span></button></li>{{/foreach}}</ol></div>{{/if}}
+{{#if people}}<div class="ea-panel"><h2 class="ea-h3">In this episode</h2><div class="ea-people ea-people-col">{{#foreach people}}{{> "person"}}{{/foreach}}</div></div>{{/if}}
+{{#if sponsors}}<div class="ea-panel"><h2 class="ea-h3">Supported by</h2>{{#foreach sponsors}}<a class="ea-sponsor" {{#if url}}href="{{url}}" target="_blank" rel="sponsored noopener"{{/if}}>{{#if logo}}<img src="{{logo}}" alt="">{{/if}}<span><b>{{name}}</b>{{#if tagline}}<small>{{tagline}}</small>{{/if}}{{#if promo_code}}<code>Code {{promo_code}}</code>{{/if}}</span></a>{{/foreach}}</div>{{/if}}
+<div class="ea-panel ea-panel-meta"><dl>{{#if published_at}}<div><dt>Published</dt><dd>{{date_label}}</dd></div>{{/if}}{{#if duration}}<div><dt>Length</dt><dd>{{duration_label}}</dd></div>{{/if}}{{#if size_label}}<div><dt>File</dt><dd>{{size_label}}</dd></div>{{/if}}</dl></div>
+</aside>
+</div>
+{{/episode}}
+
+
+<nav class="ea-wrap ea-neighbours" aria-label="More episodes">
+{{#if older}}{{#with older}}<a class="ea-neighbour" href="{{url}}">{{> "art" class="ea-neighbour-img"}}<span><small>← Previous</small><b>{{title}}</b></span></a>{{/with}}{{else}}<span></span>{{/if}}
+{{#if newer}}{{#with newer}}<a class="ea-neighbour ea-neighbour-next" href="{{url}}"><span><small>Next →</small><b>{{title}}</b></span>{{> "art" class="ea-neighbour-img"}}</a>{{/with}}{{else}}<span></span>{{/if}}
+</nav>
+</main>

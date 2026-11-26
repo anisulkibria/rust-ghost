@@ -1,0 +1,22 @@
+{{!-- The big player: the episode in context, a waveform that is also the
+     scrubber (podcast.js fills [data-vp-bar] span), and the play toggle. --}}
+{{#if audio_url}}
+<div class="ea-stage" data-vp-play data-vp-stage data-id="{{id}}" data-src="{{audio_url}}?s=web" data-title="{{title}}" data-show="{{show.title}}" data-art="{{artwork}}" data-url="{{url}}" data-dur="{{duration}}">
+<button class="ea-stage-btn" type="button" data-vp-toggle aria-label="Play">{{> "icon" name="play" size="30"}}</button>
+<div class="ea-stage-track">
+<div class="ea-wave" data-vp-bar data-ea-wave="{{id}}" role="slider" aria-label="Position" aria-valuemin="0" aria-valuemax="100" tabindex="0"><span></span></div>
+<div class="ea-stage-times"><span>0:00</span><span>{{clock}}</span></div>
+</div>
+</div>
+<noscript><audio class="ea-native-audio" controls preload="none" src="{{audio_url}}?s=web"></audio></noscript>
+{{else}}
+{{#if can_listen}}
+{{#if details}}<div><a class="ea-btn" href="{{url}}">Episode details {{> "icon" name="arrow" size="16"}}</a></div>{{/if}}
+{{else}}
+<div class="ea-stage ea-stage-lock">
+<span class="ea-stage-btn">{{> "icon" name="lock" size="26"}}</span>
+<div><b>For members</b><p>{{#if @member}}This episode is part of a paid plan.{{else}}Sign in or join to listen to this episode.{{/if}}</p></div>
+{{#if @member}}<a class="ea-btn" href="#/portal/account/plans">See plans</a>{{else}}<a class="ea-btn" href="#/portal/signup">Join to listen</a>{{/if}}
+</div>
+{{/if}}
+{{/if}}

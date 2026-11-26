@@ -1,0 +1,24 @@
+{
+    "name": "earshot",
+    "description": "A podcast theme for Tools → Podcast: a dark studio look, a waveform player that follows the listener from page to page, episode pages with chapters and a searchable transcript, and pages for hosts and guests.",
+    "version": "1.0.0",
+    "engines": { "ghost": ">=5.0.0" },
+    "license": "MIT",
+    "author": { "name": "Vuuut", "email": "themes@vuuut.com", "url": "https://vuuut.com" },
+    "keywords": ["vuuut", "vuuut-theme", "ghost-theme", "podcast", "audio", "show"],
+    "config": {
+        "posts_per_page": 9,
+        "image_sizes": { "xs": { "width": 160 }, "s": { "width": 400 }, "m": { "width": 720 }, "l": { "width": 1200 }, "xl": { "width": 2000 } },
+        "card_assets": true,
+        "custom": {
+            "color_scheme": { "type": "select", "options": ["Dark", "Light"], "default": "Dark", "description": "Dark is the studio look; Light keeps the same layout on paper white." },
+            "hero_label": { "type": "text", "default": "New episode", "group": "homepage", "description": "The small label over the newest episode." },
+            "episodes_label": { "type": "text", "default": "Recent episodes", "group": "homepage" },
+            "popular_label": { "type": "text", "default": "Most played", "group": "homepage" },
+            "show_popular": { "type": "boolean", "default": true, "group": "homepage" },
+            "show_posts": { "type": "boolean", "default": true, "group": "homepage", "description": "Blog posts under the episodes." },
+            "posts_label": { "type": "text", "default": "From the notebook", "group": "homepage" },
+            "subscribe_title": { "type": "text", "default": "Never miss an episode", "description": "The newsletter band above the footer." }
+        }
+    }
+}

@@ -259,6 +259,16 @@ pub async fn render_template(
                     m.insert("shop".into(), shop);
                 }
             }
+            if !m.contains_key("podcast") {
+                if let Some(v) = crate::podcast::site_podcast(state) {
+                    m.insert("podcast".into(), v);
+                }
+            }
+            if !m.contains_key("portfolio") {
+                if let Some(v) = crate::portfolio::site_portfolio(state) {
+                    m.insert("portfolio".into(), v);
+                }
+            }
             m.insert("site".into(), site);
             m.insert("config".into(), config);
             m.insert("member".into(), rctx.member.clone());

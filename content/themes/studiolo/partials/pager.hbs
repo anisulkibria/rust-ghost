@@ -1,0 +1,7 @@
+{{#match pagination.pages ">" 1}}
+<nav class="sl-pager" aria-label="Pages">
+{{#if pagination.prev}}<a class="sl-chip" href="{{page_url pagination.prev}}">← Newer</a>{{else}}<span></span>{{/if}}
+<span>{{pagination.page}} / {{pagination.pages}}</span>
+{{#if pagination.next}}<a class="sl-chip" href="{{page_url pagination.next}}">Older →</a>{{else}}<span></span>{{/if}}
+</nav>
+{{/match}}

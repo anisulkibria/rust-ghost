@@ -1,0 +1,8 @@
+Handle,Title,Body (HTML),Vendor,Type,Tags,Published,Option1 Name,Option1 Value,Variant Price,Variant Compare At Price,Variant Inventory Qty,Variant Requires Shipping,Image Src,Status
+iris-vase,Iris Vase,<p>A softly sculpted lilac ceramic vase with a narrow mouth. Style it with one stem or on its own.</p>,Larkspur Studio,Ceramics,ceramics,TRUE,Size,Small,46.00,,12,TRUE,/assets/images/iris-vase.webp,active
+iris-vase,,,,,,,Size,Large,58.00,,7,TRUE,,active
+loop-mug,Loop Mug,<p>A glossy olive stoneware mug with a wide loop handle.</p>,Larkspur Studio,Tableware,tableware,TRUE,Title,Default Title,28.00,,18,TRUE,/assets/images/loop-mug.webp,active
+sunfold-napkins,Sunfold Napkins,<p>Two sunflower linen napkins with a softly textured weave.</p>,Larkspur Studio,Textiles,textiles,TRUE,Title,Default Title,34.00,42.00,14,TRUE,/assets/images/sunfold-napkins.webp,active
+ripple-bowl,Ripple Bowl,<p>A broad cobalt ceramic bowl with an irregular rim and a glossy glaze.</p>,Larkspur Studio,Ceramics,ceramics,TRUE,Title,Default Title,42.00,,11,TRUE,/assets/images/ripple-bowl.webp,active
+citrus-pitcher,Citrus Pitcher,<p>An amber ceramic pitcher with a generous handle and smooth pour.</p>,Larkspur Studio,Tableware,tableware,TRUE,Title,Default Title,52.00,,9,TRUE,/assets/images/citrus-pitcher.webp,active
+dusk-runner,Dusk Runner,<p>A striped plum and cream linen runner for an everyday table.</p>,Larkspur Studio,Textiles,textiles,TRUE,Title,Default Title,39.00,,10,TRUE,/assets/images/dusk-runner.webp,active

@@ -8,4 +8,6 @@ The homepage reads the LMS categories with slugs `arabic`, `english`, and `frenc
 
 Use the theme settings to customize the homepage copy, choose a color scheme, hide the language section, or show the journal. If the LMS uses a custom route, enter it in **Catalog address**, including the trailing slash.
 
-Plus Jakarta Sans is self-hosted under the SIL Open Font License 1.1.
+Import [lingua-atlas-demo.json](demo/lingua-atlas-demo.json) on a test publication to add six journal articles and an About page. Use **Settings → Advanced → Import content**, or run `vuuut import-content content/themes/lingua-atlas/demo/lingua-atlas-demo.json`. Add `--with-settings` if you want the sample menus as well. Enable **Show journal** and set **Journal tag** to `language-journal` to showcase the sample articles on the homepage.
+
+The **Hero image** setting replaces the bundled phrasebook photograph. A portrait or square image works well. Instrument Serif and Plus Jakarta Sans are self-hosted under the SIL Open Font License 1.1.

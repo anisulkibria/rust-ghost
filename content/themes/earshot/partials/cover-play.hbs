@@ -1,0 +1,9 @@
+{{#if audio_url}}
+    <button class="ea-btn ea-cover-play" type="button" data-vp-play data-id="{{id}}" data-src="{{audio_url}}?s=web" data-title="{{title}}" data-show="{{show.title}}" data-art="{{artwork}}" data-url="{{url}}" data-dur="{{duration}}">
+        <span class="ea-cover-play-start">{{> "icon" name="play" size="18"}} Play latest</span>
+        <span class="ea-cover-play-pause">{{> "eq"}} Pause</span>
+    </button>
+    <noscript><a class="ea-btn" href="#ea-newest-title">Listen to the latest episode</a></noscript>
+{{else}}
+    <a class="ea-btn" href="{{url}}">Latest episode {{> "icon" name="arrow" size="16"}}</a>
+{{/if}}

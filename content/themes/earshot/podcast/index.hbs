@@ -1,0 +1,19 @@
+{{!< default}}
+{{!-- More than one show: the network page. --}}
+<main id="main" class="ea-main">
+<section class="ea-hero ea-hero-plain">
+<div class="ea-wrap ea-hero-in ea-hero-solo">
+<p class="ea-eyebrow"><span class="ea-live"></span>{{length shows}} shows</p>
+<h1 class="ea-hero-title">{{podcast.title}}</h1>
+{{#if podcast.intro}}<p class="ea-hero-sub">{{podcast.intro}}</p>{{/if}}
+</div>
+</section>
+<section class="ea-wrap ea-block">
+<div class="ea-shows">{{#foreach shows}}
+<a class="ea-show" href="{{url}}">{{> "art" class="ea-show-img"}}<span class="ea-show-body"><b>{{title}}</b>{{#if this.author}}<small>{{this.author}}</small>{{/if}}{{#if subtitle}}<span>{{subtitle}}</span>{{/if}}<em>{{episode_count}} episodes</em></span></a>
+{{/foreach}}</div>
+</section>
+{{#if episodes}}
+<section class="ea-wrap ea-block"><div class="ea-block-head"><h2 class="ea-h2">Latest across the network</h2></div><div class="ea-list">{{#foreach episodes}}{{> "episode-row"}}{{/foreach}}</div></section>
+{{/if}}
+</main>

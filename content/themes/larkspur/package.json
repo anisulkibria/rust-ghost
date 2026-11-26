@@ -1,0 +1,26 @@
+{
+    "name": "larkspur",
+    "description": "An editorial Vuuut storefront for homewares, ceramics and independent design.",
+    "version": "1.0.0",
+    "engines": { "ghost": ">=5.0.0" },
+    "license": "MIT",
+    "author": { "name": "Vuuut", "email": "themes@vuuut.com", "url": "https://vuuut.com" },
+    "keywords": ["vuuut", "vuuut-theme", "ghost-theme", "ecommerce", "homewares"],
+    "config": {
+        "posts_per_page": 9,
+        "image_sizes": {
+            "s": { "width": 320 },
+            "m": { "width": 720 },
+            "l": { "width": 1200 },
+            "xl": { "width": 1800 }
+        },
+        "card_assets": true,
+        "custom": {
+            "hero_heading": { "type": "text", "group": "homepage", "description": "Optional headline for the homepage." },
+            "hero_text": { "type": "text", "group": "homepage", "description": "Optional introduction. Blank shows the theme introduction." },
+            "hero_image": { "type": "image", "group": "homepage", "description": "Replaces the bundled homepage photograph." },
+            "show_collections": { "type": "boolean", "default": true, "group": "homepage" },
+            "show_journal": { "type": "boolean", "default": false, "group": "homepage" }
+        }
+    }
+}

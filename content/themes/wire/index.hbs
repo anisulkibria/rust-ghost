@@ -14,9 +14,10 @@
         <h1 class="visually-hidden">{{@site.title}}</h1>
 
         {{#if posts}}
-            <section class="front wrap" aria-label="{{t "Latest"}}">
+            <section class="front wrap" aria-labelledby="front-heading">
                 <div class="front-lead">
-                    {{#foreach posts limit="1"}}{{> "card" size="lead"}}{{/foreach}}
+                    <h2 class="front-heading" id="front-heading">{{t "Top story"}}</h2>
+                    {{#foreach posts limit="1"}}{{> "card" size="lead" front=true}}{{/foreach}}
                 </div>
 
                 {{#match posts.length ">" 1}}

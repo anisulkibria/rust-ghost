@@ -95,6 +95,10 @@
     };
     btn.addEventListener('click', function () { set(true); });
     close.addEventListener('click', function () { set(false); btn.focus(); });
+    nav.addEventListener('click', function (event) {
+      var link = event.target.closest('a[href^="#"]');
+      if (link && nav.classList.contains('is-open')) set(false);
+    });
     document.addEventListener('keydown', function (e) { if (e.key === 'Escape' && nav.classList.contains('is-open')) set(false); });
   });
 
@@ -102,20 +106,21 @@
   $$('[data-pl-slider]').forEach(function (root) {
     var slides = $$('.pl-hero-slide', root), dots = $$('[data-pl-go]', root);
     if (slides.length < 2) { dots.forEach(function (d) { d.hidden = true; }); return; }
-    var at = 0, timer;
+    var at = 0;
     var go = function (n) {
       at = (n + slides.length) % slides.length;
-      slides.forEach(function (s, i) { s.classList.toggle('is-on', i === at); s.setAttribute('aria-hidden', String(i !== at)); });
-      dots.forEach(function (d, i) {
-        d.classList.remove('is-on'); void d.offsetWidth; // restart the fill
-        d.classList.toggle('is-on', i === at); d.setAttribute('aria-selected', String(i === at));
+      slides.forEach(function (slide, i) {
+        var active = i === at;
+        slide.classList.toggle('is-on', active);
+        slide.setAttribute('aria-hidden', String(!active));
+        slide.toggleAttribute('inert', !active);
       });
-      clearTimeout(timer);
-      if (!reduce) timer = setTimeout(function () { go(at + 1); }, 6000);
+      dots.forEach(function (dot, i) {
+        dot.classList.toggle('is-on', i === at);
+        dot.setAttribute('aria-pressed', String(i === at));
+      });
     };
-    dots.forEach(function (d) { d.addEventListener('click', function () { go(+d.getAttribute('data-pl-go')); }); });
-    root.addEventListener('mouseenter', function () { clearTimeout(timer); });
-    root.addEventListener('mouseleave', function () { go(at); });
+    dots.forEach(function (dot) { dot.addEventListener('click', function () { go(+dot.dataset.plGo); }); });
     var x0 = null;
     root.addEventListener('touchstart', function (e) { x0 = e.touches[0].clientX; }, { passive: true });
     root.addEventListener('touchend', function (e) {
@@ -143,13 +148,6 @@
   });
 
   /* drag to scroll the category strip with a mouse */
-  $$('[data-pl-drag]').forEach(function (el) {
-    var down = false, x = 0, left = 0, moved = false;
-    el.addEventListener('mousedown', function (e) { down = true; moved = false; x = e.pageX; left = el.scrollLeft; });
-    window.addEventListener('mouseup', function () { down = false; });
-    el.addEventListener('mousemove', function (e) { if (!down) return; var d = e.pageX - x; if (Math.abs(d) > 4) moved = true; el.scrollLeft = left - d; });
-    el.addEventListener('click', function (e) { if (moved) { e.preventDefault(); moved = false; } }, true);
-  });
 
   /* flash sale countdown */
   $$('[data-pl-countdown]').forEach(function (band) {
@@ -200,7 +198,7 @@
     var io = new IntersectionObserver(function (entries) {
       entries.forEach(function (e) { if (e.isIntersecting) { e.target.classList.add('is-in'); io.unobserve(e.target); } });
     }, { rootMargin: '0px 0px -8% 0px' });
-    $$('.pl-home > section:not(.pl-strip):not(.pl-hero), .pl-grid > .pl-card').forEach(function (el, i) {
+    $$('.pl-home > section:not(.pl-hero), .pl-grid > .pl-card').forEach(function (el, i) {
       el.classList.add('pl-reveal');
       if (el.classList.contains('pl-card')) el.style.transitionDelay = (i % 4) * 70 + 'ms';
       io.observe(el);

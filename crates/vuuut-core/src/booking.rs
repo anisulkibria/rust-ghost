@@ -122,7 +122,7 @@ impl Paths {
             return Some(Self::default());
         }
         let clean = crate::ecom::clean_address(b)?;
-        if matches!(clean.split('/').next().unwrap_or_default(), "shop" | "directory" | "courses") {
+        if matches!(clean.split('/').next().unwrap_or_default(), "shop" | "directory" | "courses" | "podcast" | "portfolio") {
             return None;
         }
         Some(Paths { base: clean })

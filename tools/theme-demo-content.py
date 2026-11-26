@@ -503,6 +503,224 @@ def wayletter():
     e.write()
 
 
+# ================================================================ Handbook
+def handbook():
+    e = Export('handbook')
+    editor = e.user('Handbook editors', 'The team behind the sample guides in Handbook.')
+    sections = [
+        ('Getting started', 'Set up your publication and get your first issue out the door.', [
+            ('Create your publication', 'Set the title, audience, and identity for your new publication.',
+             'Choose a publication name', 'Use the name readers will recognize on the site and in their inbox. Add a one-sentence description that says what you publish and who it is for.',
+             'Check your address', 'Open the public URL in a private window. Use that address wherever you link to the publication.',
+             'Create your first draft', 'Outline one useful idea. Give it a descriptive title, add a short introduction, and split the body into sections a reader can scan.'),
+            ('Plan your handbook', 'Turn recurring reader questions into a short list of guides.',
+             'Start with reader tasks', 'Collect recent questions and group them by the task a reader is trying to finish.',
+             'Name the sections', 'Choose familiar labels. A label such as Publishing is easier to recognize than a label based on how your team is organized.',
+             'Write a short introduction', 'Explain who the handbook is for and link to the first guide most readers need.'),
+            ('Publish your first guide', 'Prepare a small, useful article and verify the public version.',
+             'Write a clear outcome', 'Tell readers what they will be able to do by the end of the guide.',
+             'Assign its section', 'Use the guide’s main topic as the primary tag. Handbook uses that tag to place it in the contents tree.',
+             'Review the public view', 'Check headings, numbered steps, and links in preview. Open the public URL after publishing.'),
+            ('Set your article order', 'Put prerequisites before the guides that depend on them.',
+             'Outline the sequence', 'List the articles in the order a new reader should follow.',
+             'Set publication dates', 'Handbook reads each section from its oldest article to its newest. The first guide in the sequence needs the earliest date.',
+             'Check the contents tree', 'Open two consecutive articles and confirm their addresses and previous and next links agree.'),
+        ]),
+        ('Publishing', 'Write, review, and maintain guides readers can follow.', [
+            ('Write a step-by-step guide', 'Structure instructions around the task a reader wants to complete.',
+             'State what readers need', 'List any access, materials, or earlier steps a reader needs before starting.',
+             'Write one action per step', 'Start with a verb, name the control or location, and describe the result when it helps readers verify their progress.',
+             'Describe the result', 'End by showing what success looks like and where the reader can go next.'),
+            ('Make screenshots easier to follow', 'Choose screenshots that clarify an unfamiliar step.',
+             'Capture the relevant area', 'Keep enough context to identify the screen and crop unrelated content.',
+             'Add a useful caption', 'Tell readers which control to find or what state they should see.',
+             'Check the mobile view', 'Open the guide on a narrow screen. Make sure the instruction can be followed from the surrounding text when the image is small.'),
+            ('Update an existing guide', 'Keep a guide current while preserving its public address.',
+             'Confirm the new workflow', 'Repeat the task and note which labels, steps, and prerequisites changed.',
+             'Revise the affected steps', 'Update screenshots and examples alongside the instructions they support.',
+             'Verify incoming links', 'Keep the article slug and existing heading anchors in place when possible. Check links from related guides.'),
+        ]),
+        ('Customization', 'Make the handbook fit your publication’s identity.', [
+            ('Customize the homepage', 'Set a concise heading, a helpful description, and a cover image.',
+             'Write the homepage heading', 'Set Hero heading in the theme settings. Use a short line that gives visitors a clear sense of where they are.',
+             'Choose a cover image', 'Upload a landscape image in Hero image. Place important details near the center so they survive the mobile crop.',
+             'Preview both color schemes', 'Use the color scheme button to check contrast, image tone, and wrapping.'),
+            ('Organize the section index', 'Decide which topics appear and set their reading order.',
+             'Choose a primary tag', 'Make each guide’s main topic its primary public tag. Add a short tag description for the section card.',
+             'Set the section sequence', 'Enter the tag slugs in the Sections setting, separated by commas. List the first section you want readers to see first.',
+             'Check the section cards', 'Open the homepage and confirm each card points to the expected section and starter guides.'),
+        ]),
+        ('Reference', 'Find the conventions used throughout the handbook.', [
+            ('Link to a specific heading', 'Send a reader straight to the relevant part of a guide.',
+             'Find the heading', 'Open the guide and use the page outline to locate the right section.',
+             'Copy the heading address', 'Focus or hover over the heading to reveal its link. Copy that address for your message or related guide.',
+             'Verify the link', 'Open the copied address in a new tab and check that it lands on the intended heading.'),
+            ('Use section and article numbers', 'Refer to guides with the same addresses readers see in the contents tree.',
+             'Read an article number', 'An address such as 2.3 means the third guide in the second section.',
+             'Pair numbers with titles', 'Use the article title or link alongside its number so readers can find it quickly.',
+             'Check after reordering', 'Section and article numbers follow the current reading order. Update references in any material that quotes the old numbers.'),
+            ('Format names and examples', 'Make a guide easier to scan with consistent presentation.',
+             'Match interface labels', 'Spell control names exactly as they appear on screen.',
+             'Mark literal values', 'Use inline code for filenames, settings keys, and other values readers should enter as written.',
+             'Introduce longer examples', 'Use a code block when readers need to copy multiple lines. Explain where it belongs and what it should produce.'),
+        ]),
+        ('Support', 'Give readers a clear way to ask for help or report an issue.', [
+            ('Write a helpful issue report', 'Share enough context for someone else to follow what happened.',
+             'Summarize the problem', 'Name the page or task and describe the result you expected.',
+             'List what you tried', 'Write the steps in order and include the exact message you saw. Remove private data from any screenshots.',
+             'Share the guide address', 'Copy the article or heading link so the person responding can find the same instructions.'),
+            ('Set up a support link', 'Give readers a destination when a guide does not answer their question.',
+             'Choose a contact destination', 'Use a contact page that explains how to get help or an email address your team checks.',
+             'Set the Support URL', 'Add the destination in the theme settings. Handbook uses it in the header, on the homepage, and after a negative feedback answer.',
+             'Test the destination', 'Open the support link as a reader and confirm it reaches the intended page or email address.'),
+        ]),
+        ('Troubleshooting', 'Check the usual causes of missing articles and navigation.', [
+            ('Find a guide missing from the index', 'Check publication status, tags, and the theme’s section list.',
+             'Confirm the guide is public', 'Open its public address in a private browser window and confirm it is available to the intended audience.',
+             'Check the primary tag', 'Make sure the first tag is the public section you want the guide to appear under.',
+             'Review the Sections setting', 'If the list is configured, confirm it includes the exact slug of the guide’s primary tag.'),
+        ]),
+    ]
+    for section_index, (name, description, articles) in enumerate(sections):
+        e.tag(name, description)
+        for position, (title, excerpt, h2, first, h3, second, closing, third) in enumerate(articles):
+            blocks = [('p', excerpt), ('h2', h2), ('p', first), ('h3', h3), ('p', second),
+                      ('h2', closing), ('p', third)]
+            if title == 'Create your publication':
+                blocks.extend([
+                    ('ul', ['Use a title you can say aloud.', 'Describe what readers will learn.', 'Open your publication on a small screen.']),
+                    ('h2', 'Review and publish'),
+                    ('p', 'Read the draft aloud, check its links, and preview it at the width your readers are likely to use.'),
+                    ('quote', 'Send the public link to one trusted reader and ask them to follow the guide from start to finish.'),
+                ])
+            e.post(title, blocks, [name], [editor], excerpt, days_ago=24 - 2 * position - 3 * section_index)
+
+    e.page('About the handbook', [('p', 'This sample publication demonstrates the Handbook theme.'),
+                                  ('h2', 'Using this reference'),
+                                  ('p', 'Start at the documentation index or use search to find a guide. Every article has an address based on its place in the handbook.')],
+           'about-handbook', 'An introduction to the sample documentation.', [editor])
+    e.menu('navigation', [('Documentation', '/'), ('About', '/about-handbook/')])
+    e.menu('secondary_navigation', [('Support guides', '/tag/support/')])
+    e.write()
+
+
+# ================================================================ Lingua Atlas
+def lingua_atlas():
+    e = Export('lingua-atlas')
+    editor = e.user('Lingua Atlas editors', 'Writes the sample language-learning journal.')
+    journal = 'Language Journal'
+    e.tag(journal, 'Short reads and practical exercises for Arabic, English, and French learners.')
+
+    posts = [
+        ('Arabic', 'Three Arabic greetings to try aloud', 'Practice two greetings and a reply in Modern Standard Arabic.', [
+            ('h2', 'Start with marḥaban'),
+            ('p', 'مَرْحَبًا (marḥaban) means “hello.” Say it slowly once, then say it at a pace that feels natural. The ḥ represents a stronger breath sound than the English h.'),
+            ('h2', 'Try a traditional greeting'),
+            ('p', 'السَّلَامُ عَلَيْكُمْ (as-salāmu ʿalaykum) means “peace be upon you.” A customary reply is وَعَلَيْكُمُ السَّلَامُ (wa ʿalaykumu s-salām), meaning “and peace be upon you.”'),
+            ('h2', 'Practice both parts'),
+            ('p', 'Write the greeting on one card and the reply on another. Turn over the first card and try to answer before looking at the second.'),
+        ]),
+        ('English', 'What to say when you miss a word', 'Three phrases for keeping an English conversation going.', [
+            ('h2', 'Ask for a repeat'),
+            ('p', 'Try “Could you say that again?” when you missed a complete sentence. If one part went by too quickly, try “Could you say the last part more slowly?”'),
+            ('h2', 'Check what you heard'),
+            ('p', 'Repeat the key detail as a question. If someone says they arrive at fifteen past six, you can ask “Did you say six fifteen?”'),
+            ('h2', 'Rehearse a short exchange'),
+            ('p', 'Ask a partner to give you a time or a street name. Request a repeat, confirm the detail, and thank them. Swap roles and try a new detail.'),
+        ]),
+        ('French', 'Order your first coffee in French', 'Build a short café exchange from a greeting, an order, and a thank-you.', [
+            ('h2', 'Open with a greeting'),
+            ('p', 'Say “Bonjour” when you approach the counter during the day. Then try “Un café, s’il vous plaît” for a simple order.'),
+            ('h2', 'Choose here or to go'),
+            ('p', 'You may hear “Sur place ou à emporter ?” A short answer works here. Say “Sur place, merci” to stay or “À emporter, merci” to take it away.'),
+            ('h2', 'Change one detail'),
+            ('p', 'Practice the exchange again with “Un thé, s’il vous plaît.” Keep the greeting and reply the same so you can concentrate on the new word.'),
+        ]),
+        ('Study habits', 'Build a ten-minute language habit', 'A small routine for fitting listening, recall, and speaking into your day.', [
+            ('h2', 'Choose one useful phrase'),
+            ('p', 'Pick a phrase that fits a situation you might encounter this week. Read it, then listen to it if you have a recording.'),
+            ('h2', 'Recall it without looking'),
+            ('p', 'Hide the phrase and say it aloud. Check it, then change one detail. For an introduction, try replacing the name or city.'),
+            ('h2', 'Make the next session easy'),
+            ('p', 'Leave the phrase and its example where you will find them tomorrow. Begin the next session by recalling the same phrase before choosing another.'),
+        ]),
+        ('Arabic', 'Start reading from the right', 'Use a short word to practice the direction and shape of Arabic script.', [
+            ('h2', 'Find the first letter'),
+            ('p', 'In بَاب (bāb, “door”), start on the right with ب. The middle letter ا represents the long ā in this word.'),
+            ('h2', 'Notice the connection'),
+            ('p', 'The initial ب joins to the following ا. The ا does not join to the letter after it, so the final ب is separated.'),
+            ('h2', 'Say it and copy it'),
+            ('p', 'Say bāb, then copy it twice from right to left. Look for the dot below each ب when you compare your version with the model.'),
+        ]),
+        ('French', 'Ask where something is in French', 'Practice a question you can reuse while finding your way around.', [
+            ('h2', 'Learn one complete question'),
+            ('p', '“Où est la gare, s’il vous plaît ?” means “Where is the train station, please?” Say it aloud as a full phrase.'),
+            ('h2', 'Change the destination'),
+            ('p', 'Try “Où est la pharmacie ?” for the pharmacy or “Où est le musée ?” for the museum. Practice the article together with the place name.'),
+            ('h2', 'Listen for a direction'),
+            ('p', 'Practice recognizing “à gauche” for left, “à droite” for right, and “tout droit” for straight ahead. Give a friend a destination and ask them to choose one of the three replies.'),
+        ]),
+    ]
+
+    for index, (language, title, summary, blocks) in enumerate(posts):
+        e.post(title, [('p', summary), *blocks], [language, journal], [editor], summary, days_ago=index + 1)
+
+    e.page('About Lingua Atlas', [
+        ('p', 'Lingua Atlas is a sample language school for Arabic, English, and French. The catalogue pairs beginner courses with short practice sessions and intermediate courses.'),
+        ('h2', 'Start with a situation'),
+        ('p', 'Choose something you would like to do, such as introduce yourself, ask for directions, or order in a café. Pick a course that helps you practice that situation.'),
+        ('h2', 'Take a small lesson with you'),
+        ('p', 'Use the journal for one phrase or exercise to try between lessons. Keep a note of what you can already say and what you want to practice next.'),
+    ], 'about-lingua-atlas', 'How to use the sample Lingua Atlas school and journal.', [editor])
+    e.menu('navigation', [('Journal', '/tag/language-journal/'), ('About', '/about-lingua-atlas/')])
+    e.menu('secondary_navigation', [('About Lingua Atlas', '/about-lingua-atlas/'), ('Language Journal', '/tag/language-journal/')])
+    e.write()
+
+
+# ================================================================ Margin
+def margin():
+    e = Export('margin')
+    editor = e.user('Nora Vale', 'Writes essays, reading notes, and observations from everyday places.')
+    items = [
+        ('Essays', 'A room to read in', 'On returning to a book, a room, and the pleasure of an unhurried afternoon.',
+         'Begin with the window', 'The rain made the garden look loosely drawn. At the window the branches shook, and the book on the table stayed open where I had left it. I read the same page twice because I liked where the sentence put me.',
+         'Make room for a return', 'The best place to read may be somewhere you can leave a book open and return to it. I keep a pencil nearby. A line in the margin tells me what I noticed last time.'),
+        ('Field notes', 'The long way home', 'What changes when the familiar walk takes ten minutes longer.',
+         'A small diversion', 'I went past the station and took the lane behind the houses. Someone had painted their gate the blue of an old enamel pot. I had never looked down that lane from the pavement.',
+         'Build a collection of routes', 'Choose a corner where you always turn and go straight once. Write down one detail you would have missed on your usual route.'),
+        ('Books', 'What we leave in the margins', 'Old underlines and the company they offer on a second reading.',
+         'The pencilled line', 'In a borrowed book I found a sentence underlined in two colours. The second reader had stopped halfway through. I wanted to know what they had decided about the rest.',
+         'Write a note to your future self', 'Record the question a passage raises for you. When you read it again, your old question can become a second voice in the room.'),
+        ('Essays', 'Somewhere between useful and beautiful', 'A few things we keep because our hands remember them.',
+         'A cup from the back of the shelf', 'The handle of my favourite cup is too small for two fingers. I pick it up with my whole hand and wait a moment before the first sip.',
+         'A better measure', 'I used to sort objects by how often I used them. Some earn their place slowly. They make one ordinary action feel like a choice.'),
+        ('Field notes', 'A morning at the market', 'A notebook entry on the things that come into season all at once.',
+         'At the first stall', 'There were pears in shallow wooden trays and green tomatoes wrapped in old newspaper. The seller could tell which pears I meant by the way I reached.',
+         'Bring the season home', 'I bought what smelled good and asked when it would be ripe. Back home, I wrote both answers down.'),
+        ('Books', 'Reading the same page twice', 'The details a good paragraph keeps for a second visit.',
+         'A slower pass', 'On the first reading I wanted to know what happened. On the second I heard how the middle sentence changed the pace.',
+         'Try it with a paragraph', 'Go back to a page you remember liking. Read it aloud and notice where you take a breath. A clause you hurried past may have been holding the paragraph together.'),
+        ('Essays', 'An ordinary kind of attention', 'Watching the day take shape around the small things we notice.',
+         'One detail at breakfast', 'The light crossed the table as slowly as the butter softened. I wrote that down while I could still see both changes happening together.',
+         'Keep notes close to the thing', 'A line about a morning can start with the glass, the floor, or the sound from the street. Concrete details give you somewhere to begin.'),
+        ('Field notes', 'Letters from the edge of town', 'A short walk at the point where the street gives way to the field.',
+         'Past the last house', 'The pavement ended beside a linden tree. For a few steps the path was narrow enough that the long grass touched both ankles.',
+         'Return in another season', 'I plan to walk the same path when the branches are bare. A place I know in summer can still surprise me in winter.'),
+        ('Books', 'A shelf of beginnings', 'On keeping one shelf for books you have yet to open.',
+         'Leave a little space', 'I cleared one shelf for books I have been meaning to start. I put the shortest one at eye level and opened it while the kettle boiled.',
+         'Let a first page be enough', 'Some evenings I only read the opening page. That is still a way of finding the book I want to spend time with next.'),
+    ]
+    for number, (tag, title, summary, first_heading, first, second_heading, second) in enumerate(items):
+        e.post(title, [('h2', first_heading), ('p', first), ('h2', second_heading), ('p', second)],
+               [tag], [editor], summary, days_ago=number + 1)
+
+    e.page('About Margin', [('p', 'Margin is a sample journal about reading, daily habits, and the places we return to.'),
+                           ('p', 'Browse the essays, field notes, and book entries from the homepage, or follow the journal by email or RSS.')],
+           'about-margin', 'About the sample publication.', [editor])
+    e.menu('navigation', [('Home', '/'), ('Essays', '/tag/essays/'), ('Field notes', '/tag/field-notes/'), ('Books', '/tag/books/'), ('About', '/about-margin/')])
+    e.write()
+
+
 if __name__ == '__main__':
     broadsheet()
     broadsheet('coverline')
@@ -510,3 +728,6 @@ if __name__ == '__main__':
     monogram()
     plinth()
     wayletter()
+    handbook()
+    lingua_atlas()
+    margin()

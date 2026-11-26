@@ -5,11 +5,11 @@
     the All places page already filtered.
 --}}
 {{!-- This engine cannot filter tags by a list of slugs, so every public tag is fetched and the Places setting sorts them: a tag whose slug appears in it is a place, anything else is a category. --}}
-<form class="finder" action="{{#if @custom.directory_page}}{{@custom.directory_page}}{{else}}/places/{{/if}}" method="get" data-finder role="search" aria-label="{{t "Find a place"}}">
+<form class="finder" action="{{#if @custom.directory_page}}{{@custom.directory_page}}{{else}}/places/{{/if}}" method="get" data-finder data-tag-finder role="search" aria-label="{{t "Find a place"}}">
     <p class="finder-sentence">
         <span class="finder-word">{{t "Find"}}</span>
         <span class="finder-pick">
-            <label class="visually-hidden" for="finder-what">{{t "What are you looking for?"}}</label>
+            <label class="visually-hidden" for="finder-what">{{t "Category"}}</label>
             <select id="finder-what" name="what" data-size>
                 <option value="">{{t "anything"}}</option>
                 {{#get "tags" limit="60" include="count.posts" order="name asc" filter="visibility:public" as |all|}}

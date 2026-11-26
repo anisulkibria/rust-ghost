@@ -1,0 +1,11 @@
+<section class="ea-wrap ea-block ea-journal" aria-labelledby="ea-posts-h">
+    <div class="ea-block-head"><h2 class="ea-h2" id="ea-posts-h">{{@custom.posts_label}}</h2></div>
+    <div class="ea-posts">
+        {{#if preview}}
+            {{#foreach entries limit="3"}}{{> "post-card"}}{{/foreach}}
+        {{else}}
+            {{#foreach entries}}{{> "post-card"}}{{/foreach}}
+        {{/if}}
+    </div>
+    {{#unless preview}}{{> "pager"}}{{/unless}}
+</section>

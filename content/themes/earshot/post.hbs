@@ -1,0 +1,19 @@
+{{!< default}}
+{{#post}}
+<main id="main" class="ea-main">
+<article class="ea-article {{post_class}}">
+<header class="ea-narrow ea-article-head">
+{{#if primary_tag}}<a class="ea-tag" href="{{primary_tag.url}}">{{primary_tag.name}}</a>{{/if}}
+<h1 class="ea-h1">{{title}}</h1>
+{{#if custom_excerpt}}<p class="ea-lede">{{custom_excerpt}}</p>{{/if}}
+<div class="ea-meta"><span>{{authors separator=", "}}</span><span><time datetime="{{date format="YYYY-MM-DD"}}">{{date format="D MMM YYYY"}}</time></span><span>{{reading_time minute="1 min read" minutes="% min read"}}</span></div>
+</header>
+{{#if feature_image}}<figure class="ea-wrap ea-article-img"><img src="{{img_url feature_image size="l"}}" srcset="{{img_url feature_image size="m"}} 720w, {{img_url feature_image size="l"}} 1200w, {{img_url feature_image size="xl"}} 2000w" sizes="(max-width: 1200px) 100vw, 1200px" alt="{{#if feature_image_alt}}{{feature_image_alt}}{{else}}{{title}}{{/if}}">{{#if feature_image_caption}}<figcaption>{{feature_image_caption}}</figcaption>{{/if}}</figure>{{/if}}
+<div class="ea-content gh-content">{{content}}</div>
+<div class="ea-narrow ea-comments">{{comments}}</div>
+</article>
+{{#get "posts" filter="id:-{{id}}" limit="3" include="tags"}}{{#if posts}}
+<section class="ea-wrap ea-block"><div class="ea-block-head"><h2 class="ea-h2">Keep reading</h2></div><div class="ea-posts">{{#foreach posts}}{{> "post-card"}}{{/foreach}}</div></section>
+{{/if}}{{/get}}
+</main>
+{{/post}}

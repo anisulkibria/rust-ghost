@@ -36,10 +36,10 @@
     var kindsNode = document.querySelector('[data-listing-kinds]');
     var kinds = kindsNode ? kindsNode.textContent.split(/\s+/).filter(Boolean) : [];
     if (kinds.length) {
-        document.querySelectorAll('.kind[data-slug]').forEach(function (chip) {
+        document.querySelectorAll('[data-tag-kinds] .kind[data-slug]').forEach(function (chip) {
             if (kinds.indexOf(chip.getAttribute('data-slug')) === -1) chip.closest('li').remove();
         });
-        document.querySelectorAll('select[name="what"] option').forEach(function (opt) {
+        document.querySelectorAll('[data-tag-finder] select[name="what"] option').forEach(function (opt) {
             if (opt.value && kinds.indexOf(opt.value) === -1) opt.remove();
         });
     }

@@ -1,0 +1,20 @@
+<footer class="site-footer">
+    <div class="wrap footer-grid">
+        <div>
+            <a class="brand footer-brand" href="{{@site.url}}">{{@site.title}}</a>
+            {{#if @site.description}}<p>{{@site.description}}</p>{{/if}}
+        </div>
+        {{#if shop.url}}
+            <nav aria-label="Shop">
+                <a href="{{shop.url}}">Shop all</a>
+                <a href="{{shop.collections_url}}">Collections</a>
+                <a href="{{shop.dashboard_url}}">Order history</a>
+            </nav>
+        {{/if}}
+        <nav aria-label="Information">
+            {{#if shop.policies}}{{#foreach shop.policies}}<a href="{{url}}">{{title}}</a>{{/foreach}}{{/if}}
+            {{#if @site.secondary_navigation}}{{navigation type="secondary"}}{{/if}}
+        </nav>
+        <p class="footer-copy">&copy; {{date format="YYYY"}} {{@site.title}}</p>
+    </div>
+</footer>
